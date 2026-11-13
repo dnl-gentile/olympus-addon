@@ -145,8 +145,9 @@ whether they take recruit whispers (again if it never answered). A member who se
 contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
 question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
-versions before 1.1 just get the whisper, as before.
+officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
+recruits by whisper (1.5.9) gets it as a **JOIN**, with the invite pop-up opening by itself.
+Members on versions before 1.1 just get the whisper, as before.
 
 **A guild's public charter.** On the Realm, **Your guild's public charter** lets its current
 guild master publish a short purpose (48 bytes), client language, raid nights (24 bytes), and
@@ -254,7 +255,9 @@ channels; the same charter and Join controls work for each side.
   **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates'
   guild while the King's gates are open, else naming your guild alone: never a guild the census
   lists for its room, which two made-up characters could report), one click each; anyone else
-  can point them to an officer online. **Dismiss** sends nothing. In the Realm's Recruiting, one
+  can point them to an officer online. **Dismiss** sends nothing. While you recruit by whisper
+  (1.5.9), a request goes to **Church → Invites** instead and opens the same invite pop-up as a
+  **JOIN**; turning recruiting off brings it back here. In the Realm's Recruiting, one
   click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census**: a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
@@ -3375,7 +3378,10 @@ back as you left them. The ads reminder's interval and channels are kept the sam
 of their own, while recruiting is off too (the page shows them only while it is on).
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
-Interested players can whisper you **JOIN**, even without Olympus installed.
+Interested players can whisper you **JOIN**, even without Olympus installed. A request from
+the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
+pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
+dropped, recruiting or not, as the game drops his whisper.
 
 **Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
 keeps up to 24 candidates locally for the current session. It learns from friendly visible
@@ -3401,7 +3407,8 @@ sighting of him another member passes is not taken. His own **JOIN**, whispered 
 on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
-experimental requests and pending outreach draft.
+experimental requests and pending outreach draft. A **Join Olympus** request goes back to the
+Census instead, unless its name went to another member in a handoff.
 
 For a referral, the receiving member turns on **Accept recruitment handoffs** in the Handoffs
 section. Open **Offer to another member** on the applicant's request and choose a listed member.

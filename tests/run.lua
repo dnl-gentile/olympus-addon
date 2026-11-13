@@ -41570,7 +41570,7 @@ end)
 	assert(loadfile(ROOT .. "tests/recruit-netoff.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
 	print("tests/recruit-handoff.lua")
-	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm)
+	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm, ROOT .. "tests/fixtures/")
 	print("tests/netoff-battleground.lua")
 	assert(loadfile(ROOT .. "tests/netoff-battleground.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, LoadUI = LoadUI, LoadWatch = Harness.LoadWatch })

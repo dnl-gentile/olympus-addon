@@ -2837,6 +2837,7 @@ ns.Locale("ruRU", {
 	ISSUE_HIDE_TIP = "Скрывает Issue Reporter от Blizzard при каждом входе. /oly issuereporter show возвращает его.",
 	ISSUE_SHOWN = "Issue Reporter от Blizzard снова показывается. /oly issuereporter hide скрывает его.",
 	JOIN_ASKED = "%s (уровень %d, %s) просит вступить в <%s>: ответь в Переписи («Пригласить» или «Отклонить»).",
+	JOIN_ASKED_INVITES = "%s (уровень %d, %s) просит вступить в <%s>. Открой «Приглашения» в Церкви, чтобы увидеть запрос.",
 	JOIN_ASKED_TIP = "%s просит вступить в <%s> с экрана «Вступить в Olympus».",
 	JOIN_DECLINE = "Отклонить (один шепот)",
 	JOIN_DECLINE_TEXT = "Спасибо, что спросил! <%s> сейчас не может тебя принять: попробуй <%s>. Экран «Вступить в Olympus» (/oly) показывает, у кого есть место.",
