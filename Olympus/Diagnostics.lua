@@ -45,12 +45,16 @@ end
 -- is a name the game allows), so the shape alone is never enough: the names this client's key gives
 -- go word for word, and one of an older key only where Comm.lua writes a channel's name (its log's
 -- "channel X", "joining channel X", "left channel X"; the first channel message's name= and target=).
+-- (1.5.9) On Forever nobody joins the sealed channel any more (Comm.ChannelSpec), yet the log keeps the
+-- name this client joined before: the names the key it holds gives, on any lane, go too (Comm.SealedBase).
 local SEALED_SHAPE = "OlyH?" .. ("[0-9a-z]"):rep(8)
 local SEALED_AFTER = { "(channel )", "(name=)", "(target=)" }
 local function Scrub(text)
 	text = tostring(text or "")
 	local C = ns.Comm
 	if C then
+		local base = type(C.SealedBase) == "function" and C.SealedBase() or nil
+		if type(base) == "string" and base ~= "" then text = text:gsub(base:gsub("%W", "%%%0") .. "%d?", "(sealed channel)") end
 		local name, key = nil, nil
 		if type(C.ChannelSpec) == "function" then name, key = C.ChannelSpec() end
 		if key and type(name) == "string" then text = Without(text, name, "(sealed channel)") end
@@ -860,9 +864,11 @@ function ns.StatusText()
 			-- (1.1) The pinned line this client holds: whose, of what rank, and how long it has left.
 			if ns.Channels.PinStatus then add("pinned line: %s", ns.Channels.PinStatus()) end
 		end
-		-- What leaves this client about where the player is, and who reads the channel (0.9.1).
+		-- What leaves this client about where the player is, and who reads the channel (0.9.1). (1.5.9: by
+		-- the key, as the privacy questions say it, Comm.Audience: on Forever the channel joined is the
+		-- public one whatever the key, and a key holder's chat lines go by the relay alone, ChatHall.On.)
 		add("privacy: zone and layer %s  |  channel %s  |  chat warning accepted: %s",
-			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", c.sealed and "sealed (key holders)" or "public (anyone)",
+			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", (c.keyHeld or c.sealed) and "sealed (key holders)" or "public (anyone)",
 			ch and ch.warned and #ch.warned > 0 and table.concat(ch.warned, ",") or "none")
 		if ns.Treasury and ns.Treasury.RealKeeper and ns.Treasury.RealKeeper() then
 			local v = ns.Treasury.Consent()

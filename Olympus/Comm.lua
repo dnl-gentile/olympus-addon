@@ -86,6 +86,12 @@ local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
 local Lane
+-- (1.5.9, the author, 2026-11-12: "Tem guildas diferentes que têm canais selados diferentes [...] Todo
+-- mundo tá no mesmo canal, né?") On WoW: Forever's live realms every client sits on its faction's public
+-- first lane, whatever realm key or lane it holds (Comm.ChannelSpec, below). Off Forever nothing changes.
+local function OneChannel() return type(ns.OnForever) == "function" and ns.OnForever() == true end
+-- Whether the channel we join is the sealed one: a realm key held, off Forever.
+local function Sealed() return not OneChannel() and ns.rdb ~= nil and ns.rdb.realmKey ~= nil end
 -- Lanes refused by the game stay bad for this session. Crowd correction waits after every move,
 -- whether refusal-, officer- or crowd-driven, before it may choose another lane.
 local laneBad, laneMovedAt = {}, -math.huge
@@ -218,7 +224,8 @@ function Comm.Stats()
 	table.sort(out)
 	local r = Comm.lastReport
 	return {
-		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
+		-- (1.5.9) sealed: the channel joined is the sealed one (never on Forever); keyHeld: a realm key held.
+		channelName = joinedName, sealed = Sealed(), keyHeld = ns.rdb ~= nil and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
 		isReporter = Comm.isReporter, sent = stats.sent,
 		-- (1.5.9) Our guild's registrant (the one that registers it with its relay) beside the reporter, and
@@ -1246,6 +1253,7 @@ Comm.CROWD_LEAD = 2
 Comm.CROWD_RECENT = 15 * 60
 Comm.CROWD_SETTLE = 5 * 60
 Lane = function()
+	if OneChannel() then return 0 end -- (1.5.9: the first lane alone on Forever, whatever is kept)
 	local n = ns.rdb and tonumber(ns.rdb.channelLane) or 0
 	if n ~= n or n < 0 or n > Comm.LANE_MAX then return 0 end
 	return math.floor(n)
@@ -1253,12 +1261,28 @@ end
 Comm.Lane = Lane
 local function LaneName(base) return base .. (Lane() > 0 and tostring(Lane()) or "") end
 
+-- The sealed channel's name the realm key we hold gives, without its lane; nil without a key. (1.5.9)
+-- Whether we join it or not: on Forever nobody does now, yet older logs name it (Diagnostics.lua's Scrub).
+function Comm.SealedBase()
+	local key = ns.rdb and ns.rdb.realmKey
+	if type(key) ~= "string" or key == "" then return nil end
+	return (ns.faction == "Horde" and "OlyH" or "Oly") .. Hash36(key)
+end
+
 -- Each faction has its own channel (and sealed name), so the Horde and the Alliance never
 -- mix their census, chat or decrees, whether or not the game shares channel names between them.
+-- (1.5.9) On Forever the faction's public first lane, whatever key or lane we hold (OneChannel). There
+-- 1.5.5 and later send nothing on the channel (the relay carries it all), while the clients still on
+-- 1.5.4 or older broadcast their census on the public first lane: two /oly bug reports of 2026-11-12
+-- showed it arriving there (some 500 pieces at a client on the public channel, none at a sealed one on
+-- lane 7), not yet confirmed in game. Who holds a key keeps it (Keys.lua: the King's rotation, the
+-- hand-outs), so nothing changes off Forever, and a key that arrives there leaves and joins nothing.
+-- Who holds one types no chat line as text in the public channel (ChatHall.On): its lines go the
+-- hidden way alone, as every client's already do.
 function Comm.ChannelSpec()
 	local horde = ns.faction == "Horde"
-	local key = ns.rdb and ns.rdb.realmKey
-	if key and key ~= "" then return LaneName((horde and "OlyH" or "Oly") .. Hash36(key)), key end
+	local key = not OneChannel() and Comm.SealedBase() and ns.rdb.realmKey
+	if key then return LaneName(Comm.SealedBase()), key end
 	return LaneName(horde and ns.CHANNEL_HORDE or ns.CHANNEL), nil
 end
 -- To lane n (TakeLane: a higher one a guild officer's hello names) or the next one (NextLane): the
@@ -1267,7 +1291,7 @@ end
 -- can split a guild whose remaining clients did not move. A crowd correction is the exception: it
 -- rejoins a decisive split, so it may move down or up and may run while the relay carries traffic.
 local function MoveLane(n, why, crowd)
-	if not ns.rdb then return false end
+	if not ns.rdb or OneChannel() then return false end -- (1.5.9: one channel on Forever, no lane to move to)
 	n = tonumber(n)
 	if not n or n ~= n or n ~= math.floor(n) or n < 0 or n > Comm.LANE_MAX or n == Lane() then return false end
 	if n < Lane() and not crowd then return false end
@@ -1297,6 +1321,7 @@ end
 -- Recent same-guild hellos carrying R are the only lane reports whose protocol includes usable
 -- lane data. Ties choose the lower lane deterministically, though a tie can never pass CrowdClear.
 function Comm.CrowdLane(now)
+	if OneChannel() then return nil, 0, 0, {}, 0 end -- (1.5.9: no lane to follow on Forever)
 	now = now or ns.Now()
 	local count, total, shared = {}, 0, Comm.ElectsAcrossRealms(now)
 	local _, key = Comm.ChannelSpec()
@@ -1916,7 +1941,8 @@ function Comm.Hello(force)
 	-- our channel: without the key we can't hear a reporter on the sealed one (MaybeBroadcast).
 	-- And "z" when we share our zone (0.9.1): our guild's reporter may name it then, never
 	-- otherwise. Older versions read the fields before it and ignore the rest.
-	local sealed = ns.rdb and ns.rdb.realmKey and "s" or "p"
+	-- (1.5.9) "p" on Forever, key or none: every client sits on the public first lane there.
+	local sealed = Sealed() and "s" or "p"
 	-- The fields after it: "z" (our zone shared), "b" (an arena bank on duty), and (1.4.1) "L<n>",
 	-- our channel lane when it is not the first. Empty ones at the end are left out, as before.
 	-- (1.5.5) "N" after "R": this client takes the relay's tree (RelayTree.lua; a 1.5.5 client updated
@@ -2078,7 +2104,9 @@ function Comm.MaybeBroadcast(report)
 		-- runner-up report) and on the same channel as the reporter (sealed or public).
 		local rest = {}
 		for name, t in pairs(pool) do
-			if name ~= best and peerRealm[name] ~= "old" and (peerSealed[name] == nil or peerSealed[name] == peerSealed[best]) then
+			-- (1.5.9) Whatever channel a hello names on Forever: the relay carries every report there, and a
+			-- 1.5.8 guildmate holding the key still says "s" where a 1.5.9 one says "p".
+			if name ~= best and peerRealm[name] ~= "old" and (OneChannel() or peerSealed[name] == nil or peerSealed[name] == peerSealed[best]) then
 				rest[name] = t
 			end
 		end

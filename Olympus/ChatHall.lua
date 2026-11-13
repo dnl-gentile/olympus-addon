@@ -22,6 +22,10 @@ function Hall.Stats() return { sent = stats.sent, echoed = stats.echoed, heard =
 function Hall.On() -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return false end
 	if ns.splitNames ~= true or not ns.Comm or type(ns.Comm.ChannelIndex) ~= "function" then return false end
+	-- (1.5.9) Not for a client holding a realm key on Forever: every client sits on the public first lane
+	-- there (Comm.ChannelSpec), and a sealed guild's lines never show as text in it. They go the hidden
+	-- way alone, by the relay, as every client's lines already do.
+	if type(ns.OnForever) == "function" and ns.OnForever() and ns.rdb and ns.rdb.realmKey then return false end
 	if (ns.Comm.ChannelIndex() or 0) <= 0 then return false end
 	if type(ns.GamepadUI) == "function" and ns.GamepadUI() then return false end
 	return type(SendChatMessage) == "function" -- gp:chat-box

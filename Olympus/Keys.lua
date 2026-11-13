@@ -886,8 +886,10 @@ function Keys.StatusLine()
 		or rot.picking and "a new key waiting for the guilds to be picked" or "a new key being handed out") or "no rotation here"
 	local retired = 0
 	for _ in pairs(type(ns.rdb and ns.rdb.keyRetired) == "table" and ns.rdb.keyRetired or {}) do retired = retired + 1 end
+	-- (1.5.9) On Forever a key held seals no channel: every client sits on the public first lane there.
+	local held = ns.rdb and ns.rdb.realmKey and (ns.OnForever and ns.OnForever() and "held (the public channel on Forever)" or "sealed")
 	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, keys replaced %d (their K1 ignored %d), whispered %d, acks %d, relayed %d"):format(
-		ns.rdb and ns.rdb.realmKey and "sealed" or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
+		held or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
 		state, stats.taken, stats.refused, retired, stats.legacy, stats.whispered, stats.acks, stats.relayed)
 end
 function Keys.Stats() return stats end
