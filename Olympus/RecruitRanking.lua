@@ -43,7 +43,8 @@ local L = ns.L
 --   saw it tells the others. (A move out of a guild no keeper's addon saw is not caught: no other client's
 --   word on where a player was can be checked.)
 -- - Still in the guild STAY_DAYS after his join: the witnesses that reported the pair say so then (NE y),
---   and a keeper of that guild sees it on its own roster.
+--   and a keeper of that guild sees it on its own roster (review of the 1.5.9 release: that keeper goes by
+--   its roster alone, and another takes a stay word only from the signed or a witness of that record).
 --
 -- Points, in game only (the Church's numbers): the inviter POINTS_JOIN for each confirmed recruit, dated
 -- at his join, and POINTS_STAY more when the recruit is still in STAY_DAYS later, dated then; the member
@@ -448,7 +449,8 @@ end
 -- budget spent, a record or a roster not here yet), a later (l): before it, a reporter that had never heard
 -- this keeper take these sent it once and never again. None to a keeper.
 local owed, owing = {}, false
-local FINAL = { shape = true, kind = true, times = true, self = true, recruit = true, guild = true, alt = true }
+local FINAL = { shape = true, kind = true, times = true, self = true, recruit = true, guild = true, alt = true,
+	["own roster"] = true, unlisted = true }
 local LATER = { budget = true, roster = true, none = true, early = true }
 local function SendReceipts()
 	owing = false
@@ -621,6 +623,13 @@ local function MergeRec(r, o)
 end
 
 local function TooOld(r, now) return now - (r.tj or r.tc or 0) > RR.RECORDS_DAYS * DAY end
+-- A witness this record names (its strong or weak ones, by key).
+local function OnRecord(r, key)
+	for _, f in ipairs({ "ws", "wk" }) do
+		for _, w in ipairs(r[f] or {}) do if w == key then return true end end
+	end
+	return false
+end
 
 -- What this keeper's own client knows of the recruit: an alt of the inviter's (or of a character in Olympus
 -- lately), or a player its roster memory saw in another Olympus guild in NEW_DAYS before his join, or in
@@ -998,6 +1007,14 @@ function RR.TakeEvidence(sender, text)
 	if not r or not r.tj then return Drop("none") end
 	if math.abs(r.tj - tj * 3600) > 2 * 3600 then return Drop("times") end
 	if now < r.tj + RR.STAY_DAYS * DAY - 3600 then return Drop("early") end
+	-- (Review of the 1.5.9 release: a stay word from any witness this keeper could vouch for was taken, the
+	-- first "still in" won for good, and nothing undid it: a keeper's plain guildmate, or an officer as the
+	-- census names him, could give 5 points for a recruit of his guild who had left.) A keeper of the
+	-- record's own guild goes by its own roster alone (KeeperChecks), and tells the others; any other takes
+	-- a stay word only from a signed sender or from a witness of that record.
+	local R = ns.Roster
+	if R and R.Fresh and R.Fresh() and Same(OwnGuild(), r.g) then return Drop("own roster") end
+	if not Signed(sender) and not OnRecord(r, sk) then return Drop("unlisted") end
 	local ok, how = Count.VerifiedWitness(sender, r.g or guild, invitee, floor(r.tj / 3600))
 	if not ok then return Drop(how or "unverified") end
 	if how == "census" and not Budget(sender, now, false) then return Drop("budget") end

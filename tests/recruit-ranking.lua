@@ -1163,3 +1163,75 @@ test("1.5.9 recruiting ranking: a report a keeper on 1.5.8 dropped unread goes t
 	eq(SentTo(w, c.wes, A2, "w"), 1, "Bera's refusal stays one")
 	eq(Outbox(c.wes), 0, "Aldric's receipt")
 end)
+
+-- Review of the 1.5.9 release (B5): a stay word (NE y) was taken from any witness a keeper could vouch for,
+-- the first "still in" won for good, and the keeper of that guild could not undo it: a plain guildmate of a
+-- keeper, or a census-named officer, could add 5 points to any recruit of his guild who had left. A keeper of
+-- the record's own guild now goes by its own roster alone, and another keeper takes a stay word only from a
+-- signed sender or a witness on that record.
+local function StayWord(inviter, recruit, guild, tjHour, on)
+	return ("NE~1~y~%s~%s~%s~%s~%s"):format(inviter, recruit, guild, B36(tjHour), on and "1" or "0")
+end
+test("1.5.9 recruiting ranking: a keeper's own roster decides the stay of its guild's recruits: a guildmate's 'still in' for one who left changes nothing", function()
+	local w, c = Cast({ mal = { name = "Mal Forge" } })
+	Recruit(w, World.GUILD, "Ivo Plain", "Leaves Soon", 0)
+	local tj = Hour(w)
+	w:ReadLog(c.ivo); w:ReadLog(c.a1); w:ReadLog(c.wes)
+	w:Run(60)
+	eq(State(w, c.a1, "Leaves Soon", "Ivo Plain"), "credited")
+	w:Run(3 * DAY)
+	w:Tick()
+	Leave(w, World.GUILD, "Leaves Soon")
+	w:Tick()
+	w:Run(4 * DAY + 3600)
+	w:Presence()
+	w:Tick()
+	w:Run(10)
+	for _, k in ipairs({ c.a1, c.a2 }) do eq(Rec(w, k, "Leaves Soon", "Ivo Plain").y, 0, k.name .. ": gone by his seventh day") end
+	-- Mal, a guildmate who never reported the pair, and Wes, who did, each whisper "still in".
+	for _, who in ipairs({ "Mal Forge-Realm", "Wes Brook-Realm" }) do
+		local ok, why = w:As(c.a1, c.a1.RR.TakeEvidence, who, StayWord("Ivo Plain", "Leaves Soon", World.GUILD, tj, true))
+		eq(ok, false, who .. ": Aldric's own roster decides his guild's stays")
+		eq(why, "own roster", who)
+		eq(w:As(c.a2, c.a2.RR.TakeEvidence, who, StayWord("Ivo Plain", "Leaves Soon", World.GUILD, tj, true)), false, who)
+	end
+	w:Run(10)
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		eq(Rec(w, k, "Leaves Soon", "Ivo Plain").y, 0, k.name)
+		eq(Score(w, k, "Ivo Plain", "a"), 10, k.name .. ": no 5 more for a recruit who left")
+	end
+end)
+
+test("1.5.9 recruiting ranking: in a guild no keeper is in, a stay word comes only from a witness on that record or a signed sender", function()
+	local w = World.New({ apostles = { A1 } })
+	local c = { a1 = w:Client(A1), ola = w:Client("Ola Officer", { guild = World.GUILD2, rank = 1 }),
+		una = w:Client("Una Officer", { guild = World.GUILD2, rank = 1 }), gus = w:Client("Gus Vale", { guild = World.GUILD2 }) }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- Both are Olympus Vale's officers as the census reads it.
+	c.a1.c.Channels.VerifiedLevel = function(n, g)
+		if (Key(n) == Key("Ola Officer") or Key(n) == Key("Una Officer")) and g == World.GUILD2 then return 2, true, 1 end
+		return 1, false
+	end
+	local hour = Hour(w)
+	w:LogEvent(World.GUILD2, "invite", "Gus Vale", "Vale Kid", 0)
+	w:LogEvent(World.GUILD2, "join", "Vale Kid", nil, 0)
+	Join(w, World.GUILD2, "Vale Kid")
+	w:ReadLog(c.gus)
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Ola Officer-Realm", W("Gus Vale", "Vale Kid", World.GUILD2, hour, hour)), true)
+	eq(State(w, c.a1, "Vale Kid", "Gus Vale"), "credited", "Ola's word beside Gus's own")
+	w:Run(3 * DAY)
+	Leave(w, World.GUILD2, "Vale Kid")
+	w:Run(4 * DAY + 3600)
+	-- Una, who never reported the pair, says he is still in: refused, for good.
+	local ok, why = w:As(c.a1, c.a1.RR.TakeEvidence, "Una Officer-Realm", StayWord("Gus Vale", "Vale Kid", World.GUILD2, hour, true))
+	eq(ok, false, tostring(why))
+	eq(Rec(w, c.a1, "Vale Kid", "Gus Vale").y, nil)
+	eq(Score(w, c.a1, "Gus Vale", "a"), 10)
+	-- Ola, the witness on the record, says he left: taken.
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Ola Officer-Realm", StayWord("Gus Vale", "Vale Kid", World.GUILD2, hour, false)), true)
+	eq(Rec(w, c.a1, "Vale Kid", "Gus Vale").y, 0)
+	-- A High Councillor's word is taken from anyone signed.
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, World.COUNCILLOR, StayWord("Gus Vale", "Vale Kid", World.GUILD2, hour, false)), true)
+end)
