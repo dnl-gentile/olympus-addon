@@ -352,7 +352,10 @@ local function NormalizeOptions(options)
 	}
 end
 
--- Forever's native addon channel cannot carry these words, even if the relay is unavailable.
+-- Where these words go by the relay, never on the native addon channel, even if no relay is available:
+-- on Forever, whose live realms delivered none of an addon's channel messages at launch (two /oly bug
+-- reports of 2026-11-12 showed older clients' census arriving on the public channel since; not yet
+-- confirmed in game), and wherever the relay is on.
 local function Forever()
 	if ns.OnForever() then return true end
 	local R = ns.Relay
@@ -377,7 +380,8 @@ local function SendThroughRelay(parts, logged, done, key, urgent, options)
 end
 local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	SyncGuild()
-	-- 1.4.3: on Forever the channel delivers nothing; what was for it goes to our relay by whisper
+	-- 1.4.3: on Forever the channel delivered nothing at launch (1.5.9: older clients' census seen arriving
+	-- there since, not yet confirmed in game); what was for it goes to our relay by whisper
 	-- (Relay.Out, which comes back here as WHISPER jobs). (1.5.5) Always, relay or none: Relay.Out
 	-- holds it for one (HOLD_FOR), our guild hearing a single word at once, and tells its callback once.
 	-- 1.5.4 made a channel job when no relay could be picked (lost), and when Relay.Out refused a word,
@@ -534,8 +538,8 @@ end
 --   1.4.0, PrivatePresence PP (Private presence on or off, to the player's own guild over GUILD only).
 --   Verify GV (guild verification: a verifier's approval or revocation of a guild and its master,
 --   logged; any member's ask; a verifier's client's answer with the words and the guilds' starts).
---   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivers
---   nothing on it: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
+--   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivered
+--   nothing on it at launch: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
 --   the relay's answer to a ping, and 1.4.6 a relay's copy to the other relays); 1.5.4 RW (guild
 --   verification between relays alone: a verifier's decision, an ask, an answer to a relay's ask).
 --   1.5.4, Relay RI RU (Relay.lua: a client's presentation of its version to a relay, and the relay
@@ -2107,8 +2111,8 @@ function Comm.MaybeBroadcast(report)
 			lastKeyAsk = now
 			Comm.RequestKey()
 		end
-	-- (1.4.5) Where the relay carries the channel (Forever), the channel itself delivers nothing, so
-	-- a reporter is never "heard" there: every client benched its guild's reporter in turn and
+	-- (1.4.5) Where the relay carries the channel (Forever), a 1.5.5 or later reporter says nothing on the
+	-- channel itself (and Forever delivered nothing there at launch), so a reporter is never "heard" there: every client benched its guild's reporter in turn and
 	-- elected itself (the dev's log, 2026-11-05: a new reporter every minute). No guard there.
 	elseif best ~= ns.me and channelIndex > 0 and not RelayOn() then
 		if not watch or watch.name ~= best then watch = { name = best, since = now } end

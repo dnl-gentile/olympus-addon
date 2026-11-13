@@ -143,8 +143,9 @@ L.LETTER_1_4_1 = (L.LETTER_1_4_0:gsub("What's new in version 1%.4%.0, for the ma
 -- 1.4.2 (launch night too: the author may take the army's key back): the 1.4.1 letter, its version.
 L.LETTER_1_4_2_TITLE, L.LETTER_1_4_2_HEAD, L.LETTER_1_4_2_SIGNED, L.LETTER_1_4_2_LINK = "Recovering the army channel", "Recovering the army channel", L.LETTER_1_4_1_SIGNED, L.LETTER_1_4_1_LINK
 L.LETTER_1_4_2 = (L.LETTER_1_4_1:gsub("version 1%.4%.1 %(and 1%.4%.0%)", "version 1.4.2 (and 1.4.0)", 1))
--- 1.4.3 (launch night: Forever delivers nothing an addon says on a chat channel; everything between
--- guilds travels by addon whispers now, Relay.lua): the launch letter, its version, the fix line's words.
+-- 1.4.3 (launch night: Forever delivered nothing an addon said on a chat channel; everything between
+-- guilds travels by addon whispers now, Relay.lua; 1.5.9: older clients' census seen arriving on the
+-- public channel since, not yet confirmed in game): the launch letter, its version, the fix line's words.
 L.LETTER_1_4_3_TITLE, L.LETTER_1_4_3_HEAD, L.LETTER_1_4_3_SIGNED, L.LETTER_1_4_3_LINK = "The relay between guilds", "The relay between guilds", L.LETTER_1_4_1_SIGNED, L.LETTER_1_4_1_LINK
 L.LETTER_1_4_3 = (L.LETTER_1_4_1:gsub("version 1%.4%.1 %(and 1%.4%.0%)", "version 1.4.3 (and 1.4.0)", 1)
 	:gsub("%- {team} Launch night fix:[^\n]*", "- {team} Launch night: we hit technical problems, since the live Forever client differs from the beta's, and part of the network had to be rebuilt. Between guilds, Olympus now travels by addon whispers relayed through the High Council: silent, invisible to you. The census of every guild, the rankings and the Olympus chat come back as people update. Hopefully all good now. Update, then close and reopen the game.", 1))

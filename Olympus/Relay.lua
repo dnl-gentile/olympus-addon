@@ -264,8 +264,9 @@ end
 -- (1.5.4) The Horde apart: a Horde client names only relays that can be Horde characters, those
 -- the author's signed list names for its side (its King, its author characters, a Treasurer signed
 -- for it). An Alliance name there was a relay nobody could reach: the whisper never arrives across
--- factions, so the name sat DEAD_FOR and the word fell back to the channel, which Forever never
--- delivers. The council's list names no side (every councillor is Alliance), the code's Treasurer
+-- factions, so the name sat DEAD_FOR and the word fell back to the channel, which Forever did not
+-- deliver (at launch; 1.5.9: older clients' census seen arriving on the public channel since, not yet
+-- confirmed in game). The council's list names no side (every councillor is Alliance), the code's Treasurer
 -- and the launch pins are Alliance characters: an Alliance client's names are as they were.
 -- (1.5.5) signedOnly: the Treasurer's pins only where the signed list names them (Relay.IsSignedRelay).
 function Relay.Names(withSelf, signedOnly)
@@ -332,8 +333,9 @@ end
 --   (4) the signed relays not left out, none answered yet: not sure (Out holds the word and pings);
 --   (5) the provisional relays this client elected (RelayFallback.Elected), sure: each said yes or
 --       answered our ping within VERIFIED_FOR;
--- else nil, and Out holds the word for HOLD_FOR: Forever's channel delivers nothing (1.5.4 sent it
--- there). Within a step our guild's name and the window pick, so the load spreads.
+-- else nil, and Out holds the word for HOLD_FOR: Forever's channel delivered nothing at launch (1.5.4
+-- sent it there; 1.5.9: older clients' census seen arriving on the public channel since, not yet
+-- confirmed in game). Within a step our guild's name and the window pick, so the load spreads.
 Relay.PREFER_VERSION = "1.5.6"
 local function Fallback()
 	local F = ns.RelayFallback
@@ -487,7 +489,7 @@ end
 -- perdido"): the signed relays are swept once a PING_WAIT at most and the provisional relays elected
 -- meanwhile (RelayFallback.lua), and what waited goes to the first relay picked sure, signed or
 -- provisional. 1.5.4 sent it on after PING_WAIT to a relay that had not answered, or with none to
--- pick on Forever's channel, which delivers nothing: both lost it. Past HOLD_FOR its callback hears
+-- pick on Forever's channel, which delivered nothing at launch: both lost it. Past HOLD_FOR its callback hears
 -- "norelay" (counted, /oly bug), once.
 Relay.HOLD_FOR = 600
 local lastLook = -math.huge

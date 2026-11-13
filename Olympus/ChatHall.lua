@@ -35,9 +35,10 @@ end
 
 -- A tier's chat line (M1, the hidden message's text) as the player's own text in the channel,
 -- BESIDE the hidden way (Comm.SendChat sends both): clients on another lane of the channel (a
--- client moves lanes when the game refuses one: the dev's cousin sat on OlympusNet2, the dev on
--- OlympusNet1) hear the hidden copy by the relay, clients in the same channel hear the text at
--- once, and each takes the line once (Channels' sender#id#text within DEDUPE_WINDOW). True when
+-- client moved lanes when the game refused one: the dev's cousin sat on OlympusNet2, the dev on
+-- OlympusNet1; 1.5.9: on Forever every client sits on the public first lane now, Comm.ChannelSpec, and
+-- a key holder's line takes the hidden way alone, Hall.On) hear the hidden copy by the relay, clients
+-- in the same channel hear the text at once, and each takes the line once (Channels' sender#id#text within DEDUPE_WINDOW). True when
 -- handed to the game. The role rooms' and the arena's kinds keep the hidden way alone (their
 -- own dedupe is theirs).
 function Hall.Send(msg) -- gp:chat-box
