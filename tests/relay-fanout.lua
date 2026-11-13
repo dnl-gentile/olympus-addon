@@ -299,6 +299,34 @@ test("relay fan-out (1.5.4): a drip batch waiting for a reporter whose registrat
 	end)
 end)
 
+-- 1.5.9: what /oly bug says of a relay's drip (Diagnostics.lua's "relay here" line): the transfers
+-- waiting, the census ones among them, and the longest any of them, and any census one, has waited,
+-- never a name.
+test("relay fan-out (1.5.9): Relay.DripStats counts the transfers waiting in the drip, the census ones apart, and the longest any of them, and any census one, has waited; no name", function()
+	Relayed(function(R, sent, Run)
+		local C = R.Comm
+		local D = R.Relay.DripStats
+		eq(D().waiting, 0); eq(D().oldest, nil)
+		R.Relay.HandleIn("WHISPER", "Rep Alpha-CAMWOWUS2Realm7PvE", "RL~P~RR~Guild Alpha")
+		R.Relay.HandleIn("WHISPER", "Rep Beta-CAMWOWUS2Realm7PvE", "RL~P~RR~Guild Beta")
+		-- Urgent whispers fill the queue but for one place: what the relay hands its reporters waits in the drip.
+		for i = 1, C.MAX_QUEUE - 1 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~busy " .. i, nil, true, false) end
+		for _, p in ipairs(R.Codec.Chunk("T1~H~" .. ("a"):rep(400), "61")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+		R.clock = R.clock + 30
+		local snapshot = "CG~2~S~1~ForeverPvE~Alliance~" .. ("Guild Row,640,40,300,1;"):rep(70)
+		for _, p in ipairs(R.Codec.Chunk(snapshot, "62")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+		R.clock = R.clock + 10
+		local d = D()
+		eq(d.waiting, 4, "the word and the snapshot to each of the two reporters")
+		eq(d.census, 2, "the snapshots")
+		eq(d.oldest, 40, "the word waited since it came, the longest")
+		eq(d.oldestCensus, 10, "the snapshots since they came")
+		for _, v in pairs(d) do eq(type(v), "number", "counts and ages alone") end
+		Run(500)
+		eq(D().waiting, 0, "everything went out")
+	end)
+end)
+
 -- The review of the 1.5.4 candidate: the relay's own repeats in pieces (the King's Hands and the
 -- Treasury's words every 300 s, a ranking's repeat) were keyed by their message id, so each repeat
 -- waited in the drip as one more batch behind the rest: on a busy relay the drip grew without end

@@ -476,3 +476,81 @@ test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and 
 	ns.db.groupCensus, ns.db.groupHeard, ns.rdb.censusGlobal, ns.group, ns.RelayTree = saved.census, saved.heard, saved.global, saved.group, saved.tree
 	if not ok then error(err, 0) end
 end)
+
+-- 1.5.9 (two /oly bug reports of 2026-11-12: a member's census came by no relay, and the report said
+-- "registrant false" without naming who registers the guild, nor the version it runs). /oly status names
+-- the guild's registrant beside its reporter now, each with the version its hello named. Real Comm: a
+-- guildmate on 1.5.4 (no N in its hello) comes first by name and reports, one on 1.5.8 (N) registers.
+-- Fails before (no registrant in the line, no version).
+test("1.5.9 /oly bug: the guild's registrant beside its reporter, each with the version its hello named: a 1.5.4 guildmate without the tree's N reports, a 1.5.8 one with it registers", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, info = C_ChatInfo, stats = ns.Comm.Stats }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		local cns, Deliver = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")()
+		cns.RelayTree = { Announce = function() return false end } -- (this client takes the tree too: N)
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		local old, new = "Aaa Oldhello-Realm", "Bbb Newhello-Realm"
+		assert(old < cns.me and new < cns.me, "both come before this client by name")
+		Deliver("GUILD", old, "H1~1.5.4~Realm~p~~~~R")
+		Deliver("GUILD", new, "H1~1.5.8~Realm~p~~~~R~N")
+		C.MaybeBroadcast({ guild = "Olympus II", total = 1000, online = 300, zones = {} })
+		local st = C.Stats()
+		eq(st.isReporter, false); eq(st.isRegistrant, false)
+		eq(st.reporter, ns.DisplayName(old)); eq(st.reporterVersion, "1.5.4")
+		eq(st.registrant, ns.DisplayName(new)); eq(st.registrantVersion, "1.5.8")
+		ns.Comm.Stats = C.Stats
+		local report = ns.BuildBugReport()
+		local line = assert(report:match("\n(channel [^\n]+)"), report)
+		assert(line:find(("reporter=%s v1.5.4 (me: false)"):format(ns.DisplayName(old)), 1, true), line)
+		assert(line:find(("registrant=%s v1.5.8 (me: false)"):format(ns.DisplayName(new)), 1, true), line)
+		-- This client registers when it comes first among those with N: its own version then.
+		ns.Comm.Stats = saved.stats
+		local cns2, Deliver2 = extra.FreshComm()
+		cns2.RelayTree = { Announce = function() return false end }
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		Deliver2("GUILD", old, "H1~1.5.4~Realm~p~~~~R")
+		C2.MaybeBroadcast({ guild = "Olympus II", total = 1000, online = 300, zones = {} })
+		eq(C2.Stats().isRegistrant, true); eq(C2.Stats().registrantVersion, ns.VERSION)
+		eq(C2.Stats().reporterVersion, "1.5.4")
+	end)
+	GetChannelName, ns.IsMember, C_ChatInfo, ns.Comm.Stats = saved.channel, saved.member, saved.info, saved.stats
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9: on a relay's own client, the debug section says what decides whether its registrants get the
+-- census, naming nobody: quiet presence (no snapshot of its own then), the drip's transfers waiting and
+-- the longest any of them, and any census one, waited, and how long ago its own last tree round was.
+-- Not on any other client. Fails before (no such line).
+test("1.5.9 /oly bug debug: on a relay, quiet presence, the drip's waiting transfers and the longest wait, and its own last tree round's age, without a name; on any other client no such line", function()
+	local saved = { relay = ns.Relay, tree = ns.RelayTree, quiet = ns.QuietPresence }
+	local ok, err = pcall(function()
+		local R = saved.relay
+		local relay = true
+		ns.Relay = setmetatable({ IsRelay = function() return relay end, DripStats = function()
+			return { waiting = 3, census = 2, oldest = 95, oldestCensus = 40, name = "Waiting Personname" }
+		end }, { __index = R })
+		ns.QuietPresence = function() return true end
+		ns.RelayTree = { Stats = function()
+			return { round = { age = 300, tid = "abcd1234" }, lines = { "tree: rn 0, complete 0, rounds 1 (deferred 0), capable 31, open 0, registrant false" },
+				seed = "Seeding Personname" }
+		end }
+		local text = table.concat(ns.DebugLines(), "\n")
+		assert(text:find("\nrelay here: quiet presence on  |  drip 3 waiting (2 census), the oldest for 95s, the oldest census one for 40s  |  own tree round 5m ago\n", 1, true), text)
+		assert(not text:find("Personname", 1, true), "no name: " .. text)
+		ns.QuietPresence = function() return false end
+		ns.RelayTree = { Stats = function() return { lines = {} } end }
+		ns.Relay.DripStats = function() return { waiting = 0, census = 0 } end
+		text = table.concat(ns.DebugLines(), "\n")
+		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -  |  own tree round none\n", 1, true), text)
+		relay = false
+		text = table.concat(ns.DebugLines(), "\n")
+		assert(not text:find("relay here:", 1, true), "not a relay: no line: " .. text)
+	end)
+	ns.Relay, ns.RelayTree, ns.QuietPresence = saved.relay, saved.tree, saved.quiet
+	if not ok then error(err, 0) end
+end)

@@ -556,14 +556,18 @@ end)
 ---------------------------------------------------------------------------
 -- (1.5.8: 3700, for the census and tree lines added last, so the signed line before them is never cut.)
 ns.DEBUG_LINE, ns.DEBUG_MAX = 320, 3700
-local function Age(t)
-	t = tonumber(t)
-	if not t then return "?" end
-	local d = math.max(0, (ns.Now and ns.Now() or time()) - t)
+-- A length of time, short: 90s, 5m, 3h, 2d.
+local function Span(d)
+	d = math.max(0, tonumber(d) or 0)
 	if d < 120 then return ("%ds"):format(d) end
 	if d < 7200 then return ("%dm"):format(math.floor(d / 60)) end
 	if d < 172800 then return ("%dh"):format(math.floor(d / 3600)) end
 	return ("%dd"):format(math.floor(d / 86400))
+end
+local function Age(t)
+	t = tonumber(t)
+	if not t then return "?" end
+	return Span((ns.Now and ns.Now() or time()) - t)
 end
 local function Cap(line) return #line > ns.DEBUG_LINE and (line:sub(1, ns.DEBUG_LINE - 3) .. "...") or line end
 
@@ -603,6 +607,27 @@ local function RelayReporterLine()
 	return ("relay: %s  |  reporter: this client %s, guild's known %s, guild peers %s, reports heard %s, bad %s, incomplete %s"):format(
 		relay, c.isReporter and "yes" or "no", c.reporter and "yes" or "no", tostring(c.peers or 0), tostring(c.reports or 0),
 		tostring(c.bad or 0), tostring(c.partial or 0))
+end
+
+-- (1.5.9, two /oly bug reports of 2026-11-12: no census piece came by the relay, and nothing showed
+-- why.) On a relay, what decides whether its registrants get the census, no name: quiet presence (no
+-- snapshot of its own then: Data.SendGlobalCensus), the drip's transfers waiting and the longest any of
+-- them, and any census one, has waited (Relay.DripStats), and its own last tree round's age.
+local function RelayHereLine()
+	local R = ns.Relay
+	if type(R) ~= "table" or type(R.IsRelay) ~= "function" or Try(R.IsRelay, ns.me) ~= true then return nil end
+	local quiet = type(ns.QuietPresence) == "function" and Try(ns.QuietPresence) == true
+	local d = type(R.DripStats) == "function" and Try(R.DripStats) or nil
+	local drip = "?"
+	if type(d) == "table" then
+		drip = ("%d waiting (%d census), the oldest for %s, the oldest census one for %s"):format(tonumber(d.waiting) or 0,
+			tonumber(d.census) or 0, d.oldest and Span(d.oldest) or "-", d.oldestCensus and Span(d.oldestCensus) or "-")
+	end
+	local T = ns.RelayTree
+	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil
+	local round = type(tree) == "table" and type(tree.round) == "table" and tonumber(tree.round.age) or nil
+	return ("relay here: quiet presence %s  |  drip %s  |  own tree round %s"):format(quiet and "on" or "off", drip,
+		round and (Span(round) .. " ago") or "none")
 end
 
 -- The fallback's election and queue counts only. Its detailed stats contain peer names.
@@ -727,6 +752,8 @@ function ns.DebugLines()
 	add(Try(ns.InstallFilesLine) or "install files: ?")
 	add(Try(PiecesLine) or "pieces: ?")
 	add(Try(RelayReporterLine) or "relay: ?")
+	local here = Try(RelayHereLine) -- (1.5.9: a relay's own client alone)
+	if here then add(here) end
 	add(Try(RelayFallbackLine) or "fallback: unavailable")
 	for _, line in ipairs(Try(CensusLines) or { "census: ?" }) do add(line) end
 	add(Try(SignedLine) or "signed: ?")
@@ -766,9 +793,14 @@ function ns.StatusText()
 	end
 	local c = ns.Comm and ns.Comm.Stats()
 	if c then
-		-- (1.2.1: the sealed channel's name never: see Scrub.)
-		add("channel %s = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s (me: %s)", c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"),
-			tostring(c.channel), tostring(c.sealed), c.peers, tostring(c.reporter), tostring(c.isReporter))
+		-- (1.2.1: the sealed channel's name never: see Scrub.) (1.5.9) The guild's registrant beside its
+		-- reporter (the one that registers it with its relay, so the census reaches it), each with the
+		-- version its hello named.
+		local function Version(v) return v and (" v" .. tostring(v)) or "" end
+		add("channel %s = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s%s (me: %s)  |  registrant=%s%s (me: %s)",
+			c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"), tostring(c.channel), tostring(c.sealed), c.peers,
+			tostring(c.reporter), Version(c.reporterVersion), tostring(c.isReporter), tostring(c.registrant), Version(c.registrantVersion),
+			tostring(c.isRegistrant))
 		add("sent=%d recv=%d reports=%d sendFails=%d badMsgs=%d queue=%d lastFail=%s lane=%d laneRefused=%d laneMoves=%d", c.sent, c.recv, c.reports, c.fails, c.bad, c.queue, tostring(c.lastFail), tonumber(c.lane) or 0, tonumber(c.laneRefused) or 0, tonumber(c.laneMoves) or 0)
 		local types = {}
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end

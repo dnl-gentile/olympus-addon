@@ -1003,7 +1003,7 @@ end
 -- 60 seconds a receiver waits for missing pieces. Nothing new is trusted and nothing on the wire
 -- changes: a reporter receives the same whispers as before, only all of them.
 local sets = {}   -- origin#id -> { n = pieces expected, got = pieces held, pieces = { [i] = body }, t = first piece, last = last new piece }
-local drip = {}   -- whole transfers, including the one in flight: { name, word, batches, index, started }
+local drip = {}   -- whole transfers, including the one in flight: { name, word, batches, index, started, at (1.5.9: queued) }
 local dripBusy = false -- a queue callback or a retry timer owns the next turn
 local dripping = false
 local refillCensusAcross -- assigned by the mesh; run when an across slot is freed
@@ -1355,7 +1355,7 @@ local function DripBatches(name, word, batches, waitingOnly, across, census)
 			table.remove(drip, evict)
 		end
 	end
-	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil }
+	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil, at = Now() }
 	Drip()
 end
 
@@ -2170,7 +2170,7 @@ refillCensusAcross = function()
 			local key = peer.key
 			mesh.cgTurn[key], p.tried[key] = now, true
 			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true, census = true,
-				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end }
+				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end, at = now }
 			-- The King's one due copy waits behind an active transfer, not behind the
 			-- whole local reporter queue. Every waiting job keeps its place behind it.
 			if peer.king then table.insert(drip, drip[1] and drip[1].started and 2 or 1, job)
@@ -2894,7 +2894,7 @@ function Relay.DripTo(name, word, batches, opts)
 	local at = 1
 	while drip[at] and (drip[at].started or drip[at].front) do at = at + 1 end
 	table.insert(drip, at, { name = name, word = word, batches = batches, index = 1, across = opts.across, front = true,
-		census = opts.census == true or nil })
+		census = opts.census == true or nil, at = Now() })
 	Drip()
 	return true
 end
@@ -2904,6 +2904,21 @@ function Relay.Dripping(name, word)
 		if d.name == name and d.word == word then return true end
 	end
 	return false
+end
+-- (1.5.9) The drip for /oly bug, without a name: the transfers waiting (not begun), how many of them are
+-- census transfers (CensusTransfer), and the longest any of them, and any census one, has waited since
+-- it was queued (a census transfer goes ahead of one waiting for free room: the front is not the oldest).
+function Relay.DripStats()
+	local now, out = Now(), { waiting = 0, census = 0 }
+	for _, d in ipairs(drip) do
+		if not d.started then
+			local waited = math.max(0, now - (d.at or now))
+			out.waiting = out.waiting + 1
+			out.oldest = math.max(out.oldest or 0, waited)
+			if d.census then out.census, out.oldestCensus = out.census + 1, math.max(out.oldestCensus or 0, waited) end
+		end
+	end
+	return out
 end
 function Relay.FirstHand() return hop == "L" end
 function Relay.ViaProvisional() return hop == "O" end

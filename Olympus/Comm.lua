@@ -220,7 +220,11 @@ function Comm.Stats()
 	return {
 		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
-		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
+		isReporter = Comm.isReporter, sent = stats.sent,
+		-- (1.5.9) Our guild's registrant (the one that registers it with its relay) beside the reporter, and
+		-- the version each one's hello named.
+		registrant = Comm.registrantName, isRegistrant = Comm.isRegistrant, reporterVersion = Comm.reporterVersion,
+		registrantVersion = Comm.registrantVersion, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = queueSize, chatQueue = #chatQueue, chatMoved = stats.chatMoved, lastFail = stats.lastFail,
 		partial = stats.partial, echo = stats.echo, byType = stats.byType, otherChannel = stats.otherChannel,
 		chanArgs = stats.chanArgs, asked = stats.asked, answered = stats.answered, runnerUp = Comm.isRunnerUp, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
@@ -971,6 +975,7 @@ SyncGuild = function()
 	watch, lastKeyAsk, early = nil, nil, nil
 	crossedAt, lastBroadcast, lastAnswer = -math.huge, 0, -math.huge
 	Comm.isReporter, Comm.isRunnerUp, Comm.reporterName, Comm.lastReport = nil, nil, nil, nil
+	Comm.reporterVersion, Comm.registrantName, Comm.registrantVersion = nil, nil, nil
 	guildChangedAt = ns.Now()
 	lastHello, Comm.lastKeyAnswer = 0, nil
 	askTries, heardAsk, askedAgain = 0, -math.huge, false
@@ -1990,6 +1995,14 @@ local function LastReport(every)
 	return lastBroadcast
 end
 
+-- (1.5.9) The version a guildmate's hello named ("?" for one we could not read; ours for us), for
+-- /oly status beside our guild's reporter and registrant (an /oly bug of 2026-11-12 named neither).
+local function HelloVersion(name)
+	if name == nil then return nil end
+	if name == ns.me then return ns.VERSION end
+	return peerVersion[name] or "?"
+end
+
 -- (1.5.5) Our guild's registrant: the first by name of the peers that may be elected whose hello says N,
 -- ourselves too when we take the tree; nil when none does (then the reporter registers, as before).
 local function Registrant(pool, now)
@@ -2042,6 +2055,7 @@ function Comm.MaybeBroadcast(report)
 	end
 	Comm.isReporter = best == ns.me
 	Comm.reporterName = ns.DisplayName(best)
+	Comm.reporterVersion = HelloVersion(best)
 	Comm.lastReport = report
 	-- (1.5.5) Only the registrant registers our guild with its relay (Relay.Register), and tells it we
 	-- take the tree (RelayTree.Announce): a reporter without N leaves both to it while it is known. An
@@ -2050,6 +2064,7 @@ function Comm.MaybeBroadcast(report)
 	local relayed = ns.Relay and ns.Relay.On()
 	Comm.isRegistrant = (registrant or best) == ns.me
 	Comm.registrantName = ns.DisplayName(registrant or best)
+	Comm.registrantVersion = HelloVersion(registrant or best)
 	if Comm.isRegistrant and relayed then
 		ns.SafeCall("relay register", ns.Relay.Register)
 		if TreeLoaded() and type(ns.RelayTree.Announce) == "function" then ns.SafeCall("relay tree", ns.RelayTree.Announce) end
