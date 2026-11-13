@@ -1620,7 +1620,9 @@ L.CHANNEL_LOCKED = "Someone locked Olympus's hidden channel (%s) with a password
 -- 0.9.1: privacy
 L.CHANNEL_PUBLIC = "Your guild set no realm key, so the channel is public: anyone can join it by name."
 L.CHANNEL_SEALED = "Your guild sealed the channel with a realm key: anyone who holds the key can join it."
-L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key: on WoW: Forever the channel is the public one, and your lines never show in it as text; they reach the other guilds by the relays, where any of their players can read them."
+-- (1.5.9's review) A key holder's audience on Forever (Comm.Audience): the chat warning's, and what the zone, Board,
+-- groups, privacy page and Treasurer's share questions say, so it fits any message they send.
+L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key. On WoW: Forever what you send to all guilds reaches them by the relays, where any of their players can read it, and nothing you send goes into the public Olympus channel they share."
 L.LOCATION_ASK = "|cffe6c35cOlympus: share your zone and layer?|r\n\nIf you share, the addon may announce on the Olympus channel your zone, your layer, your guild rank and your guild, with your name on each message (the game adds it): officers and one member in eight do, every 10 minutes and when their layer changes. Your guild's census then names your zone if you lead your guild or are an officer, and counts members per zone when your addon is the one sending it.\n\nEveryone on the Olympus channel receives it. %s\n\nKeep it private and none of that is sent. Asking to hop to a layer still sends the zone you are in and the layer you want.\n\nChange it any time with /oly location on or /oly location off."
 L.LOCATION_SHARE = "Share"
 L.LOCATION_KEEP = "Keep private"
@@ -4204,7 +4206,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 0.9.1: privacy
 	L.CHANNEL_PUBLIC = "Sua guilda não definiu uma chave de reino, então o canal é público: qualquer um pode entrar nele pelo nome."
 	L.CHANNEL_SEALED = "Sua guilda selou o canal com uma chave de reino: qualquer um que tenha a chave pode entrar nele."
-	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino: no WoW: Forever o canal é o público, e suas linhas nunca aparecem nele como texto; elas chegam às outras guildas pelos relays, onde qualquer jogador delas pode lê-las."
+	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino. No WoW: Forever o que você envia para todas as guildas chega a elas pelos relays, onde qualquer jogador delas pode ler, e nada do que você envia entra no canal público do Olympus que elas dividem."
 	L.LOCATION_ASK = "|cffe6c35cOlympus: compartilhar sua zona e seu layer?|r\n\nSe você compartilhar, o addon pode anunciar no canal Olympus sua zona, seu layer, seu rank na guilda e sua guilda, com seu nome em cada mensagem (o jogo coloca): os officers e um membro em cada oito anunciam, a cada 10 minutos e quando o layer muda. O censo da sua guilda passa a mostrar sua zona se você for o líder ou officer, e a contar os membros por zona quando é o seu addon que o envia.\n\nTodos no canal Olympus recebem isso. %s\n\nSe mantiver privado, nada disso é enviado. Pedir para pular de layer ainda envia a zona onde você está e o layer que você quer.\n\nMude quando quiser com /oly location on ou /oly location off."
 	L.LOCATION_SHARE = "Compartilhar"
 	L.LOCATION_KEEP = "Manter privado"

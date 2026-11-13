@@ -524,3 +524,37 @@ test("1.5.9's review one channel on Forever: a key-less officer's Census line sa
 	for _, k in ipairs({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" }) do assert(not L[k]:lower():find("seal", 1, true), k) end
 	InEveryLanguage({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" })
 end)
+
+-- 1.5.9's review (B2, from eb2e95a9): a key holder's audience text on Forever (CHANNEL_SEALED_FOREVER, from
+-- Comm.Audience) said "your lines never show in it as text", but it is also what the zone sharing question,
+-- the Board's flags and camps, the groups' listing and application, the privacy page and the Treasurer's
+-- share say of who reads what they send. It now fits any of them: what is sent to all guilds reaches them by
+-- the relays, where any of their players can read it, and nothing sent goes into the public channel they
+-- share (there ChatHall.On is off for a key holder, and every channel word goes by the relays). In all
+-- seven languages, none of which speaks of lines any more. Fails before (each language's word for lines).
+test("1.5.9's review one channel on Forever: a key holder's audience fits any message the privacy questions send (zone, Board, groups, privacy page, treasury, chat): to all guilds by the relays, nothing into the public channel; in every language", function()
+	local L = ns.L
+	WithClient({ key = "fixture-secret", lane = 0 }, function(w)
+		local audience = w.C.Audience()
+		eq(audience, L.CHANNEL_SEALED_FOREVER, "a key holder's audience on Forever")
+		-- The Board's flag and the privacy page carry it as they ask.
+		local saved = ns.Comm
+		ns.Comm = w.C
+		local ok, err = pcall(function()
+			assert(ns.Board.PrivacyText(nil):find(audience, 1, true), "the Board's flag")
+			assert(ns.Consent.Intro():find(audience, 1, true), "the privacy page")
+		end)
+		ns.Comm = saved
+		if not ok then error(err, 0) end
+	end)
+	assert(L.CHANNEL_SEALED_FOREVER:find("what you send to all guilds reaches them by the relays", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("nothing you send goes into the public Olympus channel", 1, true), L.CHANNEL_SEALED_FOREVER)
+	local LINES = { enUS = "lines", ptBR = "linhas", deDE = "Zeilen", esES = "líneas", frFR = "lignes", itIT = "righe", ruRU = "строки" }
+	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays", frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
+	for code, Lc in pairs(Languages()) do
+		local text = Lc.CHANNEL_SEALED_FOREVER
+		assert(not text:find(LINES[code], 1, true), code .. ": no lines in " .. text)
+		assert(text:find(RELAYS[code], 1, true), code .. ": the relays in " .. text)
+	end
+	InEveryLanguage({ "CHANNEL_SEALED_FOREVER" })
+end)

@@ -1809,7 +1809,9 @@ function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
 -- anyone without a realm key, whoever holds the key with one. (1.5.9's review) On Forever, with a key,
--- the public channel, where the player's lines never show as text (ChatHall.On): they go by the relays.
+-- the public channel, into which nothing of the player's goes (ChatHall.On is off, and every channel word
+-- goes by the relays there): what is for all guilds reaches them by the relays. Said for any message the
+-- questions send (zone, Board, groups, the privacy page, the Treasurer's share, chat).
 function Comm.Audience()
 	if not (ns.rdb and ns.rdb.realmKey) then return ns.L.CHANNEL_PUBLIC end
 	return OneChannel() and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED
