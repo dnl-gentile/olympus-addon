@@ -2728,7 +2728,13 @@ test("join screen request (1.5.9): past the minute's ten invites a J3 says so an
 				eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
 				eq(H.State(req), "assigned")
 				assert(LogHas("HANDED " .. H.Tag(applicant) .. " > Guild Recruiter"))
-				-- Pass turned the offers on: the next J3 at the limit goes to the members, no popup.
+				-- (Changed on purpose in the 1.5.9 merge: the declined lane's fix of the author's report, 11-12,
+				-- "Ele tem que ficar desativado se ele estava desativado": Pass leaves the automatic offers
+				-- off; he turns them on himself.) With them on, the next J3 at the limit goes to the members,
+				-- no popup.
+				eq(H.AutoOn(), false, "his Pass leaves the automatic offers off")
+				assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF)).onClick()
+				eq(H.AutoOn(), true, "his own click turns them on")
 				local second = "Second Recruit-" .. home
 				scene.now = scene.now + 21
 				eq(R.OnJoinRequest("WHISPER", second, J3), true)
