@@ -805,9 +805,10 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   alone. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
   says so): its players see it, under **All** too, and others only by choosing it. Under **All** or
   another ruleset, and from the game's own chat box, a line goes to every ruleset. With the gamepad UI,
-  or while the Olympus channel is not joined, a line goes by the hidden way alone, which reaches your
-  own ruleset only; under another ruleset the box says so. Versions before 1.5.9 show every line to
-  everyone. `/oly bug` has a `chat rulesets:` line that counts how the lines were filed.
+  while the Olympus channel is not joined, or when your guild holds a realm key, a line goes by the
+  hidden way alone (the relays), which reaches your own ruleset only, under **All** too; under another
+  ruleset the box says so. Versions before 1.5.9 show every line to everyone. `/oly bug` has a
+  `chat rulesets:` line that counts how the lines were filed.
 - Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
   players' lines on the left, yours on the right in the channel's colour (a line another of your
   characters wrote shows under that character's name, on the left); the writer's name, guild and

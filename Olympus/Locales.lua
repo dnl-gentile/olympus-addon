@@ -8352,10 +8352,12 @@ L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels 
 L.CHATWIN_GROUP_EMPTY = "No messages for this ruleset."
 L.CHATWIN_GROUP_HARDCORE = "Hardcore"
 -- (1.5.9) A line written in the box under this character's own ruleset goes to it alone; under All or
--- another ruleset, and with /ol, to every ruleset (Channels.SendTo, Codec.EncodeChat). The box's words
--- come after its label ("[Olympus]:") and must fit beside it in the default window, " (public channel)"
--- and the longest ruleset's name with them (tests/chat-rulesets.lua).
-L.CHATWIN_GROUP_SEND = "With your own ruleset chosen, what you write here goes to it alone; under All or another ruleset, and with /ol, to every ruleset. Versions of Olympus before 1.5.9 show every line to everyone."
+-- another ruleset, and with /ol, to every ruleset (Channels.SendTo, Codec.EncodeChat), where it goes as the
+-- channel's text too (ChatHall.On): with the gamepad UI, the channel not joined, or a realm key held on
+-- Forever, the hidden way alone reaches the writer's own ruleset (the box names it under another one).
+-- The box's words come after its label ("[Olympus]:") and must fit beside it in the default window,
+-- " (public channel)" and the longest ruleset's name with them (tests/chat-rulesets.lua).
+L.CHATWIN_GROUP_SEND = "With your own ruleset chosen, what you write here goes to it alone; under All or another ruleset, and with /ol, to every ruleset. It reaches your own ruleset alone with the gamepad UI, while the Olympus channel is not joined, and on WoW: Forever when your guild holds a realm key. Versions of Olympus before 1.5.9 show every line to everyone."
 L.CHATWIN_PLACEHOLDER_TO = "Only to %s..."
 L.CHATWIN_PLACEHOLDER_EVERY = "To every ruleset..."
 if GetLocale and GetLocale() == "ptBR" then
@@ -8367,7 +8369,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_TITLE = "Conjuntos de regras"
 	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos."
 	L.CHATWIN_GROUP_EMPTY = "Nenhuma mensagem deste conjunto de regras."
-	L.CHATWIN_GROUP_SEND = "Com o seu conjunto escolhido, o que você escreve aqui vai só para ele; em Todos ou em outro conjunto, e com /ol, vai para todos. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
+	L.CHATWIN_GROUP_SEND = "Com o seu conjunto escolhido, o que você escreve aqui vai só para ele; em Todos ou em outro conjunto, e com /ol, vai para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
 	L.CHATWIN_PLACEHOLDER_TO = "Só para %s..."
 	L.CHATWIN_PLACEHOLDER_EVERY = "Para todos..."
 end

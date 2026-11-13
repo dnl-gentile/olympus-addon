@@ -358,7 +358,8 @@ end
 -- with mouse and keyboard and the channel joined: the real ChatHall.lua, in a client of its own whose
 -- channel is joined, the game's SendChatMessage there (never called: the lane is the test's). fn gets
 -- Joined: Joined(false) leaves the channel, and a line goes the hidden way alone, as with the gamepad UI
--- (tests/gamepad.lua). The box tells which. Put back after.
+-- (tests/gamepad.lua). The box tells which. And that client (its real Comm, FreshComm's), for a test that
+-- sends through its chat lane. Put back after.
 local function WithChannelText(fn)
 	local savedHall, savedSay = ns.ChatHall, rawget(_G, "SendChatMessage")
 	local joined = true
@@ -370,7 +371,7 @@ local function WithChannelText(fn)
 		ns.ChatHall = cns.ChatHall
 		SendChatMessage = function() end
 		assert(ns.ChatHall.On(), "the channel's text goes")
-		fn(function(on) joined = on end)
+		fn(function(on) joined = on end, cns)
 	end)
 	ns.ChatHall, SendChatMessage = savedHall, savedSay
 	if not ok then error(err, 0) end
@@ -451,6 +452,91 @@ test("chat rulesets (1.5.9): in the Chat tab's box under the character's own rul
 			for _, text in ipairs({ "for everyone", "only for RP-PvP", "written under PvE" }) do
 				assert(Bubbles(f)[text], "ours, under PvE: " .. text .. " in " .. Words(f))
 			end
+		end)
+	end)
+end)
+
+-- 1.5.9 with the one-channel work on Forever (Comm.ChannelSpec, ChatHall.On): a member of a guild holding a
+-- realm key types no line as text into the public channel, so a line written under All or another ruleset
+-- goes the hidden way alone, by the relay, which keeps to his own ruleset (his guild's lines stay out of
+-- the public channel). Under another ruleset the box names his own; the rulesets' tooltip says where a line
+-- reaches, in every language. The line goes through a client's real chat lane (FreshComm's Comm.SendChat
+-- and its pump) to a stand-in relay; without the key the same line is typed into the channel too. Fails
+-- before: the tooltip said a line under All or another ruleset goes to every ruleset, whoever wrote it.
+test("chat rulesets (1.5.9): on Forever, in a guild holding a realm key, under another ruleset the box names his own ruleset and his line goes by the relay alone, never as text in the public channel; without the key as text too; the rulesets' tooltip says where a line reaches, in every language", function()
+	AsRpPvpMaster(function()
+		WithChannelText(function(_, cns)
+			local Comm = ns.Comm
+			local saved = { key = ns.rdb.realmKey, say = rawget(_G, "SendChatMessage"), ready = Comm.ChannelReady, send = Comm.SendChat }
+			local ok, err = pcall(function()
+				eq(ns.OnForever(), true, "(an RP-PvP character of Forever)")
+				-- The client's chat lane hands each line to its relay (a stand-in: what it was handed).
+				local relayed, said = {}, {}
+				cns.Relay = { On = function() return true end, Pick = function() return "Relay Keeper" end,
+					IsRelay = function() return false end, Out = function(parts) relayed[#relayed + 1] = parts[1]; return true end }
+				SendChatMessage = function(text) said[#said + 1] = text end
+				Comm.ChannelReady, Comm.SendChat = function() return true end, cns.Comm.SendChat
+				local function Count(list, text)
+					local n = 0
+					for _, x in ipairs(list) do if tostring(x):find(text, 1, true) then n = n + 1 end end
+					return n
+				end
+				local kept = ns.rdb.chat
+				WithWindow(function(w)
+					ns.me, ns.rdb.chat = ME, kept
+					GetGuildInfo = function() return GUILD, "Master", 0 end
+					local clock = 7000
+					GetTime = function() return clock end
+					local f = w.CW.Open("A")
+					KeepSendGap(function()
+						for _, key in ipairs({ "fixture-secret", false }) do
+							ns.rdb.realmKey = key or nil
+							local label = key and "a realm key held" or "no key"
+							eq(ns.ChatHall.On(), not key, label .. ": the channel's text")
+							Pick(f, L.CHATWIN_GROUP_RPPVP); Pick(f, L.CHATWIN_GROUP_PVE)
+							eq(f.input.hint:GetText(), key and L.CHATWIN_PLACEHOLDER_TO:format(L.CHATWIN_GROUP_RPPVP)
+								or (L.CHATWIN_PLACEHOLDER_EVERY .. L.CHATWIN_PUBLIC), label .. ": under PvE the box names where it goes")
+							clock = clock + 5
+							local text = "written under PvE, " .. label
+							f.input:SetText(text); f.input:Fire("OnEnterPressed")
+							for _ = 1, 5 do cns.Comm.Pump() end
+							eq(Count(relayed, text), 1, label .. ": by the relay " .. table.concat(w.printed, " | "))
+							eq(Count(said, text), key and 0 or 1, label .. (key and ": never typed into the public channel" or ": typed into the channel too"))
+							eq(ns.Codec.DecodeChat(relayed[#relayed]).to, nil, label .. ": for everyone it reaches")
+						end
+					end)
+					-- The rulesets' tooltip names where a line reaches.
+					f.groups:GetScript("OnEnter")(f.groups)
+					local shown = false
+					for _, line in ipairs(GameTooltip.lines or {}) do if line == L.CHATWIN_GROUP_SEND then shown = true end end
+					assert(shown, "the rulesets' tooltip: " .. table.concat(GameTooltip.lines or {}, " | "))
+					f.groups:GetScript("OnLeave")(f.groups)
+				end)
+				-- In every language: the gamepad UI, the channel not joined and a realm key on WoW: Forever.
+				assert(L.CHATWIN_GROUP_SEND:find("gamepad UI", 1, true) and L.CHATWIN_GROUP_SEND:find("Olympus channel is not joined", 1, true)
+					and L.CHATWIN_GROUP_SEND:find("WoW: Forever when your guild holds a realm key", 1, true), L.CHATWIN_GROUP_SEND)
+				local function Load(code, file)
+					local lns, savedLocale = {}, GetLocale
+					GetLocale = function() return code end
+					local okLoad, errLoad = pcall(function()
+						assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
+						if file then assert(loadfile(ADDON_DIR .. "Locales/" .. file .. ".lua"))("Olympus", lns) end
+					end)
+					GetLocale = savedLocale
+					assert(okLoad, errLoad)
+					return lns.L
+				end
+				local key = { ptBR = "chave de reino", deDE = "Reichsschlüssel", esES = "clave de reino", frFR = "clé de royaume",
+					itIT = "chiave del reame", ruRU = "ключ мира" }
+				for code, file in pairs({ ptBR = false, deDE = "deDE", esES = "esES", frFR = "frFR", itIT = "itIT", ruRU = "ruRU" }) do
+					local text = Load(code, file or nil).CHATWIN_GROUP_SEND
+					assert(text:find("WoW: Forever", 1, true) and text:find(key[code], 1, true), code .. ": " .. text)
+					eq(text:find("\226\128\148", 1, true), nil, code .. ": no em dash")
+				end
+			end)
+			ns.rdb.realmKey, SendChatMessage = saved.key, saved.say
+			Comm.ChannelReady, Comm.SendChat = saved.ready, saved.send
+			if not ok then error(err, 0) end
 		end)
 	end)
 end)

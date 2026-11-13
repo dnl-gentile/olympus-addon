@@ -982,11 +982,13 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 			-- (Review of the 1.5.9 release: the pages put the keeper's guildmate whose invite the keeper's own
 			-- log saw among the witnesses that need your own report, left out a High Councillor, who confirms
 			-- alone, and the hello's row did not say it tells whether you take handoffs; and with the gamepad
-			-- UI a line written under another ruleset reaches one's own alone.)
+			-- UI a line written under another ruleset reaches one's own alone. Changed on purpose with the
+			-- one-channel work merged: on Forever a realm key held keeps a line to the hidden way too,
+			-- ChatHall.On, and the pages say so.)
 			"It is **confirmed** when the addon of a Church keeper or a High Councillor saw the join, or that of a keeper's guildmate whose invite the keeper's own log saw;",
 			"(an officer, the Church correspondent, or another guildmate of a keeper)",
 			"| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) |",
-			"With the gamepad UI, or while the Olympus channel is not joined, a line goes by the hidden way alone, which reaches your own ruleset only" }) do
+			"With the gamepad UI, while the Olympus channel is not joined, or when your guild holds a realm key, a line goes by the hidden way alone (the relays), which reaches your own ruleset only, under **All** too" }) do
 			assert(doc:find(phrase, 1, true), path .. ": " .. phrase)
 		end
 	end
