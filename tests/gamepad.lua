@@ -4061,7 +4061,11 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		C.Click(Row(U, "scan"))
 		local choice = ns.rdb.recruitmentPreference[ns.me]
 		eq(choice.enabled, true); eq(choice.acceptHandoffs, true); eq(choice.scan, true)
-		eq(choice.announceReminder, 5); eq(choice.offerOverflow, true) -- (on with recruiting since 11-12, the author's ask)
+		eq(choice.offerOverflow, true) -- (on with recruiting since 11-12, the author's ask)
+		-- (Changed on purpose in 1.5.9, the author's report 11-12: "As configurações não devem mudar entre
+		-- login": the ads reminder keeps its own record beside the choice, kept with recruiting never on
+		-- too; 1.5.8 kept it in the choice.)
+		eq(ns.rdb.recruitAds[ns.me].minutes, 5)
 		eq(#(C.said or {}), 0, "the switches send nothing")
 		C.Click(assert(Row(U, "done")).primary)
 		eq(U.PageId(), "census/")
@@ -4349,6 +4353,44 @@ test("gamepad recruiting (1.5.9): a Forever character's choices follow him to an
 		local C4, ns4 = NextSession(C3, initialPad, "login", On("CAMWOWUS2Realm5PvE"))
 		eq(ns4.Recruit.IsWhisperRecruiting(), true, "and it follows him back to Realm5")
 		NoErrors(C3, "1.5.8's choice"); NoErrors(C4, "1.5.8's choice on another sub-realm")
+	end
+end)
+
+-- Review of 1.5.9 (P2): the ads reminder set before recruiting was ever on (Church > Invites shows it
+-- either way) was lost at the next login, as no record kept it (the author, 11-12: "As configurações
+-- não devem mudar entre login"). It has a record of its own now, and setting it is no recruiting
+-- choice: the Census offer still asks. 1.5.8's interval, kept in the recruiting choice, comes back too.
+test("gamepad recruiting (1.5.9): the ads reminder set with recruiting never on is kept across a login; the Census offer still asks", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local R, L = ns.Recruit, ns.L
+		RecruitAds(C, R, 10)
+		RecruitClick(C, R, "recruit-announcement-rotate")
+		local set = { recruiting = "off", arrival = "-", accept = "-", auto = "-", scan = "-", popups = "-", ads = 10,
+			channels = "selected" }
+		SameShown(RecruitingShown(R, L), set, "set with recruiting never on")
+		eq(R.ShouldOfferWhisperRecruiting(), true, "no recruiting choice made")
+		NoErrors(C, "the ads reminder with recruiting never on")
+		local C2, ns2 = NextSession(C, initialPad, "login")
+		SameShown(RecruitingShown(ns2.Recruit, L), set, "after a login")
+		eq(ns2.Recruit.ShouldOfferWhisperRecruiting(), true, "the Census offer still asks")
+		ns2.UI.Toggle()
+		eq(ns2.UI.PageId(), "census/recruitment", "and opens with the window")
+		ns2.UI.Toggle()
+		NoErrors(C2, "the ads reminder after a login")
+		local C3, ns3 = NextSession(C2, initialPad, "reload")
+		SameShown(RecruitingShown(ns3.Recruit, L), set, "after a /reload")
+		NoErrors(C3, "the ads reminder after a /reload")
+		-- 1.5.8's saved form: the interval alone, in a recruiting choice made then.
+		local guild = ns3.rdb.recruitAds[ns3.me].guild
+		ns3.rdb.recruitAds = nil
+		ns3.rdb.recruitmentPreference = { [ns3.me] = { guild = guild, enabled = true, announceReminder = 15 } }
+		local C4, ns4 = NextSession(C3, initialPad, "login")
+		local shown = RecruitingShown(ns4.Recruit, L)
+		eq(shown.recruiting, "on", "1.5.8's choice")
+		eq(shown.ads, 15, "1.5.8's interval comes back")
+		eq(shown.channels, "rotate")
+		NoErrors(C4, "1.5.8's interval")
 	end
 end)
 
@@ -4648,17 +4690,19 @@ end)
 -- guilda... Só recusou, já não vamos perturbar ela"): a player who declined this client's guild invite
 -- (kept in the realm group's saved list) stays out of the scan, on a nameplate, as the target, under
 -- the mouse and from a /who, and out of the nearby whispers, while the player beside him is offered.
--- The game's decline line needs its text, ERR_GUILD_DECLINE_S, which tests/fixtures/forever-api.lua
--- does not list yet: the fixture is made from Forever's own UI source, which only the author has.
--- Until it is made again (scripts/forever-api.lua) the text reads as missing here, and the line,
--- after an invite taken to chat, changes nothing and raises nothing.
+-- The game's decline lines need their texts, ERR_GUILD_DECLINE_S and ERR_GUILD_DECLINE_AUTO_S, which
+-- tests/fixtures/forever-api.lua does not list yet: the fixture is made from Forever's own UI source,
+-- which only the author has. Until it is made again (scripts/forever-api.lua) the texts read as
+-- missing here, and the line, after an invite taken to chat, changes nothing and raises nothing.
 test("gamepad recruit (1.5.9): a declined player stays out of the scan; the decline line waits for the client's text", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		C.Absent("ERR_GUILD_DECLINE_S", "the decline line's text: not in the client fixture until it is made again (scripts/forever-api.lua)")
+		C.Absent("ERR_GUILD_DECLINE_AUTO_S", "the automatic decline's text: not in the client fixture until it is made again (scripts/forever-api.lua)")
 		local R = ns.Recruit
-		-- (The saved form of a decline: the folded name and when, here an hour ago.)
-		ns.rdb.recruitDeclined = { [ns.Fold("Declined-Realm")] = ns.Now() - 3600 }
+		-- (The saved form of a decline, as an earlier session kept it: the key of his name, never the
+		-- name, and when, here an hour ago.)
+		ns.rdb.recruitDeclined = { [R.DeclineKey("Declined-Realm")] = ns.Now() - 3600 }
 		local function Line(id)
 			for _, line in ipairs(R.WhisperLines()) do if line.id == id then return line end end
 		end

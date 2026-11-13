@@ -11,6 +11,9 @@ local incoming, outgoing = {}, {}
 local handed = {} -- [folded name] = true: a player this client gave to another member
 local acceptingGuild, choosing, serial
 local autoGuild, autoTimer, autoProbe, autoCursor
+-- (1.5.9) The guild whose players this member passed by hand (Pass) while his automatic offers are
+-- off: they go through the same probes, and the switch stays as he left it.
+local passGuild
 local openCursor, knownTurn = nil, 0
 local repliedAt = -math.huge
 local Notify
@@ -162,7 +165,9 @@ function H.Taken(item)
 end
 
 local function NextOverflow()
-	return R.OverflowRequest(Duplicate) or (R.Candidates and R.Candidates.Overflow(Duplicate)) or nil
+	-- (1.5.9) With the automatic offers off, only what the member passed by hand goes.
+	return R.OverflowRequest(Duplicate, autoGuild == nil or autoGuild ~= LocalGuild())
+		or (R.Candidates and R.Candidates.Overflow(Duplicate)) or nil
 end
 
 function H.Toggle()
@@ -181,7 +186,7 @@ local function AvailableNow()
 end
 
 local function AutoAllowed(own)
-	return own ~= nil and autoGuild == own and AvailableNow()
+	return own ~= nil and (autoGuild == own or passGuild == own) and AvailableNow()
 end
 
 local function SourceReady(ref)
@@ -194,6 +199,14 @@ local function NextID(now)
 	return ("%d-%x-%d"):format(now, math.random(1, 1073741823), serial)
 end
 
+-- (Review of 1.5.9) A scanned player's offer carries a fourth part in its id, "0", so the member who
+-- takes it tells a sighting from a JOIN (R.TakeHandoff: one who declined his invite is refused only
+-- as a sighting). A 1.5.8 member keeps the id whole; a 1.5.8 offer, three parts, reads as a JOIN.
+local SIGHTING = "-0"
+local function Sighting(id)
+	return type(id) == "string" and id:find("^%d+%-%x+%-%d+%-0$") ~= nil
+end
+
 function H.Offer(req, peer, guild, automatic)
 	local own, now = LocalGuild(), math.floor(ns.Now())
 	Prune(now)
@@ -203,7 +216,7 @@ function H.Offer(req, peer, guild, automatic)
 	if automatic and (not AutoAllowed(own) or not Same(own, guild)
 		or PromptOpen(req) or not Room(outgoing, LIMIT - 1)) then return false end
 	local ref = {
-		id = NextID(now), expires = now + TTL, from = own, to = guild, peer = peer,
+		id = NextID(now) .. (req.scanned and SIGHTING or ""), expires = now + TTL, from = own, to = guild, peer = peer,
 		request = req, state = "offered", automatic = automatic,
 	}
 	req.handoff, outgoing[ref.id] = ref, ref
@@ -288,13 +301,23 @@ local function AutoStep()
 	if not Transmit("P", ref, ref.peer, nil, Guard) then autoProbe = nil end
 end
 
+-- The probes' timer, while the automatic offers or this session's passes need it.
+local function Ticking()
+	if (autoGuild or passGuild) and not autoTimer then
+		autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+	elseif not (autoGuild or passGuild) and autoTimer then
+		autoTimer.Cancel()
+		autoTimer = nil
+	end
+end
+
 function H.ToggleAuto()
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
 	autoGuild, autoProbe, autoCursor = not autoGuild and LocalGuild() or nil, nil, nil
 	openCursor, knownTurn = nil, 0
-	if autoGuild then autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+	Ticking() -- (off, it still runs for what he passed by hand)
 	-- With the offers off, what the invite limit sent on comes back to his popups.
-	elseif R.ReleaseLimited then ns.After(0, "recruit limit release", R.ReleaseLimited) end
+	if not autoGuild and R.ReleaseLimited then ns.After(0, "recruit limit release", R.ReleaseLimited) end
 	Changed()
 	return autoGuild ~= nil
 end
@@ -314,9 +337,13 @@ end
 -- `limit`: the invite limit sent it on, not his click, so it comes back when the limit clears.
 local function Want(item, limit)
 	item.passWanted, item.limitPassed = true, limit or nil
-	if autoGuild ~= LocalGuild() then
-		if autoGuild then H.ToggleAuto() end
-		H.ToggleAuto()
+	-- (1.5.9, the author's report, 11-12: "Ele tem que ficar desativado se ele estava desativado") With
+	-- the automatic offers off, what he passed goes through their probes all the same, and the switch
+	-- stays as he left it: 1.5.8 turned it on here for the session, and the next login turned it off.
+	local own = LocalGuild()
+	if own and autoGuild ~= own then
+		passGuild = own
+		Ticking()
 	end
 	ns.After(0, "recruit pass", AutoStep)
 	Changed()
@@ -324,7 +351,8 @@ end
 
 -- The member's click: this JOIN (`all`: and the ones waiting behind it) or scanned player goes
 -- to the guild's members who accept handoffs, one at a time, through the same probe and claim as
--- the automatic overflow, which this turns on. Until one claims it, it stays in his queue.
+-- the automatic overflow (whose switch it leaves as it was, 1.5.9). Until one claims it, it stays
+-- in his queue.
 function H.Pass(req, all)
 	if not H.CanPass(req) then return false end
 	if all and not req.scanned then
@@ -428,7 +456,7 @@ function H.Receive(dist, sender, word)
 			for _, req in ipairs(R.requests) do
 				if SamePlayer(applicant, req.name) then return false end
 			end
-			if not R.TakeHandoff(applicant, sender) then return false end
+			if not R.TakeHandoff(applicant, sender, Sighting(id)) then return false end
 			ref.state = "received"
 			Transmit("A", ref, sender, nil, function()
 				return ref.expires > ns.Now() and Accepting() and Same(acceptingGuild, to) and Member(sender, from)
@@ -504,7 +532,7 @@ local function Contacts(req, own)
 end
 
 -- The two switches, as the member sets them, are saved with his recruiting choice (a Pass
--- click turns the overflow on for this session only).
+-- click leaves them as they are, 1.5.9).
 local function Save(field, on)
 	local saved = R.Preference and R.Preference(true)
 	if saved then saved[field] = on or nil end
@@ -523,7 +551,7 @@ function H.Restore(saved)
 	end
 	if saved.offerOverflow == true and not autoGuild then
 		autoGuild, autoProbe, autoCursor = saved.guild, nil, nil
-		autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+		Ticking()
 		Changed()
 	end
 end
@@ -586,7 +614,7 @@ StaticPopupDialogs[CLAIM_DIALOG] = {
 function H.Reset()
 	acceptingGuild, choosing = nil, nil
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
-	autoGuild, autoProbe, autoCursor, repliedAt = nil, nil, nil, -math.huge
+	autoGuild, passGuild, autoProbe, autoCursor, repliedAt = nil, nil, nil, nil, -math.huge
 	openCursor, knownTurn = nil, 0
 	wipe(incoming)
 	wipe(outgoing)
@@ -608,7 +636,7 @@ function H.SetAuto(on)
 			H.ToggleAuto()
 		else
 			autoGuild, autoProbe, autoCursor = guild, nil, nil
-			autoTimer = ns.Every(AUTO_EVERY, "recruit overflow", AutoStep)
+			Ticking()
 			Changed()
 		end
 	end

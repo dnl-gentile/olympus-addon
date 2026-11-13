@@ -2648,6 +2648,7 @@ goes where:
 | The King's guild's manually appointed Legates (1.2.4): up to 25 names, original issuer and revision, including an empty removal list | everyone on the Olympus channel; retained appointments use compatible historical ids, with current King/High Council issuer verification | only from the King or an actual High Councillor's client after an authorized edit or repeat; no automatic retirement message |
 | Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
 | The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
+| Who declined your guild invites (1.5.9): a hash of each such player's name (8 hex digits, never the name) and when, from the game's own line telling you he declined (or declined on his own, as he blocks guild invites) | nobody: kept on your client alone, in your saved variables (the realm group's), 7 days, 200 at most | when a player declines an invite of yours, however you sent it; his own **JOIN** clears his |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name; in the Treasurer's part of the ranking, your gold to his characters less each week's up to the dues' amount his addon knew that week, and less all you sent with the dues' note) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
 | That you are taking donations, if you keep a book of the treasury (1.1), with your zone only if you share your location | everyone on the Olympus channel | only while you turn it on (**Taking donations**, `/oly donations on`): every 2 minutes and when your zone changes, off when you log out |
@@ -3353,7 +3354,8 @@ that character in the same guild, as long as the game still allows that characte
 Each switch in **Church → Invites** (1.5.9) shows after a `/reload` or a login what you left it
 at, off as much as on, on WoW: Forever on any sub-realm of your character's family. Recruiting
 turned off stays off (no Census offer asks again), and turned on again brings the other switches
-back as you left them.
+back as you left them. The ads reminder's interval and channels are kept the same way, set before
+recruiting was ever on too (setting them alone leaves the Census offer to ask).
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed.
@@ -3373,11 +3375,13 @@ no Who searches and clears when turned off or when you leave your guild.
 An officer can review an independent JOIN or a response to their recent outreach. JOIN
 opens the `/ginvite` command directly. In popup mode, the next request waits for the previous
 draft and game chat to close, the cooldown to end, and combat to finish. Olympus saves
-no prospect list to disk. The one list of names it saves (1.5.9) is the opposite: players who
-declined a guild invite you took to chat, read from the game's own decline line, kept 7 days
-(200 names at most) in the realm group's saved variables. Such a player does not pop up again,
-is left out of the scan and of whispers, is not passed to other members and is not taken from
-them; his own **JOIN** whisper later clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
+no prospect list to disk. The one list about other players it saves (1.5.9) is the opposite:
+players who declined a guild invite of yours, however you sent it, read from the game's own line
+(or its automatic decline, for a player who blocks guild invites), kept 7 days (200 at most) in
+the realm group's saved variables as a hash of each name, never the name. Such a player does not
+pop up again, is left out of the scan and of whispers, and is not passed to other members; a
+sighting of him another member passes is not taken. His own **JOIN**, whispered to you or passed
+on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
@@ -3395,7 +3399,8 @@ guild officers**. With at least three eligible requests waiting, it asks one cur
 the same guild at a time. Only a recipient who enabled **Accept recruitment handoffs** and has
 room replies. The offer carries no applicant name until the recipient claims it. The sender's
 oldest eligible request and any open reply window stay with the sender. Officers still prepare
-and send invitations themselves.
+and send invitations themselves. **Pass** on a pop-up sends that player the same way (on a JOIN's
+pop-up, the JOINs waiting behind it too), and (1.5.9) leaves this switch as you set it.
 
 ### Public recruiting announcement
 
