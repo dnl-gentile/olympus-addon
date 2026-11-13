@@ -2093,11 +2093,19 @@ Relay.ResetKingSent = function() wipe(kingSent) end -- (tests)
 -- snapshot", in a waiting one's place, and which origin's set it is the origin preference says
 -- (CensusFor), from the last whole set of each origin held here (MAX_RELAYS origins) with its time; a
 -- registrant is never sent again the set it was handed last.
--- (1.5.9's review) Whether a word (its head, or a mesh kind such as "QA~1" or "CX~3~S") is another
--- server's census: the author's signed look (QA) or a realm group's carried totals (CX). The drip hands it
--- over as it does a census transfer, making room at once (Turn), in the other transfers' turn.
+-- (1.5.9's review) Whether a word (its head, or a mesh kind: Across's "QA~1 <origin>" for a signed look, or
+-- "CX~3~S") is another server's census: the author's signed look (QA) or a realm group's carried totals (CX).
+-- The drip hands it over as it does a census transfer, making room at once (Turn), in the other transfers'
+-- turn. A look in one piece too (ToReporters: a whole set of its own).
 local function CensusLook(head)
 	return type(head) == "string" and (head:match("^QA~1") ~= nil or head:match("^CX~[123]~S") ~= nil)
+end
+-- (1.5.9) A signed look's kind (QA, its head): "QA~1 <origin>", the realm group and faction it counts, so
+-- one origin's look takes the waiting place of the same origin's alone, across (Across) and in the drip to
+-- each registrant (ToReporters); nil for any other word.
+local function LookKind(head)
+	if type(head) ~= "string" or not head:match("^QA~1~") then return nil end
+	return "QA~1 " .. (head:match("^QA~1~[^~]+~CX~3~S~[^~]+~([^~]+~%a+)~") or "?")
 end
 local census = { held = {}, sent = {}, sentN = 0 }
 local function ForgetCensus()
@@ -2231,7 +2239,18 @@ local function ToReporters(flag, origin, body, sender)
 	local set, batches, listTo, waitingOnly
 	local list = flag ~= "L" and not snapshot and ListSet(origin, body, now, own) or nil
 	if list then set = list.one and { body } or CollectSet(origin, body, now)
-	elseif (own or snapshot) and flag ~= "L" then set = CollectSet(origin, body, now) end
+	elseif (own or snapshot) and flag ~= "L" then
+		set = CollectSet(origin, body, now)
+		-- (1.5.9, the census lane beside the drip) A signed look in one piece (QA, LookKind: the author's look
+		-- with no guild rows, as his client signs the rows it holds, Data.lua's SignHeld) is a whole set of its
+		-- own, as a list in one piece is: it goes by the drip as a look (CensusLook), to each registrant and
+		-- across to each mesh peer (Across), making room at once. As one whisper past the drip it was an
+		-- ordinary job, the first a newer ordinary word pushed out of a busy queue (the offline harness, the
+		-- queue kept full: a 1.5.4 registrant and a mesh peer each missed 2 of 4 looks; 30 registrants 42 of
+		-- 60, and the peer 2 of 2). (A carried look in one piece, CX, is a staff word: urgent to every signed
+		-- relay by RW, and past the trickle to each registrant as one whisper, as since 1.5.5.)
+		if set == nil and LookKind(body:match("^C%w+:1:1:(.*)$")) then set = { body } end
+	end
 	if list and type(set) == "table" then
 		listTo, waitingOnly = ListSend(list, origin, set, now, function(r)
 			return not Quarantined(r.name) and (Ask("RM", r.name, body, now)) == true
@@ -2297,8 +2316,9 @@ local function ToReporters(flag, origin, body, sender)
 			-- the same word in one whisper) takes the waiting copy's place, as a snapshot does.
 			local id, head = set[1]:match("^C(%w+):%d+:%d+:(.*)$")
 			-- (1.5.4) A list by its kind (ListKind: "LS~NR"), any origin's: a newer list of the kind
-			-- takes the waiting one's place, two kinds keep their own.
-			local kind = head and (head:match("^(%u%w~%d+~S)~") or head:match("^(R[12])~") or ListKind(head)
+			-- takes the waiting one's place, two kinds keep their own. (1.5.9) A signed look by the origin it
+			-- counts (LookKind), as it crosses: one origin's never takes another's waiting place.
+			local kind = head and (LookKind(head) or head:match("^(%u%w~%d+~S)~") or head:match("^(R[12])~") or ListKind(head)
 				or (own and head:match("^%u%w~") and QueueWord(head)))
 			local word = Lower(origin) .. " " .. (kind or ("#" .. tostring(id)))
 			-- (The review of the candidate.) A word too long for one batch (its envelope past MAX_CHUNKS
@@ -2467,8 +2487,10 @@ local function Across(flag, origin, body, set)
 		-- reached only this relay's own guilds, so the PvP look left other relays' guilds with the author.
 		-- (1.5.9) In one piece too: a look with no guild rows fits one, and Across took a look only in
 		-- pieces, so it stayed with this relay's own guilds. (A one-piece CX look is a staff word: RW.)
-		-- Keyed by its origin, so one origin's look never takes another's waiting place in the queue.
-		local signed = head:match("^QA~1~") and ("QA~1 " .. (head:match("^QA~1~[^~]+~CX~3~S~[^~]+~([^~]+~%a+)~") or "?"))
+		-- Keyed by its origin (LookKind), so one origin's look never takes another's waiting place in the
+		-- drip; in one piece a whole set of its own (ToReporters), it goes by the drip as a look does in
+		-- pieces (CensusLook), making room at once.
+		local signed = LookKind(head)
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
 			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or signed or nil
 		if not kind then return end

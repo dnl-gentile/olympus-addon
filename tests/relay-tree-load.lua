@@ -116,7 +116,11 @@ local TREE = { new = extra.addon .. "RelayTree.lua", ["1.5.6"] = FIXTURES .. "re
 -- snapshot crosses to it, RX: a registrant may take it as its census too), o.king (every this many seconds,
 -- the King's presence, T1~o, which the relay hands every registrant ahead of its queue), o.ownWords (every
 -- this many seconds, the relay's own single word to every registrant), o.housekeeping (every node's Comm
--- housekeeping every 60 s, as the game runs it: the assemblers let go of what never completed).
+-- housekeeping every 60 s, as the game runs it: the assemblers let go of what never completed); (1.5.9, the
+-- census lane beside the relay's drip) o.lookRows (the guild rows in each o.look, 14 by default; 0: none, as
+-- in a held row the author's client signs, Data.lua's SignHeld, which fits one piece), o.meshPeer (a signed
+-- relay meshed with this one every Relay.MESH_EVERY by their own Relay.Mesh, which takes what this relay
+-- sends across: r.look.peerMissed and r.look.peerSlowest count the looks it missed and the slowest to it).
 local function Run(o)
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
 		chat = C_ChatInfo, time = GetTime, join = rawget(_G, "JoinChannelByName") }
@@ -233,6 +237,8 @@ local function Run(o)
 		-- (o.ownGuild) The relay's guildmate: what the relay hands its guild over GUILD reaches it.
 		local mate = o.ownGuild and Node("Relay Mate-Realm", "Olympus Relay", "new") or nil
 		mateOf[R] = mate
+		-- (o.meshPeer) A signed relay of the same council, with no registrant: what the relay sends it arrives.
+		local peer = o.meshPeer and Node("Tree Peer-Realm", "Olympus Peer", "new") or nil
 		if o.round then Tree(R).TREE_ROUND_EVERY = o.round end
 		local mix = o.mix or { new = 100 }
 		local regs = {}
@@ -273,6 +279,13 @@ local function Run(o)
 		end
 		Each(Tree(R).TICK, 0, function() As(R, Tree(R).Tick) end)
 		if mate then Each(R.c.Relay.REGISTER_EVERY, 0, function() As(R, R.c.Relay.Register, true) end) end
+		-- (o.meshPeer) Both relays' mesh rounds, as their clients run them (pings, answers, RJ): each the other's peer.
+		if peer then
+			Each(R.c.Relay.MESH_EVERY, 0, function()
+				As(R, R.c.Relay.Mesh)
+				As(peer, peer.c.Relay.Mesh)
+			end)
+		end
 		-- (o.housekeeping) Comm's own housekeeping on every node online (its LOGIN handler's, every 60 s in game:
 		-- Codec.Gc on its assemblers), kept by the harness's Every as c.timers.housekeeping.
 		if o.housekeeping then
@@ -365,10 +378,11 @@ local function Run(o)
 				w.id = w.id + 1
 				local t = math.floor(w.now)
 				local word = ("QA~1~%s~CX~3~S~Carried Author-Realm~ForeverPvP~Alliance~13614,12900,30,%d~"):format(("s"):rep(86), t)
-					.. ("Olympus Remembered %d,900,100,450,%d;"):format(w.id, t):rep(14)
-				looks[#looks + 1] = { word = word, at = w.now }
+					.. ("Olympus Remembered %d,900,100,450,%d;"):format(w.id, t):rep(o.lookRows or 14)
+				local chunks = R.c.Codec.Chunk(word, tostring(w.id))
+				looks[#looks + 1] = { word = word, at = w.now, pieces = #chunks }
 				As(R, function()
-					for _, p in ipairs(R.c.Codec.Chunk(word, tostring(w.id))) do R.c.Relay.HandleIn("WHISPER", R.c.me, "RL~P~" .. p) end
+					for _, p in ipairs(chunks) do R.c.Relay.HandleIn("WHISPER", R.c.me, "RL~P~" .. p) end
 				end)
 			end)
 		end
@@ -484,14 +498,19 @@ local function Run(o)
 			lead.fewest = math.min(lead.fewest, k)
 		end
 		-- (o.look) Each look said at least two minutes before the end: who missed it, and the slowest arrival.
-		local look = { words = 0, missed = 0, slowest = 0 }
+		-- (o.meshPeer) And the mesh peer: the looks it missed, and the slowest to reach it. (pieces: the most of any look.)
+		local look = { words = 0, missed = 0, slowest = 0, pieces = 0, peerMissed = 0, peerSlowest = 0 }
 		for _, x in ipairs(looks) do
+			look.pieces = math.max(look.pieces, x.pieces)
 			if stop - x.at >= 120 then
 				look.words = look.words + 1
 				for _, m in ipairs(regs) do
 					local got = m.looks[x.word]
 					if got then look.slowest = math.max(look.slowest, got - x.at) else look.missed = look.missed + 1 end
 				end
+				local there = peer and peer.looks[x.word]
+				if there then look.peerSlowest = math.max(look.peerSlowest, there - x.at)
+				elseif peer then look.peerMissed = look.peerMissed + 1 end
 			end
 		end
 		-- (o.ownGuild) The relay's snapshots, those its guildmate took whole (byte for byte, each once), the
@@ -842,6 +861,35 @@ test("relay tree under load (1.5.9's review): ordinary words keep the relay's se
 		assert(r.look.words >= case.words, ("%s: %d looks measured"):format(label, r.look.words))
 		eq(r.look.missed, 0, label .. ": every registrant took every look")
 		assert(r.look.slowest < case.within, ("%s: a look reached a registrant after %d s"):format(label, r.look.slowest))
+		eq(r.never, 0, label .. ": and every registrant took the census")
+	end
+end)
+
+-- 1.5.9 (the census lane beside the relay's drip). The author's client signs the trusted rows it holds of
+-- each family (Data.lua's SignHeld): a signed look with no guild rows, which fits one piece, and a relay's
+-- own look crosses to its mesh peers in one piece too. Such a look is another server's census as much as
+-- one in pieces (Relay.lua's CensusLook), so it goes by the drip as a look: it makes room at once in a queue
+-- full of ordinary words, to each registrant and across to each mesh peer. Fails before: in one piece it
+-- went as an ordinary whisper, to the registrants and across, the first a newer ordinary word pushed out
+-- (2 of the 4 looks missed by the 1.5.4 registrant and by the peer; 42 of 60 by the 30 registrants, and
+-- 2 of 2 by the peer). (A look in four pieces every five minutes to 30 registrants and the peer is past
+-- the drip's pace beside the tree's rounds and the snapshot crossing: some wait past the next look. A real
+-- relay says each origin's look about once in 30 minutes, in two pieces.)
+test("relay tree under load (1.5.9): ordinary words keep the relay's send queue full: the author's signed look in one piece (no guild rows) the relay says reaches the 1.5.4 registrant every minute within a minute, 30 tree-capable registrants every five minutes, and a mesh peer each time, as a look in pieces reaches the 1.5.4 registrant and the peer", function()
+	for _, case in ipairs({ { registrants = 1, mix = { ["1.5.4"] = 100 }, minutes = 6, look = 60, within = 60, words = 4, rows = 0 },
+		{ registrants = 30, minutes = 12, look = 300, within = 300, words = 2, rows = 0 },
+		{ registrants = 1, mix = { ["1.5.4"] = 100 }, minutes = 6, look = 60, within = 60, words = 4, rows = 14 } }) do
+		local r = Run({ registrants = case.registrants, mix = case.mix, guilds = 140, minutes = case.minutes, reports = false, pressure = 6,
+			look = case.look, lookRows = case.rows, meshPeer = true })
+		Sound(r)
+		local label = ("%d registrants, a look in %d piece(s) every %d s"):format(case.registrants, r.look.pieces, case.look)
+		if case.rows == 0 then eq(r.look.pieces, 1, label .. ": a look with no guild rows is one piece") end
+		assert(r.look.pieces >= 1 and r.look.words >= case.words, ("%s: %d looks measured"):format(label, r.look.words))
+		assert(r.queue.room <= 4, ("%s: the queue stayed full (%d free)"):format(label, r.queue.room))
+		eq(r.look.missed, 0, label .. ": every registrant took every look")
+		assert(r.look.slowest < case.within, ("%s: a look reached a registrant after %d s"):format(label, r.look.slowest))
+		eq(r.look.peerMissed, 0, label .. ": the mesh peer took every look")
+		assert(r.look.peerSlowest < case.within, ("%s: a look reached the mesh peer after %d s"):format(label, r.look.peerSlowest))
 		eq(r.never, 0, label .. ": and every registrant took the census")
 	end
 end)
