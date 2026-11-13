@@ -378,6 +378,31 @@ test("relay fan-out (1.5.9's review): a begun transfer's next batch goes under a
 	end)
 end)
 
+-- 1.5.9's review (D2): Relay.DripStats counted the transfers waiting alone, so /oly bug showed nothing of
+-- a begun transfer stuck between its batches, the one that holds every other. It names the transfer in
+-- flight now, without a name: census or not, its batch of how many, and how long since that batch was
+-- handed over. Fails before (no flight).
+test("relay fan-out (1.5.9's review): Relay.DripStats names the transfer in flight, without a name: census or not, its batch of how many, since when; none when nothing is", function()
+	Relayed(function(R, sent, Run)
+		local D = R.Relay.DripStats
+		eq(D().flight, nil, "nothing in flight")
+		R.Relay.HandleIn("WHISPER", "Rep Alpha-CAMWOWUS2Realm7PvE", "RL~P~RR~Guild Alpha")
+		local label = #("RM~P~" .. R.me .. "~")
+		local size = R.Codec.CHUNK * R.Codec.MAX_CHUNKS - label + 1 -- one whisper past MAX_CHUNKS once wrapped whole: two batches
+		local word = (("T9~Olympus~%d~"):format(1794011276) .. ("w"):rep(size)):sub(1, size)
+		for _, p in ipairs(R.Codec.Chunk(word, "73")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+		local f = D().flight
+		assert(f, "the word's first batch was handed over: in flight")
+		eq(f.census, false); eq(f.batch, 1); eq(f.of, 2); eq(f.since, 0)
+		R.clock = R.clock + 30
+		eq(D().flight.since, 30, "30 s since its batch was handed over")
+		for k, v in pairs(f) do assert(type(v) == "number" or type(v) == "boolean", "counts and a flag alone: " .. k) end
+		Run(200)
+		eq(D().flight, nil, "the word went: nothing in flight")
+		eq(Assembled(R, sent, "Rep Alpha-")[word], 1, "whole")
+	end)
+end)
+
 -- The review of the 1.5.4 candidate: the relay's own repeats in pieces (the King's Hands and the
 -- Treasury's words every 300 s, a ranking's repeat) were keyed by their message id, so each repeat
 -- waited in the drip as one more batch behind the rest: on a busy relay the drip grew without end

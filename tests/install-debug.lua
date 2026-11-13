@@ -522,35 +522,53 @@ test("1.5.9 /oly bug: the guild's registrant beside its reporter, each with the 
 	if not ok then error(err, 0) end
 end)
 
--- 1.5.9: on a relay's own client, the debug section says what decides whether its registrants get the
--- census, naming nobody: quiet presence (no snapshot of its own then), the drip's transfers waiting and
--- the longest any of them, and any census one, waited, and how long ago its own last tree round was.
--- Not on any other client. Fails before (no such line).
-test("1.5.9 /oly bug debug: on a relay, quiet presence, the drip's waiting transfers and the longest wait, and its own last tree round's age, without a name; on any other client no such line", function()
-	local saved = { relay = ns.Relay, tree = ns.RelayTree, quiet = ns.QuietPresence }
+-- 1.5.9: on a relay's own client, /oly bug says what decides whether its registrants get the census,
+-- naming nobody: quiet presence (no snapshot of its own then), the drip's transfers waiting and the
+-- longest any of them, and any census one, waited, and how long ago its own last tree round was. Not on
+-- any other client. Fails before (no such line).
+-- (1.5.9's review) And the transfer in flight, which holds every other one while its batch waits (D2:
+-- shown as nothing before); in the status right below the channel line, not the debug section, which a
+-- report sent in game (Workshop.Outgoing, cut at Workshop.BUG_MAX) loses on a relay (P8). The old place
+-- is asserted gone: the line in the debug section was the one the cut took.
+test("1.5.9 /oly bug: on a relay, the status says, below the channel line, quiet presence, the drip's waiting transfers and the longest wait, the transfer in flight, and its own last tree round's age, without a name; on any other client no such line; a long report sent in game keeps it", function()
+	local saved = { relay = ns.Relay, tree = ns.RelayTree, quiet = ns.QuietPresence, log = ns.db.log }
 	local ok, err = pcall(function()
 		local R = saved.relay
 		local relay = true
 		ns.Relay = setmetatable({ IsRelay = function() return relay end, DripStats = function()
-			return { waiting = 3, census = 2, oldest = 95, oldestCensus = 40, name = "Waiting Personname" }
+			return { waiting = 3, census = 2, oldest = 95, oldestCensus = 40, name = "Waiting Personname",
+				flight = { census = false, batch = 2, of = 2, since = 300, name = "Flying Personname" } }
 		end }, { __index = R })
 		ns.QuietPresence = function() return true end
 		ns.RelayTree = { Stats = function()
 			return { round = { age = 300, tid = "abcd1234" }, lines = { "tree: rn 0, complete 0, rounds 1 (deferred 0), capable 31, open 0, registrant false" },
 				seed = "Seeding Personname" }
 		end }
-		local text = table.concat(ns.DebugLines(), "\n")
-		assert(text:find("\nrelay here: quiet presence on  |  drip 3 waiting (2 census), the oldest for 95s, the oldest census one for 40s  |  own tree round 5m ago\n", 1, true), text)
+		local text = ns.StatusText()
+		local line = "relay here: quiet presence on  |  drip 3 waiting (2 census), the oldest for 95s, the oldest census one for 40s, "
+			.. "in flight: other, batch 2/2, for 5m  |  own tree round 5m ago"
+		assert(text:find("\n" .. line .. "\n", 1, true), text)
+		assert(text:find("\nchannel [^\n]+\nrelay here: "), "right below the channel line: " .. text)
 		assert(not text:find("Personname", 1, true), "no name: " .. text)
+		assert(not table.concat(ns.DebugLines(), "\n"):find("relay here:", 1, true), "no longer in the debug section")
+		-- A long report, sent in game: the status comes first, and the line with it.
+		local logged = {}
+		for i = 1, 40 do logged[i] = ("relay: a long log line %02d "):format(i) .. ("x"):rep(150) end
+		ns.db.log = logged
+		local report = ns.BuildBugReport()
+		assert(#report > ns.Workshop.BUG_MAX, "a report longer than the in-game cut: " .. #report)
+		local sent = ns.Workshop.Outgoing(report)
+		assert(sent:find((line:gsub("|", "!")), 1, true), "the line is in what is sent in game (its pipes as \"!\")")
+		assert(not sent:find("census counters:", 1, true), "where the debug section's census counters are cut off")
 		ns.QuietPresence = function() return false end
 		ns.RelayTree = { Stats = function() return { lines = {} } end }
 		ns.Relay.DripStats = function() return { waiting = 0, census = 0 } end
-		text = table.concat(ns.DebugLines(), "\n")
-		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -  |  own tree round none\n", 1, true), text)
+		text = ns.StatusText()
+		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -, in flight: none  |  own tree round none\n", 1, true), text)
 		relay = false
-		text = table.concat(ns.DebugLines(), "\n")
+		text = ns.StatusText()
 		assert(not text:find("relay here:", 1, true), "not a relay: no line: " .. text)
 	end)
-	ns.Relay, ns.RelayTree, ns.QuietPresence = saved.relay, saved.tree, saved.quiet
+	ns.Relay, ns.RelayTree, ns.QuietPresence, ns.db.log = saved.relay, saved.tree, saved.quiet, saved.log
 	if not ok then error(err, 0) end
 end)

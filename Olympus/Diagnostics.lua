@@ -616,7 +616,11 @@ end
 -- (1.5.9, two /oly bug reports of 2026-11-12: no census piece came by the relay, and nothing showed
 -- why.) On a relay, what decides whether its registrants get the census, no name: quiet presence (no
 -- snapshot of its own then: Data.SendGlobalCensus), the drip's transfers waiting and the longest any of
--- them, and any census one, has waited (Relay.DripStats), and its own last tree round's age.
+-- them, and any census one, has waited (Relay.DripStats), and its own last tree round's age. (1.5.9's
+-- review) And the transfer in flight, which holds every other one while its batch waits (census or other,
+-- its batch of how many, and for how long): a begun transfer stuck between batches showed as nothing.
+-- In the status (StatusText, below the channel line), not the debug section: a report sent in game stops
+-- at Workshop.BUG_MAX bytes, past which a relay's debug section fell.
 local function RelayHereLine()
 	local R = ns.Relay
 	if type(R) ~= "table" or type(R.IsRelay) ~= "function" or Try(R.IsRelay, ns.me) ~= true then return nil end
@@ -624,8 +628,11 @@ local function RelayHereLine()
 	local d = type(R.DripStats) == "function" and Try(R.DripStats) or nil
 	local drip = "?"
 	if type(d) == "table" then
-		drip = ("%d waiting (%d census), the oldest for %s, the oldest census one for %s"):format(tonumber(d.waiting) or 0,
-			tonumber(d.census) or 0, d.oldest and Span(d.oldest) or "-", d.oldestCensus and Span(d.oldestCensus) or "-")
+		local f = type(d.flight) == "table" and d.flight or nil
+		drip = ("%d waiting (%d census), the oldest for %s, the oldest census one for %s, in flight: %s"):format(tonumber(d.waiting) or 0,
+			tonumber(d.census) or 0, d.oldest and Span(d.oldest) or "-", d.oldestCensus and Span(d.oldestCensus) or "-",
+			f and ("%s, batch %d/%d, for %s"):format(f.census and "census" or "other", tonumber(f.batch) or 0, tonumber(f.of) or 0,
+				Span(f.since)) or "none")
 	end
 	local T = ns.RelayTree
 	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil
@@ -756,8 +763,6 @@ function ns.DebugLines()
 	add(Try(ns.InstallFilesLine) or "install files: ?")
 	add(Try(PiecesLine) or "pieces: ?")
 	add(Try(RelayReporterLine) or "relay: ?")
-	local here = Try(RelayHereLine) -- (1.5.9: a relay's own client alone)
-	if here then add(here) end
 	add(Try(RelayFallbackLine) or "fallback: unavailable")
 	for _, line in ipairs(Try(CensusLines) or { "census: ?" }) do add(line) end
 	add(Try(SignedLine) or "signed: ?")
@@ -805,6 +810,8 @@ function ns.StatusText()
 			c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"), tostring(c.channel), tostring(c.sealed), c.peers,
 			tostring(c.reporter), Version(c.reporterVersion), tostring(c.isReporter), tostring(c.registrant), Version(c.registrantVersion),
 			tostring(c.isRegistrant))
+		local here = Try(RelayHereLine) -- (1.5.9: a relay's own client alone)
+		if here then add("%s", here) end
 		add("sent=%d recv=%d reports=%d sendFails=%d badMsgs=%d queue=%d lastFail=%s lane=%d laneRefused=%d laneMoves=%d", c.sent, c.recv, c.reports, c.fails, c.bad, c.queue, tostring(c.lastFail), tonumber(c.lane) or 0, tonumber(c.laneRefused) or 0, tonumber(c.laneMoves) or 0)
 		local types = {}
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end

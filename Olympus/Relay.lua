@@ -3047,6 +3047,8 @@ end
 -- (1.5.9) The drip for /oly bug, without a name: the transfers waiting (not begun), how many of them are
 -- census transfers (CensusTransfer), and the longest any of them, and any census one, has waited since
 -- it was queued (a census transfer goes ahead of one waiting for free room: the front is not the oldest).
+-- (1.5.9's review) And the transfer in flight, the one that can hold all the others: census or not, its
+-- batch, of how many, and how long since that batch was handed over (flight; nil when none is).
 function Relay.DripStats()
 	local now, out = Now(), { waiting = 0, census = 0 }
 	for _, d in ipairs(drip) do
@@ -3055,6 +3057,8 @@ function Relay.DripStats()
 			out.waiting = out.waiting + 1
 			out.oldest = math.max(out.oldest or 0, waited)
 			if d.census then out.census, out.oldestCensus = out.census + 1, math.max(out.oldestCensus or 0, waited) end
+		elseif not out.flight then
+			out.flight = { census = d.census == true, batch = d.index, of = #d.batches, since = math.max(0, now - (d.t or d.at or now)) }
 		end
 	end
 	return out
