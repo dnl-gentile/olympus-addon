@@ -1198,6 +1198,26 @@ local function StillReporter(name)
 	return false
 end
 
+-- (1.5.9, an /oly bug of 2026-11-12: no census whisper reached a guild in a whole session.) A census
+-- transfer waited for free room in the send queue for its whole batch, though Comm makes room by
+-- dropping the ordinary whispers still waiting (the trickle, the relay's own single words to every
+-- reporter), and its batch then waited there as an ordinary job, the first one a newer whisper pushed
+-- out. Under a steady load of ordinary words none ever started (the offline harness: no census whisper
+-- in 300 s, no tree registrant complete in 25 minutes), and any other transfer waiting at the front of
+-- the drip held every census transfer behind it the same way. A census transfer (`census`: a
+-- registrant's snapshot, the tree's word to a seed or a registrant and its repairs, the relay's own
+-- snapshot to a mesh peer) now starts once Comm can take its batch that way (Comm.QueueRoom(true)),
+-- waits there as an urgent job, which nothing pushes out, and goes first while the transfer at the
+-- front, not begun, waits for free room. The other transfers wait for free room, as before.
+local function CensusTransfer(d) return d.census == true end
+-- The first census transfer behind the front one, not begun (only the front one is ever begun).
+local function CensusBehind()
+	for i = 2, #drip do
+		if drip[i].census == true and not drip[i].started then return i end
+	end
+	return nil
+end
+
 -- One transfer owns all its batches. Eligibility is pinned at the first queue handoff;
 -- capacity eviction can return that first batch only before it sends anything. Later batches
 -- keep their place and eligibility, even when the peer's verification expires between them.
@@ -1215,17 +1235,21 @@ local function Drip()
 			else current = StillReporter(d.name) end
 		end
 		local batch = d.batches[d.index]
-		if not current then
+		local urgent = CensusTransfer(d)
+		local behind = not urgent and not d.started and current and ns.Comm.QueueRoom() < #batch and CensusBehind() or nil
+		if behind then
+			table.insert(drip, 1, table.remove(drip, behind)) -- (taken next turn, current or not)
+		elseif not current then
 			table.remove(drip, 1) -- a complete transfer, before its first batch
 			if d.across and refillCensusAcross then refillCensusAcross() end
-		elseif ns.Comm.QueueRoom() < #batch then
+		elseif ns.Comm.QueueRoom(urgent) < #batch then
 			dripBusy = true
 			ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
 		else
 			Quiet(d.name)
 			if not d.tried then stats.forwarded, d.tried, d.t = stats.forwarded + 1, true, Now() end
 			d.started, dripBusy = true, true
-			ns.Comm.SendBatch("WHISPER", batch, nil, d.name, false, function(sent, why)
+			ns.Comm.SendBatch("WHISPER", batch, nil, d.name, urgent, function(sent, why)
 				if not sent and (why == "full" or why == "dropped") then
 					-- Comm never capacity-evicts a batch once it starts. Only an unsent
 					-- first batch may yield to a newer complete copy or expire on retry.
@@ -1301,7 +1325,8 @@ end
 
 -- Replace only a complete waiting transfer, even when the new copy has fewer batches.
 -- The table is its identity: an in-flight copy and at most one waiting successor stay distinct.
-local function DripBatches(name, word, batches, waitingOnly, across)
+-- census (1.5.9): a census transfer (CensusTransfer, above).
+local function DripBatches(name, word, batches, waitingOnly, across, census)
 	for _, d in ipairs(drip) do
 		if d.name == name and d.word == word and not d.started then
 			d.batches = batches
@@ -1330,7 +1355,7 @@ local function DripBatches(name, word, batches, waitingOnly, across)
 			table.remove(drip, evict)
 		end
 	end
-	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across }
+	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil }
 	Drip()
 end
 
@@ -1995,7 +2020,7 @@ local function ToReporters(flag, origin, body, sender)
 				if census.sent[who] == nil then census.sentN = census.sentN + 1 end
 				census.sent[who] = e.key
 				e.batches = e.batches or SetBatches("P", e.origin, e.set)
-				DripBatches(r.name, "census snapshot", e.batches, waitingOnly)
+				DripBatches(r.name, "census snapshot", e.batches, waitingOnly, nil, true)
 			end
 		elseif set then
 			batches = batches or SetBatches(flag, origin, set)
@@ -2144,7 +2169,7 @@ refillCensusAcross = function()
 		else
 			local key = peer.key
 			mesh.cgTurn[key], p.tried[key] = now, true
-			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true,
+			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true, census = true,
 				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end }
 			-- The King's one due copy waits behind an active transfer, not behind the
 			-- whole local reporter queue. Every waiting job keeps its place behind it.
@@ -2854,12 +2879,13 @@ function Relay.HandOn(flag, origin, text) return ToGuild(flag, origin, text) end
 Relay.Envelope = Envelope
 function Relay.SetBatches(flag, origin, set, kind) return SetBatches(flag, origin, set, kind) end
 -- A whole transfer to `name` through the drip, keyed `word` (a newer one takes a waiting one's place).
--- opts.across: to a relay; opts.front: right after the transfer in flight and the front ones before it.
+-- opts.across: to a relay; opts.front: right after the transfer in flight and the front ones before it;
+-- opts.census (1.5.9): a census transfer (CensusTransfer: the tree's).
 function Relay.DripTo(name, word, batches, opts)
 	if type(name) ~= "string" or name == "" or type(word) ~= "string" or type(batches) ~= "table" or #batches == 0 then return false end
 	opts = type(opts) == "table" and opts or {}
 	if not opts.front then
-		DripBatches(name, word, batches, nil, opts.across)
+		DripBatches(name, word, batches, nil, opts.across, opts.census == true)
 		return true
 	end
 	for i, d in ipairs(drip) do
@@ -2867,7 +2893,8 @@ function Relay.DripTo(name, word, batches, opts)
 	end
 	local at = 1
 	while drip[at] and (drip[at].started or drip[at].front) do at = at + 1 end
-	table.insert(drip, at, { name = name, word = word, batches = batches, index = 1, across = opts.across, front = true })
+	table.insert(drip, at, { name = name, word = word, batches = batches, index = 1, across = opts.across, front = true,
+		census = opts.census == true or nil })
 	Drip()
 	return true
 end

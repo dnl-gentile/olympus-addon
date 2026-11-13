@@ -421,7 +421,7 @@ local function Round(word, n, regs, now)
 		local share = #forms == 1 and k or math.max(RelayTree.SEEDS_MIN, math.floor(k * f.work / work + 0.5))
 		local round, seeds, left, firstRN, otherRN = Plan(f.word, f.regs, share, now, done)
 		for _, s in ipairs(seeds) do
-			Relay.DripTo(s.name, "tree word", { round.pieces }, { front = true })
+			Relay.DripTo(s.name, "tree word", { round.pieces }, { front = true, census = true })
 			all.seeds[s.key] = s.name
 		end
 		for _, r in ipairs(left) do leftAll[#leftAll + 1] = { name = r.name, pieces = round.pieces } end
@@ -435,7 +435,7 @@ local function Round(word, n, regs, now)
 			f.packed and " (packed)" or "", round.rt, round.k, round.left, round.n)
 	end
 	if not all.tid then all.tid, all.n = all.packed.tid, all.packed.n end
-	for _, x in ipairs(leftAll) do Relay.DripTo(x.name, "tree word", { x.pieces }) end
+	for _, x in ipairs(leftAll) do Relay.DripTo(x.name, "tree word", { x.pieces }, { census = true }) end
 	for _, job in ipairs(others) do first[#first + 1] = job end
 	rnWaiting = first
 	lastRound, lastRoundAt = all, now
@@ -509,7 +509,7 @@ local function RelayRepair(round, sender, mask, now)
 	if #batch == 0 then return false end
 	round.repaired[key] = true
 	stats.rqAnswered = stats.rqAnswered + 1
-	return ns.Relay.DripTo(reg.name, "tree rq " .. round.tid, { batch }, { front = true })
+	return ns.Relay.DripTo(reg.name, "tree rq " .. round.tid, { batch }, { front = true, census = true })
 end
 
 ---------------------------------------------------------------------------

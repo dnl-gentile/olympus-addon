@@ -801,8 +801,11 @@ function Comm.QueueSize()
 	return queueSize
 end
 -- How many more fit before the oldest waiting message is dropped (1.1: the King's key rotation
--- hands out no more than that, Keys.lua).
-function Comm.QueueRoom()
+-- hands out no more than that, Keys.lua). evicting (1.5.9, Relay.lua's drip): how many Enqueue can
+-- take in by dropping the ordinary jobs still waiting, its own rule (never an urgent job, never a
+-- transfer begun).
+function Comm.QueueRoom(evicting)
+	if evicting then return MAX_QUEUE - queueSize + ordinarySize end
 	return MAX_QUEUE - queueSize
 end
 

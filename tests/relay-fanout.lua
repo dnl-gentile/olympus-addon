@@ -197,38 +197,51 @@ end)
 -- out it went back to the front with its older whispers: that reporter was sent the superseded
 -- snapshot, and the newest one a whole round of reporters later. The put-back takes the newer copy's
 -- whispers in its place. Fails before (the pushed-out reporter is sent both copies).
-test("relay fan-out (1.5.4): a snapshot batch pushed out of the queue while a newer copy of its word already waits goes back as the newer copy, never the older", function()
-	Relayed(function(R, sent, Run)
-		local C = R.Comm
-		for i = 1, 3 do
-			R.Relay.HandleIn("WHISPER", ("Rep Number%d-CAMWOWUS2Realm7PvE"):format(i), ("RL~P~RR~Guild %d"):format(i))
-		end
-		-- A transfer to somebody else under way: the first reporter's batch waits in the queue behind it.
-		local filler = {}
-		for i = 1, 34 do filler[i] = ("C900:%d:34:"):format(i) .. ("f"):rep(200) end
-		eq(C.SendBatch("WHISPER", filler, nil, "Filler Target-CAMWOWUS2Realm7PvE", false), true)
-		C.Pump()
-		eq(C.QueueSize(), 30, "the transfer began: four parts went")
-		local older = "CG~2~S~1~ForeverPvE~Alliance~" .. ("Olympus Dawn,640,40,300,1;"):rep(66)
-		local newer = "CG~2~S~2~ForeverPvE~Alliance~" .. ("Olympus Dawn,641,41,300,2;"):rep(66)
-		for _, p in ipairs(R.Codec.Chunk(older, "77")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
-		local batch = C.QueueSize() - 30
-		eq(batch > 0, true, "the first reporter's batch of the older snapshot waits in the queue, behind the transfer")
-		for _, p in ipairs(R.Codec.Chunk(newer, "78")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
-		eq(C.QueueSize(), 30 + batch, "the newer snapshot waits in the drip, not in the queue")
-		-- A burst of single whispers (two chat lines to every reporter) pushes the waiting batch out.
-		for i = 1, 40 do C.Whisper("Filler Target-CAMWOWUS2Realm7PvE", "X1~burst " .. i, nil, false, false) end
-		Run(3000)
-		eq(C.QueueSize(), 0, "everything went out")
-		local olderSent, newerSent = 0, 0
-		for i = 1, 3 do
-			local got = Assembled(R, sent, ("Rep Number%d-"):format(i))
-			if got[older] then olderSent = olderSent + 1 end
-			if got[newer] then newerSent = newerSent + 1 end
-		end
-		eq(newerSent, 3, "every reporter gets the newer snapshot")
-		eq(olderSent, 0, "no reporter is sent the copy the newer snapshot replaced")
-	end)
+-- (1.5.9) A census snapshot's batch waits in the queue as an urgent job now, which no burst pushes out
+-- (Relay.lua's CensusTransfer): the reporter whose batch of the older snapshot was in the queue gets that
+-- copy whole and then the newer one, the others the newer alone. A batch of any other word is still
+-- pushed out, and goes back as its newer copy: the relay's own word in pieces of one kind here.
+test("relay fan-out (1.5.4): a batch pushed out of the queue while a newer copy of its word already waits goes back as the newer copy, never the older; (1.5.9) a census snapshot's batch is never pushed out", function()
+	local function Case(older, newer, census)
+		Relayed(function(R, sent, Run)
+			local C = R.Comm
+			for i = 1, 3 do
+				R.Relay.HandleIn("WHISPER", ("Rep Number%d-CAMWOWUS2Realm7PvE"):format(i), ("RL~P~RR~Guild %d"):format(i))
+			end
+			-- A transfer to somebody else under way: the first reporter's batch waits in the queue behind it.
+			local filler = {}
+			for i = 1, 34 do filler[i] = ("C900:%d:34:"):format(i) .. ("f"):rep(200) end
+			eq(C.SendBatch("WHISPER", filler, nil, "Filler Target-CAMWOWUS2Realm7PvE", false), true)
+			C.Pump()
+			eq(C.QueueSize(), 30, "the transfer began: four parts went")
+			for _, p in ipairs(R.Codec.Chunk(older, "77")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+			local batch = C.QueueSize() - 30
+			eq(batch > 0, true, "the first reporter's batch of the older word waits in the queue, behind the transfer")
+			for _, p in ipairs(R.Codec.Chunk(newer, "78")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+			eq(C.QueueSize(), 30 + batch, "the newer word waits in the drip, not in the queue")
+			-- A burst of single whispers (two chat lines to every reporter): it pushes out the oldest
+			-- ordinary job waiting, the batch of any other word, never a census snapshot's.
+			for i = 1, 40 do C.Whisper("Filler Target-CAMWOWUS2Realm7PvE", "X1~burst " .. i, nil, false, false) end
+			Run(3000)
+			eq(C.QueueSize(), 0, "everything went out")
+			local olderSent, newerSent = 0, 0
+			for i = 1, 3 do
+				local got = Assembled(R, sent, ("Rep Number%d-"):format(i))
+				if got[older] then olderSent = olderSent + 1 end
+				if got[newer] then newerSent = newerSent + 1 end
+			end
+			eq(newerSent, 3, "every reporter gets the newer word")
+			if census then
+				-- (Whichever reporter the relay handed its batch first: the others' waited in the drip.)
+				eq(olderSent, 1, "the census batch stayed in the queue: its reporter alone gets the older snapshot, whole")
+			else
+				eq(olderSent, 0, "the pushed-out batch went back as the newer copy: no reporter is sent the older")
+			end
+		end)
+	end
+	Case("T1~H~" .. ("a"):rep(400), "T1~H~" .. ("b"):rep(400), false)
+	Case("CG~2~S~1~ForeverPvE~Alliance~" .. ("Olympus Dawn,640,40,300,1;"):rep(66),
+		"CG~2~S~2~ForeverPvE~Alliance~" .. ("Olympus Dawn,641,41,300,2;"):rep(66), true)
 end)
 
 -- The review of the 1.5.4 candidate: a batch waits a whole round of reporters, and Drip sent it to the
@@ -243,8 +256,10 @@ test("relay fan-out (1.5.4): a drip batch waiting for a reporter his guild has s
 		local old, new, other = "Rep Alpha-CAMWOWUS2Realm7PvE", "Rep Alphanew-CAMWOWUS2Realm7PvE", "Rep Beta-CAMWOWUS2Realm7PvE"
 		R.Relay.HandleIn("WHISPER", old, "RL~P~RR~Guild Alpha")
 		R.Relay.HandleIn("WHISPER", other, "RL~P~RR~Guild Beta")
-		-- The queue nearly full with whispers to somebody else: both batches wait in the drip.
-		for i = 1, C.MAX_QUEUE - 4 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~busy " .. i, nil, false, false) end
+		-- The queue nearly full with whispers to somebody else: both batches wait in the drip. (1.5.9:
+		-- urgent ones, which Comm never drops: a census batch takes the place of ordinary whispers still
+		-- waiting now, so only those keep it in the drip.)
+		for i = 1, C.MAX_QUEUE - 4 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~busy " .. i, nil, true, false) end
 		local snapshot = "CG~2~S~1~ForeverPvE~Alliance~" .. ("Guild Row,640,40,300,1;"):rep(70)
 		for _, p in ipairs(R.Codec.Chunk(snapshot, "55")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
 		eq(C.QueueSize(), C.MAX_QUEUE - 4, "no batch was handed to the queue yet")
@@ -265,7 +280,8 @@ test("relay fan-out (1.5.4): a drip batch waiting for a reporter whose registrat
 		local old, other = "Rep Alpha-CAMWOWUS2Realm7PvE", "Rep Beta-CAMWOWUS2Realm7PvE"
 		R.Relay.HandleIn("WHISPER", old, "RL~P~RR~Guild Alpha")
 		R.Relay.HandleIn("WHISPER", other, "RL~P~RR~Guild Beta")
-		for i = 1, C.MAX_QUEUE - 4 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~busy " .. i, nil, false, false) end
+		-- (1.5.9: urgent, as above: they keep the census batches waiting in the drip.)
+		for i = 1, C.MAX_QUEUE - 4 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~busy " .. i, nil, true, false) end
 		local snapshot = "CG~2~S~1~ForeverPvE~Alliance~" .. ("Guild Row,640,40,300,1;"):rep(70)
 		for _, p in ipairs(R.Codec.Chunk(snapshot, "55")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
 		eq(C.QueueSize(), C.MAX_QUEUE - 4, "no batch was handed to the queue yet")

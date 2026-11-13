@@ -95,7 +95,12 @@ local TREE = { new = extra.addon .. "RelayTree.lua", ["1.5.6"] = FIXTURES .. "re
 -- registrants on each version; all on this change by default); o.plain (those on this change say
 -- nothing of the packed snapshot); o.relay ("new" or "1.5.6"); o.reports (false: no guild reports);
 -- o.round (RelayTree.TREE_ROUND_EVERY on the relay); o.outage = { from, to, share } (seconds into the
--- measure, and the part in a hundred of the registrants offline between them).
+-- measure, and the part in a hundred of the registrants offline between them); o.pressure (1.5.9:
+-- ordinary single whispers the relay is handed every step, from a minute before the measure, more than
+-- it sends: its queue stays full of ordinary words, as the trickle and its own single words to every
+-- reporter keep a busy relay's); o.lead (1.5.9: every this many seconds of the measure, the relay's own
+-- word in pieces of one kind, which goes to each registrant by the drip, ahead of the census transfers
+-- queued after it).
 local function Run(o)
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
 		chat = C_ChatInfo, time = GetTime }
@@ -238,6 +243,7 @@ local function Run(o)
 		Each(Tree(R).TICK, 0, function() As(R, Tree(R).Tick) end)
 
 		local made, start, pieces, packedPieces
+		local pressFrom, busy = T0 + 3 * R.c.Relay.REGISTER_EVERY - 60, 0
 		local function Step()
 			w.now = w.now + STEP
 			for _, n in ipairs(w.nodes) do n.c.clock = w.now end
@@ -252,9 +258,23 @@ local function Run(o)
 					e.f()
 				end
 			end
+			-- (o.pressure) Ordinary words the relay hands its queue faster than it sends, half before its
+			-- pump and half after (they arrive whenever the guilds speak): to a name nobody plays here
+			-- (lost on the wire), each one new (no key: none takes another's place).
+			local function Press(k)
+				if not o.pressure or w.now < pressFrom then return end
+				As(R, function()
+					for _ = 1, k do
+						busy = busy + 1
+						R.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. busy, nil, false, false)
+					end
+				end)
+			end
+			Press(math.floor((o.pressure or 0) / 2))
 			for _, n in ipairs(w.nodes) do
 				if n.online then As(n, n.c.Comm.Pump) end
 			end
+			Press((o.pressure or 0) - math.floor((o.pressure or 0) / 2))
 			Carry()
 		end
 		-- The warm-up: three registrations each, so that any registrant may be a seed (2 x REGISTER_EVERY).
@@ -278,6 +298,17 @@ local function Run(o)
 				for _, p in ipairs(R.c.Codec.Chunk(word, tostring(w.id))) do R.c.Relay.HandleIn("WHISPER", R.c.me, "RL~P~" .. p) end
 			end)
 		end)
+		-- (o.lead) The relay's own word in pieces (the King's Hands, a ranking's repeat: Relay.lua's
+		-- ToReporters keys it by its kind), new each time, to every registrant by the drip.
+		if o.lead then
+			Each(o.lead, STEP / 2, function()
+				w.id = w.id + 1
+				local word = ("T1~H~%d~"):format(w.id) .. ("h"):rep(560)
+				As(R, function()
+					for _, p in ipairs(R.c.Codec.Chunk(word, tostring(w.id))) do R.c.Relay.HandleIn("WHISPER", R.c.me, "RL~P~" .. p) end
+				end)
+			end)
+		end
 		local outage = o.outage
 		local stop = start + o.minutes * 60
 		while w.now < stop do
@@ -327,6 +358,7 @@ local function Run(o)
 		end
 		table.sort(delays)
 		r.delay = { median = delays[math.max(1, math.ceil(#delays / 2))] or 0, most = delays[#delays] or 0 }
+		r.queue = { size = R.c.Comm.QueueSize(), room = R.c.Comm.QueueRoom() }
 		r.relay = { most = R.most, average = R.whispers / o.minutes, kinds = R.kinds,
 			bound = math.floor(60 / STEP + 0.5) * R.c.Comm.PUMP_PARTS_RELAY, tree = Tree(R).Stats(), relay = R.c.Relay.Stats() }
 		r.client = { most = 0, bound = math.floor(60 / STEP + 0.5), pieces = 0 }
@@ -436,6 +468,35 @@ test("relay tree under load: a quarter of the registrants offline for five minut
 	assert(r.measured < r.registrants and r.measured >= r.registrants * 0.6, "a part of the registrants was offline")
 	eq(r.never, 0, "every registrant that stayed took a snapshot")
 	assert(r.longest < FRESH, ("a registrant that stayed went %s minutes without a new snapshot"):format(Minutes(r.longest)))
+end)
+
+-- 1.5.9 (two /oly bug reports of 2026-11-12: no census piece came by the relay in a whole session, in
+-- two guilds on two relays). The relay's drip started a census transfer only once its send queue had
+-- free room for the whole batch, though Comm makes room by dropping the ordinary whispers still waiting,
+-- and its batch then waited as an ordinary job, the first one a newer whisper pushed out: a queue kept
+-- full by ordinary words (the trickle, the relay's own single words to every reporter) let no census
+-- whisper out. And any other transfer at the front of the drip waiting for free room (the relay's own
+-- word in pieces) held every census transfer behind it the same way. Fails before: the 1.5.4 registrant
+-- takes no snapshot in five minutes, and none of the 30 tree registrants one in 25 minutes.
+test("relay tree under load (1.5.9): ordinary words keep the relay's send queue full: a 1.5.4 registrant still takes the relay's whole census snapshot every round, with the relay's own word in pieces waiting at the front of its drip or not", function()
+	for _, lead in ipairs({ false, 60 }) do
+		local r = Run({ registrants = 1, guilds = 140, minutes = 5, mix = { ["1.5.4"] = 100 }, reports = false, pressure = 6, lead = lead or nil })
+		Sound(r)
+		local case = lead and "with the relay's own word ahead" or "alone"
+		assert(r.queue.room <= 4, ("%s: the queue stayed full (%d free)"):format(case, r.queue.room))
+		eq(r.never, 0, case .. ": the registrant took a snapshot")
+		assert(r.fewest >= 2, ("%s: %d snapshots in five minutes, one each Relay.GLOBAL_EVERY"):format(case, r.fewest))
+		assert(r.longest < 300, ("%s: %s minutes without a new snapshot"):format(case, Minutes(r.longest)))
+	end
+end)
+
+test("relay tree under load (1.5.9): ordinary words keep the relay's send queue full: 30 tree-capable registrants each take the census, whole, within 25 minutes, the relay's own word in pieces waiting ahead of the tree's", function()
+	local r = Run({ registrants = 30, guilds = 140, minutes = 25, pressure = 6, lead = 60 })
+	Sound(r)
+	assert(r.queue.room <= 4, ("the queue stayed full (%d free)"):format(r.queue.room))
+	eq(r.never, 0, "every registrant took a snapshot")
+	assert(r.tree.complete >= 30, ("%d transfers completed"):format(r.tree.complete))
+	assert(r.longest < FRESH, ("a registrant went %s minutes without a new snapshot"):format(Minutes(r.longest)))
 end)
 
 ---------------------------------------------------------------------------
