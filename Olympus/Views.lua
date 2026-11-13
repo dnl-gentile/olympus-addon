@@ -1968,7 +1968,11 @@ local function CensusLines(s, q, recruitment)
 			lines[#lines + 1] = { id = "census-recruit-all", text = L.RECRUIT_CENSUS_ALL, primary = true,
 				onClick = function()
 					recruitment.switch("ads")
-					if Views.RecruitOfferState().join then recruitment.switch("scan") end
+					-- (1.5.9) Recruiting back on brings the scan back as the player left it (the offer comes
+					-- back after Church > Invites turned it off): only a scan still off is switched, as a
+					-- second switch would turn a kept one off.
+					local state = Views.RecruitOfferState()
+					if state.join and not state.scan then recruitment.switch("scan") end
 				end }
 			lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
 				onClick = recruitment.later }

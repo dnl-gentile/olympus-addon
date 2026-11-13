@@ -851,9 +851,13 @@ function Recruit.CanEnableWhisperRecruiting()
 	return guild ~= nil and recruitingGuild ~= guild
 end
 
+-- The Census offer asks a character who made no recruiting choice for his guild, and (1.5.9) one
+-- who turned recruiting off in Church > Invites, until its Done or Don't ask again (ChurchSwitch).
 function Recruit.ShouldOfferWhisperRecruiting()
 	local guild = EligibleRecruitingGuild()
-	return guild ~= nil and recruitingGuild ~= guild and RecruitmentPreference(guild) == nil
+	if guild == nil or recruitingGuild == guild then return false end
+	local saved = RecruitmentPreference(guild)
+	return saved == nil or saved.offerAgain == true
 end
 
 function Recruit.EnableWhisperRecruiting()
@@ -1397,9 +1401,17 @@ end
 -- 1.5.9 (the author's report, 11-12: "quando eu desativo... ele parece ativar sozinho de novo na
 -- próxima vez que eu faço o login... As configurações não devem mudar entre login"): recruiting
 -- turned off in Church > Invites is kept off, as the player left it. (1.5.8 forgot the choice there
--- to bring the Census offer back, which lost the off.)
+-- to bring the Census offer back, which lost the off.) (The author's call on the review of 1.5.9:
+-- the Census offer still comes back, until the player clicks Done or Don't ask again; the switches
+-- stay as he left them across logins.) So the choice is kept, every switch with it, and marked
+-- (offerAgain): the offer asks while the mark is set (Recruit.ShouldOfferWhisperRecruiting), and its
+-- Done or Don't ask again clears it (Recruit.OfferAnswered). Turned on here, the mark goes.
 local function ChurchSwitch()
-	return Recruit.ToggleWhisperRecruiting()
+	local on = Recruit.ToggleWhisperRecruiting()
+	local guild = EligibleRecruitingGuild()
+	local saved = guild and RecruitmentPreference(guild)
+	if saved then saved.offerAgain = not on or nil end
+	return on
 end
 
 -- Church > Invites (ChurchView.lua): Recruiting (its switch, how a JOIN comes in, the JOINs waiting),
@@ -2486,13 +2498,22 @@ function Recruit.ActivatedNotice()
 end
 
 -- "Leave it off for now" with every switch off: this character's choice for the guild is
--- forgotten, so the offer asks again (a switch turned on and off again made one).
+-- forgotten, so the offer asks again (a switch turned on and off again made one). (1.5.9) One turned
+-- off in Church > Invites is kept, its switches with it: its mark already brings the offer back.
 function Recruit.ForgetUnusedChoice()
 	local guild = EligibleRecruitingGuild()
 	local saved = guild and RecruitmentPreference(guild)
-	if not saved or saved.enabled == true or Recruiting() then return false end
+	if not saved or saved.enabled == true or Recruiting() or saved.offerAgain then return false end
 	ns.rdb.recruitmentPreference[ChoiceKey()] = nil
 	return true
+end
+
+-- (1.5.9) The Census offer's Done or Don't ask again: the offer that recruiting turned off in Church >
+-- Invites brought back (ChurchSwitch) asks no more; the choice stays as its switches left it.
+function Recruit.OfferAnswered()
+	local guild = EligibleRecruitingGuild()
+	local saved = guild and RecruitmentPreference(guild)
+	if saved then saved.offerAgain = nil end
 end
 
 -- 1.5.8: the invite commands taken to chat in the last minute (the recruiting log's summary).

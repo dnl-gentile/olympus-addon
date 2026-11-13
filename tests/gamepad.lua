@@ -3914,8 +3914,10 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		RecruitSwitch(R).onClick()
 		Reopen()
 		-- (1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele estava desativado":
-		-- turned off in Church it stays off, with no offer to turn it on again.)
-		eq(Row("join"), nil, "turning recruitment off in Church leaves it off without another offer")
+		-- turned off in Church it stays off. Changed on purpose again by the author's call on the review
+		-- of 1.5.9: the offer comes back all the same, until Done or Don't ask again.)
+		eq(R.IsWhisperRecruiting(), false, "turning recruitment off in Church leaves it off")
+		assert(Row("join"), "and the offer comes back")
 		-- Exercise the separate Never choice on an account with no recruiting decision yet.
 		ns.rdb.recruitmentPreference[ns.me] = nil
 		local oldRecord, oldVerify = ns.Record.Line, ns.Verify.Lines
@@ -4409,7 +4411,9 @@ test("gamepad recruiting (1.5.9): each switch shows off as much as on after a lo
 		eq(R4.AnnounceReminderMinutes(), 2, "the ads' interval kept after a login with recruiting off")
 		eq(R4.IsWhisperRecruiting(), false)
 		ns4.UI.Toggle()
-		eq(ns4.UI.PageId() == "census/recruitment", false, "no Census offer asks to turn it on again")
+		-- (Changed on purpose by the author's call on the review of 1.5.9: turned off in Church > Invites,
+		-- the Census offer comes back, until Done or Don't ask again; the switches stay as he left them.)
+		eq(ns4.UI.PageId(), "census/recruitment", "the Census offer comes back, recruiting still off")
 		ns4.UI.Toggle()
 		local printed = #C4.printed
 		C4.Advance(200) -- (the reminder's ticker starts within a minute, then every 2 minutes)
@@ -4591,14 +4595,132 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		notice:Hide()
 		eq(R.ActivatedNotice(), false, "once a character")
 		-- (1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele estava desativado")
-		-- Recruiting turned off in Church > Invites stays off, and no offer asks to turn it on again.
+		-- Recruiting turned off in Church > Invites stays off. (Changed on purpose again by the author's
+		-- call on the review of 1.5.9: the offer comes back, until Done or Don't ask again.)
 		local switch = RecruitSwitch(R)
 		assert(switch.text:find(L.RECRUIT_WHISPER_ON, 1, true))
 		switch.onClick()
 		eq(R.IsWhisperRecruiting(), false)
 		U.Toggle(); U.Toggle()
-		eq(U.PageId() == "census/recruitment", false, "no offer after turning it off")
+		eq(U.PageId(), "census/recruitment", "the offer comes back after turning it off there")
 		NoErrors(C, "Census Turn on all")
+	end
+end)
+
+-- 1.5.9 (the author's call on the review of 1.5.9, its open point P2 #8: turning recruiting off in
+-- Church > Invites brings the Census offer back, until the player clicks Done or Don't ask again;
+-- the switches themselves stay as the player left them across logins). Before it, turned off there
+-- recruiting stayed off and no offer came back; 1.5.8 brought the offer back by forgetting the
+-- choice, which lost the switches with it.
+test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until Done or Don't ask again, the switches kept across logins", function()
+	local function Officer(saved)
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Titan", 1 end,
+			roster = {
+				{ "Tester-Realm", "Titan", 1, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Zeusmaster-Realm", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+			} }
+	end
+	local function Row(U, id)
+		for _, row in ipairs(U.SelfTestView().rows) do
+			if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+		end
+	end
+	local function Line(R, id)
+		for _, line in ipairs(R.WhisperLines()) do if line.id == id then return line end end
+	end
+	-- The window closed and opened again, on the Census (the offer shows there).
+	local function Reopen(U)
+		if U.IsShown() then U.Toggle() end
+		U.Toggle()
+		assert(U.SelectTab("census"))
+	end
+	local function Offered(U) return U.PageId() == "census/recruitment" end
+	-- The scan's invite pop-ups as Church > Invites shows them.
+	local function PromptsOn(R, L)
+		local line = assert(Line(R, "recruit-candidate-prompts"), "the invite pop-ups switch")
+		return line.text:find(L.RECRUIT_CANDIDATE_PROMPTS_ON, 1, true) ~= nil
+	end
+	-- Recruiting's switch in Church > Invites, clicked.
+	local function ChurchSwitch(C, R, want)
+		local switch = assert(Line(R, "recruit-whisper-toggle"), "the Recruiting switch")
+		InClick(C, switch.onClick)
+		eq(R.IsWhisperRecruiting(), want)
+	end
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, Officer(saved))
+		C.Advance(1)
+		local U, R, L = ns.UI, ns.Recruit, ns.L
+		U.Toggle()
+		eq(Offered(U), true, "the offer, the first time")
+		C.Click(assert(Row(U, "scan")))
+		eq(R.IsWhisperRecruiting(), true); eq(R.Candidates.Enabled(), true)
+		C.Click(assert(Row(U, "done")).primary)
+		local notice = ns.Dialog.Find("OLYMPUS_RECRUIT_ACTIVATED")
+		if notice then notice:Hide() end
+		-- In Church > Invites the player sets the switches his way: invite pop-ups off, his waiting
+		-- players not offered to other members.
+		InClick(C, assert(Line(R, "recruit-candidate-prompts"), "the invite pop-ups switch").onClick)
+		InClick(C, assert(Line(R, "recruit-handoff-overflow"), "the automatic offers switch").onClick)
+		eq(PromptsOn(R, L), false); eq(R.Handoff.AutoOn(), false); eq(R.Handoff.Accepting(), true)
+		ChurchSwitch(C, R, false)
+		Reopen(U)
+		eq(Offered(U), true, "turned off in Church > Invites, the offer comes back")
+		for _, id in ipairs({ "join", "ads", "scan" }) do
+			assert(Row(U, id).line.text:find("ReadyCheck-NotReady", 1, true), id .. " shows off")
+		end
+		local choice = ns.rdb.recruitmentPreference[ns.me]
+		eq(choice.enabled, false, "the off is kept")
+		eq(choice.scan, true, "and the switches as he left them")
+		C.Click(assert(Row(U, "later")))
+		eq(U.PageId(), "census/")
+		eq(ns.rdb.recruitmentPreference[ns.me], choice, "Leave it off for now keeps his choice")
+		Reopen(U)
+		eq(Offered(U), true, "and the offer comes again at the next opening")
+		NoErrors(C, "Census offer after Church off")
+
+		-- A login: recruiting still off, the offer still comes, and on again in Church every switch is
+		-- as he left it.
+		local C2, ns2 = Session(initialPad, Officer(saved))
+		C2.Advance(1)
+		local U2, R2 = ns2.UI, ns2.Recruit
+		eq(R2.IsWhisperRecruiting(), false, "off stays off after a login")
+		U2.Toggle()
+		eq(Offered(U2), true, "the offer comes back after a login too")
+		ChurchSwitch(C2, R2, true)
+		eq(R2.Candidates.Enabled(), true, "the scan back as he left it")
+		eq(PromptsOn(R2, ns2.L), false, "its pop-ups off as he left them")
+		eq(R2.Handoff.Accepting(), true, "handoffs taken as he left them")
+		eq(R2.Handoff.AutoOn(), false, "his waiting players not offered, as he left it")
+		-- Off in Church again: the offer comes back; Turn on all brings recruiting back with the scan
+		-- he kept (on, not toggled off by the button), and Done ends the offer.
+		ChurchSwitch(C2, R2, false)
+		Reopen(U2)
+		eq(Offered(U2), true)
+		C2.Click(assert(Row(U2, "all"), "Turn on all").primary)
+		eq(R2.IsWhisperRecruiting(), true)
+		eq(R2.Candidates.Enabled(), true, "Turn on all leaves the kept scan on")
+		C2.Click(assert(Row(U2, "done")).primary)
+		eq(ns2.rdb.recruitmentPreference[ns2.me].offerAgain, nil, "Done ends the offer's return")
+		Reopen(U2)
+		eq(Offered(U2), false, "no offer after Done")
+		-- Off in Church once more, then Don't ask again: no offer from then on.
+		ChurchSwitch(C2, R2, false)
+		Reopen(U2)
+		eq(Offered(U2), true)
+		C2.Click(assert(Row(U2, "never")))
+		eq(ns2.db.hideRecruitmentOffer, true)
+		eq(ns2.rdb.recruitmentPreference[ns2.me].offerAgain, nil, "Don't ask again ends it too")
+		eq(ns2.rdb.recruitmentPreference[ns2.me].scan, true, "his switches kept")
+		Reopen(U2)
+		eq(Offered(U2), false, "no offer after Don't ask again")
+		NoErrors(C2, "Census offer after a login")
+		local C3, ns3 = Session(initialPad, Officer(saved))
+		C3.Advance(1)
+		eq(ns3.Recruit.IsWhisperRecruiting(), false, "off after the next login too")
+		ns3.UI.Toggle()
+		eq(Offered(ns3.UI), false, "and no offer")
+		NoErrors(C3, "Census offer after Don't ask again")
 	end
 end)
 

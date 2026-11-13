@@ -2367,7 +2367,8 @@ are its own, and its own documentation says what it does and what it sends.
 - **Enable recruitment**: the Census offers guild inviters a centered page to receive requests
   from players who whisper `JOIN`. Choose **Leave it off for now** to return to the Census until
   you reopen the window, or **Don't ask again** to dismiss the offer for your account. Review
-  requests or change recruiting in **Church → Invites**.
+  requests or change recruiting in **Church → Invites**; turning recruiting off there brings the
+  offer back until you choose **Done** or **Don't ask again**.
 - **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
   the Realm (guilds, Lords, Captains, members seen online), Crafters (crafter, guild or profession), the
   Tabards in The Watch (inspected and untabarded players, by name or guild), the Treasury (donors in the
@@ -3387,9 +3388,11 @@ It starts off for each character. An officer's choice to enable recruiting is re
 that character in the same guild, as long as the game still allows that character to invite.
 Each switch in **Church → Invites** (1.5.9) shows after a `/reload` or a login what you left it
 at, off as much as on, on WoW: Forever on any sub-realm of your character's family. Recruiting
-turned off stays off (no Census offer asks again), and turned on again brings the other switches
-back as you left them. The ads reminder's interval and channels are kept the same way, in a record
-of their own, while recruiting is off too (the page shows them only while it is on).
+turned off stays off, and turned on again brings the other switches back as you left them. Turned
+off there, it brings back the Census offer to turn it on, each time you open the window, until
+you choose **Done** or **Don't ask again**; the offer turns nothing on by itself. The ads
+reminder's interval and channels are kept the same way, in a record of their own, while
+recruiting is off too (the page shows them only while it is on).
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
