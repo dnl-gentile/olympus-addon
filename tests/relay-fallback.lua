@@ -705,6 +705,71 @@ test("1.5.9's review fallback: a census word handed to the relay's own guild goe
 	end
 end)
 
+-- 1.5.9's review (round 2): a send of the census lane that throws (Comm.Send raises where Moderation.Blocks
+-- or SyncGuild does) took its place in flight for good: the lane's own callback gives it back, and that never
+-- ran. After two such throws, Relay.GUILD_CENSUS_INFLIGHT places stayed taken and the lane sent nothing more
+-- to the guild until a /reload. Now a send that throws is that whisper lost alone, its place given back, as
+-- the chat lane's. Fails before: each throw wiped the lane (the first word's and the second's first
+-- whisper), and with both places taken no whisper of the third word went over GUILD: the guildmate took
+-- none of the three.
+test("1.5.9's review fallback: two sends of the census lane to the relay's own guild that throw lose those two whispers alone: the lane goes on, and the census words after them reach the guildmate whole", function()
+	local savedCapture = ns.CaptureError
+	local errors = {}
+	local ok, err = pcall(World, function(W)
+		ns.CaptureError = function(where, e) errors[#errors + 1] = tostring(where) .. ": " .. tostring(e) end
+		local p = W.Node("Lane Keeper", "Olympus Lane")
+		local mate = W.Node("Lane Mate", "Olympus Lane")
+		local atMate = Watch(mate, { "CG" })
+		local send, throws = p.c.Comm.Send, 0
+		p.c.Comm.Send = function(dist, ...)
+			if dist == "GUILD" and throws < 2 then
+				throws = throws + 1
+				error("a send that throws")
+			end
+			return send(dist, ...)
+		end
+		local function Word(t)
+			local rows = {}
+			for i = 1, 140 do rows[i] = ("OLYMPUS GUILD %03d,%d,%d,%d,%d"):format(i, 100 + i, 10, 300, t - i) end
+			return ("CG~1~S~%d~"):format(t) .. table.concat(rows, ";")
+		end
+		local cursor, guildSent = #p.sent, 0
+		local function Run(steps)
+			for _ = 1, steps do
+				W.now = W.now + p.c.Comm.SEND_INTERVAL
+				p.c.clock, mate.c.clock = W.now, W.now
+				local due = W.timers
+				W.timers = {}
+				for _, x in ipairs(due) do if x.at <= W.now then W.As(x.n, x.f) else W.timers[#W.timers + 1] = x end end
+				W.As(p, p.c.Comm.Pump)
+				while cursor < #p.sent do
+					cursor = cursor + 1
+					local x = p.sent[cursor]
+					if x.dist == "GUILD" then
+						guildSent = guildSent + 1
+						W.As(mate, mate.deliver, "GUILD", p.c.me, x.msg)
+					end
+				end
+			end
+		end
+		local words = {}
+		for k = 1, 3 do
+			words[k] = Word(math.floor(W.now) + k)
+			eq(W.As(p, p.c.Relay.HandOn, "P", p.c.me, words[k], true), true)
+			Run(120)
+		end
+		local pieces = #ns.Codec.Chunk(words[1], "1")
+		eq(throws, 2, "two sends threw")
+		eq(#errors, 2, "each throw captured")
+		eq((atMate("CG", words[2])), 1, "the guildmate took the second word whole, once")
+		eq((atMate("CG", words[3])), 1, "and the third: the lane did not stop")
+		eq((atMate("CG", words[1])), 0, "the first word lost the two whispers that threw")
+		eq(guildSent, 3 * pieces - 2, "every other whisper of the three went")
+	end)
+	ns.CaptureError = savedCapture
+	if not ok then error(err, 0) end
+end)
+
 test("1.5.5 fallback: Pick prefers the pinned relay, then an answered signed relay that named the preferred release, then any answered signed one, then an unsigned code pin", function()
 	World(function(W)
 		local m = W.Node("Picky Member", "Olympus Pick")

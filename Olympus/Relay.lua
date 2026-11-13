@@ -953,12 +953,15 @@ local function FeedGuildLaneNow()
 			end
 			guildInflight = guildInflight + 1
 			local settled = false
-			ns.Comm.Send("GUILD", e.msg, nil, true, false, function()
+			local function done()
 				if settled then return end
 				settled = true
 				guildInflight = math.max(0, guildInflight - 1)
 				FeedGuildLane()
-			end)
+			end
+			-- (Round 2 of the review: a send that throws is that whisper lost, its place in flight given back,
+			-- as the chat lane's. It took the place for good, and after two the lane sent nothing until a /reload.)
+			if not ns.SafeCall("relay guild census send", ns.Comm.Send, "GUILD", e.msg, nil, true, false, done) then done() end
 		end
 	end
 end
