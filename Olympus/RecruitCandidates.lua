@@ -74,7 +74,7 @@ end
 
 local function Remember(unit)
 	local name, guid, _, full = R.ReadCandidateUnit(unit)
-	if not name or Hidden(full) then return end
+	if not name or Hidden(full) or R.Declined(full) then return end
 	local now = GetTime()
 	local prior = byGUID[guid]
 	if prior and prior.full ~= full then return end
@@ -115,7 +115,7 @@ function Q.ObserveWho(name, rawGuild, race)
 	local realm = full:match("%-([^%-]+)$")
 	local command = R.CandidateCommandName(full)
 	if not realm or not ns.InGroup(realm) or WhoFaction(race) ~= ns.faction or not command
-		or key == ns.Fold(ns.me) or Hidden(full) then return end
+		or key == ns.Fold(ns.me) or Hidden(full) or R.Declined(full) then return end
 	local now = GetTime()
 	local row = Add(full, command, now)
 	local first = not row.who
@@ -133,7 +133,8 @@ end
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
 function Q.Check(row, live)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full) then return end
+	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full)
+		or R.Declined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
 		if row.target and UnitMatches(row, "target") then return "target" end
@@ -156,6 +157,17 @@ function Q.Overflow(skip)
 		if row.passWanted and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
 			and not (skip and skip(row)) then return row end
 	end
+end
+
+-- (1.5.9, the author's ask) A player who declined this client's invite (Recruit.Declined) leaves
+-- the list, and the scan (nameplates, target, mouseover, /who) does not take him in again while the
+-- decline is kept.
+function Q.DropDeclined()
+	local before = #rows
+	for i = #rows, 1, -1 do
+		if R.Declined(rows[i].full) then done[rows[i].key] = true; Drop(i) end
+	end
+	if #rows ~= before then Change() end
 end
 
 -- Each scanned player, for the invite limit's release (Recruit.ReleaseLimited).
@@ -231,8 +243,12 @@ end
 
 local function Toggle()
 	if guild then Q.Reset(); Save("scan", nil); Change(); return end
-	if Start() then
-		Save("scan", true); Save("scanListOnly", nil)
+	-- (1.5.9, the author's report, 11-12: "Ele tem que ficar desativado se ele estava desativado") The
+	-- popups as the player left them: on unless he chose the list alone. Turning the scan on again put
+	-- them back on, after a login too.
+	local saved = R.Preference and R.Preference()
+	if Start(type(saved) == "table" and saved.scanListOnly == true) then
+		Save("scan", true)
 		Q.SearchMore() -- (1.5.8: the switch's click sends the first /who)
 	end
 end
@@ -291,7 +307,7 @@ end)
 local function ObserveMouseover()
 	if not Q.Enabled() or Quiet() then return end
 	local name, guid, _, full = R.ReadCandidateUnit("mouseover")
-	if not name or Hidden(full) or byGUID[guid] then return end
+	if not name or Hidden(full) or R.Declined(full) or byGUID[guid] then return end
 	local now = GetTime()
 	local row = Add(full, name, now)
 	if row.guid then return end

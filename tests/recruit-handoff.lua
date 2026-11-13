@@ -343,7 +343,11 @@ test("recruit handoff: the JOIN popup counts the requests behind it and passes t
 		draft.def.OnButton2(draft, draft.data)
 		draft:Hide()
 		for _, req in ipairs(R.requests) do eq(req.passWanted, true, "the waiting JOINs go with it") end
-		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_ON), "passing turns on the automatic offers")
+		-- (Changed on purpose in 1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele
+		-- estava desativado... As configurações não devem mudar entre login": 1.5.8's Pass turned the
+		-- automatic offers on for the session, and the next login turned them off again.)
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF), "passing leaves the automatic offers off")
+		eq(H.AutoOn(), false)
 		scene.tick()
 		local probe = assert(scene.packets[1])
 		eq(probe.peer, mate)
@@ -487,7 +491,9 @@ test("recruit handoff (1.5.8): a scanned unguilded player is passed from his pop
 		draft.def.OnButton2(draft, draft.data)
 		draft:Hide()
 		eq(row.passWanted, true)
-		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_ON), "passing turns on the automatic offers")
+		-- (Changed on purpose in 1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele
+		-- estava desativado": the passed player goes, the automatic offers stay as they were.)
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF), "passing leaves the automatic offers off")
 		assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATE_PASSING:format("Lone Wolf")), "the scan list says so")
 		tick()
 		eq(D.Find(DRAFT), nil, "a passed player does not pop up here again")
@@ -628,7 +634,11 @@ test("recruit handoff (1.5.8): what the invite limit sent on comes back to his p
 			eq(draft.data.req, passed)
 			draft.def.OnButton2(draft, draft.data)
 			draft:Hide()
-			eq(H.AutoOn(), true, "his Pass turns the automatic offers on")
+			-- (Changed on purpose in 1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele
+			-- estava desativado": his Pass leaves the automatic offers off; he turns them on himself.)
+			eq(H.AutoOn(), false, "his Pass leaves the automatic offers off")
+			assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF)).onClick()
+			eq(H.AutoOn(), true, "his own click turns them on")
 			-- With the offers on, the limit sends the next JOIN and sighting on.
 			scene.now = scene.now + 21
 			R.OnWhisper("JOIN", "Held Recruit-" .. home)
@@ -848,7 +858,9 @@ test("recruit log (1.5.8): a JOIN, its popup and command, and a handoff each way
 				LogNever("Third Recruit")
 				-- /oly bug: a summary line and the newest lines; /oly recruit log: all of it, to copy.
 				local bug = H.BugLines(40)
-				assert(bug[1]:find("^Recruiting: recruiting on, can invite on, accepting handoffs on, automatic offers on, scan off, invites this minute 1/10"), bug[1])
+				-- (Changed on purpose in 1.5.9, the author's report 11-12: "Ele tem que ficar desativado se
+				-- ele estava desativado": his Pass above left the automatic offers off.)
+				assert(bug[1]:find("^Recruiting: recruiting on, can invite on, accepting handoffs on, automatic offers off, scan off, invites this minute 1/10"), bug[1])
 				assert(#bug <= 41)
 				-- (WithHandoff gives the census an empty realm store; the status line counts its guilds.)
 				ns.rdb.guilds = ns.rdb.guilds or {}
@@ -1540,3 +1552,430 @@ test("recruit scan (1.5.8): the /who rotation searches level ranges anywhere fir
 	end)
 end)
 
+-- 1.5.9 (the author's ask, 11-12: "Ele não está identificando quando a pessoa recusou o convite para
+-- a guilda... Só recusou, já não vamos perturbar ela"): the game's decline line (ERR_GUILD_DECLINE_S,
+-- or ERR_GUILD_DECLINE_AUTO_S for a player who blocks guild invites) keeps the player from popping up
+-- again, after a reload too, for 7 days; his own JOIN later lets him through. (The strings are the
+-- client's: these tests set them as the enUS client has them; tests/fixtures/forever-api.lua does not
+-- list them yet.)
+local DECLINE = "%s declines your guild invitation." -- (the enUS client's ERR_GUILD_DECLINE_S)
+local DECLINE_AUTO = "%s has automatically declined your guild invitation." -- (ERR_GUILD_DECLINE_AUTO_S)
+local function WithDecline(fn)
+	local saved = { err = rawget(_G, "ERR_GUILD_DECLINE_S"), auto = rawget(_G, "ERR_GUILD_DECLINE_AUTO_S"),
+		util = rawget(_G, "ChatFrameUtil"), time = GetTime }
+	ERR_GUILD_DECLINE_S, ERR_GUILD_DECLINE_AUTO_S = DECLINE, DECLINE_AUTO
+	ChatFrameUtil = { OpenChat = function() end }
+	local clock = 2000
+	GetTime = function() return clock end
+	local ok, err = pcall(fn, function(seconds) clock = clock + seconds end)
+	ERR_GUILD_DECLINE_S, ERR_GUILD_DECLINE_AUTO_S = saved.err, saved.auto
+	ChatFrameUtil, GetTime = saved.util, saved.time
+	if not ok then error(err, 0) end
+end
+
+local function ScanRows()
+	local list = {}
+	R.Candidates.EachRow(function(row) list[#list + 1] = row.full end)
+	return list
+end
+
+-- No string kept in `t` (its keys and values, nested) holds `word`, case folded.
+local function SavedNever(t, word)
+	for k, v in pairs(t) do
+		for _, x in ipairs({ k, v }) do
+			if type(x) == "string" then assert(not ns.Fold(x):find(ns.Fold(word), 1, true), "a name kept: " .. x)
+			elseif type(x) == "table" then SavedNever(x, word) end
+		end
+	end
+end
+
+test("recruit scan (1.5.9): a player who declines the invite does not pop up again, after a reload too, for 7 days", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function(advance)
+				local D = Dialogs()
+				ns.Dialog = D
+				local wolf = "Lone Wolf-" .. home
+				local tick = ScanOne(scene, wolf)
+				tick()
+				local draft = assert(D.Find(DRAFT), "his invite popup")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				-- (Changed on purpose in review: the author's "Só recusou, já não vamos perturbar ela" is any
+				-- decline of his invite, however it went, so the two lines that changed nothing here, before
+				-- Ctrl+C and for a name never invited, now count: the next test. Here, other lines; and a
+				-- member's handoff of him is refused as a sighting, below.)
+				eq(R.OnSystemLine("Lone Wolf is already in a guild."), false, "another system line changes nothing")
+				eq(ns.rdb.recruitDeclined, nil, "nothing saved yet")
+				eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), true, "his decline")
+				eq(R.Declined(wolf), true)
+				assert(LogHas("DECLINED " .. H.Tag(wolf)), "logged, by tag")
+				LogNever("Lone Wolf")
+				eq(scene.printed[#scene.printed], ns.L.RECRUIT_DECLINED:format(ns.DisplayName(wolf)), "the player is told")
+				-- (Review of 1.5.9) The saved list keeps a hash of his name and when, never the name.
+				local kept = 0
+				for _, t in pairs(ns.rdb.recruitDeclined) do kept = kept + 1; eq(t, scene.now) end
+				eq(kept, 1, "one player kept")
+				SavedNever(ns.rdb.recruitDeclined, "Lone Wolf")
+				eq(#ScanRows(), 0, "his row leaves the list")
+				advance(181)
+				R.Candidates.ObserveWho(wolf, "", "Human") -- the next /who finds him again
+				tick()
+				eq(D.Find(DRAFT), nil, "no popup for him")
+				eq(#ScanRows(), 0, "not listed either")
+				eq(R.TakeHandoff(wolf, mate, true), false, "a member's sighting of him is not taken here")
+				-- A reload: the session's memory goes, the saved list stays.
+				R.ResetForTests()
+				R.Candidates.Reset()
+				R.ToggleWhisperRecruiting()
+				if not R.Candidates.Enabled() then assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATES_OFF)).onClick() end
+				assert(R.Candidates.Enabled(), "the scan is on again")
+				tick = assert(scene.timers["recruit candidates"])
+				R.Candidates.ObserveWho(wolf, "", "Human")
+				tick()
+				eq(D.Find(DRAFT), nil, "after a reload, still no popup for him")
+				eq(R.Declined(wolf), true, "kept in the saved list")
+				-- Seven days later he is like any other player again.
+				scene.now = scene.now + 7 * 86400
+				advance(181)
+				R.Candidates.ObserveWho(wolf, "", "Human")
+				tick()
+				local back = assert(D.Find(DRAFT), "after 7 days he pops up again")
+				eq(back.data.candidate.full, wolf)
+				eq(next(ns.rdb.recruitDeclined), nil, "the expired name left the saved list")
+			end)
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P2): only an invite taken to chat with Ctrl+C or Open game chat counted, so a
+-- decline after an invite typed by hand, sent from the game's menu, with the gamepad UI (whose popup
+-- opens no chat box) or after a /reload was lost, and he popped up again. The game tells the inviter
+-- alone: every decline line counts (the author: "Só recusou, já não vamos perturbar ela").
+test("recruit (1.5.9): a decline counts however the invite went: typed by hand, from the game's menu, after a /reload", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				local wolf = "Lone Wolf-" .. home
+				local tick = ScanOne(scene, wolf)
+				tick()
+				local draft = assert(D.Find(DRAFT), "his invite popup")
+				-- The officer typed /ginvite himself, or copied it from the gamepad UI's box: no Ctrl+C here.
+				eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), true, "his decline")
+				eq(R.Declined(wolf), true)
+				eq(draft:IsShown(), false, "his popup closes")
+				eq(#ScanRows(), 0, "his row leaves the list")
+				-- A player Olympus never showed, invited from the game's menu.
+				eq(R.OnSystemLine(DECLINE:format("Menu Pick")), true)
+				eq(R.Declined("Menu Pick-" .. home), true)
+				-- A /reload between an invite and the answer: the session's memory is gone, recruiting
+				-- not back yet (nothing said, the decline kept all the same).
+				R.ResetForTests()
+				local printed = #scene.printed
+				eq(R.OnSystemLine(DECLINE:format("Late Answer")), true)
+				eq(R.Declined("Late Answer-" .. home), true)
+				eq(#scene.printed, printed, "nothing said while not recruiting")
+				eq(R.Declined(wolf), true, "the earlier ones are kept")
+				eq(R.Declined("Never Asked-" .. home), false, "nobody else")
+				SavedNever(ns.rdb.recruitDeclined, "Late Answer")
+				LogNever("Menu Pick")
+			end)
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P2): a player who blocks guild invites declines on his own, in the game's other
+-- line (ERR_GUILD_DECLINE_AUTO_S): he never accepts, and was offered again and again. Where the
+-- client has neither line, nothing happens.
+test("recruit (1.5.9): the game's automatic decline (he blocks guild invites) counts too; without the client's lines nothing", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local wolf = "Lone Wolf-" .. home
+				eq(R.OnSystemLine(DECLINE_AUTO:format("Lone Wolf")), true)
+				eq(R.Declined(wolf), true)
+				assert(LogHas("DECLINED " .. H.Tag(wolf)))
+				ERR_GUILD_DECLINE_S, ERR_GUILD_DECLINE_AUTO_S = nil, nil
+				R.ResetForTests()
+				ns.rdb = {}
+				eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), false, "no line known: nothing")
+				eq(R.OnSystemLine(DECLINE_AUTO:format("Lone Wolf")), false)
+				eq(R.Declined(wolf), false)
+				eq(ns.rdb.recruitDeclined, nil, "nothing saved")
+			end)
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P2): a JOIN whispered right after declining (Escape by mistake) was dropped: his
+-- first JOIN, gone at the decline, still held the 10-minute repeat block.
+test("recruit (1.5.9): his JOIN right after he declined comes through at once", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				R.OnWhisper("JOIN", applicant)
+				local draft = assert(D.Find(DRAFT), "his JOIN popup")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				eq(R.OnSystemLine(DECLINE:format("New Recruit")), true, "his decline")
+				eq(#R.requests, 0)
+				scene.now = scene.now + 30
+				R.OnWhisper("JOIN", applicant) -- "sorry, a misclick"
+				eq(R.Declined(applicant), false, "his JOIN clears the decline")
+				eq(#R.requests, 1, "and comes through")
+				eq(assert(D.Find(DRAFT), "his popup").data.req.name, applicant)
+				eq(LogHas("JOINDROP"), nil, "not dropped")
+				R.OnWhisper("JOIN", applicant) -- (the repeat block itself stays)
+				eq(#R.requests, 1)
+				assert(LogHas("JOINDROP " .. H.Tag(applicant)))
+			end)
+		end)
+	end)
+end)
+
+test("recruit (1.5.9): a JOIN whose invite he declined leaves, a sighting of him is not taken from a member, and his own JOIN later lets him through", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				-- (Changed on purpose in review, the author's "Só recusou, já não vamos perturbar ela": a
+				-- decline before any invite here counts too, so this test no longer starts with one that
+				-- changes nothing; and only a sighting of him is refused from a member, as his JOIN passed
+				-- on is his own ask: "recruit handoff (1.5.9): a passed JOIN...".)
+				R.OnWhisper("JOIN", applicant)
+				local draft = assert(D.Find(DRAFT), "his JOIN popup")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				eq(R.OnSystemLine(DECLINE:format("New Recruit")), true, "his decline")
+				eq(#R.requests, 0, "his JOIN leaves the queue")
+				assert(LogHas("DECLINED " .. H.Tag(applicant)))
+				scene.now = scene.now + R.REQUEST_EACH + 1
+				eq(R.TakeHandoff(applicant, mate, true), false, "a member's sighting of him is not taken here")
+				eq(#R.requests, 0)
+				eq(D.Find(DRAFT), nil)
+				R.OnWhisper("JOIN", applicant) -- he asks again, on his own
+				eq(R.Declined(applicant), false, "his own JOIN clears the decline")
+				eq(#R.requests, 1, "his JOIN is let through")
+				assert(D.Find(DRAFT), "and pops up")
+				assert(LogHas("UNDECLINED " .. H.Tag(applicant)))
+			end)
+		end)
+	end)
+end)
+
+-- 1.5.9 (the same ask): his invite popup, still up because its paste was not seen (the gamepad UI
+-- reads no chat box), closes at his decline, as it would hold the next popups back; a reply of his to
+-- the whisper sent first pops up nothing; the recruiting log says why a member's sighting of him was
+-- not taken.
+test("recruit (1.5.9): a decline closes his popup waiting for the paste, and his reply to our whisper pops up nothing", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				local savedSay = ns.SayTo
+				ns.SayTo = function() return true end
+				local ok, err = pcall(function()
+					local wolf = "Lone Wolf-" .. home
+					local tick = ScanOne(scene, wolf)
+					tick()
+					local draft = assert(D.Find(DRAFT), "his invite popup")
+					draft.def.OnAlt(draft, draft.data) -- Whisper them first
+					draft:Hide()
+					local review = assert(D.Find("OLYMPUS_RECRUIT_OUTREACH"), "his whisper review")
+					review.editBox = { GetText = function() return "Hello there" end, SetText = function() end }
+					review.def.OnAccept(review, review.data)
+					review:Hide(); review.def.OnHide(review, review.data)
+					for _, fn in ipairs(scene.later) do fn() end
+					local back = assert(D.Find(DRAFT), "his invite popup back after the whisper")
+					back.def.extra.onClick(back, back.data) -- Ctrl+C; the paste is not seen
+					eq(back:IsShown(), true, "the popup waits for the paste")
+					eq(R.OnSystemLine(DECLINE:format("Lone Wolf")), true, "his decline")
+					eq(back:IsShown(), false, "his popup closes")
+					R.OnWhisper("No thanks", wolf)
+					eq(#R.requests, 0, "his reply to the whisper makes no request")
+					eq(D.Find("OLYMPUS_RECRUIT_REPLY"), nil, "and pops up nothing")
+					eq(D.Find(DRAFT), nil)
+					assert(LogHas("JOINDROP " .. H.Tag(wolf) .. " reply"), "the log keeps the reply dropped")
+					eq(R.TakeHandoff(wolf, mate, true), false)
+					assert(LogHas("DECLINED " .. H.Tag(wolf) .. " handoff not taken"), "and the sighting refused")
+					LogNever("Lone Wolf")
+					R.OnWhisper("JOIN", wolf) -- his own JOIN still comes in
+					eq(#R.requests, 1)
+					eq(R.Declined(wolf), false)
+				end)
+				ns.SayTo = savedSay
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P1): a player who declined this member's invite, then whispered JOIN to another
+-- member who passed him on, was refused here when his name came: no acknowledgement went back, and
+-- the member who passed him kept him "waiting" an hour with his own popup hidden, so nobody invited
+-- him. His JOIN is his own ask: taken, and his decline here forgotten. A sighting of him (the offer's
+-- id says which; a 1.5.8 member's offer reads as a JOIN) is still not taken.
+test("recruit handoff (1.5.9): a passed JOIN of a player who declined here is taken; a sighting of him is not", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithDecline(function()
+				local D = Dialogs()
+				ns.Dialog = D
+				-- He whispered JOIN here, this member took his invite to chat, and he declined it.
+				R.OnWhisper("JOIN", applicant)
+				local draft = assert(D.Find(DRAFT), "his JOIN popup")
+				draft.def.extra.onClick(draft, draft.data) -- Ctrl+C
+				draft:Hide()
+				eq(R.OnSystemLine(DECLINE:format("New Recruit")), true, "he declined this member's invite")
+				eq(#R.requests, 0)
+				scene.now = scene.now + R.REQUEST_EACH + 1 -- (minutes later, he asks another member)
+				eq(H.Toggle(), true, "this member accepts handoffs")
+				-- A member's sighting of him: refused when the name comes, and said in the log.
+				local sighting = "1234-ab-1-0"
+				eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, sighting)), true)
+				local ask = assert(D.Find(CLAIM))
+				ask:Hide()
+				eq(H.Claim(ask.data), true)
+				local sent = #scene.packets
+				eq(H.Receive("WHISPER", mate, Packet(scene, "N", own, own, applicant, sighting)), false, "a sighting of him is not taken")
+				eq(#R.requests, 0)
+				eq(#scene.packets, sent, "no acknowledgement")
+				assert(LogHas("DECLINED " .. H.Tag(applicant) .. " handoff not taken"))
+				eq(R.Declined(applicant), true)
+				-- His JOIN, passed on by a member (three parts, as a 1.5.8 member's offer too): taken.
+				local join = "1235-ab-2"
+				eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, join)), true)
+				ask = assert(D.Find(CLAIM))
+				ask:Hide()
+				eq(H.Claim(ask.data), true)
+				eq(H.Receive("WHISPER", mate, Packet(scene, "N", own, own, applicant, join)), true, "his JOIN is taken")
+				local req = assert(R.requests[1])
+				eq(req.name, applicant)
+				assert(scene.packets[#scene.packets].word:match("^J4~A~1235%-ab%-2~"), "and acknowledged")
+				eq(R.Declined(applicant), false, "his own JOIN clears the decline here")
+				assert(LogHas("UNDECLINED " .. H.Tag(applicant)))
+				eq(assert(D.Find(DRAFT), "his popup").data.req, req)
+			end)
+		end)
+	end)
+end)
+
+test("recruit handoff (1.5.9): a scanned player's offer says it is a sighting; a JOIN's reads as 1.5.8's", function()
+	WithHandoff(function(scene)
+		WithDecline(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			R.OnWhisper("JOIN", applicant)
+			local req = assert(R.requests[1])
+			assert(D.Find(DRAFT)):Hide()
+			eq(H.Offer(req, mate, own), true)
+			local joinId = assert(scene.packets[#scene.packets].word:match("^J4~O~([^~]+)~"))
+			assert(joinId:find("^%d+%-%x+%-%d+$"), "a JOIN's offer id, three parts: " .. joinId)
+			local wolf = "Lone Wolf-" .. home
+			local tick = ScanOne(scene, wolf)
+			tick()
+			local draft = assert(D.Find(DRAFT), "his invite popup")
+			local row = draft.data.candidate
+			draft:Hide()
+			eq(H.Offer(row, mate, own), true)
+			local scanId = assert(scene.packets[#scene.packets].word:match("^J4~O~([^~]+)~"))
+			assert(scanId:find("^%d+%-%x+%-%d+%-0$"), "a sighting's, a fourth part: " .. scanId)
+			assert(#scanId <= 40, "short enough for any member's addon")
+		end)
+	end)
+end)
+
+-- The same finding end to end: two members' own copies of the addon. He declined B's invite; his JOIN
+-- reaches A, who passes it; B claims, gets the name and takes him; A's request ends handed.
+test("recruit handoff simulation (1.5.9): a JOIN passed to the member whose invite he declined ends with that member", function()
+	WithHandoff(function(scene)
+		WithDecline(function()
+			local savedRank, savedOnline = ns.Roster.RankOf, ns.Roster.online
+			local world = { scene = scene, queue = {}, byName = {}, clients = {}, sent = {}, taken = {} }
+			local ok, err = pcall(function()
+				local function Full(short) return short .. "-" .. home end
+				local A = SimClient(world, Full("Busy Recruiter"))
+				local B = SimClient(world, Full("Able Inviter"))
+				ns.Roster.online = { { name = A.name }, { name = B.name } }
+				local ranks = { [A.name] = 0, [B.name] = 2 }
+				ns.Roster.RankOf = function(name) return ranks[ns.FullName(name)] end
+				eq(A.R.ToggleWhisperRecruiting(), true); eq(B.R.ToggleWhisperRecruiting(), true)
+				eq(B.H.Toggle(), true, "B accepts handoffs")
+				local X = Full("Comeback Kid")
+				-- He whispered JOIN to B, B took his invite to chat, and he declined it.
+				B.R.OnWhisper("JOIN", X)
+				SimTake(B, world)
+				eq(#world.taken, 1, "B's invite went to chat")
+				eq(B.R.OnSystemLine(DECLINE:format("Comeback Kid")), true, "he declined B's invite")
+				eq(B.R.Declined(X), true)
+				scene.now = scene.now + 601
+				A.R.OnWhisper("JOIN", X) -- minutes later he asks A, on his own
+				local req = assert(A.R.requests[1])
+				local draft = assert(A.D.Find(DRAFT), "A's popup for him")
+				eq(A.H.Pass(req), true, "A passes him on")
+				draft:Hide()
+				for _ = 1, 120 do
+					scene.now = scene.now + 1
+					for _, c in ipairs(world.clients) do SimStep(world, c) end
+					SimDeliver(world)
+					local ask = B.D.Find(CLAIM)
+					if ask then ask:Hide(); ask.def.OnAccept(ask, ask.data) end
+				end
+				local named = 0
+				for _, p in ipairs(world.sent) do if p.op == "N" and p.name == X then named = named + 1 end end
+				eq(named, 1, "his name went to B once")
+				eq(A.H.State(req), "assigned", "A's request ends handed to B")
+				local mine = assert(B.D.Find(DRAFT), "B's popup for him")
+				eq(mine.data.req.name, X)
+				eq(B.R.Declined(X), false, "his JOIN cleared his decline at B")
+				eq(A.D.Find(DRAFT), nil, "and A invites nobody twice")
+			end)
+			ns.Roster.RankOf, ns.Roster.online = savedRank, savedOnline
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P2): Pass turned the automatic offers on for the session, and the next login turned
+-- them off again, a switch that changed between logins (the author, 11-12: "Ele tem que ficar
+-- desativado se ele estava desativado... As configurações não devem mudar entre login"). The passed
+-- JOIN still goes; the others waiting stay here, as the switch is off.
+test("recruit handoff (1.5.9): Pass sends the passed JOIN on and leaves the automatic offers off", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		scene.locked = true
+		for i = 1, 4 do R.OnWhisper("JOIN", ("Waiting %d-%s"):format(i, home)) end
+		scene.locked = false
+		local first = R.requests[1]
+		eq(H.Pass(first), true)
+		eq(H.AutoOn(), false, "the switch stays off")
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF), "and shows off")
+		eq(R.Preference().offerOverflow, nil, "nor is it saved on")
+		scene.tick()
+		local probe = assert(scene.packets[1])
+		assert(probe.word:match("^J4~P~"))
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		assert(scene.packets[2].word:match("^J4~O~"))
+		eq(H.State(first), "offered", "the passed JOIN goes")
+		local sent = #scene.packets
+		for _ = 1, 3 do
+			scene.now = scene.now + 21
+			scene.tick()
+		end
+		eq(#scene.packets, sent, "no probe for the three he did not pass")
+		for i = 2, 4 do eq(H.State(R.requests[i]), nil, "a JOIN he did not pass stays here") end
+		-- His own click turns the automatic offers on, and the three waiting then go on their own.
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_OVERFLOW_OFF)).onClick()
+		eq(H.AutoOn(), true)
+		scene.tick()
+		assert(scene.packets[sent + 1].word:match("^J4~P~"), "with the switch on, a probe for the waiting")
+	end)
+end)

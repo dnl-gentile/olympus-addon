@@ -1496,11 +1496,9 @@ local function CreateMain(style)
 		-- (1.2.4: and the person page shown, for what it held: ProfileLeft.)
 		if self == main then
 			if not self:IsShown() then
-				-- (1.5.8) The Census offer closed with every switch off asks again, as its Leave it off
-				-- for now does (a switch turned on and off again made a choice).
-				if self.recruitmentOffer == "open" and ns.Recruit and ns.Recruit.ForgetUnusedChoice then
-					ns.SafeCall("recruitment offer", ns.Recruit.ForgetUnusedChoice)
-				end
+				-- (1.5.9, the author's report: "As configurações não devem mudar entre login") Closing
+				-- the window keeps what the switches were left at: an off the player chose stays off.
+				-- Only Leave it off for now asks again.
 				self.recruitmentOffer, self.recruitmentNotice = nil, nil
 			end
 			ProfileLeft(playerProfile)
