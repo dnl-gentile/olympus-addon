@@ -3371,8 +3371,8 @@ that character in the same guild, as long as the game still allows that characte
 Each switch in **Church → Invites** (1.5.9) shows after a `/reload` or a login what you left it
 at, off as much as on, on WoW: Forever on any sub-realm of your character's family. Recruiting
 turned off stays off (no Census offer asks again), and turned on again brings the other switches
-back as you left them. The ads reminder's interval and channels are kept the same way, set before
-recruiting was ever on too (setting them alone leaves the Census offer to ask).
+back as you left them. The ads reminder's interval and channels are kept the same way, in a record
+of their own, while recruiting is off too (the page shows them only while it is on).
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed.

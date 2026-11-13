@@ -4293,11 +4293,27 @@ local function RecruitingShown(R, L)
 		return "off"
 	end
 	local arrival = Line("recruit-whisper-arrival")
-	local ads = assert(Line("recruit-announcement-reminder"), "the ads reminder is shown, recruiting on or off").filters[1]
-	local minutes = 0
-	for index, option in ipairs(ads.options) do
-		if option.selected then minutes = ({ 0, 2, 5, 10, 15, 30 })[index] end
-		eq(option.selected, option.text == ads.value, "the dropdown shows its selected interval")
+	-- (Changed on purpose in the 1.5.9 merge: the Invites lane's review, the author's "Os botões que
+	-- façam sentido", shows the ads only while Recruiting is on, since an ad asks for JOIN whispers that
+	-- only Recruiting answers. Off, the ads section says Recruiting comes first, "-" here; the interval
+	-- and channels are kept all the same, Recruit.AnnounceReminderMinutes, and show again with it.)
+	local reminder, minutes = Line("recruit-announcement-reminder"), "-"
+	if reminder then
+		local ads = reminder.filters[1]
+		minutes = 0
+		for index, option in ipairs(ads.options) do
+			if option.selected then minutes = ({ 0, 2, 5, 10, 15, 30 })[index] end
+			eq(option.selected, option.text == ads.value, "the dropdown shows its selected interval")
+		end
+	else
+		eq(R.IsWhisperRecruiting(), false, "the ads reminder is shown while recruiting is on")
+		local lines, said = R.WhisperLines(), false
+		for i, line in ipairs(lines) do
+			if line.id == "recruit-section-ads" then
+				said = lines[i + 1] ~= nil and lines[i + 1].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true) ~= nil
+			end
+		end
+		eq(said, true, "off, the ads section says Recruiting comes first")
 	end
 	return {
 		recruiting = Has("recruit-whisper-toggle", L.RECRUIT_WHISPER_ON, L.RECRUIT_WHISPER_OFF),
@@ -4308,7 +4324,7 @@ local function RecruitingShown(R, L)
 		scan = Has("recruit-candidate-toggle", L.RECRUIT_CANDIDATES_ON, L.RECRUIT_CANDIDATES_OFF),
 		popups = Has("recruit-candidate-prompts", L.RECRUIT_CANDIDATE_PROMPTS_ON, L.RECRUIT_CANDIDATE_PROMPTS_OFF),
 		ads = minutes,
-		channels = ({ on = "rotate", off = "selected" })[Has("recruit-announcement-rotate", L.RECRUIT_ANNOUNCE_REMINDER_ROTATE,
+		channels = ({ on = "rotate", off = "selected", ["-"] = "-" })[Has("recruit-announcement-rotate", L.RECRUIT_ANNOUNCE_REMINDER_ROTATE,
 			L.RECRUIT_ANNOUNCE_REMINDER_SELECTED)],
 	}
 end
@@ -4380,13 +4396,17 @@ test("gamepad recruiting (1.5.9): each switch shows off as much as on after a lo
 			ads = 2, channels = "rotate" }
 		SameShown(RecruitingShown(R3, L), third, "the scan off, the handoffs on, the ads every 2 minutes")
 		Click(C3, R3, "recruit-whisper-toggle")
-		local off = { recruiting = "off", arrival = "-", accept = "-", auto = "-", scan = "-", popups = "-", ads = 2, channels = "rotate" }
+		-- (Changed on purpose in the 1.5.9 merge: off, Church > Invites shows no ads, RecruitingShown; the
+		-- interval is kept all the same, and the channels with it: both come back with recruiting below.)
+		local off = { recruiting = "off", arrival = "-", accept = "-", auto = "-", scan = "-", popups = "-", ads = "-", channels = "-" }
 		SameShown(RecruitingShown(R3, L), off, "recruiting turned off in Church")
+		eq(R3.AnnounceReminderMinutes(), 2, "the ads' interval kept with recruiting off")
 		NoErrors(C3, "recruiting switches after a /reload")
 
 		local C4, ns4 = NextSession(C3, initialPad, "login")
 		local R4 = ns4.Recruit
-		SameShown(RecruitingShown(R4, L), off, "off stays off after a login, the ads' interval kept")
+		SameShown(RecruitingShown(R4, L), off, "off stays off after a login")
+		eq(R4.AnnounceReminderMinutes(), 2, "the ads' interval kept after a login with recruiting off")
 		eq(R4.IsWhisperRecruiting(), false)
 		ns4.UI.Toggle()
 		eq(ns4.UI.PageId() == "census/recruitment", false, "no Census offer asks to turn it on again")
@@ -4460,30 +4480,38 @@ test("gamepad recruiting (1.5.9): a Forever character's choices follow him to an
 	end
 end)
 
--- Review of 1.5.9 (P2): the ads reminder set before recruiting was ever on (Church > Invites shows it
--- either way) was lost at the next login, as no record kept it (the author, 11-12: "As configurações
--- não devem mudar entre login"). It has a record of its own now, and setting it is no recruiting
--- choice: the Census offer still asks. 1.5.8's interval, kept in the recruiting choice, comes back too.
-test("gamepad recruiting (1.5.9): the ads reminder set with recruiting never on is kept across a login; the Census offer still asks", function()
+-- Review of 1.5.9 (P2): the ads reminder's interval and channels were lost at the next login when no
+-- recruiting record kept them (the author, 11-12: "As configurações não devem mudar entre login").
+-- They have a record of their own now, kept with recruiting off as much as on. 1.5.8's interval, kept
+-- in the recruiting choice, comes back too.
+-- (Changed on purpose in the 1.5.9 merge: the Invites lane's review, the author's "Os botões que façam
+-- sentido", shows the ads only while Recruiting is on, so they are no longer set with recruiting never
+-- on, and the Census offer's question no longer arises here: they are set with recruiting on, and kept
+-- with it turned off in Church, across a login and a /reload.)
+test("gamepad recruiting (1.5.9): the ads reminder keeps its own record, kept with recruiting off across a login and a /reload", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
 		local R, L = ns.Recruit, ns.L
+		RecruitClick(C, R, "recruit-whisper-toggle")
 		RecruitAds(C, R, 10)
 		RecruitClick(C, R, "recruit-announcement-rotate")
-		local set = { recruiting = "off", arrival = "-", accept = "-", auto = "-", scan = "-", popups = "-", ads = 10,
+		local set = { recruiting = "on", arrival = "popup", accept = "off", auto = "off", scan = "off", popups = "-", ads = 10,
 			channels = "selected" }
-		SameShown(RecruitingShown(R, L), set, "set with recruiting never on")
-		eq(R.ShouldOfferWhisperRecruiting(), true, "no recruiting choice made")
-		NoErrors(C, "the ads reminder with recruiting never on")
+		SameShown(RecruitingShown(R, L), set, "set with recruiting on")
+		eq(ns.rdb.recruitAds[ns.me].minutes, 10, "in a record of its own")
+		RecruitClick(C, R, "recruit-whisper-toggle")
+		local off = { recruiting = "off", arrival = "-", accept = "-", auto = "-", scan = "-", popups = "-", ads = "-", channels = "-" }
+		SameShown(RecruitingShown(R, L), off, "recruiting turned off: no ads shown")
+		eq(R.AnnounceReminderMinutes(), 10, "the interval kept")
+		NoErrors(C, "the ads reminder with recruiting off")
 		local C2, ns2 = NextSession(C, initialPad, "login")
-		SameShown(RecruitingShown(ns2.Recruit, L), set, "after a login")
-		eq(ns2.Recruit.ShouldOfferWhisperRecruiting(), true, "the Census offer still asks")
-		ns2.UI.Toggle()
-		eq(ns2.UI.PageId(), "census/recruitment", "and opens with the window")
-		ns2.UI.Toggle()
+		SameShown(RecruitingShown(ns2.Recruit, L), off, "after a login")
+		eq(ns2.Recruit.AnnounceReminderMinutes(), 10, "the interval kept after a login")
 		NoErrors(C2, "the ads reminder after a login")
 		local C3, ns3 = NextSession(C2, initialPad, "reload")
-		SameShown(RecruitingShown(ns3.Recruit, L), set, "after a /reload")
+		eq(ns3.Recruit.AnnounceReminderMinutes(), 10, "and after a /reload")
+		RecruitClick(C3, ns3.Recruit, "recruit-whisper-toggle")
+		SameShown(RecruitingShown(ns3.Recruit, L), set, "recruiting on again: the interval and channels as left")
 		NoErrors(C3, "the ads reminder after a /reload")
 		-- 1.5.8's saved form: the interval alone, in a recruiting choice made then.
 		local guild = ns3.rdb.recruitAds[ns3.me].guild
