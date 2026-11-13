@@ -61,7 +61,9 @@ local function Scrub(text)
 		local joined = type(C.ChannelName) == "function" and C.ChannelName()
 		if type(joined) == "string" and joined:match("^" .. SEALED_SHAPE .. "$") then text = Without(text, joined, "(sealed channel)") end
 	end
-	for _, at in ipairs(SEALED_AFTER) do text = text:gsub(at .. SEALED_SHAPE .. "%f[^%w]", "%1(sealed channel)") end
+	-- (1.5.9's review) An older key's name with its lane digit after it too (a key rotated while this client
+	-- sat on lane 7 left "joining channel Oly...7" in the log): the frontier alone failed on the digit.
+	for _, at in ipairs(SEALED_AFTER) do text = text:gsub(at .. SEALED_SHAPE .. "%d?%f[^%w]", "%1(sealed channel)") end
 	return text
 end
 

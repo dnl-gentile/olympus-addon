@@ -328,3 +328,25 @@ test("1.5.9's review one channel on Forever: a line confirmed under the first-li
 		if not ok then error(err, 0) end
 	end
 end)
+
+-- 1.5.9's review (C4): /oly bug leaves out an older key's sealed name where Comm.lua writes a channel's
+-- name ("channel X", "joining channel X"), by its shape; a lane digit after it ("Oly...7", logged while
+-- the client sat on lane 7 when the King rotated the key) defeated the pattern, and the old name, which
+-- gives the old key back to anyone guessing keys offline, showed. Fails before (the lane-7 lines kept it).
+test("1.5.9's review /oly bug: an older key's sealed name with a lane digit after it never shows in the log lines; OlympusNet7 and a character's name stay", function()
+	local saved = { key = ns.rdb.realmKey, log = ns.db.log }
+	local ok, err = pcall(function()
+		ns.rdb.realmKey = "fixture-new-key"
+		local old = "Oly" .. ns.Comm.Hash36("fixture-old-key")
+		ns.db.log = { "joining channel " .. old .. "7 (sealed)", "channel " .. old .. "7 -> #6", "channel " .. old .. " -> #6",
+			"joining channel OlympusNet7", "whisper from Olyabcdefgh, a character" }
+		local recent = ns.RecentDiagnostics("")
+		assert(not recent:find(old, 1, true), "the older key's name never shows: " .. recent)
+		assert(recent:find("joining channel (sealed channel) (sealed)", 1, true), recent)
+		assert(recent:find("channel (sealed channel) -> #6", 1, true), recent)
+		assert(recent:find("joining channel OlympusNet7", 1, true), "the public lane's name stays: " .. recent)
+		assert(recent:find("Olyabcdefgh, a character", 1, true), "a name shaped alike elsewhere stays: " .. recent)
+	end)
+	ns.rdb.realmKey, ns.db.log = saved.key, saved.log
+	if not ok then error(err, 0) end
+end)
