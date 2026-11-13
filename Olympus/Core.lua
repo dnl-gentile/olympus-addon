@@ -3006,8 +3006,10 @@ local function Help()
 	if ns.Cover and ns.Cover.Eligible(ns.me) then print(L.HELP_CMD_COVER) end
 	if ns.Perf then print(L.HELP_CMD_PERF) end -- (1.2.1: the profiler, Perf.lua; a new file, so after a restart)
 	if not ns.Record.missing then print(L.HELP_CMD_RECORD) end -- (record mode, Record.lua: a new file, so after a restart)
-	print(L.HELP_CMD_KEY)
-	print(L.HELP_CMD_KEY_PUBLIC)
+	-- (1.5.9's review) On Forever a key seals no channel (Comm.ChannelSpec): what it does there instead.
+	local forever = type(ns.OnForever) == "function" and ns.OnForever() == true
+	print(forever and L.HELP_CMD_KEY_FOREVER or L.HELP_CMD_KEY)
+	print(forever and L.HELP_CMD_KEY_PUBLIC_FOREVER or L.HELP_CMD_KEY_PUBLIC)
 	print(L.HELP_MAINKEY)
 	if ns.Keys.CanRotate and ns.Keys.CanRotate() then print(L.HELP_KEY_ROTATE) end -- (1.1: the King's alone)
 	print(L.HELP_CMD_BLOCK)

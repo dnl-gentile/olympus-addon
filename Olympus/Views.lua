@@ -1435,6 +1435,9 @@ Views.RebuildLines = RebuildLines
 local function PublicLines(lines)
 	local C = ns.Comm
 	if not (C and C.IsPublic and C.IsPublic()) then return false end
+	-- (1.5.9's review) Not on Forever: every client sits on the public first lane there whatever the key
+	-- (Comm.ChannelSpec), so no key seals it, and the hellos that still say "sealed" are 1.5.8's.
+	if type(ns.OnForever) == "function" and ns.OnForever() == true then return false end
 	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
 	local officer = ns.Roster.IsOfficer()
 	local function tip(tt)

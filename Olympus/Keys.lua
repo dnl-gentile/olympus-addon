@@ -1,5 +1,8 @@
 local ADDON, ns = ...
 local L = ns.L
+-- (1.5.9) On WoW: Forever every client sits on its faction's public first lane, whatever key it holds
+-- (Comm.ChannelSpec): a key is kept there, and it moves nobody (1.5.9's review: what the player is told).
+local function Forever() return type(ns.OnForever) == "function" and ns.OnForever() == true end
 
 -- The King's key rotation (1.1, Fern's request #8, its second part): a leaked realm key (/oly key)
 -- shut without teaching everyone /oly key by hand. The King (his pinned character) or one of his
@@ -202,7 +205,8 @@ local function Take(key, at, quiet, retires)
 	stats.taken = stats.taken + 1
 	ns.Log("realm key: a key of epoch %d taken%s", at, changed and " (a new channel)" or "") -- (never the key)
 	if changed then
-		if not quiet then ns.Print(L.KEY_ROTATED_TAKEN) end
+		-- (1.5.9's review) On Forever every client stays on the public first lane: kept, no channel joined.
+		if not quiet then ns.Print(Forever() and L.KEY_ROTATED_TAKEN_FOREVER or L.KEY_ROTATED_TAKEN) end
 		ns.Comm.JoinChannel()
 	end
 	return true
@@ -327,7 +331,7 @@ local function TakeClear(at, quiet, retires)
 	stats.taken = stats.taken + 1
 	ns.Log("realm key: public-channel instruction of epoch %d taken", at)
 	if old ~= nil then
-		if not quiet then ns.Print(L.KEY_CLEARED_TAKEN) end
+		if not quiet then ns.Print(Forever() and L.KEY_CLEARED_TAKEN_FOREVER or L.KEY_CLEARED_TAKEN) end
 		ns.Comm.JoinChannel()
 	end
 	return true
@@ -374,7 +378,7 @@ function Keys.Clear()
 	local list = Hashes(type(e) == "table" and e.retires or nil, ValidKey(old) and Hash(old) or nil)
 	TakeClear(at, true, #list > 0 and table.concat(list, ".") or nil)
 	ns.Comm.Send("GUILD", ("K7~%d~%s"):format(at, #list > 0 and table.concat(list, ".") or ""), "key7")
-	ns.Print(L.KEY_CLEARED)
+	ns.Print(Forever() and L.KEY_CLEARED_FOREVER or L.KEY_CLEARED)
 	return true
 end
 
@@ -751,7 +755,7 @@ function Keys.Move()
 	rot.saw = nil -- (nothing is handed any more: what his /who saw goes)
 	Take(rot.key, rot.at, true, rot.retires)
 	ToGuild(rot.key, rot.at)
-	ns.Print(L.KEY_ROTATION_MOVED)
+	ns.Print(Forever() and L.KEY_ROTATION_MOVED_FOREVER or L.KEY_ROTATION_MOVED)
 	ns.King.Changed()
 	return true
 end
@@ -887,7 +891,7 @@ function Keys.StatusLine()
 	local retired = 0
 	for _ in pairs(type(ns.rdb and ns.rdb.keyRetired) == "table" and ns.rdb.keyRetired or {}) do retired = retired + 1 end
 	-- (1.5.9) On Forever a key held seals no channel: every client sits on the public first lane there.
-	local held = ns.rdb and ns.rdb.realmKey and (ns.OnForever and ns.OnForever() and "held (the public channel on Forever)" or "sealed")
+	local held = ns.rdb and ns.rdb.realmKey and (Forever() and "held (the public channel on Forever)" or "sealed")
 	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, keys replaced %d (their K1 ignored %d), whispered %d, acks %d, relayed %d"):format(
 		held or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
 		state, stats.taken, stats.refused, retired, stats.legacy, stats.whispered, stats.acks, stats.relayed)

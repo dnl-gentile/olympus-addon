@@ -180,7 +180,10 @@ test("1.5.9 one channel on Forever: /oly status says the key held, not sealing; 
 		assert(recent:find("relay: lane note (sealed channel) was #6", 1, true), recent)
 		local status = ns.StatusText()
 		assert(not status:find(sealed, 1, true), "nor in /oly status")
-		assert(status:find("channel sealed (key holders)", 1, true), "the privacy line still by the key: " .. status)
+		-- (1.5.9's review, C5: the line said "channel sealed (key holders)" beside "sealed=false". On Forever the
+		-- channel is the public one whatever the key: the line says so, and the key's one effect beside it.)
+		assert(status:find("channel public (anyone), key held: typed chat lines by the relay alone", 1, true),
+			"the privacy line: the public channel, the key held: " .. status)
 		-- The key's own line (Keys.lua, in a namespace of its own: its handlers stay off the shared Comm).
 		local kns = setmetatable({ rdb = { realmKey = "fixture-secret" }, OnForever = function() return true end,
 			Comm = { Handle = function() end, Hash36 = ns.Comm.Hash36 }, On = function() end, Every = function() end, After = function() end },
@@ -307,7 +310,7 @@ test("1.5.9's review one channel on Forever: a line confirmed under the first-li
 			local _, why = Chan.Send("A", "a line for key holders only")
 			eq(why, "confirm", label .. ": the warning shows")
 			local d = assert(dialogs[1], "a warning")
-			eq(d.audience, ns.L.CHANNEL_SEALED, label .. ": it names the key holders")
+			eq(d.audience, forever and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED, label .. ": it names the key holders")
 			-- What Keys.TakeClear does (K7): the key cleared, then JoinChannel.
 			cns.rdb.realmKey = nil
 			C.JoinChannel()
@@ -348,5 +351,68 @@ test("1.5.9's review /oly bug: an older key's sealed name with a lane digit afte
 		assert(recent:find("Olyabcdefgh, a character", 1, true), "a name shaped alike elsewhere stays: " .. recent)
 	end)
 	ns.rdb.realmKey, ns.db.log = saved.key, saved.log
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (C5, P3 and the 1.5.9 builder's open item): what a player is told of a realm key on
+-- Forever said it sealed the channel, joined a new one or returned the guild to the public one, none of
+-- which happens there any more (Comm.ChannelSpec). Each message says what happens instead, in every
+-- language (tests/locales-full.lua): the key kept, every guild on the public channel, a key holder's
+-- typed lines by the relays alone. Off Forever, the old messages. And the Census's public channel line
+-- ("seal it with the key"; guildmates "on the sealed channel", 1.5.8's hellos) is not shown on Forever.
+-- Fails before (the old messages on Forever).
+test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /oly help and the chat warning's audience say what a key does on Forever; off Forever as before; no sealing advice on the Census", function()
+	local L = ns.L
+	for _, forever in ipairs({ true, false }) do
+		local printed = {}
+		local label = forever and "on Forever" or "off Forever"
+		WithClient({ key = nil, lane = 0, forever = forever }, function(w)
+			w.cns.Print = function(msg) printed[#printed + 1] = msg end
+			w.cns.Roster.IsOfficer = function() return true end
+			w.cns.Keys = { Typed = function() end }
+			w.C.SetRealmKey("fixture-secret")
+			eq(printed[#printed], forever and L.KEY_SET_FOREVER or L.KEY_SET, label .. ": /oly key")
+			eq(w.C.Audience(), forever and L.CHANNEL_SEALED_FOREVER or L.CHANNEL_SEALED, label .. ": the chat warning's audience")
+			-- The Census's line for a public guild: never on Forever.
+			w.cns.rdb.realmKey = nil
+			w.cns.Roster.IsOfficer = function() return true end
+			local lines = {}
+			local saved = { comm = ns.Comm, forever = ns.OnForever, roster = ns.Roster.IsOfficer }
+			ns.Comm, ns.OnForever, ns.Roster.IsOfficer = w.C, function() return forever end, function() return true end
+			local okV, shown = pcall(ns.Views.PublicLines, lines)
+			ns.Comm, ns.OnForever, ns.Roster.IsOfficer = saved.comm, saved.forever, saved.roster
+			assert(okV, shown)
+			eq(shown, not forever, label .. ": the public channel line on the Census")
+		end)
+		-- Keys.lua in a namespace of its own (its handlers off the shared Comm).
+		local kns = setmetatable({ rdb = { realmKey = "fixture-old" }, OnForever = function() return forever end,
+			Print = function(msg) printed[#printed + 1] = msg end, IsMember = function() return true end,
+			Roster = setmetatable({ IsOfficer = function() return true end }, { __index = ns.Roster }),
+			Comm = { Handle = function() end, Hash36 = ns.Comm.Hash36, JoinChannel = function() end, Send = function() end },
+			Log = function() end, On = function() end, Every = function() end, After = function() end }, { __index = ns })
+		assert(loadfile(ADDON .. "Keys.lua"))("Olympus", kns)
+		eq(kns.Keys.Take("fixture-newer", 2000000000, false), true)
+		eq(printed[#printed], forever and L.KEY_ROTATED_TAKEN_FOREVER or L.KEY_ROTATED_TAKEN, label .. ": a new key taken")
+		eq(kns.Keys.TakeClear(2000000001, false), true)
+		eq(printed[#printed], forever and L.KEY_CLEARED_TAKEN_FOREVER or L.KEY_CLEARED_TAKEN, label .. ": a clear taken")
+		kns.rdb.realmKey = "fixture-again"
+		eq(kns.Keys.Clear(), true)
+		eq(printed[#printed], forever and L.KEY_CLEARED_FOREVER or L.KEY_CLEARED, label .. ": /oly key off")
+	end
+	-- /oly help's two key lines.
+	local saved = { forever = ns.OnForever, print = print }
+	local ok, err = pcall(function()
+		for _, forever in ipairs({ true, false }) do
+			local said = {}
+			ns.OnForever = function() return forever end
+			print = function(msg) said[#said + 1] = tostring(msg) end
+			pcall(SlashCmdList.OLYMPUS, "help")
+			print = saved.print
+			local all = table.concat(said, "\n")
+			assert(all:find(forever and L.HELP_CMD_KEY_FOREVER or L.HELP_CMD_KEY, 1, true), (forever and "on" or "off") .. " Forever: the key's help line")
+			assert(all:find(forever and L.HELP_CMD_KEY_PUBLIC_FOREVER or L.HELP_CMD_KEY_PUBLIC, 1, true), "and its off line")
+		end
+	end)
+	ns.OnForever, print = saved.forever, saved.print
 	if not ok then error(err, 0) end
 end)

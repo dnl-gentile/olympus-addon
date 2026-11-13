@@ -876,8 +876,10 @@ function ns.StatusText()
 		-- What leaves this client about where the player is, and who reads the channel (0.9.1). (1.5.9: by
 		-- the key, as the privacy questions say it, Comm.Audience: on Forever the channel joined is the
 		-- public one whatever the key, and a key holder's chat lines go by the relay alone, ChatHall.On.)
+		-- (1.5.9's review: on Forever, with a key, the public channel, the key's one effect said beside it.)
 		add("privacy: zone and layer %s  |  channel %s  |  chat warning accepted: %s",
-			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", (c.keyHeld or c.sealed) and "sealed (key holders)" or "public (anyone)",
+			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", c.sealed and "sealed (key holders)"
+				or (c.keyHeld and "public (anyone), key held: typed chat lines by the relay alone" or "public (anyone)"),
 			ch and ch.warned and #ch.warned > 0 and table.concat(ch.warned, ",") or "none")
 		if ns.Treasury and ns.Treasury.RealKeeper and ns.Treasury.RealKeeper() then
 			local v = ns.Treasury.Consent()

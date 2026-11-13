@@ -1804,9 +1804,11 @@ Comm.SEND_INTERVAL = SEND_INTERVAL -- (for the tests: tests/relay-tree-load.lua 
 function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
--- anyone without a realm key, whoever holds the key with one.
+-- anyone without a realm key, whoever holds the key with one. (1.5.9's review) On Forever, with a key,
+-- the public channel, where the player's lines never show as text (ChatHall.On): they go by the relays.
 function Comm.Audience()
-	return (ns.rdb and ns.rdb.realmKey) and ns.L.CHANNEL_SEALED or ns.L.CHANNEL_PUBLIC
+	if not (ns.rdb and ns.rdb.realmKey) then return ns.L.CHANNEL_PUBLIC end
+	return OneChannel() and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED
 end
 
 -- The channel is public (1.1): no realm key, so anyone who joins it by name reads what is sent
@@ -1848,7 +1850,8 @@ function Comm.SetRealmKey(secret)
 	-- before; the key it replaces named with it (a plain K1 of that one no longer pulls them back).
 	-- 1.4.0: that K8 alone; no plain K1, which every older version reads.
 	if ns.Keys.Typed then ns.Keys.Typed(secret, was) end
-	ns.Print(ns.L.KEY_SET)
+	-- (1.5.9's review) On Forever no channel is sealed: what the key does there instead (OneChannel).
+	ns.Print(OneChannel() and ns.L.KEY_SET_FOREVER or ns.L.KEY_SET)
 	Comm.JoinChannel()
 end
 
