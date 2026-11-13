@@ -15,7 +15,9 @@ local PUBLIC_ID, SEALED_ID, LANE_ID = 7, 6, 8
 
 -- A client with Comm and Relay loaded (names split, the relay on), holding o.key (or none) on o.lane,
 -- on Forever unless o.forever is false, joined to the channel its Comm names. The game already has the
--- public first lane, the key's sealed channel (first lane and lane 7) and the public lane 7 joined.
+-- public first lane, the key's sealed channel (first lane and lane 7) and the public lane 7 joined (with
+-- o.late the public first lane alone: a test joins the others later, in w.indexes, as the game does on a
+-- slow login). w.Event(name, ...) fires one of the game's events at the handlers Comm registered.
 local function WithClient(o, fn)
 	local saved = { channel = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName,
 		member = ns.IsMember, info = C_ChatInfo, say = rawget(_G, "SendChatMessage") }
@@ -43,8 +45,8 @@ local function WithClient(o, fn)
 		assert(loadfile(ADDON .. "Relay.lua"))("Olympus", cns)
 		cns.Relay.Reset()
 		local C = cns.Comm
-		local indexes, joined, left = { OlympusNet = PUBLIC_ID, OlympusNet7 = LANE_ID }, {}, {}
-		if o.key then indexes["Oly" .. C.Hash36(o.key)], indexes["Oly" .. C.Hash36(o.key) .. "7"] = SEALED_ID, SEALED_ID end
+		local indexes, joined, left = { OlympusNet = PUBLIC_ID, OlympusNet7 = (not o.late) and LANE_ID or nil }, {}, {}
+		if o.key and not o.late then indexes["Oly" .. C.Hash36(o.key)], indexes["Oly" .. C.Hash36(o.key) .. "7"] = SEALED_ID, SEALED_ID end
 		GetChannelName = function(name) return indexes[name] or 0, name end
 		JoinChannelByName = function(name) joined[#joined + 1] = name end
 		LeaveChannelByName = function(name) left[#left + 1] = name end
@@ -64,7 +66,8 @@ local function WithClient(o, fn)
 		end
 		fn({ C = C, cns = cns, sent = sent, said = said, joined = joined, left = left, indexes = indexes, Hello = Hello,
 			Native = function(localID, sender, text) Fire("CHANNEL", sender, text, localID) end,
-			Guild = function(sender, text) Fire("GUILD", sender, text) end })
+			Guild = function(sender, text) Fire("GUILD", sender, text) end,
+			Event = function(event, ...) for _, f in ipairs(events[event] or {}) do f(...) end end })
 	end)
 	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember, C_ChatInfo, SendChatMessage =
 		saved.channel, saved.join, saved.leave, saved.member, saved.info, saved.say
@@ -299,6 +302,56 @@ test("1.5.9 one channel on Forever: the sealed channel and the older lane still 
 			removed = {}
 			w.C.JoinChannel()
 			eq(removed.OlympusNet7, nil, "once a session")
+		end)
+	end)
+	NUM_CHAT_WINDOWS, ChatFrame_RemoveChannel, ChatFrame1, ChatFrame2 = saved.num, saved.remove, saved.f1, saved.f2
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (B3, from e57a1bba): JoinChannel put those channels off the chat windows at its first call
+-- and never looked again, yet on a slow login the game joins its remembered channels after ours (Comm.lua's
+-- CHANNEL_UI_UPDATE handler): the old sealed channel and lane 7 then stayed in the chat windows all session.
+-- Each goes off them once it is found joined: by JoinChannel, or in the session's first 180 s by a change of
+-- the channel list, once it settles; never left, and later changes are the player's. Fails before (those
+-- joined after ours were never put off the windows).
+test("1.5.9 one channel on Forever: the sealed channel and lane 7 the game joins after ours on a slow login still go off the chat windows, once each, in the session's first minutes; never left", function()
+	local saved = { num = NUM_CHAT_WINDOWS, remove = ChatFrame_RemoveChannel, f1 = rawget(_G, "ChatFrame1"), f2 = rawget(_G, "ChatFrame2") }
+	local removed = {}
+	local ok, err = pcall(function()
+		NUM_CHAT_WINDOWS, ChatFrame1, ChatFrame2 = 2, {}, {}
+		ChatFrame_RemoveChannel = function(frame, name) removed[name] = (removed[name] or 0) + 1 end
+		WithClient({ key = "fixture-secret", lane = 7, late = true }, function(w)
+			local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+			local timers = {}
+			w.cns.After = function(_, _, f) timers[#timers + 1] = f end
+			local function Settle()
+				local due = timers
+				timers = {}
+				for _, f in ipairs(due) do f() end
+			end
+			eq(removed.OlympusNet, 2, "ours off both windows, as ever")
+			eq(removed[sealed], nil, "the old sealed channel not joined yet")
+			-- 40 s in, the game joins its remembered channels: the old sealed channel, its lane 7, and OlympusNet7.
+			w.cns.clock = w.cns.clock + 40
+			w.indexes[sealed], w.indexes[sealed .. "7"], w.indexes.OlympusNet7 = SEALED_ID, SEALED_ID, LANE_ID
+			w.Event("CHANNEL_UI_UPDATE")
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed[sealed], 2, "the old sealed channel off both windows")
+			eq(removed[sealed .. "7"], 2, "and its lane 7")
+			eq(removed.OlympusNet7, 2, "and the older public lane")
+			-- Once each: another change of the list leaves them be.
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed[sealed], 2, "once a session")
+			eq(removed.OlympusNet7, 2, "once a session")
+			-- Past the session's first 180 s, one the game joins is the player's business.
+			w.cns.clock = w.cns.clock + 180
+			w.indexes.OlympusNet3 = 9
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed.OlympusNet3, nil, "later changes are the player's")
+			eq(#w.left, 0, "none of them left")
 		end)
 	end)
 	NUM_CHAT_WINDOWS, ChatFrame_RemoveChannel, ChatFrame1, ChatFrame2 = saved.num, saved.remove, saved.f1, saved.f2
