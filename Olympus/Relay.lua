@@ -2167,10 +2167,10 @@ end
 -- line every 35 s, 18 registrants without a census instead of 5; the King's presence reached 27 to 36 of
 -- 90, not 45 to 56). (Round 2 of the review) Another server's census (a look: QA, CX) has a turn of its own,
 -- one every GUILD_CENSUS_EVERY too: in one turn for both, a look said in the window took the snapshot's,
--- and the guild's census snapshot went stale past Data.FRESH at a peak (the offline harness, a look every
--- minute and a chat line every 45 s: 2 of the 10 snapshots by the lane, 569 s without one; a look every
--- 130 s and a line every 35 s, 1,037 s). A real relay says each origin's look about once in 30 minutes, in
--- two pieces: its turn costs little.
+-- and the guild's census snapshot went stale at a peak (the offline harness, a look every minute and a chat
+-- line every 45 s: 2 of the 10 snapshots by the lane, 569 s without one, 362 s with a turn of its own; the
+-- review's own measure saw 1,037 s, past Data.FRESH, with a look every 130 s and a line every 35 s). A real
+-- relay says each origin's look about once in 30 minutes, in two pieces: its turn costs little.
 Relay.GUILD_CENSUS_EVERY = 300
 local guildCensusAt = {} -- "snapshot" or "look" -> when that kind's last turn by the lane began
 local function GuildCensus(transfer, now)
