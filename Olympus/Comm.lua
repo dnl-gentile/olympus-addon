@@ -982,7 +982,8 @@ SyncGuild = function()
 	watch, lastKeyAsk, early = nil, nil, nil
 	crossedAt, lastBroadcast, lastAnswer = -math.huge, 0, -math.huge
 	Comm.isReporter, Comm.isRunnerUp, Comm.reporterName, Comm.lastReport = nil, nil, nil, nil
-	Comm.reporterVersion, Comm.registrantName, Comm.registrantVersion = nil, nil, nil
+	-- (1.5.9's review) isRegistrant too: kept, a member who moved guild showed "registrant=nil (me: true)".
+	Comm.isRegistrant, Comm.reporterVersion, Comm.registrantName, Comm.registrantVersion = nil, nil, nil, nil
 	guildChangedAt = ns.Now()
 	lastHello, Comm.lastKeyAnswer = 0, nil
 	askTries, heardAsk, askedAgain = 0, -math.huge, false
@@ -2046,6 +2047,10 @@ function Comm.MaybeBroadcast(report)
 	-- census answer (Q1) of ours says we are online.
 	if Comm.BankOnDuty() or Quiet() then
 		Comm.isReporter, Comm.isRunnerUp, Comm.isRegistrant, watch = false, false, false, nil
+		-- (1.5.9's review) Nor the registrant and the versions of the last election (/oly status alone reads
+		-- them): kept, a client that turned quiet presence on named itself registrant "(me: false)". The
+		-- reporter's name stays, as before (UI.lua reads it).
+		Comm.registrantName, Comm.registrantVersion, Comm.reporterVersion = nil, nil, nil
 		Comm.lastReport = report
 		return
 	end

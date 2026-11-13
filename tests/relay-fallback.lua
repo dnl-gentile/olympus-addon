@@ -49,6 +49,9 @@ local function World(fn)
 	-- opts.registrant: its guild's registrant (an elector); opts.census: Data.lua loaded.
 	function W.Node(name, guild, opts)
 		opts = opts or {}
+		-- (1.5.9's review) Its Comm loaded in its own guild: Comm keeps the guild it was loaded in, and the
+		-- first call under this node's guild was a guild change, which now clears isRegistrant (set below).
+		GetGuildInfo = function() return guild, "Member", 3 end
 		local c, deliver, sent, heard, pump = RelayWorld(name .. "-Realm", guild)
 		local n = { c = c, name = name, deliver = deliver, sent = sent, heard = heard, pump = pump, guild = guild,
 			chat = C_ChatInfo, cursor = 0, logs = {} }

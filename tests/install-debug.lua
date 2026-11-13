@@ -522,6 +522,46 @@ test("1.5.9 /oly bug: the guild's registrant beside its reporter, each with the 
 	if not ok then error(err, 0) end
 end)
 
+-- 1.5.9's review (D3): the registrant's fields and isRegistrant were reset in different places. Turned
+-- quiet (Private presence) after it was elected, a client still named itself registrant with "(me:
+-- false)"; moved to another guild, it said "registrant=nil (me: true)". Both reset together now. Fails
+-- before (the elected name kept under quiet presence; isRegistrant kept true after the move).
+test("1.5.9's review /oly bug: the registrant line under quiet presence names no registrant, and after a guild change nobody is registrant", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, info = C_ChatInfo, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		local report = { guild = "Olympus II", total = 1000, online = 300, zones = {} }
+		for _, case in ipairs({ "quiet", "moved" }) do
+			local cns, Deliver = extra.FreshComm()
+			cns.RelayTree = { Announce = function() return false end } -- (this client takes the tree: N)
+			local C = cns.Comm
+			C.loginAt = cns.clock - 1000
+			C.JoinChannel()
+			Deliver("GUILD", "Zzz Later-Realm", "H1~1.5.4~Realm~p~~~~R")
+			C.MaybeBroadcast(report)
+			eq(C.Stats().isRegistrant, true, case .. ": elected registrant")
+			eq(C.Stats().registrant, ns.DisplayName(cns.me), case)
+			if case == "quiet" then
+				cns.QuietPresence = function() return true end
+				cns.clock = cns.clock + 60
+				C.MaybeBroadcast(report)
+				eq(C.Stats().isRegistrant, false, "quiet: not the registrant")
+				eq(C.Stats().registrant, nil, "quiet: nor named as one")
+				eq(C.Stats().registrantVersion, nil); eq(C.Stats().reporterVersion, nil)
+			else
+				GetGuildInfo = function() return "Another Guild", "Member", 5, nil end
+				C.Hello(true) -- (the guild change seen first: SyncGuild)
+				eq(C.Stats().isRegistrant, nil, "moved: nobody is registrant until the next election")
+				eq(C.Stats().registrant, nil)
+				GetGuildInfo = saved.guild
+			end
+		end
+	end)
+	GetChannelName, ns.IsMember, C_ChatInfo, GetGuildInfo = saved.channel, saved.member, saved.info, saved.guild
+	if not ok then error(err, 0) end
+end)
+
 -- 1.5.9: on a relay's own client, /oly bug says what decides whether its registrants get the census,
 -- naming nobody: quiet presence (no snapshot of its own then), the drip's transfers waiting and the
 -- longest any of them, and any census one, waited, and how long ago its own last tree round was. Not on
