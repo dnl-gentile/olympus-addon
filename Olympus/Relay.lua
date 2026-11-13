@@ -1228,9 +1228,19 @@ end
 -- whisper in five minutes); and the census went ahead of an other one for as long as any census waited
 -- (the relay's own word in pieces: 0 of 90 registrants in an hour). So now the drip has a pace:
 --   * at most DRIP_PER_MIN whispers a minute (one batch at once, MAX_CHUNKS), urgent, so nothing pushes
---     a batch out of the queue once it is there; the rest of the relay's sends, some 140 a minute, are
---     for the chat lane (Relay.CHAT_PER_MIN), the King's words, the tree's digests, the trickle and the
---     relay's own single words;
+--     a batch out of the queue once it is there; the rest of the relay's 200 sends a minute are for the
+--     chat lane (Relay.CHAT_PER_MIN), the King's words, the tree's digests, the acks, the trickle and the
+--     relay's own single words. (Round 1's re-review: not some 140 for the chat lane, as this said. At a
+--     busy relay's peak, its own rounds, 90 registrants and a chat line every 35 s, the drip took its 60,
+--     the tree's digests, the acks, the King's presence and the guild's hand-ons some 30, and the chat
+--     lane kept some 110 a minute, under its own CHAT_PER_MIN of 160);
+--   * (round 1's re-review) a transfer not begun waits while the chat lane's oldest whisper has waited
+--     DRIP_CHAT_AGE (Relay.ChatOldest): with some 110 a minute, at a line every 40 s or faster the chat
+--     lane fell behind until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 never let happen (the
+--     same harness, 30 minutes: 132 chat whispers lost at a line every 40 s, 613 every 35 s, 1.5.8 none).
+--     With the wait none is lost, the slowest line 187 s; the census is slower instead, 5 of the 90
+--     registrants without one in 30 minutes at a line every 35 s, 4 at 40 s, none at 45 (the author's call:
+--     chat no worse than in 1.5.8);
 --   * past that pace, without paying, while nothing else waits (no chat whisper in the lane, no ordinary
 --     whisper in the queue, room for the batch): a relay with nothing else to send sends the census as
 --     fast as before. Such a first batch goes as an ordinary job, so a burst of ordinary whispers still
@@ -1254,6 +1264,7 @@ end
 Relay.DRIP_PER_MIN = 60
 Relay.DRIP_OTHER_SHARE = 0.25
 Relay.DRIP_ROOM_AFTER = 120
+Relay.DRIP_CHAT_AGE = 120
 local dripBucket = { at = -math.huge } -- tokens: whispers the drip may hand Comm now (DripTokens)
 local dripOwed = 0 -- whispers the other transfers are owed of their share (DRIP_OTHER_SHARE), one batch at most
 local function DripTokens(now)
@@ -1266,6 +1277,8 @@ local function DripTokens(now)
 end
 -- Whether the chat lane has no whisper waiting (those in flight are in Comm's queue already, ahead).
 local function ChatIdle() return not (type(Relay.ChatWaiting) == "function" and Relay.ChatWaiting() > 0) end
+-- Whether the chat lane's oldest whisper waiting has waited past DRIP_CHAT_AGE (Relay.ChatOldest).
+local function ChatBehind() return type(Relay.ChatOldest) == "function" and Relay.ChatOldest() > Relay.DRIP_CHAT_AGE end
 local function CensusTransfer(d) return d.census == true end
 -- Whether transfer d still goes: begun, or its receiver still one (a registrant here, a relay answering,
 -- a mesh peer for the relay's own census). Eligibility is pinned at the first queue handoff.
@@ -1283,6 +1296,7 @@ local function Turn(d, now, tokens)
 	local n = #d.batches[d.index]
 	local room = ns.Comm.QueueRoom()
 	if not d.pushed and ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
+	if not d.started and ChatBehind() then return nil end
 	local evicts = d.started or CensusTransfer(d) or d.look or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
 	if ns.Comm.QueueRoom(evicts == true) >= n and (d.started or tokens >= n) then return "paid" end
 	return nil
@@ -1955,6 +1969,12 @@ local function ChatTo(name, pieces, body, wire, guild, across)
 	FeedChat()
 end
 function Relay.ChatWaiting() return ChatWaiting() end -- (/oly status, tests)
+-- (1.5.9's review) How long the chat lane's oldest whisper still waiting has waited, 0 when none does:
+-- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn).
+function Relay.ChatOldest()
+	local e = chatQ[chatFirst]
+	return e and math.max(0, Now() - e.t) or 0
+end
 
 -- (1.5.4) The King's presence (T1~o, King.SendPresence: one piece from his signed character every
 -- King.PRESENCE_EVERY) goes to every reporter as the relay's own words do, ahead of the queue and keyed
