@@ -378,6 +378,44 @@ test("relay fan-out (1.5.9's review): a begun transfer's next batch goes under a
 	end)
 end)
 
+-- 1.5.9's review (the drip's pace): a first batch handed over past the pace goes as an ordinary job, and a
+-- burst pushes it out before it begins. It goes back within the pace, urgent, never past it again: past it
+-- again, a second burst could push it out once more, and after SET_WAIT the transfer was dropped. Fails
+-- without the rule (the snapshot pushed out goes back past the pace as soon as the queue is idle).
+test("relay fan-out (1.5.9's review): a census batch past the drip's pace that a burst pushed out goes back within the pace, urgent, so no later burst pushes it out", function()
+	Relayed(function(R, sent, Run)
+		local C = R.Comm
+		R.Relay.DRIP_PER_MIN = 0 -- (the pace's whispers for this test: the 34 of one batch, never more)
+		R.Relay.HandleIn("WHISPER", "Rep Alpha-CAMWOWUS2Realm7PvE", "RL~P~RR~Guild Alpha")
+		-- (A snapshot of some 29 whispers: the second cannot go within what the first left of the pace.)
+		local function Snapshot(k) return ("CG~2~S~%d~ForeverPvE~Alliance~"):format(k) .. ("Guild Row,640,40,300,%d;"):format(k):rep(255) end
+		-- The first snapshot within the pace (an ordinary whisper waiting): most of its whispers spent.
+		C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~waiting", nil, false, false)
+		local first = Snapshot(1)
+		for _, p in ipairs(R.Codec.Chunk(first, "81")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+		Run(60)
+		eq(C.QueueSize(), 0, "the first went")
+		eq(Assembled(R, sent, "Rep Alpha-")[first], 1)
+		-- The second, the queue idle: past the pace, an ordinary job; a burst pushes it out before it begins.
+		local second = Snapshot(2)
+		for _, p in ipairs(R.Codec.Chunk(second, "82")) do R.Relay.HandleIn("WHISPER", R.me, "RL~P~" .. p) end
+		local handed = C.QueueSize()
+		eq(handed > 20, true, "handed over past the pace, whole: " .. handed)
+		for i = 1, 40 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~burst " .. i, nil, false, false) end
+		Run(60) -- (the burst goes; the queue is idle again)
+		eq(C.QueueSize(), 0, "the burst went")
+		eq(Assembled(R, sent, "Rep Alpha-")[second], nil, "the snapshot pushed out waits for the pace, not past it")
+		eq(R.Relay.DripStats().waiting, 1)
+		-- Within the pace now: urgent, so a burst right after it is handed over pushes nothing of it out.
+		R.Relay.DRIP_PER_MIN = 60
+		R.clock = R.clock + 60
+		Run(1)
+		for i = 1, 40 do C.Whisper("Busy Target-CAMWOWUS2Realm7PvE", "X1~again " .. i, nil, false, false) end
+		Run(200)
+		eq(Assembled(R, sent, "Rep Alpha-")[second], 1, "the snapshot reaches the reporter whole")
+	end)
+end)
+
 -- 1.5.9's review (D2): Relay.DripStats counted the transfers waiting alone, so /oly bug showed nothing of
 -- a begun transfer stuck between its batches, the one that holds every other. It names the transfer in
 -- flight now, without a name: census or not, its batch of how many, and how long since that batch was

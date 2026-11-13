@@ -1258,8 +1258,9 @@ local dripBucket = { at = -math.huge } -- tokens: whispers the drip may hand Com
 local dripOwed = 0 -- whispers the other transfers are owed of their share (DRIP_OTHER_SHARE), one batch at most
 local function DripTokens(now)
 	local b, most = dripBucket, ns.Codec.MAX_CHUNKS
-	if b.tokens == nil then b.tokens = most end
-	if now > b.at then b.tokens = math.min(most, b.tokens + (now - b.at) * Relay.DRIP_PER_MIN / 60) end
+	-- (Full at the first turn: no refill from the beginning of time, which a pace of 0 made NaN.)
+	if b.tokens == nil or b.at == -math.huge then b.tokens, b.at = most, now end
+	if now > b.at then b.tokens = math.min(most, b.tokens + (now - b.at) * math.max(0, Relay.DRIP_PER_MIN) / 60) end
 	b.at = math.max(b.at, now)
 	return b.tokens
 end
@@ -1281,7 +1282,7 @@ end
 local function Turn(d, now, tokens)
 	local n = #d.batches[d.index]
 	local room = ns.Comm.QueueRoom()
-	if ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
+	if not d.pushed and ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
 	local evicts = d.started or CensusTransfer(d) or d.look or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
 	if ns.Comm.QueueRoom(evicts == true) >= n and (d.started or tokens >= n) then return "paid" end
 	return nil
@@ -1354,7 +1355,9 @@ local function Drip()
 						-- Comm never capacity-evicts a batch once it starts. Only an unsent
 						-- first batch may yield to a newer complete copy or expire on retry.
 						if d.index == 1 then
-							d.started = nil
+							-- (1.5.9's review) Pushed out, it goes back within the pace, urgent: past the pace
+							-- again, a second burst could push it out after SET_WAIT, and it was lost.
+							d.started, d.pushed = nil, true
 							for i = 2, #drip do
 								local w = drip[i]
 								if w.name == d.name and w.word == d.word then
