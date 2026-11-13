@@ -1085,3 +1085,43 @@ test("1.5.9 recruiting ranking: one account's characters share the outbox: the i
 	w:ReadLog(c.ivo)
 	eq(#w:Sent(c.ivo, "NE", "WHISPER", "w"), 0, "his own pairs once")
 end)
+
+-- Review of the 1.5.9 release (B3): a plain member drawn in a guild no keeper is in (most guilds) reported
+-- every pair to keepers that cannot vouch for him: each refused it, and it waited 7 days while his client
+-- whispered a signed Apostle every 2 minutes to find a keeper. Only a keeper of his own guild weighs his
+-- word, so he reports only where one is.
+test("1.5.9 recruiting ranking: a plain member drawn in a guild no keeper is in reports nothing, and his client looks for no keeper; in a keeper's guild he reports", function()
+	local THIRD = "Olympus Third"
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), tom = w:Client("Tom Third", { guild = THIRD }),
+		ann = w:Client("Ann Third", { guild = THIRD }), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	eq(w:As(c.tom, c.tom.RR.Reporter, "x:y", THIRD), nil, "no keeper in his guild")
+	eq(w:As(c.wes, c.wes.RR.Reporter, "x:y", World.GUILD), "drawn", "Aldric is in Wes's")
+	Recruit(w, THIRD, "Ann Third", "New Kid", 1)
+	w:ReadLog(c.tom)
+	w:Run(10)
+	eq(#w:Sent(c.tom, "NE", "WHISPER", "w"), 0, "nothing every keeper would refuse")
+	eq(Outbox(c.tom), 0)
+	-- The inviter's own report still goes: it is what a census-named officer's word needs beside it.
+	w:ReadLog(c.ann)
+	eq(#w:Sent(c.ann, "NE", "WHISPER", "w"), 2)
+	-- Every keeper away: Tom's client has nothing waiting, and looks for no keeper.
+	c.a1.online, c.a2.online = false, false
+	w:Run(c.tom.Church.KEEPER_EVERY * c.tom.Church.FRESH_FACTOR + 60)
+	local probes = 0
+	c.tom.Church.FindKeeper = function() probes = probes + 1 return false end
+	for _ = 1, 6 do
+		w:Run(c.tom.Church.PROBE_GAP + 1)
+		w:Tick({ c.tom })
+	end
+	eq(probes, 0)
+	-- Wes, in Aldric's guild, reports as before.
+	c.a1.online = true
+	w:Presence()
+	Recruit(w, World.GUILD, "Ivo Plain", "Ember Kid", 0)
+	w:ReadLog(c.wes)
+	eq(SentTo(w, c.wes, A1, "w"), 1)
+end)

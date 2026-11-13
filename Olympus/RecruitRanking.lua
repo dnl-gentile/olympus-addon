@@ -18,7 +18,8 @@ local L = ns.L
 -- - Who reports a pair: about two members of the guild and about two of its officers (RR.ELECT, a draw
 --   on their own name and the pair's, the same on every client: the census names officers, so a keeper
 --   in another guild can vouch for them), and always a keeper, a High Councillor or the guild's Church
---   correspondent. The inviter's own client reports every pair of his (review of 1.5.9: it reads its log
+--   correspondent. (Review of the 1.5.9 release: a member drawn reports only where a keeper is among his
+--   guildmates; no other keeper can vouch for him.) The inviter's own client reports every pair of his (review of 1.5.9: it reads its log
 --   as a Church person's does for OWN_READ_HOURS after it took an invite command to chat, and while a
 --   name another member passed it waits); his report names the member who passed him that player, if
 --   one did. The member who passed it says so himself when the name was taken (NE h, RecruitHandoff.lua).
@@ -278,7 +279,29 @@ local function OfficersOnline()
 	return max(1, n)
 end
 
+-- (Review of the 1.5.9 release) A keeper among this client's guildmates (its fresh roster, online or not;
+-- never the King's client, which keeps no ledger): the only keeper that weighs a plain member's word
+-- (ChurchCount.VerifiedWitness). Worked out once a roster.
+local keeperHere = { generation = nil, guild = nil, found = false }
+local function KeeperHere()
+	local R = ns.Roster
+	local fresh = R and R.Fresh and R.Fresh()
+	local guild = OwnGuild()
+	if not fresh or not guild or type(R.members) ~= "table" then return false end
+	if keeperHere.generation == R.generation and keeperHere.guild == guild and R.generation ~= nil then return keeperHere.found end
+	local found = false
+	for _, row in ipairs(R.members) do
+		local name = row.full or row.name
+		if type(name) == "string" and IsKeeper(name) then found = true break end
+	end
+	keeperHere.generation, keeperHere.guild, keeperHere.found = R.generation, guild, found
+	return found
+end
+
 -- Why this client reports a pair in its guild, or nil: one every keeper can vouch for, always; else drawn.
+-- (Review of the 1.5.9 release: a plain member drawn where no keeper is among his guildmates reported each
+-- pair to keepers that all refused it, and it waited 7 days while his client looked for a keeper every 2
+-- minutes. He reports only where a keeper of his guild can weigh his word.)
 local function Reporter(id, guild)
 	if Church.IsKing(ns.me) then return nil end
 	if IsKeeper(ns.me) then return "keeper" end
@@ -287,7 +310,10 @@ local function Reporter(id, guild)
 	if guild and S.corrOf[Key(ns.me) or ""] == ns.Fold(guild) then return "correspondent" end
 	local officer = ns.Roster and ns.Roster.IsOfficer and ns.Roster.IsOfficer() == true
 	local peers = officer and OfficersOnline() or max(1, (ns.Comm.PeerCount and ns.Comm.PeerCount()) or 1)
-	if RR.score(id, ns.me) < min(1, RR.ELECT / peers) then return officer and "officer" or "drawn" end
+	if RR.score(id, ns.me) < min(1, RR.ELECT / peers) then
+		if officer then return "officer" end
+		if KeeperHere() then return "drawn" end
+	end
 	return nil
 end
 RR.Reporter = Reporter
@@ -1713,6 +1739,7 @@ function RR.ResetForTests()
 	catch = { settled = false, last = -math.huge, asked = {}, seq = 0 }
 	wipe(served); wipe(serving); wipe(answersTo); wipe(asks); wipe(rates); wipe(owed); wipe(rechecked)
 	wipe(outq); wipe(answeredAll)
+	keeperHere = { generation = nil, guild = nil, found = false }
 	recheckedN, pumping = 0, false
 	owing, lastDue, lastKeeperDue, nextPrune = false, -math.huge, -math.huge, nil
 	stats.dropped = {}
