@@ -354,11 +354,44 @@ local function Writing(fn)
 	end)
 end
 
+-- (Review of the 1.5.9 release) The channel's text going with the hidden way (ChatHall.On), as on Forever
+-- with mouse and keyboard and the channel joined: the real ChatHall.lua, in a client of its own whose
+-- channel is joined, the game's SendChatMessage there (never called: the lane is the test's). fn gets
+-- Joined: Joined(false) leaves the channel, and a line goes the hidden way alone, as with the gamepad UI
+-- (tests/gamepad.lua). The box tells which. Put back after.
+local function WithChannelText(fn)
+	local savedHall, savedSay = ns.ChatHall, rawget(_G, "SendChatMessage")
+	local joined = true
+	local ok, err = pcall(function()
+		local cns = FreshComm()
+		cns.Comm.ChannelName = function() return "OlympusNet1" end
+		cns.Comm.ChannelIndex = function() return joined and 6 or 0 end
+		assert(loadfile(ADDON_DIR .. "ChatHall.lua"))("Olympus", cns)
+		ns.ChatHall = cns.ChatHall
+		SendChatMessage = function() end
+		assert(ns.ChatHall.On(), "the channel's text goes")
+		fn(function(on) joined = on end)
+	end)
+	ns.ChatHall, SendChatMessage = savedHall, savedSay
+	if not ok then error(err, 0) end
+end
+local function WritingInChannel(fn)
+	Writing(function(sent, old, Field)
+		WithChannelText(function(Joined) fn(sent, old, Field, Joined) end)
+	end)
+end
+local function RpPvpMasterInChannel(fn)
+	AsRpPvpMaster(function(...)
+		local args = { ... }
+		WithChannelText(function(Joined) fn(Joined, unpack(args)) end)
+	end)
+end
+
 -- The review of 1.5.9's first build: a line written under another family's ruleset went for that
 -- ruleset alone and reached none of its players with the gamepad UI (the hidden way keeps to its own
 -- family; only the channel's text crosses families), while our own family's clients hid it.
 test("chat rulesets (1.5.9): in the Chat tab's box under the character's own ruleset a line goes to it alone; under another ruleset or All to everyone, naming its writer's ruleset; the box says which; a 1.5.8 client reads the same line and id", function()
-	Writing(function(sent, old, Field)
+	WritingInChannel(function(sent, old, Field, Joined)
 		local kept = ns.rdb.chat
 		WithWindow(function(w)
 			ns.me, ns.rdb.chat = ME, kept
@@ -379,6 +412,14 @@ test("chat rulesets (1.5.9): in the Chat tab's box under the character's own rul
 			eq(ns.Codec.DecodeChat(Write("written under PvE")).to, nil, "under PvE: not for PvE alone")
 			eq(C.SendTo(), nil)
 			eq(hint(), L.CHATWIN_PLACEHOLDER_EVERY .. L.CHATWIN_PUBLIC, "the box says it goes to every ruleset")
+			-- (Review of the 1.5.9 release) The channel left (the gamepad UI likewise): a line goes the hidden way
+			-- alone, which keeps to our own family, so under PvE it reaches RP-PvP alone, and the box says so.
+			Joined(false)
+			Pick(f, L.CHATWIN_GROUP_RPPVP); Pick(f, L.CHATWIN_GROUP_PVE)
+			eq(hint(), L.CHATWIN_PLACEHOLDER_TO:format(L.CHATWIN_GROUP_RPPVP) .. L.CHATWIN_PUBLIC, "the box: RP-PvP alone without the channel")
+			Joined(true)
+			Pick(f, L.CHATWIN_GROUP_RPPVP); Pick(f, L.CHATWIN_GROUP_PVE)
+			eq(hint(), L.CHATWIN_PLACEHOLDER_EVERY .. L.CHATWIN_PUBLIC)
 			local field = Field(sent[#sent], "written under PvE")
 			assert(field and field:match("^08%d%d$"), "for everyone, by an RP-PvP player: " .. tostring(sent[#sent]))
 			eq(ns.Codec.DecodeChat(sent[#sent]).from, "rppvp")
@@ -555,7 +596,7 @@ test("chat rulesets (1.5.9): the box's words fit beside its label in the default
 		return lns.L
 	end
 	local function Letters(s) return select(2, s:gsub("[^\128-\191]", "")) end
-	AsRpPvpMaster(function()
+	RpPvpMasterInChannel(function()
 		local kept = ns.rdb.chat
 		WithWindow(function(w)
 			ns.me, ns.rdb.chat = ME, kept

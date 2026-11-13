@@ -2771,6 +2771,11 @@ local function DrawInput()
 		local plain = tier ~= "A" or room or logical
 		local to = not plain and C.SendTo() or nil
 		local every = not plain and not to and ns.splitNames and C.GroupView() ~= "all"
+		-- (Review of the 1.5.9 release) Without the channel's text (the gamepad UI, or the channel not
+		-- joined: ChatHall.On) a line goes the hidden way alone, which keeps to the writer's own family:
+		-- under another ruleset it reaches his own alone, and the box says so.
+		local mine = every and C.MyKind() or nil
+		if mine and not (ns.ChatHall and ns.ChatHall.On()) then to, every = mine, false end
 		hint = (to and L.CHATWIN_PLACEHOLDER_TO:format(L["CHATWIN_GROUP_" .. to:upper()])
 			or every and L.CHATWIN_PLACEHOLDER_EVERY
 			or L.CHATWIN_PLACEHOLDER:format(Label(tier))) .. (public and L.CHATWIN_PUBLIC or "")

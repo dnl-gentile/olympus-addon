@@ -3465,12 +3465,15 @@ test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed
 		C.Advance(1)
 		local handed, lane = {}, ns.Comm.SendChat
 		ns.Comm.SendChat = function(msg, ...) handed[#handed + 1] = msg; return lane(msg, ...) end
-		local function Write(text, view)
+		local function Write(text, view, pad)
 			eq(Chan.SetGroupView(view), true)
 			ns.ChatWindow.Render() -- (the picker's own click draws the tab again at once)
 			C.Advance(1)
 			local hint = f.input.hint:GetText() or ""
-			if view == "rppvp" then
+			-- (Changed on purpose, review of the 1.5.9 release: with the gamepad UI the line goes the hidden way
+			-- alone, which keeps to the writer's own family, so under another ruleset it reaches RP-PvP alone;
+			-- the box said "To every ruleset".)
+			if view == "rppvp" or pad then
 				eq(hint:find(ns.L.CHATWIN_PLACEHOLDER_TO:format(ns.L.CHATWIN_GROUP_RPPVP), 1, true), 1, "the box: for RP-PvP alone: " .. hint)
 			else
 				eq(hint:find(ns.L.CHATWIN_PLACEHOLDER_EVERY, 1, true), 1, "the box: for every ruleset: " .. hint)
@@ -3486,7 +3489,7 @@ test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed
 			return #(C.said or {}) - said, C.Since(m)
 		end
 		local function AsText(text, pad, view)
-			local said, ledger = Write(text, view)
+			local said, ledger = Write(text, view, pad)
 			if pad then
 				eq(said, 0, "with the gamepad UI: the hidden way alone")
 			else
