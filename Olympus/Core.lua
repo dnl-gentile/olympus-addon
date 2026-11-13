@@ -3325,7 +3325,8 @@ local function Slash(input)
 				elseif ns.Keys.CanRotate() then
 					ns.Keys.RotatePrompt()
 				else
-					ns.Print(L.KEY_ROTATE_ONLY_KING)
+					-- (1.5.9's review: on Forever without the officers' sealing of a channel, Keys.OnlyKingText.)
+					ns.Print(ns.Keys.OnlyKingText and ns.Keys.OnlyKingText() or L.KEY_ROTATE_ONLY_KING)
 				end
 			elseif rest:lower() == "off" or rest:lower() == "public" then
 				if ns.Keys.missing then ns.Print(L.RESTART_NEEDED) else ns.Keys.Clear() end

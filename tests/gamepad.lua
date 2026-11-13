@@ -5381,6 +5381,28 @@ test("gamepad player tooltip: verified ranks, secret values, preferences and com
 	Check(C.ledger, "player tooltip preferences"); NoErrors(C, "player tooltip preferences")
 end)
 
+-- 1.5.9's review (B3): on Forever an Olympus channel of an earlier session that the game joins after ours
+-- on a slow login goes off the chat windows in the session's first minutes (Comm.lua's CHANNEL_UI_UPDATE
+-- look, HideLeftovers). With the gamepad UI on from the login too: through the exempt channel integration
+-- alone, nothing else of the game's, and the channel is never left.
+test("gamepad Forever leftover channel: an older Olympus lane the game joins after ours goes off the chat windows with the gamepad UI on, by the exempt channel integration alone, never left", function()
+	local C, ns = Session(true, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end })
+	assert(ns.OnForever(), "the live Forever rules")
+	local ours = assert(ns.Comm.ChannelName(), "the public first lane joined at the login")
+	assert(C.channels[ours], ours .. " joined")
+	local mark, before = C.Mark(), C.removedChannels or 0
+	-- 30 s in, the game joins a remembered channel of an earlier session: lane 7 of the public one.
+	C.channels[ours .. "7"] = 40
+	C.Fire("CHANNEL_UI_UPDATE")
+	C.Advance(3)
+	assert((C.removedChannels or 0) > before, "off the chat windows")
+	assert(Ids(C.Since(mark))["chat-channels"], "by the channel integration")
+	OnlyAllowed(C.Since(mark), "the leftover channel's look")
+	NoErrors(C, "the leftover channel's look")
+	assert(C.channels[ours .. "7"], "never left")
+	GP.Covers("chat-channels")
+end)
+
 if MODE == "--discover" then
 	local C, ns = Boot({ discover = true, gamepad = arg and arg[2] == "gamepad" })
 	Login(C)

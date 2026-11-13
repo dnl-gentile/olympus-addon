@@ -83,7 +83,7 @@ local askTries = 0 -- census requests tried while the channel was not joined (Co
 local heardAsk = -math.huge -- someone else's census request last heard on our channel (Comm.AskCensus)
 local askedAgain = false    -- the second census request is on its way, or went (Comm.AskCensus)
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
-local leftoversHidden = false -- (1.5.9's review: Comm.JoinChannel, once a session on Forever)
+local leftoversHidden = {} -- (1.5.9's review: HideLeftovers) name -> true once put off the chat windows this session
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
 local Lane
@@ -1409,6 +1409,28 @@ local function HideChannelFromChat(name) -- gp:chat-channels
 	end
 end
 
+-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover: a later public
+-- lane, or the sealed channel the key held gives, any lane) are kept, for the census older clients still
+-- broadcast there, but off the chat windows again: a 1.5.8 key holder's chat line goes as text into the
+-- sealed one, and a window whose channel list was reset showed it raw. Never left: that would lose those
+-- clients' census. Each one once a session, when it is found joined: Comm.JoinChannel looks first, and
+-- (B3 of the review) as the game joins its remembered channels after ours on a slow login, a channel list
+-- change looks again in the session's first minutes (CHANNEL_UI_UPDATE, in the LOGIN handler below).
+local function HideLeftovers()
+	if not OneChannel() or not GetChannelName or not ns.IsMember() then return end
+	local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
+	local sealed = Comm.SealedBase()
+	for lane = 0, Comm.LANE_MAX do
+		local suffix = lane > 0 and tostring(lane) or ""
+		for _, there in ipairs({ lane > 0 and public and (public .. suffix) or false, sealed and (sealed .. suffix) or false }) do
+			if there and not leftoversHidden[there] and (GetChannelName(there) or 0) > 0 then
+				leftoversHidden[there] = true
+				HideChannelFromChat(there)
+			end
+		end
+	end
+end
+
 ---------------------------------------------------------------------------
 -- The channel's owner. Our hidden channel is an ordinary custom chat channel: the first
 -- player in owns it, and when the owner leaves WoW hands it (and a moderator's seat) to
@@ -1762,20 +1784,9 @@ function Comm.JoinChannel()
 	if joinedName ~= name then watch, laneRefused = nil, 0 end -- another channel: the election guard starts again
 	joinedName = name
 	-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover) are kept,
-	-- for the census older clients still broadcast there, but off the chat windows again, once a session:
-	-- a 1.5.8 key holder's chat line goes as text into the sealed one, and a window whose channel list was
-	-- reset showed it raw. Never left: that would lose those clients' census.
-	if OneChannel() and not leftoversHidden and GetChannelName then
-		leftoversHidden = true
-		local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
-		local sealed = Comm.SealedBase()
-		for lane = 0, Comm.LANE_MAX do
-			local suffix = lane > 0 and tostring(lane) or ""
-			for _, there in ipairs({ lane > 0 and public and (public .. suffix) or false, sealed and (sealed .. suffix) or false }) do
-				if there and (GetChannelName(there) or 0) > 0 then HideChannelFromChat(there) end
-			end
-		end
-	end
+	-- but off the chat windows again, each once a session (HideLeftovers; also on a channel list change in
+	-- the session's first minutes, as the game may join them after ours).
+	HideLeftovers()
 	local id = GetChannelName(name)
 	if id and id > 0 then
 		if channelIndex ~= id then ns.Log("channel %s is #%d", name, id) end
@@ -1811,7 +1822,9 @@ function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
 -- anyone without a realm key, whoever holds the key with one. (1.5.9's review) On Forever, with a key,
--- the public channel, where the player's lines never show as text (ChatHall.On): they go by the relays.
+-- the public channel, into which nothing of the player's goes (ChatHall.On is off, and every channel word
+-- goes by the relays there): what is for all guilds reaches them by the relays. Said for any message the
+-- questions send (zone, Board, groups, the privacy page, the Treasurer's share, chat).
 function Comm.Audience()
 	if not (ns.rdb and ns.rdb.realmKey) then return ns.L.CHANNEL_PUBLIC end
 	return OneChannel() and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED
@@ -2722,8 +2735,18 @@ ns.On("LOGIN", function()
 	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
 	-- moves behind them once the list settles.
 	-- Only in the minutes after we joined: later changes are the player's.
-	local lastPending = false
+	-- (1.5.9's review, B3) On Forever the game may join Olympus's channels of an earlier session then too
+	-- (HideLeftovers): each goes off the chat windows once the list settles, in the session's first 180 s,
+	-- however long ago ours was joined (Comm.JoinChannel looked once, maybe before they came).
+	local lastPending, leftoverPending = false, false
 	ns.RegisterEvent("CHANNEL_UI_UPDATE", function()
+		if OneChannel() and not leftoverPending and ns.Now() - (Comm.loginAt or 0) <= 180 then
+			leftoverPending = true
+			ns.After(2, "channel leftovers", function()
+				leftoverPending = false
+				HideLeftovers()
+			end)
+		end
 		if lastPending or ns.Now() - (Comm.joinedAt or 0) > 180 then return end
 		lastPending = true
 		ns.After(2, "channel last", function()

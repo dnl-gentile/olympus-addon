@@ -538,7 +538,9 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 On WoW: Forever (1.5.9) every client sits on the public "OlympusNet" whatever its key: there a key
 keeps your guild's typed lines out of it as text, and the relays carry them to every other guild,
-where anyone with the addon reads them; the grey public-channel line is not shown there.
+where anyone with the addon reads them. There the officers' grey line says that anyone who joins
+reads the guild's typed lines, its tooltip says what a key does instead of how to seal the
+channel, and no count of guildmates on a sealed channel shows.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 While your channel is public, officers see one quiet grey line saying so on the
 Census, the Realm and the Chat tab's settings (its tooltip says who can read it and how to seal
@@ -948,7 +950,10 @@ does not automatically appoint a group leader. Each Legate organizes an agreed g
   Throne says how many of those he whispered have it (an answer from anyone else is not
   counted), and of how many guilds (each counted for the guild his addon whispered him for,
   never the one his answer names). A guild with no officer online by then stays on the old channel
-  until one of its officers types the key by hand. The King or his Steward: never a Hand.
+  until one of its officers types the key by hand. On WoW: Forever (1.5.9) nobody moves channel:
+  every guild stays on the public channel, with the old key or the new, and either keeps its
+  holders' typed chat lines out of it (the Throne's tooltip and question say so there). The King
+  or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
   as ever, but never back to a key a newer one replaced (the leaked one). A 1.1 officer's own

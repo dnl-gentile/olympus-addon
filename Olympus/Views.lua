@@ -1432,22 +1432,25 @@ Views.RebuildLines = RebuildLines
 -- Olympus chats for the officers, who can seal it (its tooltip says what it means and how); the
 -- others see only whether guildmates are already on the sealed channel (their hellos say so), and
 -- /oly status. Nothing is sent, nothing changes.
+-- (1.5.9's review) On Forever every client sits on the public first lane whatever its key (Comm.ChannelSpec),
+-- and 1.5.5 and later send the census and the rest by the relays: what anyone in the channel reads there is
+-- the chat lines typed by guilds without a key (ChatHall.On) and older clients' census. The officer's line
+-- and its tooltip say so, and what a key does there; no advice to seal it, and no count of guildmates on
+-- the sealed channel (only 1.5.8's hellos still say "sealed").
 local function PublicLines(lines)
 	local C = ns.Comm
 	if not (C and C.IsPublic and C.IsPublic()) then return false end
-	-- (1.5.9's review) Not on Forever: every client sits on the public first lane there whatever the key
-	-- (Comm.ChannelSpec), so no key seals it, and the hellos that still say "sealed" are 1.5.8's.
-	if type(ns.OnForever) == "function" and ns.OnForever() == true then return false end
+	local forever = type(ns.OnForever) == "function" and ns.OnForever() == true
 	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
 	local officer = ns.Roster.IsOfficer()
 	local function tip(tt)
 		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.82, 0)
-		tt:AddLine(L.PUBLIC_NET_TIP:format(name), 1, 1, 1, true)
-		if officer then tt:AddLine(L.PUBLIC_NET_OFFICER, 0.75, 0.75, 0.75, true) end
+		tt:AddLine((forever and L.PUBLIC_NET_TIP_FOREVER or L.PUBLIC_NET_TIP):format(name), 1, 1, 1, true)
+		if officer and not forever then tt:AddLine(L.PUBLIC_NET_OFFICER, 0.75, 0.75, 0.75, true) end
 	end
 	local before = #lines
-	if officer then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET:format(name)), tooltip = tip } end
-	local sealed = C.SealedPeers and C.SealedPeers() or 0
+	if officer then lines[#lines + 1] = { text = Grey((forever and L.PUBLIC_NET_FOREVER or L.PUBLIC_NET):format(name)), tooltip = tip } end
+	local sealed = not forever and C.SealedPeers and C.SealedPeers() or 0
 	if sealed > 0 then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
 	if #lines == before then return false end
 	lines[#lines].gapAfter = true

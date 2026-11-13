@@ -15,7 +15,9 @@ local PUBLIC_ID, SEALED_ID, LANE_ID = 7, 6, 8
 
 -- A client with Comm and Relay loaded (names split, the relay on), holding o.key (or none) on o.lane,
 -- on Forever unless o.forever is false, joined to the channel its Comm names. The game already has the
--- public first lane, the key's sealed channel (first lane and lane 7) and the public lane 7 joined.
+-- public first lane, the key's sealed channel (first lane and lane 7) and the public lane 7 joined (with
+-- o.late the public first lane alone: a test joins the others later, in w.indexes, as the game does on a
+-- slow login). w.Event(name, ...) fires one of the game's events at the handlers Comm registered.
 local function WithClient(o, fn)
 	local saved = { channel = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName,
 		member = ns.IsMember, info = C_ChatInfo, say = rawget(_G, "SendChatMessage") }
@@ -43,8 +45,8 @@ local function WithClient(o, fn)
 		assert(loadfile(ADDON .. "Relay.lua"))("Olympus", cns)
 		cns.Relay.Reset()
 		local C = cns.Comm
-		local indexes, joined, left = { OlympusNet = PUBLIC_ID, OlympusNet7 = LANE_ID }, {}, {}
-		if o.key then indexes["Oly" .. C.Hash36(o.key)], indexes["Oly" .. C.Hash36(o.key) .. "7"] = SEALED_ID, SEALED_ID end
+		local indexes, joined, left = { OlympusNet = PUBLIC_ID, OlympusNet7 = (not o.late) and LANE_ID or nil }, {}, {}
+		if o.key and not o.late then indexes["Oly" .. C.Hash36(o.key)], indexes["Oly" .. C.Hash36(o.key) .. "7"] = SEALED_ID, SEALED_ID end
 		GetChannelName = function(name) return indexes[name] or 0, name end
 		JoinChannelByName = function(name) joined[#joined + 1] = name end
 		LeaveChannelByName = function(name) left[#left + 1] = name end
@@ -64,7 +66,8 @@ local function WithClient(o, fn)
 		end
 		fn({ C = C, cns = cns, sent = sent, said = said, joined = joined, left = left, indexes = indexes, Hello = Hello,
 			Native = function(localID, sender, text) Fire("CHANNEL", sender, text, localID) end,
-			Guild = function(sender, text) Fire("GUILD", sender, text) end })
+			Guild = function(sender, text) Fire("GUILD", sender, text) end,
+			Event = function(event, ...) for _, f in ipairs(events[event] or {}) do f(...) end end })
 	end)
 	GetChannelName, JoinChannelByName, LeaveChannelByName, ns.IsMember, C_ChatInfo, SendChatMessage =
 		saved.channel, saved.join, saved.leave, saved.member, saved.info, saved.say
@@ -74,6 +77,44 @@ end
 -- A census report (R2) of another guild, in the channel's pieces, as a client on 1.5.4 broadcasts it.
 local function ReportPieces(guild, id)
 	return ns.Codec.Chunk(ns.Codec.EncodeReport({ guild = guild, total = 980, online = 120, zones = {}, faction = "Alliance" }), id)
+end
+
+-- Every language's lines as a game in it loads them (the TOC's locale files, as tests/locales-full.lua
+-- loads them), each language once: [code] = its L.
+local languages
+local function Languages()
+	if languages then return languages end
+	languages = {}
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			for line in io.lines(ADDON .. "Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ADDON .. f:gsub("\\", "/")))("Olympus", lns) end
+			end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		languages[code] = lns.L
+	end
+	return languages
+end
+-- Each of `keys` in its own words in all seven languages: never the English line, with its format codes
+-- (a line whose codes differ stays English, ns.Locale), and no em dash in Russian.
+local function InEveryLanguage(keys)
+	local all = Languages()
+	for _, k in ipairs(keys) do
+		local en = all.enUS[k]
+		assert(type(en) == "string" and en ~= "", "English: " .. k)
+		for code, L in pairs(all) do
+			if code ~= "enUS" then
+				assert(type(L[k]) == "string" and L[k] ~= en, code .. " translates " .. k)
+				eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(en), code .. " " .. k .. ": its format codes")
+			end
+		end
+		assert(not all.ruRU[k]:find("\226\128\148", 1, true), "ruRU " .. k .. ": no em dash")
+	end
 end
 
 -- Fails before: the client sat on the key's sealed channel of lane 7 and dropped the report as another
@@ -271,6 +312,56 @@ test("1.5.9 one channel on Forever: the sealed channel and the older lane still 
 	if not ok then error(err, 0) end
 end)
 
+-- 1.5.9's review (B3, from e57a1bba): JoinChannel put those channels off the chat windows at its first call
+-- and never looked again, yet on a slow login the game joins its remembered channels after ours (Comm.lua's
+-- CHANNEL_UI_UPDATE handler): the old sealed channel and lane 7 then stayed in the chat windows all session.
+-- Each goes off them once it is found joined: by JoinChannel, or in the session's first 180 s by a change of
+-- the channel list, once it settles; never left, and later changes are the player's. Fails before (those
+-- joined after ours were never put off the windows).
+test("1.5.9 one channel on Forever: the sealed channel and lane 7 the game joins after ours on a slow login still go off the chat windows, once each, in the session's first minutes; never left", function()
+	local saved = { num = NUM_CHAT_WINDOWS, remove = ChatFrame_RemoveChannel, f1 = rawget(_G, "ChatFrame1"), f2 = rawget(_G, "ChatFrame2") }
+	local removed = {}
+	local ok, err = pcall(function()
+		NUM_CHAT_WINDOWS, ChatFrame1, ChatFrame2 = 2, {}, {}
+		ChatFrame_RemoveChannel = function(frame, name) removed[name] = (removed[name] or 0) + 1 end
+		WithClient({ key = "fixture-secret", lane = 7, late = true }, function(w)
+			local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+			local timers = {}
+			w.cns.After = function(_, _, f) timers[#timers + 1] = f end
+			local function Settle()
+				local due = timers
+				timers = {}
+				for _, f in ipairs(due) do f() end
+			end
+			eq(removed.OlympusNet, 2, "ours off both windows, as ever")
+			eq(removed[sealed], nil, "the old sealed channel not joined yet")
+			-- 40 s in, the game joins its remembered channels: the old sealed channel, its lane 7, and OlympusNet7.
+			w.cns.clock = w.cns.clock + 40
+			w.indexes[sealed], w.indexes[sealed .. "7"], w.indexes.OlympusNet7 = SEALED_ID, SEALED_ID, LANE_ID
+			w.Event("CHANNEL_UI_UPDATE")
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed[sealed], 2, "the old sealed channel off both windows")
+			eq(removed[sealed .. "7"], 2, "and its lane 7")
+			eq(removed.OlympusNet7, 2, "and the older public lane")
+			-- Once each: another change of the list leaves them be.
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed[sealed], 2, "once a session")
+			eq(removed.OlympusNet7, 2, "once a session")
+			-- Past the session's first 180 s, one the game joins is the player's business.
+			w.cns.clock = w.cns.clock + 180
+			w.indexes.OlympusNet3 = 9
+			w.Event("CHANNEL_UI_UPDATE")
+			Settle()
+			eq(removed.OlympusNet3, nil, "later changes are the player's")
+			eq(#w.left, 0, "none of them left")
+		end)
+	end)
+	NUM_CHAT_WINDOWS, ChatFrame_RemoveChannel, ChatFrame1, ChatFrame2 = saved.num, saved.remove, saved.f1, saved.f2
+	if not ok then error(err, 0) end
+end)
+
 -- 1.5.9's review (C3): the first line of a tier waits for the player's OK under a warning that names its
 -- audience (GitHub #34: a line written for one audience is never sent to another). The guard compared the
 -- channel's name alone; on Forever a key cleared while the warning is open (K7, Keys.TakeClear) keeps the
@@ -363,7 +454,7 @@ end)
 -- which happens there any more (Comm.ChannelSpec). Each message says what happens instead, in every
 -- language (tests/locales-full.lua): the key kept, every guild on the public channel, a key holder's
 -- typed lines by the relays alone. Off Forever, the old messages. And the Census's public channel line
--- ("seal it with the key"; guildmates "on the sealed channel", 1.5.8's hellos) is not shown on Forever.
+-- has no "seal it with the key" on Forever (since B1 of the review, its own words there: the next test).
 -- Fails before (the old messages on Forever).
 test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /oly help and the chat warning's audience say what a key does on Forever; off Forever as before; no sealing advice on the Census", function()
 	local L = ns.L
@@ -377,7 +468,8 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 			w.C.SetRealmKey("fixture-secret")
 			eq(printed[#printed], forever and L.KEY_SET_FOREVER or L.KEY_SET, label .. ": /oly key")
 			eq(w.C.Audience(), forever and L.CHANNEL_SEALED_FOREVER or L.CHANNEL_SEALED, label .. ": the chat warning's audience")
-			-- The Census's line for a public guild: never on Forever.
+			-- The Census's line for a public guild's officer: (changed on purpose, B1 of 1.5.9's review) on
+			-- Forever too, in its Forever words, without the advice to seal the channel.
 			w.cns.rdb.realmKey = nil
 			w.cns.Roster.IsOfficer = function() return true end
 			local lines = {}
@@ -386,7 +478,8 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 			local okV, shown = pcall(ns.Views.PublicLines, lines)
 			ns.Comm, ns.OnForever, ns.Roster.IsOfficer = saved.comm, saved.forever, saved.roster
 			assert(okV, shown)
-			eq(shown, not forever, label .. ": the public channel line on the Census")
+			eq(shown, true, label .. ": the public channel line on the Census")
+			assert(lines[1].text:find((forever and L.PUBLIC_NET_FOREVER or L.PUBLIC_NET):format("OlympusNet"), 1, true), label .. ": " .. lines[1].text)
 		end)
 		-- Keys.lua in a namespace of its own (its handlers off the shared Comm).
 		local kns = setmetatable({ rdb = { realmKey = "fixture-old" }, OnForever = function() return forever end,
@@ -419,4 +512,174 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 	end)
 	ns.OnForever, print = saved.forever, saved.print
 	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (B1, from eb2e95a9): the Census's public channel line was hidden on Forever whatever the
+-- key, so a key-less officer there no longer saw that his guild's typed chat lines go as plain text into
+-- the public channel (ChatHall.On), which is still so and the one thing a key still changes there. His
+-- line is back on Forever in words true there: anyone who joins reads the guild's typed chat lines; its
+-- tooltip, that 1.5.5 and later send the census by the relays, so what is read there is the typed lines of
+-- guilds without a key and older clients' census, and that a key (/oly key) keeps the guild's lines out of
+-- it, the relays carrying them to the other guilds. No advice to seal it and no count of guildmates "on
+-- the sealed channel" (1.5.8's hellos) there; a member sees nothing, a key holder nothing; off Forever as
+-- before. In all seven languages. Fails before (no line on Forever).
+test("1.5.9's review one channel on Forever: a key-less officer's Census line says anyone in the public channel reads his guild's typed chat lines, its tooltip what a key does there, in every language; no sealing advice or sealed count; off Forever as before", function()
+	local L = ns.L
+	for _, forever in ipairs({ true, false }) do
+		local label = forever and "on Forever" or "off Forever"
+		WithClient({ key = nil, lane = 0, forever = forever }, function(w)
+			-- Two guildmates whose hellos (1.5.8's) say they are on the sealed channel.
+			w.Guild("Old Sealer-Realm", "H1~1.5.8~Realm~s")
+			w.Guild("Other Sealer-Realm", "H1~1.5.8~Realm~s")
+			eq(w.C.SealedPeers(), 2, label .. ": their hellos heard")
+			local function Build(officer)
+				local lines = {}
+				local saved = { comm = ns.Comm, forever = ns.OnForever, officer = ns.Roster.IsOfficer }
+				ns.Comm, ns.OnForever, ns.Roster.IsOfficer = w.C, function() return forever end, function() return officer end
+				local ok, shown = pcall(ns.Views.PublicLines, lines)
+				ns.Comm, ns.OnForever, ns.Roster.IsOfficer = saved.comm, saved.forever, saved.officer
+				assert(ok, shown)
+				return shown, lines
+			end
+			local function Tip(line)
+				local tip = {}
+				line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+				return tip
+			end
+			local shown, lines = Build(true)
+			eq(shown, true, label .. ": an officer's line")
+			if forever then
+				eq(#lines, 1, "on Forever: the officer's line alone, no count of guildmates on a sealed channel")
+				assert(lines[1].text:find(L.PUBLIC_NET_FOREVER:format("OlympusNet"), 1, true), lines[1].text)
+				local tip = Tip(lines[1])
+				eq(#tip, 2, "its title and what it means, no advice to seal it")
+				eq(tip[1], L.PUBLIC_NET_TITLE)
+				eq(tip[2], L.PUBLIC_NET_TIP_FOREVER:format("OlympusNet"))
+				local memberShown, memberLines = Build(false)
+				eq(memberShown, false, "on Forever: nothing for a member")
+				eq(#memberLines, 0)
+			else
+				eq(#lines, 2, "off Forever: the officer's line and the guildmates on the sealed channel")
+				assert(lines[1].text:find(L.PUBLIC_NET:format("OlympusNet"), 1, true), lines[1].text)
+				assert(lines[2].text:find(L.PUBLIC_NET_SPLIT:format(2), 1, true), lines[2].text)
+				local tip = Tip(lines[1])
+				eq(tip[1], L.PUBLIC_NET_TITLE)
+				eq(tip[2], L.PUBLIC_NET_TIP:format("OlympusNet"))
+				eq(tip[3], L.PUBLIC_NET_OFFICER, "off Forever: how to seal it")
+				local memberShown, memberLines = Build(false)
+				eq(memberShown, true, "off Forever: a member sees the count")
+				eq(#memberLines, 1)
+			end
+			-- A key held: no line, on Forever or off it (there its typed lines stay out of the channel).
+			w.cns.rdb.realmKey = "fixture-secret"
+			eq((Build(true)), false, label .. ": an officer holding a key")
+		end)
+	end
+	-- The Forever words: the typed chat lines, the relays and what a key does there, never sealing.
+	assert(L.PUBLIC_NET_FOREVER:find("typed chat lines", 1, true), L.PUBLIC_NET_FOREVER)
+	assert(L.PUBLIC_NET_TIP_FOREVER:find("/oly key", 1, true) and L.PUBLIC_NET_TIP_FOREVER:find("relays", 1, true), L.PUBLIC_NET_TIP_FOREVER)
+	for _, k in ipairs({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" }) do assert(not L[k]:lower():find("seal", 1, true), k) end
+	InEveryLanguage({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" })
+end)
+
+-- 1.5.9's review (B2, from eb2e95a9): a key holder's audience text on Forever (CHANNEL_SEALED_FOREVER, from
+-- Comm.Audience) said "your lines never show in it as text", but it is also what the zone sharing question,
+-- the Board's flags and camps, the groups' listing and application, the privacy page and the Treasurer's
+-- share say of who reads what they send. It now fits any of them: what is sent to all guilds reaches them by
+-- the relays, where any of their players can read it, and nothing sent goes into the public channel they
+-- share (there ChatHall.On is off for a key holder, and every channel word goes by the relays). In all
+-- seven languages, none of which speaks of lines any more. Fails before (each language's word for lines).
+test("1.5.9's review one channel on Forever: a key holder's audience fits any message the privacy questions send (zone, Board, groups, privacy page, treasury, chat): to all guilds by the relays, nothing into the public channel; in every language", function()
+	local L = ns.L
+	WithClient({ key = "fixture-secret", lane = 0 }, function(w)
+		local audience = w.C.Audience()
+		eq(audience, L.CHANNEL_SEALED_FOREVER, "a key holder's audience on Forever")
+		-- The Board's flag and the privacy page carry it as they ask.
+		local saved = ns.Comm
+		ns.Comm = w.C
+		local ok, err = pcall(function()
+			assert(ns.Board.PrivacyText(nil):find(audience, 1, true), "the Board's flag")
+			assert(ns.Consent.Intro():find(audience, 1, true), "the privacy page")
+		end)
+		ns.Comm = saved
+		if not ok then error(err, 0) end
+	end)
+	assert(L.CHANNEL_SEALED_FOREVER:find("what you send to all guilds reaches them by the relays", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("nothing you send goes into the public Olympus channel", 1, true), L.CHANNEL_SEALED_FOREVER)
+	local LINES = { enUS = "lines", ptBR = "linhas", deDE = "Zeilen", esES = "líneas", frFR = "lignes", itIT = "righe", ruRU = "строки" }
+	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays", frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
+	for code, Lc in pairs(Languages()) do
+		local text = Lc.CHANNEL_SEALED_FOREVER
+		assert(not text:find(LINES[code], 1, true), code .. ": no lines in " .. text)
+		assert(text:find(RELAYS[code], 1, true), code .. ": the relays in " .. text)
+	end
+	InEveryLanguage({ "CHANNEL_SEALED_FOREVER" })
+end)
+
+-- 1.5.9's review (B4): the King's key rotation still promised channel moves on Forever: its tooltip on the
+-- Throne ("stays behind on the old channel"), its question ("move to it", "stays on the old channel") and
+-- the answer to anyone else ("Officers still seal their own guild's channel"), none of which happens there
+-- (Comm.ChannelSpec). On Forever each says what rotating does instead: nobody moves channel, the new key
+-- reaches the picked guilds the same way, and a key, old or new, keeps its holders' typed chat lines out of
+-- the public channel. Off Forever as before. In all seven languages. Keys.lua in a namespace of its own,
+-- /oly key rotate through the harness's Core with it. Fails before (the old texts and question on Forever).
+test("1.5.9's review one channel on Forever: the King's key rotation (the Throne's tooltip, its question, the answer to anyone else, /oly key rotate) says nobody moves channel there and what a key does; off Forever as before; in every language", function()
+	local L = ns.L
+	local savedDialogs = {}
+	for k, v in pairs(StaticPopupDialogs) do if tostring(k):find("^OLYMPUS_KEY_") then savedDialogs[k] = v end end
+	local ok, err = pcall(function()
+		for _, forever in ipairs({ true, false }) do
+			local label = forever and "on Forever" or "off Forever"
+			local printed, shown, author = {}, {}, false
+			local kns = setmetatable({ rdb = { realmKey = "fixture-old" }, OnForever = function() return forever end,
+				Print = function(msg) printed[#printed + 1] = msg end, IsMember = function() return true end,
+				ShowDialog = function(which, a) shown[#shown + 1] = { which = which, a = a } end,
+				Workshop = { IsAuthor = function() return author end }, ViewAs = false,
+				King = { IsKing = function() return false end, IsSteward = function() return false end, Preview = function() return false end,
+					Line = function(text, _, o) local l = o or {} l.text = text return l end, INK = {}, TITLE = {}, Para = function() end },
+				Comm = { Handle = function() end, Hash36 = ns.Comm.Hash36, JoinChannel = function() end, Send = function() end },
+				Log = function() end, On = function() end, Every = function() end, After = function() end }, { __index = ns })
+			assert(loadfile(ADDON .. "Keys.lua"))("Olympus", kns)
+			local K = kns.Keys
+			-- Anyone else: told so, and on Forever not that officers seal a channel.
+			eq(K.Rotate(), nil)
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": the answer to anyone else")
+			K.RotatePrompt()
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": and to his prompt")
+			eq(#shown, 0, label .. ": no question for him")
+			-- /oly key rotate typed by him: the harness's own Core, with this Keys.
+			local savedKeys, savedPrint = ns.Keys, ns.Print
+			ns.Keys, ns.Print = K, function(msg) printed[#printed + 1] = msg end
+			local okS, errS = pcall(SlashCmdList.OLYMPUS, "key rotate")
+			ns.Keys, ns.Print = savedKeys, savedPrint
+			assert(okS, errS)
+			eq(printed[#printed], forever and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING, label .. ": /oly key rotate")
+			-- The one who may rotate (here the author's own view): the Throne's tooltip, then the question.
+			author = true
+			local line
+			for _, l in ipairs(K.ThroneLines()) do if type(l.text) == "string" and l.text:find(L.KEY_ROTATE, 1, true) and l.tooltip then line = l end end
+			assert(line, label .. ": the Throne's rotate line")
+			local tip = {}
+			line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+			eq(tip[2], forever and L.KEY_ROTATE_TIP_FOREVER or L.KEY_ROTATE_TIP, label .. ": its tooltip")
+			K.RotatePrompt()
+			local which = forever and "OLYMPUS_KEY_ROTATE_FOREVER" or "OLYMPUS_KEY_ROTATE"
+			eq(shown[#shown] and shown[#shown].which, which, label .. ": the question")
+			eq(shown[#shown].a, tostring(math.ceil(K.GRACE / 60)), label .. ": with its minutes")
+			eq(StaticPopupDialogs[which].text, forever and L.KEY_ROTATE_CONFIRM_FOREVER or L.KEY_ROTATE_CONFIRM, label .. ": its words")
+			-- Its Yes starts the rotation, as the old question's does.
+			StaticPopupDialogs[which].OnAccept()
+			assert(K.Rotation() and K.Rotation().picking, label .. ": the rotation begun")
+		end
+	end)
+	for k in pairs(StaticPopupDialogs) do if tostring(k):find("^OLYMPUS_KEY_") then StaticPopupDialogs[k] = nil end end
+	for k, v in pairs(savedDialogs) do StaticPopupDialogs[k] = v end
+	if not ok then error(err, 0) end
+	-- The Forever words: nobody moves channel, the public channel, the typed chat lines; never a seal or an old channel.
+	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" }) do
+		assert(L[k]:find("typed chat lines", 1, true) and L[k]:find("public Olympus channel", 1, true), k)
+		assert(not L[k]:find("seal", 1, true) and not L[k]:find("old channel", 1, true), k)
+	end
+	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER" }) do assert(L[k]:find("nobody moves channel", 1, true), k) end
+	InEveryLanguage({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" })
 end)
