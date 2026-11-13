@@ -1013,6 +1013,10 @@ test("verify: the King's guild needs no verification; the gate switch off change
 		for _, c in ipairs({ king, hc, member }) do w.As(c, c.Verify.Login) end
 		w.now = T0 + GRACE + 12 * H -- (1.5.4: 12 hours past the 7-day grace, where 60 hours were 12 past 48)
 		eq(w.Status(member, "Olympus"), "exempt")
+		-- (1.5.9, the author's: "bota o checkzinho para ela") The King's guild wears the verified mark,
+		-- whoever its guild master is, with no approval held.
+		eq(w.As(member, member.Verify.Mark, "Olympus"), member.Verify.MARK_OK, "the King's guild shows verified")
+		eq(w.As(hc, hc.Verify.Mark, "Olympus"), hc.Verify.MARK_OK)
 		eq(w.As(king, king.Verify.Mine), nil, "the King is told nothing")
 		eq(w.As(king, king.Verify.Tick), false)
 		eq(#king.copies, 0)
@@ -1402,4 +1406,27 @@ test("verify: Brazilian Portuguese has every line, with the same codes as the En
 		eq(ns.LocaleCodes(pt[k]), ns.LocaleCodes(v), k .. "'s codes")
 	end
 	assert(n >= 60, "the lines")
+end)
+
+-- 1.5.9 (the author's report, 11-12: "a Olympus Prime aparece como não validada... bota o checkzinho
+-- para ela"): on Forever's Alliance the King's guild is <OLYMPUS PRIME> (ns.KING_GUILD_FOREVER), which
+-- needs no verification and wears the verified mark, whoever its guild master is.
+test("verify: on Forever the King's guild, OLYMPUS PRIME, is exempt and wears the verified mark", function()
+	local savedRealm, savedFaction = ns.realm, ns.faction
+	ns.realm, ns.faction = "CAMWOWUS2Realm1PvE", "Alliance"
+	local ok, err = pcall(function()
+		eq(ns.OnForever(), true)
+		eq(ns.IsKingGuild("OLYMPUS PRIME"), true, "the King's guild on Forever")
+		World(function(w)
+			local member = w.Client(MEMBER, "OLYMPUS PRIME", 3)
+			w.Census("OLYMPUS PRIME", "Some Leader", 900)
+			w.As(member, member.Verify.Login)
+			eq(w.Status(member, "OLYMPUS PRIME"), "exempt")
+			eq(w.As(member, member.Verify.Mark, "OLYMPUS PRIME"), member.Verify.MARK_OK, "the check mark")
+			w.Census("OLYMPUS PRIME", "Another Leader", 900)
+			eq(w.As(member, member.Verify.Mark, "OLYMPUS PRIME"), member.Verify.MARK_OK, "a new guild master changes nothing")
+		end)
+	end)
+	ns.realm, ns.faction = savedRealm, savedFaction
+	if not ok then error(err, 0) end
 end)
