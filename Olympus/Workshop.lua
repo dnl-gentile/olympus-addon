@@ -614,6 +614,66 @@ StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
 	preferredIndex = 3,
 }
 
+-- (1.5.9) His update notice to the outdated clients his relay serves. Clients still on 1.5.4 showed 3 to
+-- 8 thousand characters on every server while 1.5.8 showed 38 to 39 thousand (the reports of 11-12):
+-- their census trusts the Church's ledger relays alone. His presence (V4) tells a client behind the version he
+-- marked as out once a session in chat and at the foot of the Census; his update notice (V3, the window
+-- every version shows) went only where he clicked. Now his relay client gives it to each client it serves
+-- that presented an older version (Relay.Presentations: the version each named, PRESENT_FOR past its last
+-- word): naming the version he marked as out (/oly released; none marked, nobody asked: never one not
+-- published), once a character a day at most (ns.db.outdatedAsked, kept across his reloads), at most
+-- OUTDATED_PER_TICK each OUTDATED_TICK, never while his queue has fewer than OUTDATED_ROOM places free,
+-- never in quiet presence. On the other side the window shows once each UPDATE_GAP at most, and never
+-- to a player who said No to his roll calls and notices (Workshop.Notices). The modified builds' ask
+-- (Builds.Prompt) goes the same way.
+Workshop.OUTDATED_EVERY = 24 * 60 * 60
+Workshop.OUTDATED_TICK = 5 * 60
+Workshop.OUTDATED_PER_TICK = 5
+Workshop.OUTDATED_ROOM = 20
+Workshop.OUTDATED_KEPT = 2000 -- characters remembered as asked, at most
+local lastOutdated = -math.huge -- when the last notices left (a second ticker, a /reload's, waits its turn)
+function Workshop.AskServedOutdated(now)
+	now = now or ns.Now()
+	if not Workshop.IsAuthor() or (ns.QuietPresence and ns.QuietPresence()) then return 0 end
+	if now - lastOutdated < Workshop.OUTDATED_TICK - 10 then return 0 end
+	local released, R = Workshop.Released(), ns.Relay
+	if not released or type(R) ~= "table" or type(R.Presentations) ~= "function" or type(ns.db) ~= "table" then return 0 end
+	local asked = type(ns.db.outdatedAsked) == "table" and ns.db.outdatedAsked or {}
+	ns.db.outdatedAsked = asked
+	local kept = 0
+	for key, t in pairs(asked) do
+		if type(t) ~= "number" or now - t >= Workshop.OUTDATED_EVERY or t > now then asked[key] = nil else kept = kept + 1 end
+	end
+	local due = {}
+	for _, p in ipairs(R.Presentations(now) or {}) do
+		local key = type(p) == "table" and type(p.name) == "string" and p.name:lower()
+		if key and not asked[key] and Workshop.Newer(released, p.v) and not IsAuthorName(p.name) then due[#due + 1] = p end
+	end
+	-- The latest word first: the likeliest still online.
+	table.sort(due, function(a, b)
+		if (a.t or 0) ~= (b.t or 0) then return (a.t or 0) > (b.t or 0) end
+		return a.name < b.name
+	end)
+	local C = ns.Comm
+	local room = C and type(C.QueueRoom) == "function" and C.QueueRoom() or (Workshop.OUTDATED_ROOM + Workshop.OUTDATED_PER_TICK)
+	local budget = math.min(Workshop.OUTDATED_PER_TICK, room - Workshop.OUTDATED_ROOM, Workshop.OUTDATED_KEPT - kept)
+	local n = 0
+	for _, p in ipairs(due) do
+		if n >= budget then break end
+		-- (Gone offline since: the server's "No player named" kept out of his chat, as the relay's.)
+		if type(R.Quiet) == "function" then R.Quiet(p.name) end
+		if Workshop.AskUpdate(p.name, released) then
+			asked[p.name:lower()] = now
+			n = n + 1
+		end
+	end
+	if n > 0 then
+		lastOutdated = now
+		ns.Log("workshop: the author's update notice to %d outdated client(s) his relay serves (%s)", n, released)
+	end
+	return n
+end
+
 ---------------------------------------------------------------------------
 -- The author's presence, and bug reports to him
 ---------------------------------------------------------------------------
@@ -1683,6 +1743,7 @@ function Workshop.Reset()
 	Workshop.ResetVersion()
 	wipe(bugAsked); wipe(bugAwaited); wipe(waitingReports)
 	bugAsk, lastBugAskShown = nil, -math.huge
+	lastOutdated = -math.huge
 	if bugAskFrame then bugAskFrame:Hide() end
 	bugAskFrame = nil -- (the next one is made with the toolkit then in use)
 end
@@ -3039,6 +3100,8 @@ ns.On("LOGIN", function()
 	-- The author says he is online once on the channel, then every PRESENCE_EVERY.
 	ns.After(40, "author presence", Workshop.SendPresence)
 	ns.Every(Workshop.PRESENCE_EVERY, "author presence", Workshop.SendPresence)
+	-- (1.5.9: his update notice to the outdated clients his relay serves; nothing on any other client.)
+	ns.Every(Workshop.OUTDATED_TICK, "author update notices", function() Workshop.AskServedOutdated() end)
 end)
 -- Quiet presence turned off (Core.lua): his presence at once again, and a councillor's help notice.
 ns.On("QUIET_PRESENCE_CHANGED", function(on)

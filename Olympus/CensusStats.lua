@@ -416,6 +416,15 @@ function CS.ServerLines(lines, s, now)
 	-- (Each server's people as its reports give them, not this client's estimate: the servers' words,
 	-- never the plain count's beside a team client's ~ estimate.)
 	lines[#lines + 1] = Row(L.CENSUS_STATS_ALL_PEOPLE, White(L.CENSUS_STATS_APPROX:format(F(g.people))), L.CENSUS_STATS_SERVERS_TIP)
+	-- (1.5.9) The date of the oldest other server's look these totals count: a server's last look counts
+	-- until a newer one arrives (Data.lua's Lasting), so the totals can rest on an old one.
+	if tonumber(g.oldestOther) then
+		local text = L.CENSUS_STATS_SERVERS_AS_OF:format(date("%Y-%m-%d %H:%M", g.oldestOther))
+		lines[#lines + 1] = { text = Grey(text), indent = 1, tooltip = function(tt)
+			tt:AddLine(text, 1, 0.82, 0)
+			tt:AddLine(L.CENSUS_STATS_SERVERS_AS_OF_TIP, 1, 1, 1, true)
+		end }
+	end
 	local function Split(title, order, totals, label, field)
 		local any = 0
 		for _, key in ipairs(order) do if totals[key] then any = any + 1 end end

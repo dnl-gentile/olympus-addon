@@ -672,9 +672,12 @@ test("census author (1.5.8): another origin's accepted look keeps counting, date
 			people = 5400, guilds = 24, observed = H.clock - 3 * DAY, src = "author", by = AUTHOR, w = 1 } }
 		local resaid = tostring(H.Data.GroupCensusPayload())
 		assert(resaid:find("ForeverPvP,Alliance,5498,5400,24," .. (H.clock - 3 * DAY), 1, true), "the councillor re-says it: " .. resaid)
-		-- Past GROUP_KEEP (seven days) it is gone, as before: nothing older is listed or said.
+		-- (Changed on purpose in 1.5.9, the author, 11-12: "o que eu visualizar tem que ficar circulando lá"
+		-- and "ele deveria redistribuir esses dados enquanto não tivessem dados novos na rede". 1.5.8 dropped
+		-- the look here, past GROUP_KEEP: seven days.) It still counts, dated, until a newer one replaces it.
 		L.clock = L.clock + 8 * DAY
-		eq(PvP(L.Data.Groups()), nil, "a look older than GROUP_KEEP is dropped")
+		local late = assert(PvP(L.Data.Groups()), "a look older than GROUP_KEEP is kept")
+		eq(late.counted, true); eq(late.characters, 4100); eq(late.observed, L.clock - 8 * DAY - 60, "dated as observed")
 	end)
 end)
 
@@ -741,5 +744,415 @@ test("census author (1.5.8): a look naming a councillor's character counts only 
 		D.Relay.TakeVia("M", "Sage Ledger", COUNCIL_PVP, ("CX~3~S~%s~ForeverPvP~Alliance~5551,5400,29,%d~"):format(COUNCIL_PVP, D.clock - 900))
 		local row = assert(PvP(D.Data.Groups()))
 		eq(row.counted, true, "direct, as before"); eq(row.characters, 5551); eq(row.observed, D.clock - 900, "dated as observed")
+	end)
+end)
+
+-- 1.5.9 (the author, 11-12: "o que eu visualizar tem que ficar circulando lá" and "ele deveria redistribuir
+-- esses dados enquanto não tivessem dados novos na rede"). Fails before: a trusted look nobody refreshed
+-- left every store GROUP_KEEP (seven days) after it was taken, and no client took it from a holder then.
+test("census author (1.5.9): a trusted look lasts past GROUP_KEEP: kept, counted, dated and said again until a newer one replaces it; heard, witnessed and handed-over rows still go; a 1.5.4 client skips the old row alone", function()
+	World(function(Node)
+		local DAY = 86400
+		local T = 30 * DAY
+		local function Held(group, src, extra)
+			local e = { group = group, faction = "Alliance", characters = 5000, people = 4900, guilds = 20, observed = T - 10 * DAY,
+				src = src, by = "Some One-" .. PVE, w = src == "witnessed" and 2 or 1 }
+			for k, v in pairs(extra or {}) do e[k] = v end
+			return e
+		end
+		-- A listener took the author's PvP row and a councillor's RP row ten days ago; a witnessed row, a
+		-- guildmate's hand-over and a lone member's row as old.
+		local L = Node(LISTENER)
+		L.clock = T
+		L.db.groupCensus = { ["Alliance|ForeverPvP"] = Held("ForeverPvP", "author"), ["Alliance|ForeverRP"] = Held("ForeverRP", "relay"),
+			["Alliance|ForeverRPPvP"] = Held("ForeverRPPvP", "witnessed"), ["Alliance|ForeverHardcore"] = Held("ForeverHardcore", "author", { rg = true }) }
+		L.db.groupHeard = { ["Alliance|ForeverSeasonal"] = Held("ForeverSeasonal", "heard") }
+		-- Anything heard prunes the stores (PruneGroups).
+		L.Relay.TakeVia("M", "Sage Ledger", "Plain Member-" .. PVE, ("CX~1~S~%d~Oldrealm,Alliance,300,300,1,%d"):format(T, T - 60))
+		local g = L.Data.Groups()
+		local pvp = assert(PvP(g), "the author's row is kept past GROUP_KEEP")
+		eq(pvp.counted, true); eq(pvp.observed, T - 10 * DAY, "dated as it was observed"); eq(pvp.src, "author")
+		eq(assert(Row(g, "ForeverRP"), "a councillor's row too").counted, true)
+		eq(g.characters, 10000, "both in the all-server total")
+		for _, gone in ipairs({ "ForeverRPPvP", "ForeverHardcore", "ForeverSeasonal" }) do eq(Row(g, gone), nil, gone .. " goes after seven days") end
+		eq(L.db.groupCensus["Alliance|ForeverRPPvP"], nil, "the witnessed row left the store")
+		-- The author's client says its own row however old; a councillor re-says the author's.
+		local A = Node(AUTHOR)
+		A.clock = T
+		A.db.groupCensus = { ["Alliance|ForeverPvP"] = Held("ForeverPvP", "own") }
+		local own = ("ForeverPvP,Alliance,5000,4900,20,%d"):format(T - 10 * DAY)
+		assert(tostring(A.Data.GroupCensusPayload()):find(own, 1, true), "the author says his ten-day-old look")
+		local H = Node("Sage Warden-" .. PVE)
+		H.clock = T
+		H.db.groupCensus = { ["Alliance|ForeverPvP"] = Held("ForeverPvP", "author") }
+		local resaid = assert(H.Data.GroupCensusPayload(), "the councillor re-says it")
+		assert(resaid:find(own, 1, true), resaid)
+		-- A listener that had nothing takes it from a trusted holder, never from a member.
+		local word = ("CX~1~S~%d~%s;ForeverRP,Alliance,2100,2000,9,%d"):format(T, own, T - 600)
+		local N = Node(LISTENER)
+		N.clock = T
+		N.Relay.TakeVia("M", "Sage Ledger", AUTHOR, word)
+		local taken = assert(PvP(N.Data.Groups()), "taken from the author")
+		eq(taken.counted, true); eq(taken.observed, T - 10 * DAY)
+		local M = Node(LISTENER)
+		M.clock = T
+		M.Relay.TakeVia("M", "Sage Ledger", "Plain Member-" .. PVE, word)
+		eq(PvP(M.Data.Groups()), nil, "a member's old family row is not taken, not even as heard")
+		-- A 1.5.4 client takes the councillor's fresh row and skips the old one, the word still taken.
+		local O = Node("Old Listener-" .. PVE, { file = ROOT .. "tests/fixtures/data-1.5.4.lua" })
+		O.clock = T
+		eq(O.Data.ReceiveGroupCensus("CHANNEL", "Sage Warden-" .. PVE, word), true)
+		local og = O.Data.Groups()
+		eq(PvP(og), nil, "1.5.4 skips the row older than its GROUP_KEEP")
+		eq(assert(Row(og, "ForeverRP"), "and takes the fresh one").counted, true)
+		-- A newer accepted look of the origin replaces the lasting one.
+		N.clock = T + 60
+		N.Relay.TakeVia("M", "Sage Ledger", AUTHOR, ("CX~1~S~%d~ForeverPvP,Alliance,4200,4100,8,%d"):format(N.clock, N.clock - 30))
+		taken = assert(PvP(N.Data.Groups()))
+		eq(taken.characters, 4200, "replaced by the newer look"); eq(taken.observed, N.clock - 30)
+	end)
+end)
+
+-- 1.5.9. Fails before: the author's signed look (QA) and his own look left his client GROUP_KEEP after he
+-- took them (AttestPayload, PortableTrim), and every listener refused a signed look that old (ParseLook).
+test("census author (1.5.9): the author's signed look and his own look last past GROUP_KEEP: his client keeps saying them, a listener checks and counts the old signed one; a member's old unsigned look is refused", function()
+	World(function(Node, Frames)
+		local Ed = ns.Ed25519
+		local seed = string.rep("\23", 32)
+		local PK = Ed.ToB64(Ed.PublicKey(seed))
+		local DAY = 86400
+		local A = Node(AUTHOR_PVP .. "-" .. PVP, { pk = PK })
+		A.db.arenaKey = { seed = Ed.ToB64(seed), pk = PK, at = 1, claims = {} }
+		A.Debts = { Sign = function(msg) return Ed.Sign(seed, msg, Ed.PublicKey(seed)) end }
+		A.clock = 30 * DAY
+		local taken = A.clock
+		for i = 1, 30 do A.rdb.guilds["Olympus Pvp " .. i] = { total = 400 + i, online = 20, t = A.clock - 60, from = PVP } end
+		assert(A.Data.RecordGroupCensus())
+		-- Ten days later on his PvE character: nothing newer of PvP came.
+		A.me, A.group, A.realm, A.rdb.guilds = AUTHOR, "ForeverPvE", PVE, {}
+		A.clock = taken + 10 * DAY
+		local qa = assert(A.Data.AttestPayload(A.clock), "the signed look is still held")
+		local said = {}
+		A.Comm.SendChunked = function(payload) said[#said + 1] = payload return true end
+		eq(A.Data.SayGroupCensus(), true)
+		eq(said[1], qa, "and said")
+		local look = assert(A.Data.PortablePayload(A.clock, true), "his own look is still carried")
+		assert(look:match("^CX~3~S~" .. AUTHOR_PVP .. "%-" .. PVP .. "~ForeverPvP~"), look)
+		assert(tostring(A.Data.GroupCensusPayload()):find("ForeverPvP,Alliance,", 1, true), "and his own row said")
+		eq(assert(PvP(A.Data.Groups())).counted, true, "counted on his own page")
+		-- A listener checks the ten-day-old signed look a member carries: the author's, dated, its guilds left out.
+		local R = Node(LISTENER, { pk = PK })
+		R.clock = A.clock
+		Carry(R, "M", "Sage Ledger", "Plain Member-" .. PVE, qa, "47")
+		Frames()
+		local row = assert(PvP(R.Data.Groups()), "taken once checked")
+		eq(row.src, "author"); eq(row.counted, true); eq(row.observed, taken - 60, "dated as it was observed")
+		eq(R.Data.CensusStats().qa.verified, 1)
+		-- The same look carried by the author's own PvE character (a trusted hop) counts; a member's old
+		-- unsigned look is refused.
+		local S = Node(LISTENER)
+		S.clock = A.clock
+		S.Relay.TakeVia("M", "Sage Ledger", AUTHOR, look)
+		eq(assert(PvP(S.Data.Groups())).counted, true, "the author's own old look on a trusted hop")
+		local U = Node(LISTENER)
+		U.clock = A.clock
+		eq(U.Data.ReceivePortable("Plain Member-" .. PVE, look), false, "a member's copy of an old look")
+		eq(PvP(U.Data.Groups()), nil); eq(U.Data.CensusStats().last[1].why, "look")
+		-- A member's own old look is kept on his client, and counted on his page, but not said: nobody would take it.
+		local M = Node("Plain Member-" .. PVP)
+		M.clock = 30 * DAY
+		for i = 1, 5 do M.rdb.guilds["Olympus Pvp " .. i] = { total = 300 + i, online = 10, t = M.clock - 60, from = PVP } end
+		assert(M.Data.RecordGroupCensus())
+		M.me, M.group, M.realm, M.rdb.guilds = "Plain Member-" .. PVE, "ForeverPvE", PVE, {}
+		M.clock = M.clock + 10 * DAY
+		eq(M.Data.PortablePayload(M.clock, true), nil, "not said")
+		local kept = 0
+		for _, e in pairs(M.db.groupPortable) do if e.own then kept = kept + 1 end end
+		eq(kept, 1, "but kept")
+		eq(assert(PvP(M.Data.Groups())).counted, true, "his own look counts on his page")
+		-- Two looks of the author's own characters: one past GROUP_COUNT gives way to a newer one, however
+		-- few guilds that covers (it lasts now, and covering more guilds it took the turn for ever).
+		local B = Node(AUTHOR_PVP .. "-" .. PVP)
+		B.clock = 30 * DAY
+		for i = 1, 30 do B.rdb.guilds["Olympus Pvp " .. i] = { total = 400 + i, online = 20, t = B.clock - 60, from = PVP } end
+		assert(B.Data.RecordGroupCensus())
+		B.me, B.clock = "Quill Lancer-" .. PVP, B.clock + 9 * DAY
+		B.rdb.guilds = {}
+		for i = 1, 4 do B.rdb.guilds["Olympus Pvp " .. i] = { total = 400 + i, online = 20, t = B.clock - 60, from = PVP } end
+		assert(B.Data.RecordGroupCensus())
+		B.me, B.group, B.realm, B.rdb.guilds = AUTHOR, "ForeverPvE", PVE, {}
+		B.clock = B.clock + 3600
+		local carried = assert(B.Data.PortablePayload(B.clock, true))
+		assert(carried:match("^CX~3~S~Quill Lancer%-"), "the newer look is carried: " .. carried)
+		-- (The review of the census lane. Failed before: once both were past GROUP_COUNT the older look,
+		-- covering more guilds, took the turn again, eleven days older than his own CX 1 and QA.)
+		B.clock = B.clock + 3 * DAY
+		carried = assert(B.Data.PortablePayload(B.clock, false))
+		assert(carried:match("^CX~3~S~Quill Lancer%-"), "still the newer look three days later: " .. carried)
+	end)
+end)
+
+-- 1.5.9 (security). Fails before: the author's client holding no own look of an origin kept a member's
+-- forged look naming one of his characters and said it again under his name, where it counted as his
+-- (AuthorLook). And a trusted client said again a forged look naming its very character, where it counted
+-- as that client's own (direct): a councillor's, or any two members' as two witnesses.
+test("census author (1.5.9): no client keeps or says again a look naming its own character, nor the author's client one naming his, unless it took it or he signed it; a direct look from another family proves nothing", function()
+	World(function(Node, Frames)
+		local Ed = ns.Ed25519
+		local seed = string.rep("\29", 32)
+		local PK = Ed.ToB64(Ed.PublicKey(seed))
+		local DAY = 86400
+		local function Forged(observer, at) return ("CX~3~S~%s~ForeverPvP~Alliance~90000,90000,290,%d~"):format(observer, at) end
+		-- The author's PvE client, with no own look of PvP, hears a member's forged look naming his PvP character.
+		local A = Node(AUTHOR, { pk = PK })
+		A.clock = 30 * DAY
+		eq(A.Data.ReceivePortable("Plain Member-" .. PVE, Forged(AUTHOR_PVP .. "-" .. PVP, A.clock - 60)), true, "heard, no news")
+		eq(A.db.groupPortable and next(A.db.groupPortable), nil, "not kept")
+		eq(A.Data.PortablePayload(A.clock, true), nil, "never said again under his name")
+		eq(PvP(A.Data.Groups()), nil, "nor kept or shown")
+		-- One his account kept while on another character (or an older version kept): never said on his.
+		A.me = "Plain Alt-" .. PVE
+		assert(A.Data.ReceivePortable("Plain Member-" .. PVE, Forged("Quill Lancer-" .. PVP, A.clock - 30)))
+		eq(A.Data.PortablePayload(A.clock, false), Forged("Quill Lancer-" .. PVP, A.clock - 30), "(kept on the other character)")
+		A.me = AUTHOR
+		eq(A.Data.PortablePayload(A.clock, true), nil, "not said on his character")
+		-- Signed by him (QA): kept and carried, and it counts as his on a trusted hop.
+		local wire = ("CX~3~S~%s-%s~ForeverPvP~Alliance~13614,12900,30,%d~"):format(AUTHOR_PVP, PVP, A.clock - 20)
+		local qa = "QA~1~" .. Ed.ToB64(Ed.Sign(seed, "OLYQA1|" .. wire, Ed.PublicKey(seed))) .. "~" .. wire
+		Carry(A, "M", "Sage Ledger", "Plain Member-" .. PVE, qa, "48")
+		Frames()
+		eq(A.Data.PortablePayload(A.clock, true), wire, "his signed look is carried")
+		local L = Node(LISTENER)
+		L.clock = A.clock
+		L.Relay.TakeVia("M", "Sage Ledger", AUTHOR, wire)
+		eq(assert(PvP(L.Data.Groups())).src, "author")
+		-- A councillor's PvE client hears a forged look naming its very character: refused, never said again.
+		local H = Node("Sage Warden-" .. PVE)
+		H.clock = 30 * DAY
+		eq(H.Data.ReceivePortable("Plain Member-" .. PVE, Forged("Sage Warden-" .. PVE, H.clock - 60)), true)
+		eq(H.Data.PortablePayload(H.clock, true), nil, "never said again under its name")
+		eq(PvP(H.Data.Groups()), nil, "nor shown")
+		-- An older councillor's client said it anyway: from a character of another family, no direct look.
+		local D = Node(LISTENER)
+		D.clock = 30 * DAY
+		D.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, Forged("Sage Warden-" .. PVE, D.clock - 60))
+		local row = assert(PvP(D.Data.Groups()))
+		eq(row.counted, false, "not the councillor's own look"); eq(row.src, "heard")
+		-- Two members each saying a forged look naming themselves are no two witnesses.
+		local W = Node(LISTENER)
+		W.clock = 30 * DAY
+		W.Relay.TakeVia("M", "Sage Ledger", "Plain Member-" .. PVE, Forged("Plain Member-" .. PVE, W.clock - 60))
+		W.Relay.TakeVia("M", "Sage Ledger", "Second Member-" .. PVE, Forged("Second Member-" .. PVE, W.clock - 50))
+		eq(assert(PvP(W.Data.Groups())).counted, false, "no witnessed row")
+		-- A councillor's PvP character saying its own PvP look is direct, as before.
+		local C = Node(LISTENER)
+		C.clock = 30 * DAY
+		C.Relay.TakeVia("M", "Sage Ledger", "Sage Ledger-" .. PVP, ("CX~3~S~Sage Ledger-%s~ForeverPvP~Alliance~5551,5400,29,%d~"):format(PVP, C.clock - 900))
+		eq(assert(PvP(C.Data.Groups())).counted, true, "direct from its own family")
+	end)
+end)
+
+-- 1.5.9. Fails before: Data.Groups named no date for the other servers' looks its totals counted, which
+-- since 1.5.9 can be days old (the census page's "Other servers as of").
+test("census author (1.5.9): Data.Groups names the oldest other server's look its totals count (oldestOther), never our live count nor an uncounted row", function()
+	World(function(Node)
+		local DAY = 86400
+		local L = Node(LISTENER)
+		L.clock = 30 * DAY
+		local T = L.clock
+		L.Data.SetLocal({ guild = "Olympus II", total = 90, online = 9, zones = {} })
+		local function Held(group, src, age)
+			return { group = group, faction = "Alliance", characters = 500, people = 490, guilds = 5, observed = T - age,
+				src = src, by = "Some One-" .. PVE, w = 1 }
+		end
+		L.db.groupCensus = { ["Alliance|ForeverPvP"] = Held("ForeverPvP", "author", 9 * DAY), ["Alliance|ForeverRP"] = Held("ForeverRP", "relay", 3600) }
+		L.db.groupHeard = { ["Alliance|ForeverHardcore"] = Held("ForeverHardcore", "heard", 20 * 3600) }
+		local g = L.Data.Groups()
+		assert(g.characters > 1000, "ours and both others counted")
+		eq(g.oldestOther, T - 9 * DAY, "the oldest other look counted")
+		L.db.groupCensus["Alliance|ForeverPvP"] = nil
+		eq(L.Data.Groups().oldestOther, T - 3600, "the uncounted heard row is no part of it")
+		L.db.groupCensus = {}
+		g = L.Data.Groups()
+		assert(g.characters >= 90, "our live count alone")
+		eq(g.oldestOther, nil, "none while no other server counts")
+	end)
+end)
+
+-- 1.5.9 (the review of the census lane). Most members hear the census in a guildmate's hand-over (RG),
+-- whose origin is his word: it counts GROUP_COUNT alone. Fails before: such a row, or two members' looks
+-- agreeing, went over a lasting row and took it along when it left: a look past GROUP_KEEP at once (the
+-- author's client carries his own that old), a newer one uncounted from its third day and gone after
+-- seven, and the family's row was missing from the member's census.
+test("census author (1.5.9): a hand-over or a witnessed row never wipes a lasting row: an old look in a hand-over is refused, a newer row counts while it can, then the lasting row is back", function()
+	World(function(Node)
+		local DAY = 86400
+		local T = 40 * DAY
+		local function Holding(N)
+			N.clock = T
+			N.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 5000, people = 4900,
+				guilds = 20, observed = T - 20 * DAY, src = "author", by = AUTHOR, w = 1 } }
+			return N
+		end
+		local function Look(at, n) return ("CX~3~S~%s-%s~ForeverPvP~Alliance~%d,%d,22,%d~"):format(AUTHOR_PVP, PVP, n, n - 100, at) end
+		local function Lasted(N, what)
+			local row = assert(PvP(N.Data.Groups()), what)
+			eq(row.characters, 5000, what); eq(row.counted, true, what); eq(row.observed, T - 20 * DAY, what); eq(row.src, "author", what)
+		end
+		-- The author's own ten-day-old look, which his client carries, handed over by a guildmate: refused.
+		local L = Holding(Node(LISTENER))
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 10 * DAY, 6000))
+		Lasted(L, "an old look in a hand-over leaves the lasting row")
+		eq((L.Data.CensusStats().last[1] or {}).why, "look", "refused")
+		-- On a relay's hop it is proven: it replaces the lasting row, as before.
+		local R = Holding(Node(LISTENER))
+		R.Relay.TakeVia("M", "Sage Ledger", AUTHOR, Look(T - 10 * DAY, 6000))
+		eq(assert(PvP(R.Data.Groups())).characters, 6000)
+		-- A three-day-old one in a hand-over would not count: it goes over nothing.
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 3 * DAY, 6100))
+		Lasted(L, "a hand-over that would not count")
+		-- A fresh one counts while it can (GROUP_COUNT), then the lasting row is back as it was observed.
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 60, 6200))
+		local row = assert(PvP(L.Data.Groups()))
+		eq(row.characters, 6200); eq(row.counted, true)
+		L.clock = T + 3 * DAY
+		Lasted(L, "back once the hand-over counts no more")
+		L.clock = T + 10 * DAY
+		Lasted(L, "and kept")
+		-- A councillor's row (CX 1) in a hand-over likewise.
+		local C = Holding(Node(LISTENER))
+		C.Relay.TakeVia("G", "Guild Mate-" .. PVE, "Sage Warden-" .. PVE, ("CX~1~S~%d~ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 600))
+		row = assert(PvP(C.Data.Groups()))
+		eq(row.characters, 5551); eq(row.counted, true); eq(row.src, "relay")
+		C.clock = T + 3 * DAY
+		Lasted(C, "back once the councillor's hand-over counts no more")
+		-- Two members' looks agreeing (a witnessed row) likewise.
+		local W = Holding(Node(LISTENER))
+		W.Relay.TakeVia("M", "Sage Ledger", "Pvp Member-" .. PVP, ("CX~3~S~Pvp Member-%s~ForeverPvP~Alliance~7000,6900,25,%d~"):format(PVP, T - 120))
+		W.Relay.TakeVia("M", "Sage Ledger", "Pvp Second-" .. PVP, ("CX~3~S~Pvp Second-%s~ForeverPvP~Alliance~7010,6910,25,%d~"):format(PVP, T - 100))
+		row = assert(PvP(W.Data.Groups()))
+		eq(row.src, "witnessed"); eq(row.characters, 7010); eq(row.counted, true)
+		W.clock = T + 3 * DAY
+		Lasted(W, "back once the witnessed row counts no more")
+		-- A newer proven look replaces both for good.
+		W.Relay.TakeVia("M", "Sage Ledger", AUTHOR, Look(W.clock - 60, 7100))
+		W.clock = W.clock + 10 * DAY
+		row = assert(PvP(W.Data.Groups()))
+		eq(row.characters, 7100); eq(row.counted, true); eq(row.src, "author")
+	end)
+end)
+
+-- 1.5.9 (the review of the census lane, security). Fails before: a group that is no Forever family is
+-- free text, and since 1.5.9 a trusted sender's row lasted: two members' agreeing rows of an invented
+-- server, said again by a councillor in his next session, counted for good everywhere.
+test("census author (1.5.9): only a Forever family's row lasts: an invented server's row from a trusted client goes after seven days, an older one is refused, and so is its look", function()
+	World(function(Node)
+		local Ed = ns.Ed25519
+		local DAY = 86400
+		local T = 40 * DAY
+		local function Fake(g) return Row(g, "Fakeville") end
+		-- A councillor says an invented server's row with the PvP one: a listener counts both for now.
+		local L = Node(LISTENER)
+		L.clock = T
+		L.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE,
+			("CX~1~S~%d~Fakeville,Alliance,90100,90100,290,%d;ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 100, T - 100))
+		eq(assert(Fake(L.Data.Groups())).counted, true)
+		L.clock = T + 8 * DAY
+		eq(Fake(L.Data.Groups()), nil, "gone after seven days, as before 1.5.9")
+		eq(L.Data.Groups().characters, 5551, "out of the totals")
+		eq(assert(PvP(L.Data.Groups())).counted, true, "the family's row lasts")
+		-- Older than seven days from a trusted sender: not taken; the family's row in the same word is.
+		local O = Node(LISTENER)
+		O.clock = T
+		O.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE,
+			("CX~1~S~%d~Fakeville,Alliance,90100,90100,290,%d;ForeverRP,Alliance,2100,2000,9,%d"):format(T, T - 8 * DAY, T - 8 * DAY))
+		eq(Fake(O.Data.Groups()), nil, "an old invented row is not taken")
+		eq(assert(Row(O.Data.Groups(), "ForeverRP")).counted, true)
+		-- Its look (CX 3) that old is refused, even from its trusted observer.
+		local P = Node(LISTENER)
+		P.clock = T
+		eq(P.Data.ReceivePortable("Sage Warden-" .. PVE, ("CX~3~S~Sage Warden-%s~Fakeville~Alliance~90100,90100,290,%d~"):format(PVE, T - 8 * DAY)), false)
+		eq(Fake(P.Data.Groups()), nil)
+		-- A signed look of one held that old is no longer said.
+		local PK = Ed.ToB64(Ed.PublicKey(string.rep("\37", 32)))
+		local A = Node(AUTHOR, { pk = PK })
+		A.clock = T
+		local wire = ("CX~3~S~%s~Fakeville~Alliance~90100,90100,290,%d~"):format(AUTHOR, T - 8 * DAY)
+		A.db.groupAttest = { ["Alliance|Fakeville"] = { group = "Fakeville", faction = "Alliance", observed = T - 8 * DAY, wire = wire,
+			text = "QA~1~" .. string.rep("A", 86) .. "~" .. wire } }
+		eq(A.Data.AttestPayload(T), nil, "not said")
+		eq(A.db.groupAttest["Alliance|Fakeville"], nil, "dropped")
+	end)
+end)
+
+-- 1.5.9 (the author, 11-12: "o que eu visualizar tem que ficar circulando lá" and "ele deveria redistribuir
+-- esses dados enquanto não tivessem dados novos na rede"; the review of the census lane). The relay serves
+-- one member of each guild; the rest hear the census in his hand-over (RG), which proves no origin. Fails
+-- before: the author's key signed his own looks alone, so a councillor's row his client counted reached
+-- them counting two days and left after seven; and a member holding its hand-over kept that over the
+-- proven copy of the same look (another source).
+test("census author (1.5.9): the author's key signs the trusted rows his client holds, a councillor's among them; a member who hears them in a hand-over counts them as his and keeps them", function()
+	World(function(Node, Frames)
+		local Ed = ns.Ed25519
+		local seed = string.rep("\31", 32)
+		local PK = Ed.ToB64(Ed.PublicKey(seed))
+		local DAY = 86400
+		local T = 30 * DAY
+		local A = Node(AUTHOR, { pk = PK })
+		A.db.arenaKey = { seed = Ed.ToB64(seed), pk = PK, at = 1, claims = {} }
+		A.Debts = { Sign = function(msg) return Ed.Sign(seed, msg, Ed.PublicKey(seed)) end }
+		A.clock = T
+		-- Held already: a hand-over of an RP row, a witnessed RP-PvP row, and a Hardcore row signed as is.
+		local function Held(group, src, at, extra)
+			local e = { group = group, faction = "Alliance", characters = 900, people = 880, guilds = 6, observed = at,
+				src = src, by = "Some One-" .. PVE, w = src == "witnessed" and 2 or 1 }
+			for k, v in pairs(extra or {}) do e[k] = v end
+			return e
+		end
+		A.db.groupCensus = { ["Alliance|ForeverRP"] = Held("ForeverRP", "relay", T - 300, { rg = true }),
+			["Alliance|ForeverRPPvP"] = Held("ForeverRPPvP", "witnessed", T - 200),
+			["Alliance|ForeverHardcore"] = Held("ForeverHardcore", "author", T - 900) }
+		A.db.groupAttest = { ["Alliance|ForeverHardcore"] = { group = "ForeverHardcore", faction = "Alliance", observed = T - 900,
+			wire = "x", text = "QA~1~" .. string.rep("A", 86) .. "~x" } }
+		-- His PvE client takes a councillor's PvP row on a relay's hop.
+		local pvp = ("CX~1~S~%d~ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 600)
+		A.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, pvp)
+		local said = {}
+		A.Comm.SendChunked = function(payload) said[#said + 1] = payload return true end
+		eq(A.Data.SayGroupCensus(), true)
+		local wire = ("CX~3~S~Sage Warden-%s~ForeverPvP~Alliance~5551,5400,29,%d~"):format(PVE, T - 600)
+		local qa = assert(A.db.groupAttest["Alliance|ForeverPvP"], "signed").text
+		eq(qa:match("^QA~1~[%w%-_]+~(.*)$"), wire, "the councillor's row, signed, named after him")
+		eq(Ed.Verify(Ed.PublicKey(seed), "OLYQA1|" .. wire, Ed.FromB64(qa:match("^QA~1~([%w%-_]+)~"))), true, "a valid signature")
+		-- Said in turn with the others signed; nothing else is signed: neither the hand-over nor the
+		-- witnessed row, nor the row signed as is.
+		A.clock = T + 120
+		A.Data.SayGroupCensus()
+		eq(said[1] == qa or said[2] == qa, true, "said")
+		eq(A.Data.CensusStats().qa.signed, 1, "one signature")
+		for key in pairs(A.db.groupAttest) do assert(key == "Alliance|ForeverPvP" or key == "Alliance|ForeverHardcore", key) end
+		-- A member hears the councillor's own row in a hand-over first (counted two days alone), then the
+		-- signed copy, which takes its place and lasts.
+		local M = Node(LISTENER, { pk = PK })
+		M.clock = T + 300
+		M.Relay.TakeVia("G", "Guild Mate-" .. PVE, "Sage Warden-" .. PVE, pvp)
+		eq(assert(PvP(M.Data.Groups())).src, "relay")
+		Carry(M, "G", "Guild Mate-" .. PVE, "Plain Member-" .. PVE, qa, "53")
+		Frames()
+		eq(M.Data.CensusStats().qa.verified, 1)
+		local row = assert(PvP(M.Data.Groups()))
+		eq(row.src, "author", "the signed copy took the hand-over's place"); eq(row.observed, T - 600)
+		M.clock = T + 10 * DAY
+		row = assert(PvP(M.Data.Groups()), "kept past GROUP_KEEP")
+		eq(row.counted, true); eq(row.characters, 5551); eq(row.observed, T - 600, "dated as observed")
+		-- A member who heard only the signed copy says it on in turn (AttestPayload: every client carries it).
+		eq(M.Data.AttestPayload(M.clock), qa)
+		-- A member still on 1.5.8 (its published Data.lua) takes the signed copy as the author's too.
+		local O = Node("Old Member-" .. PVE, { pk = PK, file = ROOT .. "tests/fixtures/data-1.5.8.lua" })
+		O.clock = T + 300
+		Carry(O, "G", "Guild Mate-" .. PVE, "Plain Member-" .. PVE, qa, "54")
+		Frames()
+		row = assert(PvP(O.Data.Groups()), "a 1.5.8 member takes it")
+		eq(row.src, "author"); eq(row.counted, true); eq(row.characters, 5551); eq(row.observed, T - 600)
 	end)
 end)

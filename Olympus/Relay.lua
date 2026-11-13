@@ -88,6 +88,9 @@ Relay.RULES_EVERY = 1800     -- a relay asks the others for the rules this often
 Relay.MAX_RULE_VERSIONS = 40 -- versions one word of rules may name
 Relay.VERIFY_ASK_EVERY = 180 -- one recovery ask across the signed relays, never per reporter
 Relay.SNAPSHOT_WINDOW = 60  -- at most one bounded snapshot transfer per signed origin in this window
+-- (1.5.9) Signed looks (QA) in flight at once: a budget of their own beside the census snapshots'
+-- MAX_RELAYS (SnapshotPart). Counted together, a look of each relay left a census snapshot no slot.
+Relay.MAX_SIGNED_LOOKS = 40
 Relay.SET_WAIT = 60         -- idle seconds without a new piece
 Relay.SET_MAX_AGE = 300     -- absolute assembly lifetime, even with continuing progress
 Relay.ACROSS_MAX = 8        -- complete cross-relay transfers, including the one in flight
@@ -967,7 +970,8 @@ local function SnapshotPart(origin, body, now)
 	-- look said less than SNAPSHOT_WINDOW before the relay's census snapshot sent that snapshot through
 	-- the trickle, where its many pieces reach a registrant whole or not at all.
 	local look = snapshotTransfers[key .. "#qa"]
-	if (index == 1 and part:match("^QA~1~")) or (index > 1 and look and look.id == id) then key = key .. "#qa" end
+	local signed = (index == 1 and part:match("^QA~1~") ~= nil) or (index > 1 and look ~= nil and look.id == id)
+	if signed then key = key .. "#qa" end
 	local transfer = snapshotTransfers[key]
 	if transfer and SnapshotExpired(transfer, now) then transfer = nil; snapshotTransfers[key] = nil end
 	if not transfer then
@@ -975,12 +979,13 @@ local function SnapshotPart(origin, body, now)
 		-- it proves itself, and in pieces through the trickle it reached a registrant whole or not at all.
 		if index ~= 1 or not (part:match("^GV~1~S~%d+~")
 			or part:match("^CG~[12]~S~%d+~") or part:match("^CX~[123]~S~") or part:match("^QA~1~")) then return false end
+		-- (1.5.9) The looks' slots and the snapshots' are counted apart, each against its own budget.
 		local count = 0
 		for who, entry in pairs(snapshotTransfers) do
 			if SnapshotExpired(entry, now) then snapshotTransfers[who] = nil
-			else count = count + 1 end
+			elseif (who:sub(-3) == "#qa") == signed then count = count + 1 end
 		end
-		if count >= Relay.MAX_RELAYS then return false end
+		if count >= (signed and Relay.MAX_SIGNED_LOOKS or Relay.MAX_RELAYS) then return false end
 		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {} }
 		snapshotTransfers[key] = transfer
 	end
@@ -2174,8 +2179,12 @@ local function Across(flag, origin, body, set)
 		-- relay's client says (Data.AttestPayload: the newest it holds of each origin, once each
 		-- GROUP_SAY_EVERY unless heard meanwhile) crosses too: it proves itself whoever carries it, and it
 		-- reached only this relay's own guilds, so the PvP look left other relays' guilds with the author.
+		-- (1.5.9) In one piece too: a look with no guild rows fits one, and Across took a look only in
+		-- pieces, so it stayed with this relay's own guilds. (A one-piece CX look is a staff word: RW.)
+		-- Keyed by its origin, so one origin's look never takes another's waiting place in the queue.
+		local signed = head:match("^QA~1~") and ("QA~1 " .. (head:match("^QA~1~[^~]+~CX~3~S~[^~]+~([^~]+~%a+)~") or "?"))
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
-			or (type(set) == "table" and #set > 1 and (head:match("^(CX~[123]~S)~") or head:match("^(QA~1)~"))) or nil
+			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or signed or nil
 		if not kind then return end
 		if kind:sub(1, 2) == "CG" then
 			local whole = type(set) == "table"
