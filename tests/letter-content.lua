@@ -474,6 +474,13 @@ local DECLINED_1_5_9 = { enUS = "is not offered to you again for %d days", ptBR 
 	deDE = "wird dir %d Tage lang nicht mehr angeboten", esES = "no se te vuelve a ofrecer durante %d días",
 	esMX = "no se te vuelve a ofrecer durante %d días", frFR = "ne t'est plus proposé pendant %d jours",
 	itIT = "non ti viene riproposto per %d giorni", ruRU = "не предлагается вам снова %d дней" }
+-- (1.5.9, with the one-channel work merged) On WoW: Forever nothing is sealed: the guilds holding a realm key
+-- join the public channel too, and the key only keeps their typed chat lines out of it (Comm.ChannelSpec,
+-- ChatHall.On). Each letter names the key as that language's own texts do (KEY_SET_FOREVER), and no
+-- sealed guilds.
+local KEYED_1_5_9 = { enUS = { "guilds with a realm key too", "sealed" }, ptBR = { "chave de reino", "seladas" },
+	deDE = { "Reichsschlüssel", "versiegelt" }, esES = { "clave de reino", "selladas" }, esMX = { "clave de reino", "selladas" },
+	frFR = { "clé de royaume", "scellées" }, itIT = { "chiave del reame", "sigillate" }, ruRU = { "ключом мира", "закрытые" } }
 
 test("1.5.9 letter content: each locale tells the ranking for everyone, Church > Invites in its sections, the declined invite, the census for every guild, the chat by ruleset and the King's guild's mark, each page named as shown", function()
 	local function Client(locale)
@@ -539,6 +546,9 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 			assert(raw:find(word, 1, true), code .. ": " .. word)
 		end
 		assert(raw:find(DECLINED_1_5_9[code]:format(Recruit.DECLINE_DAYS), 1, true), code .. ": a declined invite's days, as Recruit.lua keeps him")
+		local keyed, sealed = KEYED_1_5_9[code][1], KEYED_1_5_9[code][2]
+		assert(raw:find(keyed, 1, true), code .. ": the guilds with a realm key join the same channel: " .. keyed)
+		eq(raw:find(sealed, 1, true), nil, code .. ": no sealed guilds on Forever")
 		previous = raw
 	end
 	-- What a recruit needs before it counts, in the page's own words (CHURCH_EVERYONE_PENDING_TIP).
@@ -551,7 +561,9 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 	-- and an older client shows it to everyone.)
 	assert(english:find("what you write there shows under your ruleset alone; versions before 1.5.9 still show every line to everyone.", 1, true))
 	assert(english:find("As promised, here is the rest.", 1, true), "the rest the 1.5.8 letter promised")
-	-- The census for the guilds that saw too few of us: one channel a faction, sealed guilds too.
-	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, sealed guilds too", 1, true))
+	-- The census for the guilds that saw too few of us: one channel a faction, the guilds with a realm key too.
+	-- (Changed on purpose, with the one-channel work merged: on Forever a key seals no channel, it keeps the
+	-- guild's typed chat lines out of the public one, Comm.ChannelSpec and ChatHall.On.)
+	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, guilds with a realm key too (the key now only keeps their typed chat lines out of it), and the relays pass the whole census on again", 1, true))
 	assert(english:find("The King's guild wears the verified check mark in the Census.", 1, true))
 end)
