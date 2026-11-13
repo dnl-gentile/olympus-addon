@@ -1125,3 +1125,41 @@ test("1.5.9 recruiting ranking: a plain member drawn in a guild no keeper is in 
 	w:ReadLog(c.wes)
 	eq(SentTo(w, c.wes, A1, "w"), 1)
 end)
+
+-- Review of the 1.5.9 release (B4): tries are kept in the saved outbox, but which keepers take these words is
+-- known for the session only, and a keeper not heard to take them gets a report once. One tried while that
+-- keeper still ran 1.5.8 (no handler: dropped unread) was never sent to him again after he updated.
+test("1.5.9 recruiting ranking: a report a keeper on 1.5.8 dropped unread goes to him again at a later login, once he runs 1.5.9; a keeper's refusal stays one", function()
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	c.wes.c.db.sessions = 1
+	w:Run(3600)
+	w:Presence()
+	-- Aldric still runs 1.5.8: his client has no handler for these words and drops them unread.
+	local handler = c.a1.handlers.NE
+	c.a1.handlers.NE = nil
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)
+	w:ReadLog(c.wes)
+	w:Run(6)
+	eq(SentTo(w, c.wes, A1, "w"), 1, "once to a keeper not heard to take these")
+	eq(SentTo(w, c.a2, "Wes Brook", "x"), 1, "Bera can't vouch for him in another guild")
+	for _ = 1, 3 do
+		w:Run(c.wes.RR.RESEND_GAP + 1)
+		w:Presence()
+		w:Tick({ c.wes })
+	end
+	eq(SentTo(w, c.wes, A1, "w"), 1, "not again in the same login")
+	-- Aldric updates. Wes logs in again: what his client heard of the keepers is gone, his saved outbox kept.
+	c.a1.handlers.NE = handler
+	w:As(c.wes, c.wes.RR.ResetForTests)
+	c.wes.c.db.sessions = 2
+	w:Run(c.wes.RR.RESEND_GAP + 1)
+	w:Presence()
+	w:Tick({ c.wes })
+	w:Run(6)
+	eq(SentTo(w, c.wes, A1, "w"), 2, "once more at his next login: Aldric takes it")
+	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").wk[1], Key("Wes Brook"))
+	eq(SentTo(w, c.wes, A2, "w"), 1, "Bera's refusal stays one")
+	eq(Outbox(c.wes), 0, "Aldric's receipt")
+end)

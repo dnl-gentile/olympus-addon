@@ -344,12 +344,15 @@ local function Queue(text)
 end
 
 -- Each report of this character's to every keeper online that takes these (RESEND_TRIES times, RESEND_GAP
--- apart, until one sends its receipt), and once to a keeper not heard to take them yet. Another
--- character's wait for him.
+-- apart, until one sends its receipt), and once a login to a keeper not heard to take them yet. Another
+-- character's wait for him. (Review of the 1.5.9 release: once in all, kept in the saved outbox: a report
+-- tried with a keeper still on 1.5.8, who drops these unread, never went to him again after he updated. A
+-- keeper's refusal, x, stays one.)
 function RR.Flush()
 	local out = Out()
 	if not out or #out == 0 or Off() or (ns.ChatLocked and ns.ChatLocked()) then return 0 end
 	local now, mine = Clock(), 0
+	local login = ns.db and tonumber(ns.db.sessions) or 0
 	for i = #out, 1, -1 do
 		local o = out[i]
 		if type(o) ~= "table" or type(o.text) ~= "string" or now - (tonumber(o.at) or 0) > RR.OUTBOX_DAYS * DAY then table.remove(out, i)
@@ -375,10 +378,11 @@ function RR.Flush()
 			for _, k in ipairs(keepers) do
 				local s = o.to[k.key]
 				local tries = type(s) == "table" and tonumber(s.n) or 0
+				if not k.serving and tries > 0 and tries < RR.RESEND_TRIES and s.l ~= login then tries = 0 end
 				local limit = k.serving and RR.RESEND_TRIES or 1
 				if tries < limit and (not s or now - (tonumber(s.w) or 0) >= RR.RESEND_GAP) then
 					if not Room() then return sent end
-					o.to[k.key] = { n = tries + 1, w = now }
+					o.to[k.key] = { n = tries + 1, w = now, l = login }
 					if ns.Comm.Whisper(k.name, o.text, nil, false, false, nil, { owner = RR }) then
 						sent, stats.sent = sent + 1, stats.sent + 1
 					end
