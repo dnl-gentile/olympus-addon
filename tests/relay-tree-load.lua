@@ -111,10 +111,15 @@ local TREE = { new = extra.addon .. "RelayTree.lua", ["1.5.6"] = FIXTURES .. "re
 -- slowest to arrive); o.ownGuild (the relay registers its own guild with itself every REGISTER_EVERY, as
 -- the reporter of the author's relay's guild does, and a guildmate takes what it hands its guild over
 -- GUILD: r.ownGuild counts the relay's snapshots, those the guildmate took whole, the longest it went
--- without a new one, and the relay's GUILD whispers).
+-- without a new one, and the relay's GUILD whispers); (round 2 of the review, as its load probe has them)
+-- o.crossing (every this many seconds of the measure, beside the relay's own rounds, a trusted mesh peer's
+-- snapshot crosses to it, RX: a registrant may take it as its census too), o.king (every this many seconds,
+-- the King's presence, T1~o, which the relay hands every registrant ahead of its queue), o.ownWords (every
+-- this many seconds, the relay's own single word to every registrant), o.housekeeping (every node's Comm
+-- housekeeping every 60 s, as the game runs it: the assemblers let go of what never completed).
 local function Run(o)
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
-		chat = C_ChatInfo, time = GetTime }
+		chat = C_ChatInfo, time = GetTime, join = rawget(_G, "JoinChannelByName") }
 	local STEP = ns.Comm.SEND_INTERVAL
 	local w = { now = T0, timers = {}, nodes = {}, by = {}, id = 100, errors = {} }
 	local out
@@ -217,6 +222,8 @@ local function Run(o)
 
 	local ok, err = pcall(function()
 		GetChannelName = function() return 0 end
+		-- (o.housekeeping: it joins the channel again where none is joined, as in game; nothing to join here.)
+		if o.housekeeping then JoinChannelByName = function() end end
 		ns.IsMember = function() return true end
 		IsInGuild = function() return true end
 		GetTime = function() return w.now end
@@ -266,6 +273,16 @@ local function Run(o)
 		end
 		Each(Tree(R).TICK, 0, function() As(R, Tree(R).Tick) end)
 		if mate then Each(R.c.Relay.REGISTER_EVERY, 0, function() As(R, R.c.Relay.Register, true) end) end
+		-- (o.housekeeping) Comm's own housekeeping on every node online (its LOGIN handler's, every 60 s in game:
+		-- Codec.Gc on its assemblers), kept by the harness's Every as c.timers.housekeeping.
+		if o.housekeeping then
+			Each(60, 60, function()
+				for _, n in ipairs(w.nodes) do
+					local f = n.online and type(n.c.timers) == "table" and n.c.timers.housekeeping
+					if type(f) == "function" then As(n, f) end
+				end
+			end)
+		end
 
 		local made, start, pieces, packedPieces
 		local pressFrom, busy = T0 + 3 * R.c.Relay.REGISTER_EVERY - 60, 0
@@ -355,6 +372,37 @@ local function Run(o)
 				end)
 			end)
 		end
+		-- (o.crossing) A trusted mesh peer's snapshot as it crosses to the relay (RX), beside its own rounds.
+		local crossed = {}
+		if o.crossing then
+			Each(o.crossing, STEP + o.crossing / 2, function()
+				local word = Snapshot(o.guilds, math.floor(w.now) - 1)
+				crossed[word] = w.now
+				w.id = w.id + 1
+				As(R, function()
+					for _, p in ipairs(R.c.Codec.Chunk(word, tostring(w.id))) do
+						R.c.Relay.HandleAcross("WHISPER", "Tree Peer-Realm", "RX~P~Tree Peer-Realm~" .. p)
+					end
+				end)
+			end)
+		end
+		-- (o.king) The King's presence, from his signed character (King.SendPresence's word), new each time.
+		local presence = 0
+		if o.king then
+			R.c.IsKingCharacter = function(who) return Short(who) == "King Person" end
+			Each(o.king, 11, function()
+				presence = presence + 1
+				As(R, R.c.Relay.HandleIn, "WHISPER", "King Person-Realm", ("RL~P~T1~o~%d~x"):format(presence))
+			end)
+		end
+		-- (o.ownWords) The relay's own single word, new each time, to every registrant.
+		local ownWord = 0
+		if o.ownWords then
+			Each(o.ownWords, 7, function()
+				ownWord = ownWord + 1
+				As(R, R.c.Relay.HandleIn, "WHISPER", R.c.me, "RL~P~X1~own " .. ownWord)
+			end)
+		end
 		-- (o.chat) A chat line from one registrant after another, by the relay's chat lane to every other one.
 		local lines, heardAt = {}, {}
 		if o.chat then
@@ -378,7 +426,8 @@ local function Run(o)
 			-- (o.ownGuild) When the guildmate took each of the relay's snapshots, whole.
 			while mate and mate.seen < #mate.took do
 				mate.seen = mate.seen + 1
-				if made[mate.took[mate.seen]] then mate.takes[#mate.takes + 1] = { word = mate.took[mate.seen], at = w.now } end
+				local word = mate.took[mate.seen]
+				if made[word] or crossed[word] then mate.takes[#mate.takes + 1] = { word = word, at = w.now, peer = made[word] == nil } end
 			end
 			for _, m in ipairs(regs) do
 				-- (o.chat) When each line reached this registrant, the first time.
@@ -392,7 +441,7 @@ local function Run(o)
 				end
 				while m.seen < #m.took do
 					m.seen = m.seen + 1
-					local t = made[m.took[m.seen]]
+					local t = made[m.took[m.seen]] or crossed[m.took[m.seen]]
 					if not t then
 						foreign = foreign + 1
 					elseif not m.held or t > m.held then
@@ -447,15 +496,20 @@ local function Run(o)
 		end
 		-- (o.ownGuild) The relay's snapshots, those its guildmate took whole (byte for byte, each once), the
 		-- longest the guild went without a new one (from the measure's start to its end), and the relay's
-		-- whispers over GUILD.
+		-- whispers over GUILD. (o.crossing) And the peer's snapshots it took (peers), which count as a new one
+		-- for the longest wait as much as the relay's own.
 		local ownGuild
 		if mate then
-			ownGuild = { made = 0, took = 0, twice = 0, longest = 0, whispers = R.kinds.guild or 0,
+			ownGuild = { made = 0, took = 0, peers = 0, twice = 0, longest = 0, whispers = R.kinds.guild or 0,
 				every = R.c.Relay.GUILD_CENSUS_EVERY, round = R.c.Relay.GLOBAL_EVERY }
 			for _ in pairs(made) do ownGuild.made = ownGuild.made + 1 end
 			local last, once = start, {}
 			for _, x in ipairs(mate.takes) do
-				if once[x.word] then ownGuild.twice = ownGuild.twice + 1 else once[x.word], ownGuild.took = true, ownGuild.took + 1 end
+				if once[x.word] then ownGuild.twice = ownGuild.twice + 1
+				else
+					once[x.word] = true
+					if x.peer then ownGuild.peers = ownGuild.peers + 1 else ownGuild.took = ownGuild.took + 1 end
+				end
 				ownGuild.longest, last = math.max(ownGuild.longest, x.at - last), x.at
 			end
 			ownGuild.longest = math.max(ownGuild.longest, stop - last)
@@ -501,8 +555,8 @@ local function Run(o)
 		end
 		out = r
 	end)
-	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, C_ChatInfo, GetTime =
-		saved.channel, saved.member, saved.guild, saved.inGuild, saved.chat, saved.time
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, C_ChatInfo, GetTime, JoinChannelByName =
+		saved.channel, saved.member, saved.guild, saved.inGuild, saved.chat, saved.time, saved.join
 	if not ok then error(err, 0) end
 	return out
 end
@@ -703,6 +757,32 @@ test("relay tree under load (1.5.9's review): a relay that is its own guild's re
 	assert(og.longest <= bound, ("its guild went %d s without a new census snapshot, past %d"):format(og.longest, bound))
 	eq(r.chat.lost, 0, "no chat whisper lost")
 	eq(r.never, 0, "every registrant took a snapshot")
+end)
+
+-- 1.5.9's review (round 2): what the census lane to the relay's own guild costs its registrants. One census
+-- snapshot every Relay.GUILD_CENSUS_EVERY by the lane, urgent; every one of them so (the relay's own every
+-- GLOBAL_EVERY, a mesh peer's as it crosses) took the urgent room the drip, the chat lane and the King's
+-- presence share, and the registrants' census paid for it, which no case showed: without the King's presence
+-- and a peer's crossings beside the relay's own rounds, as round 2's load probe has them, the relay had room
+-- to spare. Here all of it, with Comm's housekeeping, a chat line every 45 s, for 30 minutes: every registrant
+-- takes a census within Data.FRESH, the 1.5.4 ones at least twice, and the guild takes a census snapshot (its
+-- own or the peer's) at least every GUILD_CENSUS_EVERY and a round. Fails with GUILD_CENSUS_EVERY 0 (every
+-- census snapshot by the lane): a registrant went 1,428 s without a new census, and a 1.5.4 one took one.
+test("relay tree under load (1.5.9's review): a relay that is its own guild's registrant, its own rounds and a mesh peer's crossing every 150 s, the King's presence and its own single words every five minutes, 90 registrants (ten on 1.5.4), a chat line every 45 s for 30 minutes: the census lane to its guild keeps its turn, and every registrant still takes a census within Data.FRESH", function()
+	local r = Run({ registrants = 90, guilds = 140, minutes = 30, chat = 45, mix = { new = 90, ["1.5.4"] = 10 }, ownGuild = true,
+		crossing = 150, king = 300, ownWords = 300, housekeeping = true })
+	Sound(r)
+	local og = r.ownGuild
+	local bound = (og.every or 0) + og.round + 60
+	assert(og.took + og.peers >= 5, ("its guild took %d census snapshots whole (%d of the peer's)"):format(og.took + og.peers, og.peers))
+	eq(og.twice, 0, "each once")
+	assert(og.longest <= bound, ("its guild went %d s without a new census snapshot, past %d"):format(og.longest, bound))
+	eq(r.chat.lost, 0, "no chat whisper lost")
+	eq(r.chat.missed, 0, "every line reached every registrant")
+	eq(r.never, 0, "every registrant took a census")
+	assert(r.longest < FRESH, ("a registrant went %s minutes without a new census"):format(Minutes(r.longest)))
+	local old = r.by["1.5.4"]
+	assert(old and old.fewest >= 2, ("a 1.5.4 registrant took %s census snapshots in 30 minutes"):format(old and tostring(old.fewest) or "no"))
 end)
 
 -- (T1 of the review) A relay that makes no round of its own (quiet presence: Data.SendGlobalCensus says

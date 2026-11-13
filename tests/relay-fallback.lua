@@ -705,6 +705,50 @@ test("1.5.9's review fallback: a census word handed to the relay's own guild goe
 	end
 end)
 
+-- 1.5.9's review (round 2): the census lane waits while the send queue has no urgent room (Comm.QueueRoom(true)
+-- below 1), a second at a time, and goes on once there is: handed to a queue full of urgent jobs, a whisper is
+-- refused ("full"), which the lane takes as sent and lost. No case reached the wait, so nothing showed that it
+-- holds: here urgent whispers keep the queue full for half a minute after a census word is handed over. Fails
+-- without the wait: every whisper of the word was refused, and the guildmate took nothing.
+test("1.5.9's review fallback: a census word handed to the relay's own guild while urgent jobs fill its send queue waits for room, a second at a time, then goes whole: its guildmate takes it", function()
+	World(function(W)
+		local p = W.Node("Lane Keeper", "Olympus Lane")
+		local mate = W.Node("Lane Mate", "Olympus Lane")
+		local atMate = Watch(mate, { "CG" })
+		local t = math.floor(W.now)
+		local rows = {}
+		for i = 1, 140 do rows[i] = ("OLYMPUS GUILD %03d,%d,%d,%d,%d"):format(i, 100 + i, 10, 300, t - i) end
+		local word = ("CG~1~S~%d~"):format(t) .. table.concat(rows, ";")
+		local busy, cursor, during = 0, #p.sent, 0
+		local function Press(k)
+			W.As(p, function() for _ = 1, k do busy = busy + 1; p.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. busy, nil, true, false) end end)
+		end
+		Press(p.c.Comm.MAX_QUEUE)
+		eq(p.c.Comm.QueueRoom(true), 0, "no urgent room when the word comes")
+		eq(W.As(p, p.c.Relay.HandOn, "P", p.c.me, word, true), true)
+		for step = 1, 200 do
+			W.now = W.now + p.c.Comm.SEND_INTERVAL
+			p.c.clock, mate.c.clock = W.now, W.now
+			local due = W.timers
+			W.timers = {}
+			for _, x in ipairs(due) do if x.at <= W.now then W.As(x.n, x.f) else W.timers[#W.timers + 1] = x end end
+			W.As(p, p.c.Comm.Pump)
+			-- (Half a minute of urgent whispers: one more for the one the pump sent, so the queue stays full.)
+			if step <= 25 then Press(1) end
+			while cursor < #p.sent do
+				cursor = cursor + 1
+				local x = p.sent[cursor]
+				if x.dist == "GUILD" then
+					if step <= 25 then during = during + 1 end
+					W.As(mate, mate.deliver, "GUILD", p.c.me, x.msg)
+				end
+			end
+		end
+		eq(during, 0, "nothing over GUILD while urgent jobs filled the queue")
+		eq((atMate("CG", word)), 1, "the guildmate took the word whole, once, after them")
+	end)
+end)
+
 -- 1.5.9's review (round 2): a send of the census lane that throws (Comm.Send raises where Moderation.Blocks
 -- or SyncGuild does) took its place in flight for good: the lane's own callback gives it back, and that never
 -- ran. After two such throws, Relay.GUILD_CENSUS_INFLIGHT places stayed taken and the lane sent nothing more
