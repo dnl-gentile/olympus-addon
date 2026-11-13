@@ -238,7 +238,9 @@ function World:As(cl, fn, ...)
 	QueryGuildEventLog = function() cl.queries, cl.queried = cl.queries + 1, true end
 	GetNumGuildEvents = function() return #(w.log[cl.guild or ""] or {}) end
 	GetGuildEventInfo = function(i)
-		local e = (w.log[cl.guild or ""] or {})[i]
+		-- (w.newestFirst: the log listed newest first, the other way the game may list it.)
+		local list = w.log[cl.guild or ""] or {}
+		local e = list[w.newestFirst and (#list + 1 - i) or i]
 		if not e then return nil end
 		local ago = math.max(0, math.floor((w.clock - e.t) / 3600))
 		local days, hours = math.floor(ago / 24), ago % 24
@@ -336,7 +338,8 @@ end
 function World:ClearSent() self.sent = {} end
 
 -- A guild log event: kind invite (p1 invited p2), join (p1), quit (p1), remove (p1 removed p2), t
--- hours ago (the world's clock).
+-- hours ago (the world's clock). The log lists them as they come, oldest first (GetGuildEventInfo), or newest
+-- first with w.newestFirst.
 function World:LogEvent(guild, kind, p1, p2, hoursAgo)
 	self.log = self.log or {}
 	self.log[guild] = self.log[guild] or {}

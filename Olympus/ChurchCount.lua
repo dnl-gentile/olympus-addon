@@ -455,6 +455,16 @@ end
 
 -- The log's events, oldest first, with the hour each happened (by the server's clock; the log
 -- gives how long ago, so the same event read twice can differ by one hour).
+-- (Review of the 1.5.9 release) Within one hour, in the order the log lists them. A read put an hour's
+-- invites before its joins, so a join was paired with an invite logged after it in its hour: a player who
+-- joined after one member's invite, left, and was invited by another member in that same hour went to the
+-- second member's account as his own recruit whenever its first read of that join came after his invite
+-- (an own report held 14 days as his pending recruit; in a guild with no keeper the recruit credited to
+-- him, the first inviter's left pending), and again once that account's record of the events expired while
+-- they were still in the log. The log's own order is time order; which way it runs is read from its first
+-- and last events' hours, so it holds whichever way the game lists them. A log whose events all fall in
+-- one hour tells no direction: there an hour's invites still go before its joins (the invite and join of
+-- one recruit, the common case, stay paired).
 function Count.Events()
 	local n = tonumber(GetNumGuildEvents()) or 0
 	local hourNow = math.floor(Clock() / 3600)
@@ -464,13 +474,19 @@ function Count.Events()
 		local a = EventName(p1)
 		if type(kind) == "string" and a then
 			local ago = ((tonumber(y) or 0) * 365 + (tonumber(mo) or 0) * 30 + (tonumber(d) or 0)) * 24 + (tonumber(h) or 0)
-			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago }
+			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
 		end
 	end
+	-- 1: the log lists the oldest first; -1: the newest first; 0: no way to tell (one hour).
+	local way = 0
+	if out[1] and out[#out].hour ~= out[1].hour then way = out[#out].hour > out[1].hour and 1 or -1 end
 	local order = { invite = 1, join = 2 }
 	table.sort(out, function(x, z)
 		if x.hour ~= z.hour then return x.hour < z.hour end
-		return (order[x.kind] or 3) < (order[z.kind] or 3)
+		if way ~= 0 then return (x.i - z.i) * way < 0 end
+		local kx, kz = order[x.kind] or 3, order[z.kind] or 3
+		if kx ~= kz then return kx < kz end
+		return x.i < z.i
 	end)
 	return out
 end
@@ -514,9 +530,10 @@ function Count.Process(events)
 	-- read before goes to it again with the pair the first read of that join made, kept beside the join's
 	-- record (ev.p: "inviter~invite hour36~join hour36", gone with that record): his own only when that pair's
 	-- inviter is he. (Worked out again from each read, the pair could name another inviter: the log gives
-	-- hours, and a read puts an hour's invites before its joins, in no set order among themselves, so an invite
+	-- hours, and a read put an hour's invites before its joins, in no set order among themselves, so an invite
 	-- logged after the join in its hour came ahead of it, and two invites of one hour could swap from one read
-	-- to the next.)
+	-- to the next. Count.Events now keeps the log's own order within an hour, so the first read pairs right
+	-- too, but where all the log falls in one hour it cannot tell that order.)
 	if type(ev.p) ~= "table" then ev.p = {} end
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
