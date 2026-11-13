@@ -846,6 +846,135 @@ test("1.5.4 modified builds prompt: the author's asks are 20 at most each 30 min
 	end)
 end)
 
+-- 1.5.9 (the census items left from 1.5.8: clients still on 1.5.4 showed 3 to 8 thousand characters on every
+-- server). Fails before: the author's update notice (V3) reached an outdated client only where he clicked.
+test("1.5.9 outdated clients: the author's relay client gives each client it serves on an older version than the one he marked as out his update notice (V3), once a day at most, a few each tick, never the up to date, never without a marked release, never in quiet presence", function()
+	AsAuthorRelay(function(w)
+		local W = ns.Workshop
+		local saved = { asked = ns.db.outdatedAsked, released = ns.db.releasedVersion, quiet = ns.QuietPresence }
+		local ok, err = pcall(function()
+			ns.db.outdatedAsked, ns.QuietPresence = nil, function() return false end
+			local R = rawget(ns, "Relay")
+			-- What his relay holds: the version each client it serves presented, and when (Relay.Presentations).
+			w.presented = { { name = "Old Four", v = "1.5.4", t = w.clock - 60 }, { name = "Old Six", v = "1.5.6", t = w.clock - 120 },
+				{ name = "Up Todate", v = ns.VERSION, t = w.clock - 30 }, { name = "Test Build", v = ns.VERSION .. "-test.3", t = w.clock - 30 } }
+			R.Presentations = function() return w.presented end
+			ns.db.releasedVersion = nil
+			eq(W.AskServedOutdated(), 0, "no version marked as out: nobody asked"); eq(#w.whispered, 0)
+			ns.db.releasedVersion = ns.VERSION
+			eq(W.AskServedOutdated(), 2)
+			local asked = AskedTo(w)
+			eq(asked[ns.FullName("Old Four")], 1, "the 1.5.4 client"); eq(asked[ns.FullName("Old Six")], 1, "the 1.5.6 one")
+			eq(#w.whispered, 2, "never the up to date one, nor a test build")
+			eq(w.whispered[1].key:sub(1, 10), "askupdate:", "his usual notice (Workshop.AskUpdate)")
+			eq(#w.quieted, 2, "an offline answer kept out of his chat")
+			-- Once a day at most, a /reload or a new session too (kept in ns.db.outdatedAsked).
+			w.clock = w.clock + W.UPDATE_GAP + 1
+			W.Reset()
+			eq(W.AskServedOutdated(), 0, "not again the same day"); eq(#w.whispered, 2)
+			w.clock = w.clock + W.OUTDATED_EVERY
+			eq(W.AskServedOutdated(), 2, "the next day again, while still outdated")
+			W.Reset() -- (a new session: its tick free)
+			-- A few each tick, the latest word first; never into the places his queue keeps.
+			w.whispered, ns.db.outdatedAsked = {}, nil
+			w.presented = {}
+			for i = 1, 8 do w.presented[i] = { name = ("Old%02d One"):format(i), v = "1.5.4", t = w.clock - i } end
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), W.OUTDATED_PER_TICK, "five a tick")
+			eq(w.whispered[1].to, ns.FullName("Old01 One"), "the latest word first")
+			eq(W.AskServedOutdated(), 0, "nothing more before the next tick")
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 3, "the rest the next tick")
+			w.whispered, ns.db.outdatedAsked, w.room = {}, nil, W.OUTDATED_ROOM
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "a busy queue: nothing now"); eq(#w.whispered, 0)
+			w.room = nil
+			-- Quiet presence: nothing.
+			ns.QuietPresence = function() return true end
+			eq(W.AskServedOutdated(), 0, "his presence quiet: no whisper gives him away")
+		end)
+		ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = saved.asked, saved.released, saved.quiet
+		if not ok then error(err, 0) end
+	end)
+	-- Any other client, a relay's among them, asks nobody.
+	WithBuilds("Other Relay-Realm", function(w)
+		w.relays, w.relayOn = { ["Other Relay"] = true }, true
+		rawget(ns, "Relay").Presentations = function() return { { name = "Old Four", v = "1.5.4", t = w.clock } } end
+		eq(ns.Workshop.AskServedOutdated(), 0); eq(#w.whispered, 0)
+	end)
+end)
+
+-- 1.5.9's review (N3). On a busy relay the notice was an ordinary whisper: the drip's census and look batches
+-- push such whispers out of Comm's queue before they leave, yet AskServedOutdated had marked the player asked
+-- for a day as soon as it was queued; and at a peak the queue never had OUTDATED_ROOM places free (the
+-- offline harness: none at any tick of 30 minutes at a chat line every 45 s). Now the notice goes urgent,
+-- the room counted with the ordinary whispers it may push out (Comm.QueueRoom(true)), and a player whose
+-- notice never left is asked again at the next tick. Fails before: no notice at all in the busy queue, and
+-- with room, the player whose notice was pushed out not asked again that day.
+test("1.5.9 outdated clients: the author's update notice goes urgent past a busy relay's ordinary whispers; a notice pushed out of the queue or refused leaves its player to be asked at the next tick, one that left holds for a day", function()
+	AsAuthorRelay(function(w)
+		local W = ns.Workshop
+		local saved = { asked = ns.db.outdatedAsked, released = ns.db.releasedVersion, quiet = ns.QuietPresence }
+		local ok, err = pcall(function()
+			ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = nil, ns.VERSION, function() return false end
+			rawget(ns, "Relay").Presentations = function() return w.presented end
+			w.presented = { { name = "Old Four", v = "1.5.4", t = w.clock - 60 }, { name = "Old Six", v = "1.5.6", t = w.clock - 120 } }
+			-- His queue: `free` places free, `pushable` more held by ordinary whispers an urgent one pushes out.
+			local free, pushable = 0, 45
+			ns.Comm.QueueRoom = function(evicting) return evicting and free + pushable or free end
+			-- Each whisper's fate comes later, as Comm tells it: left (true) or pushed out (false, "dropped").
+			local waiting = {}
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent }
+				waiting[#waiting + 1] = { to = to, done = done }
+				return true
+			end
+			local function Settle(fates)
+				for _, x in ipairs(waiting) do
+					local left = fates[x.to] ~= false
+					if x.done then x.done(left, not left and "dropped" or nil) end
+				end
+				waiting = {}
+			end
+			eq(W.AskServedOutdated(), 2, "both asked though no place is free: the ordinary whispers make room")
+			for _, x in ipairs(w.whispered) do eq(x.urgent, true, x.to .. ": an urgent whisper") end
+			Settle({})
+			-- Room again, both asked and both notices left: not again that day.
+			free, w.whispered = 60, {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "both notices left: not again the same day")
+			-- The next day, Old Four's notice is pushed out before it leaves, Old Six's leaves.
+			w.clock = w.clock + W.OUTDATED_EVERY
+			W.Reset() -- (a new session: Workshop.UPDATE_GAP's own marks gone with it)
+			eq(W.AskServedOutdated(), 2)
+			Settle({ [ns.FullName("Old Four")] = false })
+			eq(ns.db.outdatedAsked["old four"], nil, "Old Four's notice never left: not marked asked")
+			assert(ns.db.outdatedAsked["old six"], "Old Six's left: marked")
+			w.whispered = {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 1, "the next tick asks again the one whose notice never left")
+			eq(AskedTo(w)[ns.FullName("Old Four")], 1, "Old Four")
+			Settle({})
+			w.whispered = {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "both asked now: nobody more that day")
+			-- A refusal at once (Comm tells it before AskUpdate returns): unmarked, asked again at the next tick.
+			w.clock = w.clock + W.OUTDATED_EVERY
+			W.Reset()
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent }
+				if done then done(false, "left") end
+				return false
+			end
+			W.AskServedOutdated()
+			eq(#w.whispered, 2, "both tried")
+			eq(next(ns.db.outdatedAsked), nil, "refused at once: nobody marked")
+		end)
+		ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = saved.asked, saved.released, saved.quiet
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("1.5.4 modified builds prompt: Comm's door counts a locked client as online while its words reach it (its refused registration among them), and no longer after five minutes", function()
 	RelaySetup(function()
 		local R, Deliver = Relayed(RELAY)

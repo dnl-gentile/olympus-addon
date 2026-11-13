@@ -77,8 +77,9 @@ whether they take recruit whispers (again if it never answered). A member who se
 contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
 question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
-versions before 1.1 just get the whisper, as before.
+officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
+recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
+chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
 
 ## What it does
 
@@ -109,7 +110,9 @@ versions before 1.1 just get the whisper, as before.
   **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates'
   guild while the King's gates are open, else naming your guild alone: never a guild the census
   lists for its room, which two made-up characters could report), one click each; anyone else
-  can point them to an officer online. **Dismiss** sends nothing. In the Realm's Recruiting, one
+  can point them to an officer online. **Dismiss** sends nothing. While you recruit by whisper
+  (1.5.9), a request goes to **Church → Invites** instead and is taken as a **JOIN**: the same
+  invite pop-up, unless you chose **Queue only**; turning recruiting off brings it back here. In the Realm's Recruiting, one
   click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census**: a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
@@ -445,7 +448,8 @@ WoW channel number to join). Each channel is exclusive to a rank:
   written for the old channel's audience. Send it again to write on the new one (GitHub
   #34). The same holds for a line the privacy warning holds while the channel changes. Of a
   long line whose first parts had already left, the notice says how many went out, on the old
-  channel.
+  channel. On WoW: Forever (1.5.9) a key no longer changes the channel; a line the privacy warning
+  holds is dropped the same way when the audience it named changes (a key cleared meanwhile).
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages; if the game refuses one of them, the rest of that line is not sent
   either, and you are told (1.1.1).
@@ -535,6 +539,11 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Captains] and [Lords] with a one-line script: without `/oly key` that is anyone who joins
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
+On WoW: Forever (1.5.9) every client sits on the public "OlympusNet" whatever its key: there a key
+keeps your guild's typed lines out of it as text, and the relays carry them to the other guilds of
+your ruleset alone, where anyone with the addon reads them. There the officers' grey line says that anyone who joins
+reads the guild's typed lines, its tooltip says what a key does instead of how to seal the
+channel, and no count of guildmates on a sealed channel shows.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 While your channel is public, officers see one quiet grey line saying so on the
 Census, the Realm and the Chat tab's settings (its tooltip says who can read it and how to seal
@@ -562,6 +571,18 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   read [Olympus] alone, and the lines take that room. A channel muted in chat (`/oly mute`) still
   shows here, and a line you write here keeps it muted in chat. The pinned line shows over the
   lines, as on the Realm tab, and takes no room while nothing is pinned.
+- On Forever, [Olympus] has a ruleset dropdown on that row (1.5.5): **All** (the default), **PvP**,
+  **PvE**, **Roleplay** or **RP-PvP**. Since 1.5.9 each line names its writer's ruleset and is shown
+  under it. A line from an older version is placed by the server ID in the writer's GUID (the game
+  gives Forever names without their realm), else by what Olympus knows of the writer (the relay's
+  copy, a guildmate, his guild in one ruleset's census); one nobody can place shows under **All**
+  alone. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
+  says so): its players see it, under **All** too, and others only by choosing it. Under **All** or
+  another ruleset, and from the game's own chat box, a line goes to every ruleset. With the gamepad UI,
+  while the Olympus channel is not joined, or when your guild holds a realm key, a line goes by the
+  hidden way alone (the relays), which reaches your own ruleset only, under **All** too; under another
+  ruleset the box says so. Versions before 1.5.9 show every line to everyone. `/oly bug` has a
+  `chat rulesets:` line that counts how the lines were filed.
 - Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
   players' lines on the left, yours on the right in the channel's colour (a line another of your
   characters wrote shows under that character's name, on the left); the writer's name, guild and
@@ -944,7 +965,10 @@ does not automatically appoint a group leader. Each Legate organizes an agreed g
   Throne says how many of those he whispered have it (an answer from anyone else is not
   counted), and of how many guilds (each counted for the guild his addon whispered him for,
   never the one his answer names). A guild with no officer online by then stays on the old channel
-  until one of its officers types the key by hand. The King or his Steward: never a Hand.
+  until one of its officers types the key by hand. On WoW: Forever (1.5.9) nobody moves channel:
+  every guild stays on the public channel, with the old key or the new, and either keeps its
+  holders' typed chat lines out of it (the Throne's tooltip and question say so there). The King
+  or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
   as ever, but never back to a key a newer one replaced (the leaked one). A 1.1 officer's own
@@ -1536,6 +1560,19 @@ master (or the Head, the King or the author), who keeps that guild full and answ
   ranking for every member; your row shows
   there only if you choose to show it (off by default). The author's Member preview shows the same
   pages a member sees and sends no Church actions.
+- **The recruiting ranking for everyone (1.5.9).** Any Olympus member's recruit counts here, not only
+  the Church's: an invite in your guild's log followed by that player's join. It is **confirmed** when
+  the addon of a Church keeper or a High Councillor saw the join, or that of a keeper's guildmate whose
+  invite the keeper's own log saw; or when your own addon and another one a keeper can check both did
+  (an officer, the Church correspondent, or another guildmate of a keeper); until then it waits as
+  yours. 10 points for each confirmed
+  recruit and 5 more if he is still in the guild 7 days later; the member who passed that player on (a
+  JOIN request or a scanned player, **Pass to other members**) gets 25% of those points when his addon
+  and yours both say so. An invite whose player never joins counts nothing, and one player counts once:
+  never an alt, a return to his guild, or a move from another Olympus guild where a keeper's addon saw
+  him in the last 90 days (a move no keeper's addon saw is not caught). Every member sees it on the
+  **Ranking** page (**Everyone**): the top 10 and his own place, this week, the last 30 days or all
+  time. The Church's keepers keep it on a ledger of its own: the Church's rankings count as before.
 
 ### World map
 - Soldiers per zone on zone and continent maps, and per continent on the world map (none with
@@ -1764,23 +1801,31 @@ addon is online (give it a few minutes). There is no demo mode.
 **One member per guild is enough** for that guild to appear for everyone. The more guilds
 have at least one install, the more complete the census gets.
 
-### For officers: seal the channel (recommended)
+### For officers: the realm key
 Type once, with a secret the Olympus officers agree on:
 ```
 /oly key <secret>
 ```
-Your guildmates with the addon receive it automatically through guild chat. From then on
-the Olympus channel has a name and password derived from the secret, and outsiders can't
-find or join it. Share the same secret with the officers of the other Olympus guilds
-(for example in the officers' Discord), so all guilds meet on the same sealed channel.
+Your guildmates with the addon receive it automatically through guild chat. Off WoW: Forever the
+key seals the channel (recommended there): the Olympus channel then has a name and password derived
+from the secret, and outsiders can't find or join it. Share the same secret with the officers of the
+other Olympus guilds (for example in the officers' Discord), so all guilds meet on the same sealed
+channel.
 The King (or his Steward, for him) can also rotate the army's key from the Throne: his new key reaches the
 Lords and Captains online of the guilds he picks whom his own /who saw in them by whisper, and
 their guilds over guild chat, never on the Olympus channel.
 
-If a guild was accidentally given a different private key and lost the shared census and
-Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
+If a guild off WoW: Forever was accidentally given a different private key and lost the shared
+census and Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
 inside Blizzard's guild channel, returns updated guildmates to the public Olympus channel, and
 retires the old private key so a delayed message cannot split them again.
+
+**On WoW: Forever (since 1.5.9)** every client sits on its faction's public first lane, "OlympusNet"
+(the Horde's "OlympusNetH"), whatever key or lane it holds, so all guilds meet on one channel and the
+census older clients still broadcast there reaches everyone. A key is still kept, handed out and
+rotated, but there it seals nothing: it only keeps your guild's typed chat lines out of the public
+channel as text, and they reach the other guilds by the relays, which carry the census too. The relays
+keep to your own ruleset, so those lines reach your ruleset alone, under **All** too.
 
 ## How it works
 
@@ -1795,7 +1840,9 @@ retires the old private key so a delayed message cannot split them again.
 4. Every client adds up all the summaries: that is the census.
 
 On WoW: Forever these words travel by whisper through the relays (the signed High Council's, the
-King's, the Treasurer's and the author's characters). Since 1.5.4 a client identifies itself to them
+King's, the Treasurer's and the author's characters); since 1.5.9 every client there also sits on its
+faction's public first lane, whatever its realm key, and takes the census older clients still
+broadcast there. Since 1.5.4 a client identifies itself to them
 with its version; after the date in the release notes they serve only published versions (an older
 client still gets the census from an updated guildmate), under rules the author's client hands them
 in game.
@@ -1856,7 +1903,7 @@ goes where:
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from the giver's own addon every few minutes for late logins |
 | The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks whom his own /who saw in that guild (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
-| Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
+| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) | your guild | every minute or so |
 | The signed leadership snapshot (1.2, only after the author explicitly activates it): each Olympus guild's Lord and Captains for this realm group and faction, its generation, issue and expiry times, and the author's signatures | Olympus addons in that realm group and faction; a client asks on the Olympus channel and in its guild, then a holder answers that client alone by whisper, one bounded signed part at a time | after login while missing or behind (four short retries, then every 10 minutes); a holder answers one requester at most every 2 minutes and stops immediately if its own membership, net-off state or signed generation changes |
 | Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
 | The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore, and to the author only after your yes to his roll calls (his checks are roll calls) |
@@ -1872,6 +1919,7 @@ goes where:
 | The King's guild's manually appointed Legates (1.2.4): up to 25 names, original issuer and revision, including an empty removal list | everyone on the Olympus channel; retained appointments use compatible historical ids, with current King/High Council issuer verification | only from the King or an actual High Councillor's client after an authorized edit or repeat; no automatic retirement message |
 | Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
 | The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
+| Who declined your guild invites (1.5.9): a hash of each such player's name (8 hex digits, never the name) and when, from the game's own line telling you he declined (or declined on his own, as he blocks guild invites) | nobody: kept on your client alone, in your saved variables (the realm group's), 7 days, 200 at most | when a player declines an invite of yours, however you sent it; his own **JOIN** clears his |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name; in the Treasurer's part of the ranking, your gold to his characters less each week's up to the dues' amount his addon knew that week, and less all you sent with the dues' note) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
 | That you are taking donations, if you keep a book of the treasury (1.1), with your zone only if you share your location | everyone on the Olympus channel | only while you turn it on (**Taking donations**, `/oly donations on`): every 2 minutes and when your zone changes, off when you log out |
@@ -1912,6 +1960,8 @@ goes where:
 | The Church: what your addon read in your guild's log (an invite by a Church person and the join after it: both names, your guild, the hours), a registration (the name), your public-row choice | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none is online | a Church person's own addon every 5 minutes; any other member's only where a Church person was heard in the guild lately, drawn so that about two of each guild read; your own invite count and your guild's joins and leaves are never sent |
 | The Church's seen-check (a name) and its answer (the guild your roster saw him in, the first and last day, whether he is in it now) | the check: everyone on the Olympus channel, from the desk (a keeper). The answer: that keeper alone (a whisper) | the desk asks about each new recruit, a registered one on its days and 7 days after a join; about two clients of each guild that knew the name answer |
 | The Church's numbers (rankings, a person's detail) and the keepers' ledger | the Church's audience who asked (the Church, the High Council, the King, the author), alone; the ledger between keepers alone, and a keeper's copy of it to the signed High Councillors' addons online, which pass it to each other only while no keeper is online (never the King's). A councillor's addon saves its copy apart from the ledger of a keeper character on the same account, which never reads it | when a member of that audience opens the tab or refreshes; the ledger when a keeper confirms a record or closes its check, and in a catch-up; never on the channel, except, while the author's switch is open, the rows of the people who chose to show theirs and the top 3 of each ranking (names only) |
+| The recruiting ranking for everyone (1.5.9): what your addon read in your guild's log (an invite by any member and the join after it: both names, your guild, the hours; for your own invite, the member who passed you that player), 7 days later whether that player is still in your guild, and when a member took a JOIN or a scanned player you passed on, that player's name and the member's | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none takes it | your own invites whose player joined, always (your addon reads your guild's log every 5 minutes for 3 hours after you take an invite command to chat, and while a player another member passed you has not joined); others' invites: about two members of each guild a Church keeper is in (drawn for each invite), about two of its officers, its Church correspondent, the keepers and the High Council; never an invite whose player did not join |
+| The recruiting ranking for everyone: its numbers (each member's points, recruits and players passed on; your own place and how many of your recruits wait for a confirmation) and the keepers' records (both names, the guild, the times, the members whose addons confirmed it, who passed the player on), and apart from them each inviter's own report and each passer's word, 14 days | an Olympus member who asks, alone (the top 10 and his own row; his ask names his guild, and a keeper refuses one it knows in another guild); the records between the keepers alone. Kept by the keepers 40 days after each join, then as each person's all-time totals, with the recruit's name 120 days more so he does not count again in that time; the last answer on the asker's computer | when a member's **Ranking** page shows it (once a minute until a keeper answers, every 15 minutes after; a keeper answers one member twice and all eight times in 5 minutes at most); between keepers when one confirms a record, and in a catch-up |
 | Your BattleTag, the Olympus Accord's version and when you accepted it, your guild, and your game account's random follow key (made at your first accept: the code a sanction that follows your BattleTag carries needs it) (BT, 1.2.5.1) | one moderation team member alone (the author, the King, a High Councillor or an Olympus moderator they named) at your team level or higher, by a logged whisper; never the Olympus channel, guild chat or any other player | once you accepted the Accord, only to a team member whose addon just asked on your channel, at most once every 20 hours to each, from each of your characters; his client keeps it up to 180 days after he last got it |
 | A moderation team member's ask for BattleTags (BQ, 1.2.5.1): nothing but his name | everyone on the Olympus channel | from a team member's addon, 90 seconds after login and every 30 minutes |
 | A sanction that follows a BattleTag (TF): a 16-character code of a sanctioned player's BattleTag (SHA-256 of the BattleTag and a random key of his game account that only the moderation team receives: nobody else can tell whose it is), the sanctioned character's name, which sanction (net-off or chat timeout), when, and the team member who gave it | everyone on the Olympus channel (logged); each addon keeps only the ones made from its own player's BattleTag, without the code (a moderation team addon keeps them all), never the BattleTag itself | when a team member's addon follows or stops following a sanction it may give and whose player's BattleTag it holds, then every 5 minutes from that addon while the sanction lasts (a stop every 30 minutes, for 30 days) |
@@ -2029,7 +2079,8 @@ every member of every guild that has it can read the channel, anyone can pass it
 nobody can take it back. If it leaks, the King or his Steward rotates it for the whole army (1.1, on the
 Throne: a new key by whisper to the Lords and Captains his /who saw in the guilds he picks and
 over guild chat, never on the Olympus channel), or officers set a new one (`/oly key <new secret>`) and
-hand it out again.
+hand it out again. On WoW: Forever (1.5.9) every client is on the public channel whatever its key: a
+key there only keeps its guild's typed chat lines out of the channel's text.
 
 **Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
 [Lords] alike; the addon only decides what to show. Before your first line in each of them
@@ -2366,7 +2417,7 @@ Other limits:
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council and Max's bronze wings for Olympus guild masters (none for a character or guild the moderators took off, net-off). Legates and correspondents use separate verified office shields instead of the old wingless bronze role frame; signed High Council departments use the same shield family without replacing silver, and earned honours remain. The old rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V): the game's gold elite mark for the King, silver for the High Council, bronze for guild masters, the verified Legate or department shield for an appointee, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly chatmarks on` · `/oly chatmarks off` | the verified mark before a player's name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the office marks alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the Legate or department shield for an appointee, and the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
-| `/oly key <secret>` | officers: seal the Olympus channel |
+| `/oly key <secret>` | officers: seal the Olympus channel (on WoW: Forever, 1.5.9: keep your guild's typed chat lines out of the public channel, where every guild stays) |
 | `/oly key off` | officers: remove a mismatched guild-only key and return the guild to the public Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) |
 | `/oly block <name>` | ignore a player |

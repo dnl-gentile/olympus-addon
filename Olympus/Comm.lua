@@ -83,9 +83,16 @@ local askTries = 0 -- census requests tried while the channel was not joined (Co
 local heardAsk = -math.huge -- someone else's census request last heard on our channel (Comm.AskCensus)
 local askedAgain = false    -- the second census request is on its way, or went (Comm.AskCensus)
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
+local leftoversHidden = {} -- (1.5.9's review: HideLeftovers) name -> true once put off the chat windows this session
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
 local Lane
+-- (1.5.9, the author, 2026-11-12: "Tem guildas diferentes que têm canais selados diferentes [...] Todo
+-- mundo tá no mesmo canal, né?") On WoW: Forever's live realms every client sits on its faction's public
+-- first lane, whatever realm key or lane it holds (Comm.ChannelSpec, below). Off Forever nothing changes.
+local function OneChannel() return type(ns.OnForever) == "function" and ns.OnForever() == true end
+-- Whether the channel we join is the sealed one: a realm key held, off Forever.
+local function Sealed() return not OneChannel() and ns.rdb ~= nil and ns.rdb.realmKey ~= nil end
 -- Lanes refused by the game stay bad for this session. Crowd correction waits after every move,
 -- whether refusal-, officer- or crowd-driven, before it may choose another lane.
 local laneBad, laneMovedAt = {}, -math.huge
@@ -97,6 +104,7 @@ local peerLaneUsable = {} -- guild peer -> true/false for a present valid/invali
 local peerRelay = {}  -- guild peer -> true when its hello says it carries the relay (1.4.3)
 local peerZone = {} -- guild peer -> true when its hello says it shares its zone (0.9.1, Comm.SharesZone)
 local peerBank = {} -- guild peer -> true while its hello says it is an arena bank on duty (1.2, Electable)
+local peerHandoff = {} -- guild peer -> true ("J") or false ("j") as its hello says it takes recruitment handoffs or none (1.5.9, Comm.HandoffPeers)
 -- Short name -> last time we heard it report our guild on the channel. Short: the server may
 -- send a name with its realm over GUILD and without it over CHANNEL (names are region-unique
 -- on the realmless client).
@@ -110,6 +118,7 @@ local crossedAt = -math.huge
 local peerGuild = GetGuildInfo("player")
 local guildChangedAt = 0
 local guildSession, lastHello = 0, 0
+local saidHandoffs = false -- (1.5.9) whether our last hello said we take recruitment handoffs ("J")
 -- Quiet presence (1.2.5.1, Core.lua) is on: see Comm.QUIET_WORDS.
 local function Quiet() return ns.QuietPresence ~= nil and ns.QuietPresence() == true end
 
@@ -174,6 +183,25 @@ function Comm.PeerVersion(name)
 	return version, at
 end
 
+-- (1.5.9) What our guildmates' hellos heard within COUNT_WINDOW say of recruitment handoffs, for
+-- RecruitHandoff's probes and picker: { full = { [Name-Realm] = e }, short = { [folded short name]
+-- = e } }, e = { takes, version (the version it named), at }. `takes`: true when the hello said "J",
+-- false when it said "j" (it takes none), nil when it said neither (a client before 1.5.9). By the
+-- short name too, as PeerVersion reads them (on Forever the server stamps a guildmate's words with
+-- the reader's own sub-realm), the newest hello of a short name winning.
+function Comm.HandoffPeers()
+	local now, full, short = ns.Now(), {}, {}
+	for name, t in pairs(peers) do
+		if now - t <= COUNT_WINDOW then
+			local e = { takes = peerHandoff[name], version = peerVersion[name], at = t }
+			full[name] = e
+			local key = ns.Fold(ns.ShortName(name))
+			if not short[key] or t > short[key].at then short[key] = e end
+		end
+	end
+	return { full = full, short = short }
+end
+
 -- (1.5.4, the layer hop across Forever's sub-realms) The realm this guildmate's last hello named
 -- (H1's second field), and when it was heard; nil when none was heard this session or his version
 -- names none ("old"). By the whole name first, else by the short name folded, the newest: on
@@ -218,13 +246,20 @@ function Comm.Stats()
 	table.sort(out)
 	local r = Comm.lastReport
 	return {
-		channelName = joinedName, sealed = ns.rdb and ns.rdb.realmKey ~= nil,
+		-- (1.5.9) sealed: the channel joined is the sealed one (never on Forever); keyHeld: a realm key held.
+		channelName = joinedName, sealed = Sealed(), keyHeld = ns.rdb ~= nil and ns.rdb.realmKey ~= nil,
 		channel = channelIndex, peers = Comm.PeerCount(), reporter = Comm.reporterName,
-		isReporter = Comm.isReporter, sent = stats.sent, recv = stats.recv, reports = stats.reports,
+		isReporter = Comm.isReporter, sent = stats.sent,
+		-- (1.5.9) Our guild's registrant (the one that registers it with its relay) beside the reporter, and
+		-- the version each one's hello named.
+		registrant = Comm.registrantName, isRegistrant = Comm.isRegistrant, reporterVersion = Comm.reporterVersion,
+		registrantVersion = Comm.registrantVersion, recv = stats.recv, reports = stats.reports,
 		fails = stats.fails, bad = stats.bad, queue = queueSize, chatQueue = #chatQueue, chatMoved = stats.chatMoved, lastFail = stats.lastFail,
 		partial = stats.partial, echo = stats.echo, byType = stats.byType, otherChannel = stats.otherChannel,
 		chanArgs = stats.chanArgs, asked = stats.asked, answered = stats.answered, runnerUp = Comm.isRunnerUp, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 		raw = stats.raw, rawSample = stats.rawSample, reportRealms = stats.reportRealms, shared = ns.rdb and ns.rdb.shared,
+		-- (1.5.9's review) Words taken on Olympus's leftover channels on Forever (Comm.Leftover, /oly bug).
+		leftover = stats.leftover or 0,
 		peerRealms = PeerRealms(now), heardOwn = lastOwn and ns.DisplayName(lastOwn), heardOwnAt = lastOwn and lastOwnAt,
 		benched = out, guard = Comm.GuardStats and Comm.GuardStats(), askSkipped = stats.askSkipped,
 		-- 1.0.0: whom the election counts (our realm's peers, or every realm's on a shared channel),
@@ -340,7 +375,10 @@ local function NormalizeOptions(options)
 	}
 end
 
--- Forever's native addon channel cannot carry these words, even if the relay is unavailable.
+-- Where these words go by the relay, never on the native addon channel, even if no relay is available:
+-- on Forever, whose live realms delivered none of an addon's channel messages at launch (two /oly bug
+-- reports of 2026-11-12 showed older clients' census arriving on the public channel since; not yet
+-- confirmed in game), and wherever the relay is on.
 local function Forever()
 	if ns.OnForever() then return true end
 	local R = ns.Relay
@@ -365,7 +403,8 @@ local function SendThroughRelay(parts, logged, done, key, urgent, options)
 end
 local function Enqueue(dist, parts, key, target, urgent, logged, done, options)
 	SyncGuild()
-	-- 1.4.3: on Forever the channel delivers nothing; what was for it goes to our relay by whisper
+	-- 1.4.3: on Forever the channel delivered nothing at launch (1.5.9: older clients' census seen arriving
+	-- there since, not yet confirmed in game); what was for it goes to our relay by whisper
 	-- (Relay.Out, which comes back here as WHISPER jobs). (1.5.5) Always, relay or none: Relay.Out
 	-- holds it for one (HOLD_FOR), our guild hearing a single word at once, and tells its callback once.
 	-- 1.5.4 made a channel job when no relay could be picked (lost), and when Relay.Out refused a word,
@@ -522,8 +561,8 @@ end
 --   1.4.0, PrivatePresence PP (Private presence on or off, to the player's own guild over GUILD only).
 --   Verify GV (guild verification: a verifier's approval or revocation of a guild and its master,
 --   logged; any member's ask; a verifier's client's answer with the words and the guilds' starts).
---   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivers
---   nothing on it: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
+--   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivered
+--   nothing on it at launch: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
 --   the relay's answer to a ping, and 1.4.6 a relay's copy to the other relays); 1.5.4 RW (guild
 --   verification between relays alone: a verifier's decision, an ask, an answer to a relay's ask).
 --   1.5.4, Relay RI RU (Relay.lua: a client's presentation of its version to a relay, and the relay
@@ -537,6 +576,9 @@ end
 --   menu and /oly builds show, and the lock on such a client's words).
 --   1.5.5, RelayTree RN RF RQ RC | Relay RJ RB | RelayFallback RE RO | Data QA
 --   RelayTree RZ (what a registrant's tree reads beside the word as written: the packed census snapshot)
+--   1.5.9, RecruitRanking NE (the recruiting ranking for everyone: any member's invite and join to the
+--   Church's keepers, their ledger between them, a member's ask for the ranking and its answer; whispers
+--   only, whole messages, version 1; never the Church's own ledger)
 local handlers = {}
 local dispatchSender, injectedSender
 local function Dispatch(handler, dist, sender, text)
@@ -801,8 +843,11 @@ function Comm.QueueSize()
 	return queueSize
 end
 -- How many more fit before the oldest waiting message is dropped (1.1: the King's key rotation
--- hands out no more than that, Keys.lua).
-function Comm.QueueRoom()
+-- hands out no more than that, Keys.lua). evicting (1.5.9, Relay.lua's drip): how many Enqueue can
+-- take in by dropping the ordinary jobs still waiting, its own rule (never an urgent job, never a
+-- transfer begun).
+function Comm.QueueRoom(evicting)
+	if evicting then return MAX_QUEUE - queueSize + ordinarySize end
 	return MAX_QUEUE - queueSize
 end
 
@@ -963,13 +1008,15 @@ SyncGuild = function()
 	guildSession = guildSession + 1
 	guildAsm, outsiderAsm, whisperAsm = Codec.NewAssembler(), Codec.NewAssembler(), Codec.NewAssembler()
 	wipe(peers); wipe(peerRealm); wipe(peerVersion); wipe(peerSealed); wipe(peerZone); wipe(peerBank)
-	wipe(peerLane); wipe(peerLaneUsable); wipe(peerRelay)
+	wipe(peerLane); wipe(peerLaneUsable); wipe(peerRelay); wipe(peerHandoff)
 	wipe(heardOwn); wipe(benched)
 	watch, lastKeyAsk, early = nil, nil, nil
 	crossedAt, lastBroadcast, lastAnswer = -math.huge, 0, -math.huge
 	Comm.isReporter, Comm.isRunnerUp, Comm.reporterName, Comm.lastReport = nil, nil, nil, nil
+	-- (1.5.9's review) isRegistrant too: kept, a member who moved guild showed "registrant=nil (me: true)".
+	Comm.isRegistrant, Comm.reporterVersion, Comm.registrantName, Comm.registrantVersion = nil, nil, nil, nil
 	guildChangedAt = ns.Now()
-	lastHello, Comm.lastKeyAnswer = 0, nil
+	lastHello, Comm.lastKeyAnswer, saidHandoffs = 0, nil, false
 	askTries, heardAsk, askedAgain = 0, -math.huge, false
 	stats.asked, stats.askSkipped = 0, 0
 	-- Moving between Olympus guilds invalidates the old guild session; leaving the
@@ -1238,6 +1285,7 @@ Comm.CROWD_LEAD = 2
 Comm.CROWD_RECENT = 15 * 60
 Comm.CROWD_SETTLE = 5 * 60
 Lane = function()
+	if OneChannel() then return 0 end -- (1.5.9: the first lane alone on Forever, whatever is kept)
 	local n = ns.rdb and tonumber(ns.rdb.channelLane) or 0
 	if n ~= n or n < 0 or n > Comm.LANE_MAX then return 0 end
 	return math.floor(n)
@@ -1245,12 +1293,46 @@ end
 Comm.Lane = Lane
 local function LaneName(base) return base .. (Lane() > 0 and tostring(Lane()) or "") end
 
+-- The sealed channel's name the realm key we hold gives, without its lane; nil without a key. (1.5.9)
+-- Whether we join it or not: on Forever nobody does now, yet older logs name it (Diagnostics.lua's Scrub).
+function Comm.SealedBase()
+	local key = ns.rdb and ns.rdb.realmKey
+	if type(key) ~= "string" or key == "" then return nil end
+	return (ns.faction == "Horde" and "OlyH" or "Oly") .. Hash36(key)
+end
+-- (1.5.9's review) Whether `name` is one of Olympus's own channels this client may still sit in on Forever
+-- from an earlier session, beside the public first lane it joins now: a later public lane (OlympusNet7),
+-- or the sealed channel the realm key it holds gives, on any lane. JoinChannel leaves only the channel it
+-- joined this session, so after a /reload (and a relog, where the game rejoins its channels) the client
+-- is still in them, and older clients still broadcast their census there: 1.4.0 and 1.4.1 always, 1.4.3
+-- to 1.5.4 while no relay answers them, on the sealed channel when they hold the key. Never off Forever.
+function Comm.Leftover(name)
+	if not OneChannel() or type(name) ~= "string" then return false end
+	local function Lane(rest, first) local n = rest:match("^%d+$") and tonumber(rest) return n ~= nil and n >= first and n <= Comm.LANE_MAX end
+	local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
+	if type(public) == "string" and name:sub(1, #public) == public and Lane(name:sub(#public + 1), 1) then return true end
+	local sealed = Comm.SealedBase()
+	if sealed and name:sub(1, #sealed) == sealed then
+		local rest = name:sub(#sealed + 1)
+		return rest == "" or Lane(rest, 1)
+	end
+	return false
+end
+
 -- Each faction has its own channel (and sealed name), so the Horde and the Alliance never
 -- mix their census, chat or decrees, whether or not the game shares channel names between them.
+-- (1.5.9) On Forever the faction's public first lane, whatever key or lane we hold (OneChannel). There
+-- 1.5.5 and later send nothing on the channel (the relay carries it all), while the clients still on
+-- 1.5.4 or older broadcast their census on the public first lane: two /oly bug reports of 2026-11-12
+-- showed it arriving there (some 500 pieces at a client on the public channel, none at a sealed one on
+-- lane 7), not yet confirmed in game. Who holds a key keeps it (Keys.lua: the King's rotation, the
+-- hand-outs), so nothing changes off Forever, and a key that arrives there leaves and joins nothing.
+-- Who holds one types no chat line as text in the public channel (ChatHall.On): its lines go the
+-- hidden way alone, as every client's already do.
 function Comm.ChannelSpec()
 	local horde = ns.faction == "Horde"
-	local key = ns.rdb and ns.rdb.realmKey
-	if key and key ~= "" then return LaneName((horde and "OlyH" or "Oly") .. Hash36(key)), key end
+	local key = not OneChannel() and Comm.SealedBase() and ns.rdb.realmKey
+	if key then return LaneName(Comm.SealedBase()), key end
 	return LaneName(horde and ns.CHANNEL_HORDE or ns.CHANNEL), nil
 end
 -- To lane n (TakeLane: a higher one a guild officer's hello names) or the next one (NextLane): the
@@ -1259,7 +1341,7 @@ end
 -- can split a guild whose remaining clients did not move. A crowd correction is the exception: it
 -- rejoins a decisive split, so it may move down or up and may run while the relay carries traffic.
 local function MoveLane(n, why, crowd)
-	if not ns.rdb then return false end
+	if not ns.rdb or OneChannel() then return false end -- (1.5.9: one channel on Forever, no lane to move to)
 	n = tonumber(n)
 	if not n or n ~= n or n ~= math.floor(n) or n < 0 or n > Comm.LANE_MAX or n == Lane() then return false end
 	if n < Lane() and not crowd then return false end
@@ -1289,6 +1371,7 @@ end
 -- Recent same-guild hellos carrying R are the only lane reports whose protocol includes usable
 -- lane data. Ties choose the lower lane deterministically, though a tie can never pass CrowdClear.
 function Comm.CrowdLane(now)
+	if OneChannel() then return nil, 0, 0, {}, 0 end -- (1.5.9: no lane to follow on Forever)
 	now = now or ns.Now()
 	local count, total, shared = {}, 0, Comm.ElectsAcrossRealms(now)
 	local _, key = Comm.ChannelSpec()
@@ -1347,6 +1430,57 @@ local function HideChannelFromChat(name) -- gp:chat-channels
 	for i = 1, (NUM_CHAT_WINDOWS or 10) do
 		local cf = _G["ChatFrame" .. i]
 		if cf and ChatFrame_RemoveChannel then pcall(ChatFrame_RemoveChannel, cf, name) end
+	end
+end
+
+-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover: a later public
+-- lane, or the sealed channel the key held gives, any lane) are kept, for the census older clients still
+-- broadcast there, but off the chat windows again: a 1.5.8 key holder's chat line goes as text into the
+-- sealed one, and a window whose channel list was reset showed it raw. Never left: that would lose those
+-- clients' census. Each one once a session, when it is found joined: Comm.JoinChannel looks first, and
+-- (B3 of the review) as the game joins its remembered channels after ours on a slow login, a channel list
+-- change looks again in the session's first minutes (CHANNEL_UI_UPDATE, in the LOGIN handler below).
+local function HideLeftovers()
+	if not OneChannel() or not GetChannelName or not ns.IsMember() then return end
+	local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
+	local sealed = Comm.SealedBase()
+	for lane = 0, Comm.LANE_MAX do
+		local suffix = lane > 0 and tostring(lane) or ""
+		for _, there in ipairs({ lane > 0 and public and (public .. suffix) or false, sealed and (sealed .. suffix) or false }) do
+			if there and not leftoversHidden[there] and (GetChannelName(there) or 0) > 0 then
+				leftoversHidden[there] = true
+				HideChannelFromChat(there)
+			end
+		end
+	end
+end
+
+-- (Review of the 1.5.9 release, F3) That sealed channel is kept for the key held now alone. Once the key is
+-- cleared (K7, /oly key off) or replaced (the King's rotation, another officer's key), the old one is no
+-- longer Olympus's: Comm.Leftover took no word of it any more, HideLeftovers no longer put it off a reset
+-- chat window, and nothing ever left it, though 1.5.8 left it on the same word. So on Forever the sealed
+-- channel of a key held earlier in the session and no longer held is left, on every lane the game finds
+-- joined: when JoinChannel follows the key's change, and (as the game may join its remembered channels
+-- after ours on a slow login, where a clear can come with the answer to our key ask) on a channel list
+-- change in the session's first minutes. Nothing changes while a key is held, nor off Forever (JoinChannel
+-- leaves the old sealed channel it joined there, as before). The name never goes in the log (/oly bug).
+local sealedSeen -- the sealed base of the key held at the last look on Forever (false: none; nil: not yet)
+local sealedOld = {} -- the sealed bases of the keys this session saw cleared or replaced
+local function LeaveOldSealed()
+	if not OneChannel() or not GetChannelName or not ns.IsMember() then return end
+	local base = Comm.SealedBase()
+	if sealedSeen and sealedSeen ~= base then sealedOld[sealedSeen] = true end
+	sealedSeen = base or false
+	if base then sealedOld[base] = nil end -- (a key held again is ours again)
+	for old in pairs(sealedOld) do
+		for lane = 0, Comm.LANE_MAX do
+			local there = old .. (lane > 0 and tostring(lane) or "")
+			if (GetChannelName(there) or 0) > 0 then
+				ns.Log("left an older realm key's sealed channel%s", lane > 0 and (" (lane " .. lane .. ")") or "")
+				LeaveChannelByName(there) -- gp:chat-channels
+				leftoversHidden[there] = nil
+			end
+		end
 	end
 end
 
@@ -1702,6 +1836,12 @@ function Comm.JoinChannel()
 	end
 	if joinedName ~= name then watch, laneRefused = nil, 0 end -- another channel: the election guard starts again
 	joinedName = name
+	-- (Review of the 1.5.9 release) On Forever the sealed channel of a key no longer held is left (LeaveOldSealed).
+	LeaveOldSealed()
+	-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover) are kept,
+	-- but off the chat windows again, each once a session (HideLeftovers; also on a channel list change in
+	-- the session's first minutes, as the game may join them after ours).
+	HideLeftovers()
 	local id = GetChannelName(name)
 	if id and id > 0 then
 		if channelIndex ~= id then ns.Log("channel %s is #%d", name, id) end
@@ -1736,9 +1876,15 @@ Comm.SEND_INTERVAL = SEND_INTERVAL -- (for the tests: tests/relay-tree-load.lua 
 function Comm.DeliveredLogged() return deliveredLogged end
 
 -- Who can read the channel, as the privacy questions tell the player (Layers, Channels):
--- anyone without a realm key, whoever holds the key with one.
+-- anyone without a realm key, whoever holds the key with one. (1.5.9's review) On Forever, with a key,
+-- the public channel, into which nothing of the player's goes (ChatHall.On is off, and every channel word
+-- goes by the relays there): what is for all guilds reaches them by the relays. Said for any message the
+-- questions send (zone, Board, groups, the privacy page, the Treasurer's share, chat). (Round 2 of the
+-- review) Four of them say first that it goes on, or is read on, the Olympus channel: the text follows that
+-- (the relays carry the channel; none of it shows as text in the game's public one), never denying it.
 function Comm.Audience()
-	return (ns.rdb and ns.rdb.realmKey) and ns.L.CHANNEL_SEALED or ns.L.CHANNEL_PUBLIC
+	if not (ns.rdb and ns.rdb.realmKey) then return ns.L.CHANNEL_PUBLIC end
+	return OneChannel() and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED
 end
 
 -- The channel is public (1.1): no realm key, so anyone who joins it by name reads what is sent
@@ -1780,7 +1926,8 @@ function Comm.SetRealmKey(secret)
 	-- before; the key it replaces named with it (a plain K1 of that one no longer pulls them back).
 	-- 1.4.0: that K8 alone; no plain K1, which every older version reads.
 	if ns.Keys.Typed then ns.Keys.Typed(secret, was) end
-	ns.Print(ns.L.KEY_SET)
+	-- (1.5.9's review) On Forever no channel is sealed: what the key does there instead (OneChannel).
+	ns.Print(OneChannel() and ns.L.KEY_SET_FOREVER or ns.L.KEY_SET)
 	Comm.JoinChannel()
 end
 
@@ -1884,6 +2031,16 @@ local function TreeLoaded()
 	return type(T) == "table" and not T.missing
 end
 
+-- (1.5.9, the review of 1.5.8: a guildmate without Olympus never answers a recruiting probe and costs
+-- it 20 seconds.) Whether this client takes recruitment handoffs now (RecruitHandoff.lua: its switch
+-- on, for the guild whose roster confirms it may invite): "J", the hello's 9th field, so the automatic
+-- offers of its guildmates ask such members first; "j" when it takes none, so they never ask it.
+local function TakesHandoffs()
+	local R = ns.Recruit
+	local H = type(R) == "table" and R.Handoff
+	return type(H) == "table" and type(H.Accepting) == "function" and H.Accepting() == true
+end
+
 -- force: now, whatever the above (the player changed what the hello says).
 function Comm.Hello(force)
 	SyncGuild()
@@ -1902,19 +2059,27 @@ function Comm.Hello(force)
 	-- before it: it may be our registrant (MaybeBroadcast), and a quiet one is past PEER_WINDOW there.
 	local quietAfter = Comm.QuietAfter(now)
 	local talk = before < quietAfter or (TreeLoaded() and beforeTree < quietAfter)
-	if not force and not talk and now - lastHello < 600 then return end
-	lastHello = now
+	-- (1.5.9) A quiet client says hello again at its next tick (HELLO_EVERY) once it takes handoffs or
+	-- stops: whatever turned it (the switch, the roster confirming it, a rank change), guildmates know
+	-- within a minute, and a switch flipped back and forth sends one hello a minute at most.
+	local takes = TakesHandoffs()
+	if not force and not talk and takes == saidHandoffs and now - lastHello < 600 then return end
+	lastHello, saidHandoffs = now, takes
 	-- Our realm rides along: guildmates on another realm show in /oly status (topology). So does
 	-- our channel: without the key we can't hear a reporter on the sealed one (MaybeBroadcast).
 	-- And "z" when we share our zone (0.9.1): our guild's reporter may name it then, never
 	-- otherwise. Older versions read the fields before it and ignore the rest.
-	local sealed = ns.rdb and ns.rdb.realmKey and "s" or "p"
+	-- (1.5.9) "p" on Forever, key or none: every client sits on the public first lane there.
+	local sealed = Sealed() and "s" or "p"
 	-- The fields after it: "z" (our zone shared), "b" (an arena bank on duty), and (1.4.1) "L<n>",
 	-- our channel lane when it is not the first. Empty ones at the end are left out, as before.
 	-- (1.5.5) "N" after "R": this client takes the relay's tree (RelayTree.lua; a 1.5.5 client updated
 	-- without restarting the game has its stand-in, and says nothing). Older versions never read it.
+	-- (1.5.9) "J" after "N": this client takes recruitment handoffs (TakesHandoffs); "j": it takes
+	-- none. Older versions never read it. (Review of 1.5.9: said both ways, so a guildmate never has
+	-- to guess it from the version: a hello without either is a client from before the flag.)
 	local tail = { ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing() and "z" or "", Comm.BankOnDuty() and "b" or "",
-		Lane() > 0 and ("L" .. Lane()) or "", "R", TreeLoaded() and "N" or "" } -- (1.4.3: "R", this client carries the relay)
+		Lane() > 0 and ("L" .. Lane()) or "", "R", TreeLoaded() and "N" or "", takes and "J" or "j" } -- (1.4.3: "R", this client carries the relay)
 	while #tail > 0 and tail[#tail] == "" do tail[#tail] = nil end
 	local extra = #tail > 0 and ("~" .. table.concat(tail, "~")) or ""
 	Enqueue("GUILD", { "H1~" .. ns.VERSION .. "~" .. tostring(ns.realm) .. "~" .. sealed .. extra }, "hello")
@@ -1987,6 +2152,14 @@ local function LastReport(every)
 	return lastBroadcast
 end
 
+-- (1.5.9) The version a guildmate's hello named ("?" for one we could not read; ours for us), for
+-- /oly status beside our guild's reporter and registrant (an /oly bug of 2026-11-12 named neither).
+local function HelloVersion(name)
+	if name == nil then return nil end
+	if name == ns.me then return ns.VERSION end
+	return peerVersion[name] or "?"
+end
+
 -- (1.5.5) Our guild's registrant: the first by name of the peers that may be elected whose hello says N,
 -- ourselves too when we take the tree; nil when none does (then the reporter registers, as before).
 local function Registrant(pool, now)
@@ -2004,6 +2177,10 @@ function Comm.MaybeBroadcast(report)
 	-- census answer (Q1) of ours says we are online.
 	if Comm.BankOnDuty() or Quiet() then
 		Comm.isReporter, Comm.isRunnerUp, Comm.isRegistrant, watch = false, false, false, nil
+		-- (1.5.9's review) Nor the registrant and the versions of the last election (/oly status alone reads
+		-- them): kept, a client that turned quiet presence on named itself registrant "(me: false)". The
+		-- reporter's name stays, as before (UI.lua reads it).
+		Comm.registrantName, Comm.registrantVersion, Comm.reporterVersion = nil, nil, nil
 		Comm.lastReport = report
 		return
 	end
@@ -2023,8 +2200,8 @@ function Comm.MaybeBroadcast(report)
 			lastKeyAsk = now
 			Comm.RequestKey()
 		end
-	-- (1.4.5) Where the relay carries the channel (Forever), the channel itself delivers nothing, so
-	-- a reporter is never "heard" there: every client benched its guild's reporter in turn and
+	-- (1.4.5) Where the relay carries the channel (Forever), a 1.5.5 or later reporter says nothing on the
+	-- channel itself (and Forever delivered nothing there at launch), so a reporter is never "heard" there: every client benched its guild's reporter in turn and
 	-- elected itself (the dev's log, 2026-11-05: a new reporter every minute). No guard there.
 	elseif best ~= ns.me and channelIndex > 0 and not RelayOn() then
 		if not watch or watch.name ~= best then watch = { name = best, since = now } end
@@ -2039,6 +2216,7 @@ function Comm.MaybeBroadcast(report)
 	end
 	Comm.isReporter = best == ns.me
 	Comm.reporterName = ns.DisplayName(best)
+	Comm.reporterVersion = HelloVersion(best)
 	Comm.lastReport = report
 	-- (1.5.5) Only the registrant registers our guild with its relay (Relay.Register), and tells it we
 	-- take the tree (RelayTree.Announce): a reporter without N leaves both to it while it is known. An
@@ -2047,6 +2225,7 @@ function Comm.MaybeBroadcast(report)
 	local relayed = ns.Relay and ns.Relay.On()
 	Comm.isRegistrant = (registrant or best) == ns.me
 	Comm.registrantName = ns.DisplayName(registrant or best)
+	Comm.registrantVersion = HelloVersion(registrant or best)
 	if Comm.isRegistrant and relayed then
 		ns.SafeCall("relay register", ns.Relay.Register)
 		if TreeLoaded() and type(ns.RelayTree.Announce) == "function" then ns.SafeCall("relay tree", ns.RelayTree.Announce) end
@@ -2060,7 +2239,9 @@ function Comm.MaybeBroadcast(report)
 		-- runner-up report) and on the same channel as the reporter (sealed or public).
 		local rest = {}
 		for name, t in pairs(pool) do
-			if name ~= best and peerRealm[name] ~= "old" and (peerSealed[name] == nil or peerSealed[name] == peerSealed[best]) then
+			-- (1.5.9) Whatever channel a hello names on Forever: the relay carries every report there, and a
+			-- 1.5.8 guildmate holding the key still says "s" where a 1.5.9 one says "p".
+			if name ~= best and peerRealm[name] ~= "old" and (OneChannel() or peerSealed[name] == nil or peerSealed[name] == peerSealed[best]) then
 				rest[name] = t
 			end
 		end
@@ -2338,8 +2519,16 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 			local id = name and GetChannelName and GetChannelName(name) or 0
 			if id and id > 0 and joinedName then channelIndex = id end
 			if id ~= localID then
-				stats.otherChannel = stats.otherChannel + 1
-				return
+				-- (1.5.9's review) On Forever, Olympus's own channel from an earlier session (Comm.Leftover):
+				-- the census older clients broadcast there is taken, as a 1.5.8 client on it took it. Its name
+				-- by its number (GetChannelName); any other channel's words, as ever, never.
+				local there
+				if GetChannelName then there = select(2, GetChannelName(localID)) end
+				if not Comm.Leftover(there) then
+					stats.otherChannel = stats.otherChannel + 1
+					return
+				end
+				stats.leftover = (stats.leftover or 0) + 1
 			end
 		end
 	end
@@ -2466,6 +2655,9 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if laneField == nil then peerLaneUsable[sender] = nil else peerLaneUsable[sender] = lane ~= nil end
 		peerRelay[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)") == "R" or nil -- (1.4.3)
 		peerTree[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~N") ~= nil or nil -- (1.5.5)
+		-- (1.5.9) "J" he takes recruitment handoffs, "j" none; neither: a client before the flag.
+		local handoffs = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)")
+		if handoffs == "J" then peerHandoff[sender] = true elseif handoffs == "j" then peerHandoff[sender] = false else peerHandoff[sender] = nil end
 		if lane and lane > Lane() then
 			local rank = ns.Roster and ns.Roster.RankOf and ns.Roster.RankOf(sender)
 			if type(rank) == "number" and rank <= (ns.CAPTAIN_RANK or 2) then Comm.TakeLane(lane, sender) end
@@ -2620,8 +2812,19 @@ ns.On("LOGIN", function()
 	-- The game joins its own channels (General, Trade...) after ours on a slow login: ours
 	-- moves behind them once the list settles.
 	-- Only in the minutes after we joined: later changes are the player's.
-	local lastPending = false
+	-- (1.5.9's review, B3) On Forever the game may join Olympus's channels of an earlier session then too
+	-- (HideLeftovers): each goes off the chat windows once the list settles, in the session's first 180 s,
+	-- however long ago ours was joined (Comm.JoinChannel looked once, maybe before they came).
+	local lastPending, leftoverPending = false, false
 	ns.RegisterEvent("CHANNEL_UI_UPDATE", function()
+		if OneChannel() and not leftoverPending and ns.Now() - (Comm.loginAt or 0) <= 180 then
+			leftoverPending = true
+			ns.After(2, "channel leftovers", function()
+				leftoverPending = false
+				LeaveOldSealed()
+				HideLeftovers()
+			end)
+		end
 		if lastPending or ns.Now() - (Comm.joinedAt or 0) > 180 then return end
 		lastPending = true
 		ns.After(2, "channel last", function()

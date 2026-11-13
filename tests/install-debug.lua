@@ -476,3 +476,189 @@ test("1.5.8 /oly bug debug: the census counters, the tree's registrant line and 
 	ns.db.groupCensus, ns.db.groupHeard, ns.rdb.censusGlobal, ns.group, ns.RelayTree = saved.census, saved.heard, saved.global, saved.group, saved.tree
 	if not ok then error(err, 0) end
 end)
+
+-- 1.5.9 (the census items left from 1.5.8). Fails before: a report sent in game stops at Workshop.BUG_MAX
+-- bytes, and the census's lines came last (the debug section), cut from a busy client's report: the
+-- author never saw which servers it counted, from what, or how old.
+test("1.5.9 /oly bug: a compact census line near the top of the status survives the in-game cut: the totals, each counted server with its source and age, the counters; no names", function()
+	local saved = { census = ns.db.groupCensus, heard = ns.db.groupHeard, group = ns.group, lines = ns.statusLines }
+	local ok, err = pcall(function()
+		local now = ns.Now()
+		ns.group = "ForeverPvE"
+		ns.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", people = 5900, characters = 6012,
+			guilds = 24, observed = now - 9 * 86400, src = "author", by = "Author Personname" } }
+		ns.db.groupHeard = { ["Alliance|ForeverRP"] = { group = "ForeverRP", faction = "Alliance", people = 300, characters = 300,
+			guilds = 2, observed = now - 3600, src = "heard", by = "Some Personname" } }
+		-- A busy client: its status runs past what a report sent in game carries.
+		ns.statusLines = { function(lines)
+			for i = 1, 80 do lines[#lines + 1] = ("busy status line %02d %s"):format(i, ("x"):rep(60)) end
+		end }
+		local report = ns.BuildBugReport()
+		local sent = ns.Workshop.Outgoing(report)
+		assert(#report > ns.Workshop.BUG_MAX, "the whole report is longer than one sent in game")
+		assert(not sent:find("census counters: ", 1, true), "the debug section's census lines are cut from it")
+		local brief = sent:match("\n(census brief: [^\n]+)")
+		assert(brief, "the compact census line is in the report sent")
+		assert(brief:find("; ForeverPvP author 9d 6012;", 1, true), "the counted server, its source and age: " .. brief)
+		assert(brief:find("; 1 uncounted;", 1, true), "the server listed uncounted: " .. brief)
+		assert(brief:find((ns.Data.CensusStats().line:gsub("|", "!")), 1, true), "the counters (sent with \"!\" for \"|\"): " .. brief)
+		assert(#brief <= ns.DEBUG_LINE, "one bounded line")
+		assert(not brief:find("Personname", 1, true), "no names")
+		assert(ns.StatusText():find("\ncensus brief: ", 1, true), "/oly status has it too")
+	end)
+	ns.db.groupCensus, ns.db.groupHeard, ns.group, ns.statusLines = saved.census, saved.heard, saved.group, saved.lines
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9 (two /oly bug reports of 2026-11-12: a member's census came by no relay, and the report said
+-- "registrant false" without naming who registers the guild, nor the version it runs). /oly status names
+-- the guild's registrant beside its reporter now, each with the version its hello named. Real Comm: a
+-- guildmate on 1.5.4 (no N in its hello) comes first by name and reports, one on 1.5.8 (N) registers.
+-- Fails before (no registrant in the line, no version).
+test("1.5.9 /oly bug: the guild's registrant beside its reporter, each with the version its hello named: a 1.5.4 guildmate without the tree's N reports, a 1.5.8 one with it registers", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, info = C_ChatInfo, stats = ns.Comm.Stats }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		local cns, Deliver = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")()
+		cns.RelayTree = { Announce = function() return false end } -- (this client takes the tree too: N)
+		local C = cns.Comm
+		C.loginAt = cns.clock - 1000
+		C.JoinChannel()
+		local old, new = "Aaa Oldhello-Realm", "Bbb Newhello-Realm"
+		assert(old < cns.me and new < cns.me, "both come before this client by name")
+		Deliver("GUILD", old, "H1~1.5.4~Realm~p~~~~R")
+		Deliver("GUILD", new, "H1~1.5.8~Realm~p~~~~R~N")
+		C.MaybeBroadcast({ guild = "Olympus II", total = 1000, online = 300, zones = {} })
+		local st = C.Stats()
+		eq(st.isReporter, false); eq(st.isRegistrant, false)
+		eq(st.reporter, ns.DisplayName(old)); eq(st.reporterVersion, "1.5.4")
+		eq(st.registrant, ns.DisplayName(new)); eq(st.registrantVersion, "1.5.8")
+		ns.Comm.Stats = C.Stats
+		local report = ns.BuildBugReport()
+		local line = assert(report:match("\n(channel [^\n]+)"), report)
+		assert(line:find(("reporter=%s v1.5.4 (me: false)"):format(ns.DisplayName(old)), 1, true), line)
+		assert(line:find(("registrant=%s v1.5.8 (me: false)"):format(ns.DisplayName(new)), 1, true), line)
+		-- This client registers when it comes first among those with N: its own version then.
+		ns.Comm.Stats = saved.stats
+		local cns2, Deliver2 = extra.FreshComm()
+		cns2.RelayTree = { Announce = function() return false end }
+		local C2 = cns2.Comm
+		C2.loginAt = cns2.clock - 1000
+		C2.JoinChannel()
+		Deliver2("GUILD", old, "H1~1.5.4~Realm~p~~~~R")
+		C2.MaybeBroadcast({ guild = "Olympus II", total = 1000, online = 300, zones = {} })
+		eq(C2.Stats().isRegistrant, true); eq(C2.Stats().registrantVersion, ns.VERSION)
+		eq(C2.Stats().reporterVersion, "1.5.4")
+	end)
+	GetChannelName, ns.IsMember, C_ChatInfo, ns.Comm.Stats = saved.channel, saved.member, saved.info, saved.stats
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (D3): the registrant's fields and isRegistrant were reset in different places. Turned
+-- quiet (Private presence) after it was elected, a client still named itself registrant with "(me:
+-- false)"; moved to another guild, it said "registrant=nil (me: true)". Both reset together now. Fails
+-- before (the elected name kept under quiet presence; isRegistrant kept true after the move).
+test("1.5.9's review /oly bug: the registrant line under quiet presence names no registrant, and after a guild change nobody is registrant", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, info = C_ChatInfo, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		ns.IsMember = function() return true end
+		local report = { guild = "Olympus II", total = 1000, online = 300, zones = {} }
+		for _, case in ipairs({ "quiet", "moved" }) do
+			local cns, Deliver = extra.FreshComm()
+			cns.RelayTree = { Announce = function() return false end } -- (this client takes the tree: N)
+			local C = cns.Comm
+			C.loginAt = cns.clock - 1000
+			C.JoinChannel()
+			Deliver("GUILD", "Zzz Later-Realm", "H1~1.5.4~Realm~p~~~~R")
+			C.MaybeBroadcast(report)
+			eq(C.Stats().isRegistrant, true, case .. ": elected registrant")
+			eq(C.Stats().registrant, ns.DisplayName(cns.me), case)
+			if case == "quiet" then
+				cns.QuietPresence = function() return true end
+				cns.clock = cns.clock + 60
+				C.MaybeBroadcast(report)
+				eq(C.Stats().isRegistrant, false, "quiet: not the registrant")
+				eq(C.Stats().registrant, nil, "quiet: nor named as one")
+				eq(C.Stats().registrantVersion, nil); eq(C.Stats().reporterVersion, nil)
+			else
+				GetGuildInfo = function() return "Another Guild", "Member", 5, nil end
+				C.Hello(true) -- (the guild change seen first: SyncGuild)
+				eq(C.Stats().isRegistrant, nil, "moved: nobody is registrant until the next election")
+				eq(C.Stats().registrant, nil)
+				GetGuildInfo = saved.guild
+			end
+		end
+	end)
+	GetChannelName, ns.IsMember, C_ChatInfo, GetGuildInfo = saved.channel, saved.member, saved.info, saved.guild
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9: on a relay's own client, /oly bug says what decides whether its registrants get the census,
+-- naming nobody: quiet presence (no snapshot of its own then), the drip's transfers waiting and the
+-- longest any of them, and any census one, waited, and how long ago its own last tree round was. Not on
+-- any other client. Fails before (no such line).
+-- (1.5.9's review) And the transfer in flight, which holds every other one while its batch waits (D2:
+-- shown as nothing before); in the status right below the channel line, not the debug section, which a
+-- report sent in game (Workshop.Outgoing, cut at Workshop.BUG_MAX) loses on a relay (P8). The old place
+-- is asserted gone: the line in the debug section was the one the cut took.
+-- (Round 1's re-review) And the drip's whispers since login, census, other and past its pace (Relay.Stats),
+-- and on the channel line the words taken on Olympus's leftover channels (Comm.Stats().leftover): counted
+-- by 1.5.9's review, shown nowhere. Fails before (neither is in the status). (Round 2) Those past the pace
+-- are some of the census and other ones, so the line says so: as three counts side by side ("1234 census,
+-- 56 other, 78 past the pace") they read as 1,368 whispers where 1,290 went.
+test("1.5.9 /oly bug: on a relay, the status says, below the channel line, quiet presence, the drip's waiting transfers and the longest wait, the transfer in flight, the drip's whispers sent (census, other, past its pace), and its own last tree round's age, without a name; the channel line the words taken on leftover channels; on any other client no relay line; a long report sent in game keeps both", function()
+	local saved = { relay = ns.Relay, tree = ns.RelayTree, quiet = ns.QuietPresence, log = ns.db.log, commStats = ns.Comm.Stats }
+	local ok, err = pcall(function()
+		local R = saved.relay
+		local relay = true
+		ns.Relay = setmetatable({ IsRelay = function() return relay end, DripStats = function()
+			return { waiting = 3, census = 2, oldest = 95, oldestCensus = 40, name = "Waiting Personname",
+				flight = { census = false, batch = 2, of = 2, since = 300, name = "Flying Personname" } }
+		end, Stats = function()
+			return { on = true, dripCensus = 1234, dripOther = 56, dripFree = 78 }
+		end }, { __index = R })
+		ns.Comm.Stats = function()
+			local c = saved.commStats()
+			c.leftover = 12
+			return c
+		end
+		ns.QuietPresence = function() return true end
+		ns.RelayTree = { Stats = function()
+			return { round = { age = 300, tid = "abcd1234" }, lines = { "tree: rn 0, complete 0, rounds 1 (deferred 0), capable 31, open 0, registrant false" },
+				seed = "Seeding Personname" }
+		end }
+		local text = ns.StatusText()
+		local line = "relay here: quiet presence on  |  drip 3 waiting (2 census), the oldest for 95s, the oldest census one for 40s, "
+			.. "in flight: other, batch 2/2, for 5m  |  drip sent 1234 census + 56 other (78 of them past the pace)  |  own tree round 5m ago"
+		assert(text:find("\n" .. line .. "\n", 1, true), text)
+		assert(text:find("\nchannel [^\n]+\nrelay here: "), "right below the channel line: " .. text)
+		local channel = text:match("\n(channel [^\n]+)\n")
+		assert(channel and channel:find("  leftover taken=12  |  peers in guild=", 1, true), "the channel line: " .. tostring(channel))
+		assert(not text:find("Personname", 1, true), "no name: " .. text)
+		-- (The debug section's relay line says "relay here: yes" of itself now that Relay.Stats answers: the
+		-- status's line, which starts "relay here: quiet presence", is the one that must not be there.)
+		assert(not table.concat(ns.DebugLines(), "\n"):find("relay here: quiet presence", 1, true), "no longer in the debug section")
+		-- A long report, sent in game: the status comes first, and the line with it.
+		local logged = {}
+		for i = 1, 40 do logged[i] = ("relay: a long log line %02d "):format(i) .. ("x"):rep(150) end
+		ns.db.log = logged
+		local report = ns.BuildBugReport()
+		assert(#report > ns.Workshop.BUG_MAX, "a report longer than the in-game cut: " .. #report)
+		local sent = ns.Workshop.Outgoing(report)
+		assert(sent:find((line:gsub("|", "!")), 1, true), "the line is in what is sent in game (its pipes as \"!\")")
+		assert(sent:find((channel:gsub("|", "!")), 1, true), "and the channel line")
+		assert(not sent:find("census counters:", 1, true), "where the debug section's census counters are cut off")
+		ns.QuietPresence = function() return false end
+		ns.RelayTree = { Stats = function() return { lines = {} } end }
+		ns.Relay.DripStats = function() return { waiting = 0, census = 0 } end
+		text = ns.StatusText()
+		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -, in flight: none  |  drip sent 1234 census + 56 other (78 of them past the pace)  |  own tree round none\n", 1, true), text)
+		relay = false
+		text = ns.StatusText()
+		assert(not text:find("relay here:", 1, true), "not a relay: no line: " .. text)
+	end)
+	ns.Relay, ns.RelayTree, ns.QuietPresence, ns.db.log, ns.Comm.Stats = saved.relay, saved.tree, saved.quiet, saved.log, saved.commStats
+	if not ok then error(err, 0) end
+end)

@@ -7145,7 +7145,10 @@ test("1.4.1 channel lanes: three InvalidChannel refusals on our channel move us 
 		for _ = 1, 20 do if #sent > n then break end C.Pump() end
 		local hello = sent[#sent]
 		eq(hello.dist, "GUILD")
-		assert(hello.msg:match("^H1~[^~]+~[^~]*~p~~~L1~R$"), "the lane in the hello: " .. tostring(hello.msg))
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(hello.msg:match("^H1~[^~]+~[^~]*~p~~~L1~R~~j$"), "the lane in the hello: " .. tostring(hello.msg))
 		-- A member's hello naming a higher lane is noted alone; a Lord's moves us.
 		Deliver("GUILD", "Member-Realm", "H1~1.4.1~Realm~p~~~L2")
 		eq(C.Lane(), 1, "a member's word moves nobody")
@@ -7236,7 +7239,7 @@ Harness.RelayWorld = RelayWorld -- (1.5.4: the Chat tab's link tests, tests/chat
 assert(loadfile(ROOT .. "tests/census-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 assert(loadfile(ROOT .. "tests/census-ask-answer.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.5: the mesh between the signed relays (tests/relay-mesh.lua).
-assert(loadfile(ROOT .. "tests/relay-mesh.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
+assert(loadfile(ROOT .. "tests/relay-mesh.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
 assert(loadfile(ROOT .. "tests/hop-forever.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
 assert(loadfile(ROOT .. "tests/relay-fanout.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
 -- 1.5.5: the census snapshot to the registrants as a tree, one snapshot per registrant (tests/relay-tree.lua).
@@ -7267,7 +7270,9 @@ assert(loadfile(ROOT .. "tests/builds.lua"))(ns, test, eq, { RelayWorld = RelayW
 -- 1.5.5: chat lines, senders and channel names the client keeps secret are never read (tests/secret-chat.lua).
 assert(loadfile(ROOT .. "tests/secret-chat.lua"))(ns, test, eq, { ROOT = ROOT })
 -- 1.5.5: an install that does not fit the game, and /oly bug's bounded debug section (tests/install-debug.lua).
-assert(loadfile(ROOT .. "tests/install-debug.lua"))(ns, test, eq, { ROOT = ROOT })
+assert(loadfile(ROOT .. "tests/install-debug.lua"))(ns, test, eq, { ROOT = ROOT, FreshComm = FreshComm })
+-- 1.5.9: one channel on Forever, whatever realm key or lane a client holds (tests/forever-channel.lua).
+assert(loadfile(ROOT .. "tests/forever-channel.lua"))(ns, test, eq, { addon = ADDON_DIR, FreshComm = FreshComm })
 
 test("1.4.3 the relay: where names split, a channel message goes to the picked signed relay by whisper (RL), pinged once; a chat line goes logged; the relay registers reporters (RR), forwards to each guild's reporter (RM) and hears it itself; a reporter takes it once and hands it to its guild (RG); a guildmate takes it once; a stranger's RM is dropped", function()
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild }
@@ -8349,7 +8354,10 @@ test("1.4.3 the relay: the election counts only guildmates whose hello carries t
 		C_ChatInfo.SendAddonMessage = function(_, msg, dist) out[#out + 1] = msg return 0 end
 		C.Hello(true)
 		for _ = 1, 20 do C.Pump() end
-		assert(out[#out]:match("^H1~[^~]+~[^~]*~p~~~~R$"), "our hello: " .. tostring(out[#out]))
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(out[#out]:match("^H1~[^~]+~[^~]*~p~~~~R~~j$"), "our hello: " .. tostring(out[#out]))
 		-- The whisper name on Forever.
 		ns.splitNames = true
 		eq(ns.TellName("Hildryn Payne-CAMWOWUS2Realm7PvE"), "Hildryn Payne")
@@ -8439,6 +8447,38 @@ test("1.1.5 census: an impossible breakdown off the channel is a bad report, nev
 		eq(#received, 1); eq(received[1].sender, "Honest-Realm"); eq(received[1].r.zones.m1453, 3); eq(received[1].r.classes.WA, 5)
 	end)
 	GetChannelName, ns.Data.Receive, C_ChatInfo = saved.channel, saved.receive, nil
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (C6, T5): on Forever the runner-up pick ignores the channel a hello names (Comm.lua: the
+-- relay carries every report there, and a 1.5.8 guildmate holding the key still says "s" where a 1.5.9 one
+-- says "p"). A sealed guild mid-rollout: its 1.5.8 reporter says "s", a 1.5.9 guildmate before us by name
+-- says "p": that guildmate backs the reporter, not us. Off Forever the same hellos keep the old rule (a peer
+-- on another channel can't back this reporter: we do). Fails with the Forever term removed (we back it too).
+test("runner-up (1.5.9): on Forever a 1.5.9 guildmate saying p backs a 1.5.8 reporter saying s; off Forever it can't, and we do", function()
+	local saved = { channel = GetChannelName, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, forever in ipairs({ true, false }) do
+			GetGuildInfo = function() return MY_GUILD, "Member", 3 end
+			local ours = { guild = MY_GUILD, total = 900, online = 200, zones = {} }
+			local cns, Deliver, Report = FreshComm()
+			cns.OnForever = function() return forever end
+			cns.rdb = { realmKey = "fixture-key" }
+			local C = cns.Comm
+			C.loginAt = cns.clock - 1000
+			C.JoinChannel()
+			Deliver("GUILD", "Aaa Sealed-Realm", "H1~1.5.8~Realm~s~~~~R")
+			Deliver("GUILD", "Bbb Public-Realm", "H1~1.5.9~Realm~p~~~~R")
+			assert("Bbb Public-Realm" < cns.me, "the 1.5.9 guildmate comes before this client by name")
+			Report("Aaa Sealed-Realm", ours)
+			C.MaybeBroadcast(ours)
+			eq(C.reporterName, ns.DisplayName("Aaa Sealed-Realm"), "the 1.5.8 guildmate first by name reports")
+			eq(C.isRunnerUp, not forever, forever and "on Forever the 1.5.9 guildmate backs it, not us"
+				or "off Forever a peer on the other channel can't back it: we do")
+		end
+	end)
+	GetChannelName, GetGuildInfo, C_ChatInfo = saved.channel, saved.guild, nil
 	if not ok then error(err, 0) end
 end)
 
@@ -8623,14 +8663,17 @@ test("hello: guild peers say their realm, older versions count as old", function
 		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
 		cns.Comm.Hello()
 		cns.Comm.Pump()
-		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p~~~~R", "ours names our realm and channel (public)")
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p~~~~R~~j", "ours names our realm and channel (public)")
 		local savedKey = ns.rdb.realmKey
 		ns.rdb.realmKey = "secret"
 		cns.clock = cns.clock + 600
 		cns.Comm.Hello()
 		cns.Comm.Pump()
 		ns.rdb.realmKey = savedKey
-		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s~~~~R", "sealed")
+		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s~~~~R~~j", "sealed")
 	end)
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
@@ -14217,7 +14260,10 @@ test("0.9.1 privacy: what our census sends follows our answer and our guildmates
 		-- Our hello says we share; a hello without it (0.9.0, or a no since) reads as no.
 		C.Hello(true)
 		for _ = 1, 5 do C.Pump() end
-		eq(sent[#sent].msg, "H1~" .. ns.VERSION .. "~Realm~p~z~~~R")
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		eq(sent[#sent].msg, "H1~" .. ns.VERSION .. "~Realm~p~z~~~R~~j")
 		Deliver("GUILD", "Member2", "H1~0.9.0~Realm~p")
 		eq(C.SharesZone("Member2"), false)
 		Deliver("GUILD", "Member3", "H1~0.9.1~Realm~p~z")
@@ -41558,7 +41604,7 @@ end)
 	assert(loadfile(ROOT .. "tests/recruit-netoff.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
 	print("tests/recruit-handoff.lua")
-	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm)
+	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm, ROOT .. "tests/fixtures/")
 	print("tests/netoff-battleground.lua")
 	assert(loadfile(ROOT .. "tests/netoff-battleground.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, LoadUI = LoadUI, LoadWatch = Harness.LoadWatch })
@@ -55821,6 +55867,9 @@ do
 	-- (1.5.4: a line's links on the wire and in the Chat tab, tests/chat-item-links.lua.)
 	assert(loadfile(ROOT .. "tests/chat-item-links.lua"))(ns, test, eq, { WithWindow = WithWindow, WithGamepadUI = WithGamepadUI,
 		RelayWorld = Harness.RelayWorld, Line = Line, BubbleWith = BubbleWith, T0 = T0, KeepSendGap = KeepSendGap })
+	-- (1.5.9: each [Olympus] line filed under its writer's ruleset as it comes, and a line for one ruleset.)
+	assert(loadfile(ROOT .. "tests/chat-rulesets.lua"))(ns, test, eq, { WithWindow = WithWindow, ADDON_DIR = ADDON_DIR, FreshComm = FreshComm,
+		ROOT = ROOT, KeepSendGap = KeepSendGap })
 
 	-- (1.1.5, the author's call: the borders' three tiers. Lords and Captains were silver, Raiders and
 	-- Veterans of our guild bronze until then; now a guild master is bronze, and they the star.)
@@ -63802,9 +63851,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.8") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.5.9") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.8", 1, true))
+		assert(toc:find("## Version: 1.5.9", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -63891,7 +63940,7 @@ assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",
 		"church", "church-count", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
-		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl" }
+		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl", "recruit-ranking" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
@@ -63919,7 +63968,7 @@ for _, name in ipairs(focused) do
 		or name == "quiet-presence" and { FreshComm = FreshComm, WithHop = WithHop, Fire = CoreFire } -- (1.2.5.1)
 		or name == "role-briefings" and { ROOT = ROOT, WithUI = WithUI, LoadUI = LoadUI, WithGamepadUI = WithGamepadUI }
 		or name == "selftest" and { WithUI = WithUI, LoadUI = LoadUI, WithGamepadUI = WithGamepadUI, FreshComm = FreshComm } -- (/oly selftest)
-		or name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or (name:match("^church") or name == "recruit-ranking") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
 		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
 			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	-- (1.4.0: the groups' tests run on the Board's harness.)
@@ -64251,7 +64300,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.5.8")
+		eq(ns.VERSION, "1.5.9")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -64752,7 +64801,7 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			eq(table.concat(versions, " "), "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)

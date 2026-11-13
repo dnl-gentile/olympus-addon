@@ -396,6 +396,56 @@ test("relay transfer hardening: flood bounds count whole transfers globally and 
 	end
 end)
 
+-- Review of the 1.5.9 release (N1): every signed look crosses by the drip now, keyed by its origin (one realm
+-- group and faction), said once in GROUP_SAY_EVERY each, some 65 s apart. A look to a peer that held two waiting
+-- transfers pushed out the oldest of them: the relay's own census crossing (census, which goes first) as much as
+-- another origin's look. With the relay busy, three origins' looks left the peer the last two looks alone. Now
+-- the looks have an allowance of their own and never take the census crossing's place. Fails before: neither
+-- the census crossing nor the first origin's look reached the peer.
+test("relay transfer hardening (review of 1.5.9): three realm groups' signed looks said 65 s apart while the relay's queue is busy never push its census crossing to a mesh peer out of the drip, and each one reaches the peer", function()
+	WithTransfer(function(R, _, sent, Run)
+		local peer = "Quill Peer"
+		R.rdb.council.names[peer:lower()] = peer
+		local function Fresh()
+			R.Relay.HandleAck("WHISPER", peer .. "-Realm", "RY~")
+			Mesh(R, peer .. "-Realm")
+		end
+		Fresh()
+		Run(10) -- (the RJ answers)
+		-- Urgent whispers keep Comm's queue full, as a relay's chat lane and the King's words at a peak: the drip
+		-- hands it nothing meanwhile, and what it holds waits.
+		local busy = 0
+		local function Busy(pumps)
+			for _ = 1, pumps do
+				while R.Comm.QueueRoom(true) > 0 do
+					busy = busy + 1
+					assert(R.Comm.Whisper("Busy-Realm", "X1~busy " .. busy, nil, true))
+				end
+				Run(1)
+			end
+		end
+		Busy(1)
+		local census = TransferWord(R, "CG~2~S~1~ForeverPvE~Alliance~", 3)
+		OfferTransfer(R, census, "940")
+		eq(AcrossDepth(R), 1, "the census crossing waits")
+		local looks = {}
+		for k, group in ipairs({ "ForeverPvE", "ForeverPvP", "ForeverRP" }) do
+			local word = ("QA~1~%s~CX~3~S~Carried Author-Realm~%s~Alliance~13614,12900,30,%d~"):format(("s"):rep(86), group, 1794000000 + k)
+			eq(#R.Codec.Chunk(word, "1"), 1, "a look in one piece")
+			looks[k] = word
+			OfferTransfer(R, word, tostring(940 + k))
+			Busy(math.ceil(65 / 1.2))
+		end
+		eq(AcrossDepth(R), 4, "the census crossing and each origin's look wait")
+		Fresh() -- (the mesh's next round)
+		Run(300)
+		local got = TransferWords(R, sent, "RX")[peer] or {}
+		eq(got[census], 1, "the census crossing reached the peer")
+		for k, word in ipairs(looks) do eq(got[word], 1, "the look of realm group " .. k .. " reached the peer") end
+		eq(AcrossDepth(R), 0)
+	end)
+end)
+
 test("census RX fairness: a busy mesh sends the newest whole snapshot to the King and peers beyond the queue cap", function()
 	WithTransfer(function(R, _, sent, Run)
 		local king = "Zed Crown"

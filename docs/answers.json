@@ -232,14 +232,14 @@
     {
       "id": "count-missing-guilds-channel",
       "topic": "counts",
-      "status": "current (1.1.1)",
+      "status": "current (1.5.9)",
       "questions": [
         "My friend sees guilds I don't",
         "A big guild is grey for me but not for them",
         "Our guild is missing for everyone else"
       ],
-      "answer": "If that guild has addon users online and it still doesn't show for you after a few minutes, check your channel key. If your guild's key differs from the others' (or you're public while they sealed theirs), you hear a different set of guilds. Ask an officer for the key.",
-      "in_game": "If the guild has people online and still doesn't show after a few minutes, check your channel key: a different key (or none) hears other guilds. Ask an officer.",
+      "answer": "On WoW: Forever every guild shares one public channel since 1.5.9 and the relays carry the census: give it a few minutes, then send /oly bug. Elsewhere, if the guild has addon users online, check your channel key: a different key (or none) hears other guilds. Ask an officer.",
+      "in_game": "On Forever (1.5.9) everyone shares one channel and the relays carry the census: wait a few minutes, then /oly bug. Elsewhere a different key (or none) hears other guilds.",
       "notes": "The usual reason is login time (count-differs-from-friend): the key only explains it while that guild has an addon user online. L.SEEN_TIP tells these players 'nobody in this guild runs the addon', which is wrong in this case.",
       "sources": [
         "Comm.lua:439-444,764-806",
@@ -754,13 +754,13 @@
     {
       "id": "feat-public-channel",
       "topic": "features",
-      "status": "current (1.1.1)",
+      "status": "current (1.5.9)",
       "questions": [
         "Why is there a grey 'Public channel' line?",
         "Can outsiders read our stuff?"
       ],
-      "answer": "Your guild has no channel key, so anyone who joins the channel by name could read it. An officer types /oly key <secret> with the same secret the other Olympus guilds use, and guildmates get it automatically.",
-      "in_game": "No channel key yet, so outsiders could read it. An officer types /oly key <secret> (same as the other guilds) and guildmates get it.",
+      "answer": "Your guild has no channel key, so anyone who joins the channel by name could read it. An officer types /oly key <secret> (same as the other guilds) and guildmates get it. On WoW: Forever (1.5.9) every guild shares the public channel; a key only keeps your typed chat lines off it.",
+      "in_game": "No channel key, so outsiders could read it: an officer types /oly key <secret> (same as other guilds). On Forever everyone shares the public channel; a key keeps typed chat off it.",
       "sources": [
         "L.PUBLIC_NET_TIP",
         "README.md:1318-1330"
@@ -1517,13 +1517,13 @@
     {
       "id": "feat-key-block",
       "topic": "features",
-      "status": "current (1.1.1)",
+      "status": "current (1.5.9)",
       "questions": [
         "How do I seal the channel?",
         "How do I ignore someone in Olympus?"
       ],
-      "answer": "Officers: /oly key <secret> seals the Olympus channel so outsiders can't join. Use the same secret as the other Olympus guilds or your guild splits off. /oly block <name> ignores everything a player sends.",
-      "in_game": "Officers: /oly key <secret> (same as other guilds) seals the channel. /oly block <name> ignores a player.",
+      "answer": "Officers: /oly key <secret> seals the Olympus channel (same secret as the other guilds, or yours splits off). On WoW: Forever (1.5.9) every guild stays on the public channel: the key only keeps your typed chat lines off it. /oly block <name> ignores a player.",
+      "in_game": "Officers: /oly key <secret> (same as other guilds) seals the channel; on Forever it only keeps typed chat off the public one. /oly block <name> ignores a player.",
       "sources": [
         "README.md:1318-1330",
         "L.HELP_CMD_BLOCK"

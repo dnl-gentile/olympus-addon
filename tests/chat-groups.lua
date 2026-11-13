@@ -39,19 +39,25 @@ local function AsRpCharacter(fn)
 	if not ok then error(err, 0) end
 end
 
-local function Entry(t, sender, text, mine)
-	return { t = t, sender = sender, guild = "Olympus Thorns", text = text, mine = mine }
+-- (Changed on purpose in 1.5.9.) Each line as 1.5.9 keeps it: with the ruleset it was filed under as
+-- it came (kind, Channels.LineRoom). 1.5.5 worked it out of the sender's stamp at each view, and on
+-- Forever the channel's text names its sender bare, so another ruleset's line went under the viewer's
+-- own (the dev on RP-PvP, 2026-11-12: "essa pessoa mandou do PVE e a mensagem dela não apareceu no PVE.
+-- No all aparece e no RPPVP também aparece"). What these views show of such lines is unchanged; lines
+-- kept before 1.5.9, with no kind, have a test of their own (tests/chat-rulesets.lua).
+local function Entry(t, sender, text, mine, kind)
+	return { t = t, sender = sender, guild = "Olympus Thorns", text = text, mine = mine, kind = kind }
 end
 local HISTORY = {
-	{ 1000, RP_HERE, "from my own sub-realm" },
-	{ 1010, PVE, "from the PvE realms" },
-	{ 1020, RP_OTHER, "from another RP sub-realm" },
-	{ 1030, PVP, "from the PvP realms" },
-	{ 1040, ME, "my own words", true },
+	{ 1000, RP_HERE, "from my own sub-realm", nil, "rp" },
+	{ 1010, PVE, "from the PvE realms", nil, "pve" },
+	{ 1020, RP_OTHER, "from another RP sub-realm", nil, "rp" },
+	{ 1030, PVP, "from the PvP realms", nil, "pvp" },
+	{ 1040, ME, "my own words", true, "rp" },
 }
 local function History()
 	local list = {}
-	for _, h in ipairs(HISTORY) do list[#list + 1] = Entry(h[1], h[2], h[3], h[4]) end
+	for _, h in ipairs(HISTORY) do list[#list + 1] = Entry(h[1], h[2], h[3], h[4], h[5]) end
 	return list
 end
 -- The tab's bubbles shown, by their line's words.
@@ -158,9 +164,10 @@ test("chat groups (1.5.5): under PvE, the RP character's [Olympus] shows the PvE
 			-- Lines that come while another room shows: a line of the family chosen counts, another doesn't.
 			Pick(f, L.CHATWIN_GROUP_PVE)
 			eq(w.CW.SelectLogical("guild"), true)
-			w.fire("CHAT_LINE", "A", RP_OTHER, "unseen")
+			-- (1.5.9: CHAT_LINE carries the line kept, filed under its ruleset as it came.)
+			w.fire("CHAT_LINE", "A", RP_OTHER, "unseen", Entry(1050, RP_OTHER, "unseen", nil, "rp"))
 			eq(w.CW.Unread("A"), 0, "a line the choice hides counts for nothing")
-			w.fire("CHAT_LINE", "A", PVE, "seen")
+			w.fire("CHAT_LINE", "A", PVE, "seen", Entry(1060, PVE, "seen", nil, "pve"))
 			eq(w.CW.Unread("A"), 1)
 		end)
 	end)

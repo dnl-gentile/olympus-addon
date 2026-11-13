@@ -1432,19 +1432,25 @@ Views.RebuildLines = RebuildLines
 -- Olympus chats for the officers, who can seal it (its tooltip says what it means and how); the
 -- others see only whether guildmates are already on the sealed channel (their hellos say so), and
 -- /oly status. Nothing is sent, nothing changes.
+-- (1.5.9's review) On Forever every client sits on the public first lane whatever its key (Comm.ChannelSpec),
+-- and 1.5.5 and later send the census and the rest by the relays: what anyone in the channel reads there is
+-- the chat lines typed by guilds without a key (ChatHall.On) and older clients' census. The officer's line
+-- and its tooltip say so, and what a key does there; no advice to seal it, and no count of guildmates on
+-- the sealed channel (only 1.5.8's hellos still say "sealed").
 local function PublicLines(lines)
 	local C = ns.Comm
 	if not (C and C.IsPublic and C.IsPublic()) then return false end
+	local forever = type(ns.OnForever) == "function" and ns.OnForever() == true
 	local name = C.ChannelSpec and C.ChannelSpec() or ns.CHANNEL
 	local officer = ns.Roster.IsOfficer()
 	local function tip(tt)
 		tt:AddLine(L.PUBLIC_NET_TITLE, 1, 0.82, 0)
-		tt:AddLine(L.PUBLIC_NET_TIP:format(name), 1, 1, 1, true)
-		if officer then tt:AddLine(L.PUBLIC_NET_OFFICER, 0.75, 0.75, 0.75, true) end
+		tt:AddLine((forever and L.PUBLIC_NET_TIP_FOREVER or L.PUBLIC_NET_TIP):format(name), 1, 1, 1, true)
+		if officer and not forever then tt:AddLine(L.PUBLIC_NET_OFFICER, 0.75, 0.75, 0.75, true) end
 	end
 	local before = #lines
-	if officer then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET:format(name)), tooltip = tip } end
-	local sealed = C.SealedPeers and C.SealedPeers() or 0
+	if officer then lines[#lines + 1] = { text = Grey((forever and L.PUBLIC_NET_FOREVER or L.PUBLIC_NET):format(name)), tooltip = tip } end
+	local sealed = not forever and C.SealedPeers and C.SealedPeers() or 0
 	if sealed > 0 then lines[#lines + 1] = { text = Grey(L.PUBLIC_NET_SPLIT:format(sealed)), tooltip = tip } end
 	if #lines == before then return false end
 	lines[#lines].gapAfter = true
@@ -1814,6 +1820,13 @@ local RECRUIT_SWITCHES = {
 }
 Views.RECRUIT_AD_MINUTES = 5
 
+-- (Review of the 1.5.9 release) The ads interval the offer's switch turns on: the one the player kept
+-- (Church > Invites keeps it while recruiting is off), else RECRUIT_AD_MINUTES.
+function Views.RecruitAdMinutes()
+	local kept = ns.Recruit.AnnounceReminderMinutes()
+	return kept > 0 and kept or Views.RECRUIT_AD_MINUTES
+end
+
 function Views.RecruitOfferState()
 	local R = ns.Recruit
 	local on = R.IsWhisperRecruiting() == true
@@ -1834,13 +1847,21 @@ function Views.RecruitOfferSwitch(key)
 		return
 	end
 	if not state.join and not R.EnableWhisperRecruiting() then return end
+	-- (Review of the 1.5.9 release) The offer that came back after recruiting was turned off in Church >
+	-- Invites (the choice kept, offerAgain, until Done or Don't ask again) brings every switch back as the
+	-- player left it (Recruit.ToggleWhisperRecruiting): 1.5.8's first choices below are for a first offer
+	-- only. Applied over the kept ones, they turned on and saved the automatic offers he had left off, the
+	-- author's "Ele tem que ficar desativado se ele estava desativado", and a kept ads interval became 5.
+	local saved = R.Preference and R.Preference()
+	local kept = type(saved) == "table" and saved.offerAgain == true
 	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
-	if H and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
+	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
 	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
 	-- recruiting.)
-	if H and H.SetAuto and not state.join then H.SetAuto(true) end
+	if H and H.SetAuto and not kept and not state.join then H.SetAuto(true) end
 	if key == "ads" then
-		R.SetAnnounceReminder(state.ads and 0 or Views.RECRUIT_AD_MINUTES)
+		if state.ads then R.SetAnnounceReminder(0)
+		elseif R.AnnounceReminderMinutes() == 0 then R.SetAnnounceReminder(Views.RECRUIT_AD_MINUTES) end
 	elseif key == "scan" and Q then
 		Q.SetEnabled(not state.scan)
 	end
@@ -1886,6 +1907,17 @@ local function CensusLines(s, q, recruitment)
 		recruitment = nil
 	end
 	QuietLine(lines)
+	-- 1.5.9 (the author's report, 11-12: a player "não estava sabendo onde desligar... porque elas
+	-- ficam toda hora aparecendo na tela... your recruiting is on. Click here to go to settings"):
+	-- while recruiting is on, one line here says so and opens Church > Invites, where it turns off.
+	local R = ns.Recruit
+	if R and R.IsWhisperRecruiting and R.IsWhisperRecruiting() then
+		lines[#lines + 1] = { id = "census-recruiting-on", text = Gold(L.RECRUIT_CENSUS_ON_LINE), onClick = function()
+			if ns.UI and ns.UI.SelectTab and ns.UI.SelectTab("church") and ns.ChurchView and ns.ChurchView.Show then
+				ns.ChurchView.Show("invites")
+			end
+		end }
+	end
 	-- Our guild's verification (Verify.lua): its guild master's "GM verification pending", or its
 	-- members' notice once it is overdue; a click opens it.
 	local V = VerifyModule()
@@ -1939,7 +1971,7 @@ local function CensusLines(s, q, recruitment)
 				text = on and Green(RECRUIT_MARK_ON .. L[switch.label]) or Red(RECRUIT_MARK_OFF .. L[switch.label]),
 				onClick = function() recruitment.switch(switch.key) end }
 			local hint = L[switch.hint]
-			if switch.key == "ads" then hint = hint:format(Views.RECRUIT_AD_MINUTES) end
+			if switch.key == "ads" then hint = hint:format(Views.RecruitAdMinutes()) end
 			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
 		end
 		-- (1.5.8, the author's ask: the handoffs marked experimental; one short line of its own, as a
@@ -1957,7 +1989,11 @@ local function CensusLines(s, q, recruitment)
 			lines[#lines + 1] = { id = "census-recruit-all", text = L.RECRUIT_CENSUS_ALL, primary = true,
 				onClick = function()
 					recruitment.switch("ads")
-					if Views.RecruitOfferState().join then recruitment.switch("scan") end
+					-- (1.5.9) Recruiting back on brings the scan back as the player left it (the offer comes
+					-- back after Church > Invites turned it off): only a scan still off is switched, as a
+					-- second switch would turn a kept one off.
+					local state = Views.RecruitOfferState()
+					if state.join and not state.scan then recruitment.switch("scan") end
 				end }
 			lines[#lines + 1] = { id = "census-recruit-later", text = Gold(L.RECRUIT_CENSUS_LATER), center = true,
 				onClick = recruitment.later }

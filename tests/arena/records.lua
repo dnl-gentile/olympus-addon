@@ -835,6 +835,88 @@ local function Quiet()
 	return w, a, b, c
 end
 
+test("records: signed cross-relay recovery needs two independent holders on each of two receivers", function()
+	local w = FW.New({ compliance = "shipped", clock = math.floor(H.World.CLOCK / 600) * 600 + 130 })
+	local home = "CAMWOWUS1Realm1PvE"
+	local a, b = w:Player(N.fighterA, { realm = home }), w:Player(N.fighterB, { realm = home })
+	local first = w:Player(N.bettor3, { realm = home })
+	local second = w:Player(N.bettor2, { realm = home })
+	local old = w:Player(N.steward, { realm = home })
+	local pvp = w:Player(N.arbiter, { realm = "CAMWOWUS1Realm1PvP" })
+	local body = Pair(w, a, b, "Krmesh")
+	local day = math.floor(w.clock / 86400)
+	Keys(w, a, b)
+	Take(w, first, body)
+	Take(w, second, body)
+	eq(Do(w, first, "Count", "b"), 1)
+	eq(Do(w, second, "Count", "b"), 1)
+	w:Logout(a)
+	w:Logout(b)
+	local left = w:Player(N.bettor1, { realm = "CAMWOWUS1Realm2PvE" })
+	local right = w:Player(N.bank, { realm = "CAMWOWUS2Realm5PvE" })
+	-- (Changed on purpose for 1.5.9, the release that ships the direct ask, RA x: the relay that is
+	-- asked runs it, and "old" is a signed relay still on the published 1.5.8, whose Records.lua drops
+	-- a whispered RA as a wrong lane and never answers. The comparison is Relay.AtLeast's, a version at
+	-- or past the floor (here by the addon's own Workshop.Newer, Relay.lua being no part of this world):
+	-- this test compared versions for equality, so a peer newer than the floor was never asked.)
+	local versions = { [first.name] = "1.5.9", [second.name] = "1.5.9", [old.name] = "1.5.8",
+		[left.name] = "1.5.9", [right.name] = "1.5.9", [pvp.name] = "1.5.9" }
+	local secondFresh = false
+	for _, c in ipairs({ first, second, old, pvp, left, right }) do
+		Small(c)
+		c.onChannel = false -- native whispers cross these pockets, channel traffic does not
+		c.ns.splitNames, c.ns.group = true, c.ns.ForeverFamily(c.realm)
+		c.ns.Relay = {
+			On = function() return true end,
+			IsSignedRelay = function(name) return versions[name] ~= nil end,
+			Names = function() return { old.name, pvp.name, first.name, second.name } end,
+			RelayVersion = function(name) return versions[name] end,
+			AtLeast = function(v, floor) return type(v) == "string" and (v == floor or H.ns.Workshop.Newer(v, floor)) end,
+			MeshPeer = function(name) return versions[name] ~= nil and (name ~= second.name or secondFresh) end,
+		}
+	end
+	for _, c in ipairs({ left, right }) do
+		Take(w, c, body)
+		eq(Do(w, c, "Count", "b"), 0, "unverified original identities are not counted")
+		eq(Do(w, c, "Pending", "b"), 1, "the exact result is already held")
+		local check = c.ns.Arena.Check
+		c.ns.Arena.Check = function(key, claim, done)
+			if not key:match("^rk ") then return check(key, claim, done) end
+			c.ns.After(5, "delay rank holder key", function() check(key, claim, done) end)
+		end
+	end
+
+	assert(Do(w, left, "AskWitness", "b", day))
+	w:Run(12)
+	eq(#w:Sent({ from = left, type = "RA", dist = "WHISPER" }), 1, "only the current same-ruleset holder is asked")
+	eq(#w:Sent({ from = first, type = "RV", dist = "WHISPER", to = left.name }), 1)
+	eq(Do(w, left, "Count", "b"), 0, "one independently checked holder is insufficient")
+	eq(Do(w, right, "Count", "b"), 0, "another pocket did not receive the targeted reply")
+	Do(w, left, "AskWitness", "b", day)
+	w:Run(3)
+	eq(#w:Sent({ from = left, type = "RA", dist = "WHISPER" }), 1, "a repeated local request cannot spend a second mesh round")
+
+	secondFresh = true
+	w:Run(600)
+	assert(Do(w, left, "AskWitness", "b", day))
+	w:Run(31)
+	eq(Do(w, left, "Count", "b"), 1, "two eligible independent proofs unlock the unchanged signed result")
+	eq(Do(w, right, "Count", "b"), 0)
+	assert(Do(w, right, "Discover"))
+	w:Run(12)
+	eq(Do(w, right, "Count", "b"), 1, "second receiver recovers while original players are still offline")
+	eq(#w:As(left, left.ns.FarkleTable.Best, "L"), 2, "the ranking contains the two original players")
+	eq(#w:As(right, right.ns.FarkleTable.Best, "L"), 2, "both receivers calculate the same ranking")
+	eq(#w:Sent({ type = "RA", dist = "WHISPER", to = old.name }), 0, "mixed-version peer is untouched")
+	eq(#w:Sent({ type = "RA", dist = "WHISPER", to = pvp.name }), 0, "different ruleset is untouched")
+	eq(#w:Sent({ type = "RR", dist = "WHISPER" }), 0, "the existing record body is never resent")
+	eq(#w:Sent({ type = "RA", dist = "WHISPER" }), 5, "three paced rounds reach at most two peers each")
+	for _, packet in ipairs(w:Sent({ type = "RV", dist = "WHISPER" })) do
+		assert(packet.target == left.name or packet.target == right.name, "private reply has exactly the requester as target")
+	end
+	Errors(w)
+end)
+
 test("records: a cached witness signature remains bound to its signed sender", function()
 	local w, a, b, holder = Quiet()
 	local body = Pair(w, a, b, "Krcache")
