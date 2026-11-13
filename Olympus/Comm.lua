@@ -1455,6 +1455,35 @@ local function HideLeftovers()
 	end
 end
 
+-- (Review of the 1.5.9 release, F3) That sealed channel is kept for the key held now alone. Once the key is
+-- cleared (K7, /oly key off) or replaced (the King's rotation, another officer's key), the old one is no
+-- longer Olympus's: Comm.Leftover took no word of it any more, HideLeftovers no longer put it off a reset
+-- chat window, and nothing ever left it, though 1.5.8 left it on the same word. So on Forever the sealed
+-- channel of a key held earlier in the session and no longer held is left, on every lane the game finds
+-- joined: when JoinChannel follows the key's change, and (as the game may join its remembered channels
+-- after ours on a slow login, where a clear can come with the answer to our key ask) on a channel list
+-- change in the session's first minutes. Nothing changes while a key is held, nor off Forever (JoinChannel
+-- leaves the old sealed channel it joined there, as before). The name never goes in the log (/oly bug).
+local sealedSeen -- the sealed base of the key held at the last look on Forever (false: none; nil: not yet)
+local sealedOld = {} -- the sealed bases of the keys this session saw cleared or replaced
+local function LeaveOldSealed()
+	if not OneChannel() or not GetChannelName or not ns.IsMember() then return end
+	local base = Comm.SealedBase()
+	if sealedSeen and sealedSeen ~= base then sealedOld[sealedSeen] = true end
+	sealedSeen = base or false
+	if base then sealedOld[base] = nil end -- (a key held again is ours again)
+	for old in pairs(sealedOld) do
+		for lane = 0, Comm.LANE_MAX do
+			local there = old .. (lane > 0 and tostring(lane) or "")
+			if (GetChannelName(there) or 0) > 0 then
+				ns.Log("left an older realm key's sealed channel%s", lane > 0 and (" (lane " .. lane .. ")") or "")
+				LeaveChannelByName(there) -- gp:chat-channels
+				leftoversHidden[there] = nil
+			end
+		end
+	end
+end
+
 ---------------------------------------------------------------------------
 -- The channel's owner. Our hidden channel is an ordinary custom chat channel: the first
 -- player in owns it, and when the owner leaves WoW hands it (and a moderator's seat) to
@@ -1807,6 +1836,8 @@ function Comm.JoinChannel()
 	end
 	if joinedName ~= name then watch, laneRefused = nil, 0 end -- another channel: the election guard starts again
 	joinedName = name
+	-- (Review of the 1.5.9 release) On Forever the sealed channel of a key no longer held is left (LeaveOldSealed).
+	LeaveOldSealed()
 	-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover) are kept,
 	-- but off the chat windows again, each once a session (HideLeftovers; also on a channel list change in
 	-- the session's first minutes, as the game may join them after ours).
@@ -2790,6 +2821,7 @@ ns.On("LOGIN", function()
 			leftoverPending = true
 			ns.After(2, "channel leftovers", function()
 				leftoverPending = false
+				LeaveOldSealed()
 				HideLeftovers()
 			end)
 		end

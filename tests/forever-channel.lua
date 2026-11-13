@@ -362,6 +362,75 @@ test("1.5.9 one channel on Forever: the sealed channel and lane 7 the game joins
 	if not ok then error(err, 0) end
 end)
 
+-- Review of the 1.5.9 release (F3): those channels are kept for the key held now. Once the key is cleared
+-- (K7, /oly key off: Keys.TakeClear, then JoinChannel) or replaced (the King's rotation: Keys.Take), the old
+-- key's sealed channel is no longer Olympus's: Comm.Leftover no longer took its words, HideLeftovers no
+-- longer put it off a reset chat window, and nothing ever left it, while 1.5.8 left it on the same word. It
+-- is left now, every lane of it the game has joined, also when the game rejoins it after the clear on a slow
+-- login; never the public channel or its older lane, never the key held. Off Forever as before. Fails before
+-- (nothing left after the clear or the rotation).
+test("1.5.9 one channel on Forever: a realm key cleared or replaced leaves the old key's sealed channel, every lane of it joined, also when the game rejoins it after the clear on a slow login; never the public lanes nor the key held; off Forever as before", function()
+	local function Left(w)
+		local out = {}
+		for _, name in ipairs(w.left) do out[name] = (out[name] or 0) + 1 end
+		return out
+	end
+	WithClient({ key = "fixture-secret", lane = 7 }, function(w)
+		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+		w.C.JoinChannel()
+		eq(#w.left, 0, "the key held: its sealed channel kept")
+		-- K7: the key cleared, then JoinChannel (Keys.TakeClear).
+		w.cns.rdb.realmKey = nil
+		w.C.JoinChannel()
+		local left = Left(w)
+		eq(left[sealed], 1, "the old sealed channel left")
+		eq(left[sealed .. "7"], 1, "and its lane 7")
+		eq(left.OlympusNet, nil, "never the public channel")
+		eq(left.OlympusNet7, nil, "nor the older public lane, kept for the census")
+		eq(#w.joined, 0, "nothing joined")
+		eq(w.C.Stats().channelName, "OlympusNet", "still on the public first lane")
+		eq(w.C.Leftover(sealed), false, "no longer one of ours")
+		w.indexes[sealed], w.indexes[sealed .. "7"] = nil, nil
+		w.C.JoinChannel()
+		eq(#w.left, 2, "once")
+	end)
+	-- The King's rotation (Keys.Take: a new key, then JoinChannel): the old key's channel left, never the new one's.
+	WithClient({ key = "fixture-secret", lane = 7 }, function(w)
+		local old, new = "Oly" .. w.C.Hash36("fixture-secret"), "Oly" .. w.C.Hash36("fixture-rotated")
+		w.indexes[new] = 5
+		w.cns.rdb.realmKey = "fixture-rotated"
+		w.C.JoinChannel()
+		local left = Left(w)
+		eq(left[old], 1, "the old key's sealed channel left"); eq(left[old .. "7"], 1, "and its lane 7")
+		eq(left[new], nil, "the new key's kept")
+		eq(#w.joined, 0, "nothing joined")
+	end)
+	-- A slow login: the clear arrives (the answer to our key ask) before the game rejoins its remembered channels.
+	WithClient({ key = "fixture-secret", lane = 7, late = true }, function(w)
+		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+		local timers = {}
+		w.cns.After = function(_, _, f) timers[#timers + 1] = f end
+		w.cns.rdb.realmKey = nil
+		w.C.JoinChannel()
+		eq(#w.left, 0, "not joined yet: nothing to leave")
+		w.cns.clock = w.cns.clock + 40
+		w.indexes[sealed], w.indexes[sealed .. "7"] = SEALED_ID, SEALED_ID
+		w.Event("CHANNEL_UI_UPDATE")
+		local due = timers
+		timers = {}
+		for _, f in ipairs(due) do f() end
+		local left = Left(w)
+		eq(left[sealed], 1, "left once the game joins it"); eq(left[sealed .. "7"], 1, "and its lane 7")
+	end)
+	-- Off Forever, as before: JoinChannel leaves the sealed channel it had joined, and nothing else.
+	WithClient({ key = "fixture-secret", lane = 7, forever = false }, function(w)
+		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+		w.cns.rdb.realmKey = nil
+		w.C.JoinChannel()
+		eq(#w.left, 1, "one channel left"); eq(w.left[1], sealed .. "7", "the sealed one it sat on")
+	end)
+end)
+
 -- 1.5.9's review (C3): the first line of a tier waits for the player's OK under a warning that names its
 -- audience (GitHub #34: a line written for one audience is never sent to another). The guard compared the
 -- channel's name alone; on Forever a key cleared while the warning is open (K7, Keys.TakeClear) keeps the
