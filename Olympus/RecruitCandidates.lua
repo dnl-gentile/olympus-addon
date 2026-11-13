@@ -258,11 +258,13 @@ function Q.Restore(saved)
 	Start(saved.scanListOnly == true)
 end
 
-function Q.Lines(lines, V)
+-- `hint` (1.5.9): the section's grey line, under its switch as every section of Church > Invites has it.
+function Q.Lines(lines, V, hint)
 	if not LocalGuild() then return end
 	local on = Q.Enabled()
 	lines[#lines + 1] = { id = "recruit-candidate-toggle", text = (on and V.Green or V.Grey)(on and L.RECRUIT_CANDIDATES_ON or L.RECRUIT_CANDIDATES_OFF),
 		onClick = Toggle }
+	if hint then lines[#lines + 1] = { indent = 1, text = V.Grey(hint) } end
 	if not on then return end
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
@@ -278,10 +280,11 @@ function Q.Lines(lines, V)
 		local label = row.guid and L.RECRUIT_CANDIDATE_SEEN or L.RECRUIT_CANDIDATE_WHO
 		local state = R.Handoff and R.Handoff.State(row)
 		if state then
+			-- (Review of 1.5.9: rows do not wrap.) Who has him on a row of its own, as a JOIN's.
 			local ref = row.handoff
-			label = (state == "assigned" and L.RECRUIT_HANDOFF_DONE or L.RECRUIT_HANDOFF_PENDING)
-				:format(ns.DisplayName(ref.peer) or ref.peer, ref.to)
-			lines[#lines + 1] = { indent = 1, text = V.Grey(display .. " - " .. label) }
+			lines[#lines + 1] = { indent = 1, text = V.Grey(display) }
+			lines[#lines + 1] = { indent = 2, text = V.Grey((state == "assigned" and L.RECRUIT_HANDOFF_DONE
+				or L.RECRUIT_HANDOFF_PENDING):format(R.Handoff.Who(ref.peer, ref.to))) }
 		elseif row.passWanted then
 			lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_PASSING:format(display)),
 				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }

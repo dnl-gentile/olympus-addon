@@ -3785,6 +3785,16 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 	end
 end)
 
+-- Church > Invites' Recruiting switch. (Changed on purpose, 1.5.9, the author's ask: "Eu pedi uma
+-- reestruturação de visual e de interface... para as pessoas lerem e ser muito claro": the page opens
+-- with its Recruiting section's heading now, so the switch is found by its id, not as the first line.)
+local function RecruitSwitch(R)
+	for _, line in ipairs(R.WhisperLines()) do
+		if line.id == "recruit-whisper-toggle" then return line end
+	end
+	error("no Recruiting switch on Church > Invites")
+end
+
 test("gamepad centered Census recruitment offers three switches, Done and both dismissal choices", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)
@@ -3867,7 +3877,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		assert(Text(L.RECRUIT_CENSUS_THANKS), "a switch on thanks the player")
 		eq(assert(Row("done")).primary:GetText(), L.RECRUIT_CENSUS_DONE, "a Done button closes the page")
 		eq(Row("later"), nil, "no Leave it off with a switch on"); eq(Row("never"), nil)
-		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
+		assert(RecruitSwitch(R).text:find(L.RECRUIT_WHISPER_ON, 1, true), "Church shows the active intake")
 		local printed
 		for _, line in ipairs(C.printed) do
 			if line:find(L.RECRUIT_CENSUS_ENABLED, 1, true) then printed = true end
@@ -3901,7 +3911,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		Reopen()
 		eq(Row("join"), nil, "a switch left on is a choice: no new offer")
 
-		R.WhisperLines()[1].onClick()
+		RecruitSwitch(R).onClick()
 		Reopen()
 		-- (1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele estava desativado":
 		-- turned off in Church it stays off, with no offer to turn it on again.)
@@ -3937,7 +3947,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		Reopen()
 		eq(Row("join"), nil, "the opt-out survives window reopening")
 		eq(Row("notice"), nil)
-		assert(R.WhisperLines()[1].text:find(L.RECRUIT_WHISPER_OFF, 1, true), "Church can still turn it on")
+		assert(RecruitSwitch(R).text:find(L.RECRUIT_WHISPER_OFF, 1, true), "Church can still turn it on")
 
 		ns.db.hideRecruitmentOffer = nil
 		C.env.CanGuildInvite = function() return false end
@@ -3958,7 +3968,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		eq(Warned(), warned + 1, "the Census button says the rank cannot invite")
 		local notice = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_NO_INVITE"), "and opens the reason in a window")
 		notice:Hide()
-		InClick(C, function() eq(R.WhisperLines()[1].onClick(), false) end)
+		InClick(C, function() eq(RecruitSwitch(R).onClick(), false) end)
 		eq(Warned(), warned + 2, "the Church switch says it too")
 		eq(R.IsWhisperRecruiting(), false, "recruiting stays off")
 		assert(ns.Dialog.Find("OLYMPUS_RECRUIT_NO_INVITE")):Hide()
@@ -4554,7 +4564,7 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		eq(R.ActivatedNotice(), false, "once a character")
 		-- (1.5.9, the author's report 11-12: "Ele tem que ficar desativado se ele estava desativado")
 		-- Recruiting turned off in Church > Invites stays off, and no offer asks to turn it on again.
-		local switch = R.WhisperLines()[1]
+		local switch = RecruitSwitch(R)
 		assert(switch.text:find(L.RECRUIT_WHISPER_ON, 1, true))
 		switch.onClick()
 		eq(R.IsWhisperRecruiting(), false)
@@ -5195,6 +5205,17 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		local header = assert(Find(L.RECRUIT_ANNOUNCE_OPEN))
 		assert(header.header and not header.onClick, "the announcement heading needs no click")
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
+		-- (Changed on purpose, the review of 1.5.9, the author's "Os botões que façam sentido": an ad asks
+		-- players to whisper JOIN, which only Recruiting answers, so with it off the section says it comes
+		-- first and offers no ad. This test posted its ads with recruiting off; it turns recruiting on.)
+		eq(Find(general), nil, "recruiting off: no ad offered")
+		local lines = R.WhisperLines()
+		for i, line in ipairs(lines) do
+			if line == header or (line.header and line.text == header.text) then
+				assert(lines[i + 1].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true), "the ads say Recruiting comes first")
+			end
+		end
+		InClick(C, function() assert(R.ToggleWhisperRecruiting(), "recruiting on") end)
 		assert(Find(general) and Find(trade), "joined public channels are immediately visible")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(5, "OlympusNet")), nil, "Olympus is omitted even if reported with a zone ID")
@@ -5272,6 +5293,8 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		C.Click(picker.choices.buttons[2])
 		ns.Every = every
 		eq(ReminderChoices()[2].selected, true)
+		-- (Set where the ads are, with recruiting on; off, it waits.)
+		eq(R.ToggleWhisperRecruiting(), false)
 		local before = #C.printed
 		C.Advance(2 * 60 - 1)
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before two minutes")
@@ -5279,6 +5302,11 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "recruiting is off")
 		eq(Draft(), nil)
 		eq(#(C.said or {}), sends, "neither drafts nor reminders sent a public message")
+		assert(R.ToggleWhisperRecruiting(), "recruiting on again")
+		-- (Its timer stops here, so none of its drafts opens while the Post checks below run; the
+		-- reminder's own ticks are called directly further down, as before.)
+		InClick(C, ReminderChoices()[1].onClick)
+		eq(ReminderChoices()[1].selected, true)
 
 		C.now = C.now + 121
 		ClickLine(trade)
@@ -5332,7 +5360,7 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		Post(C.said[#C.said][1], ns.me, 2, 22, "Trade")
 		eq(Draft(), nil, "the observed echo closes the draft")
 		eq(C.chatBox, nil, "Post does not touch the game's chat editor")
-		assert(R.ToggleWhisperRecruiting())
+		eq(R.IsWhisperRecruiting(), true, "recruiting on")
 		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE), "new reminders rotate public channels by default")
 		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE)
 		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED), "the recruiter can opt into one channel")
@@ -5384,6 +5412,10 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		eq(#C.said, sends + 2, "rotation never posts when opening or dismissing a draft")
 		eq(R.ToggleWhisperRecruiting(), false)
 		eq(Draft(), nil, "stopping recruitment closes its reminder")
+		eq(Find(general), nil, "off, no ad to send")
+		reminderTick()
+		eq(Draft(), nil, "nor a reminder's draft")
+		InClick(C, function() assert(R.ToggleWhisperRecruiting()) end)
 		ClickLine(general)
 		C.Click(assert(Draft()).buttons[2])
 		eq(#C.said, sends + 3)
@@ -5396,6 +5428,124 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 	end
 	GP.Covers("dialogs")
 	GP.Covers("recruit-public-post")
+end)
+
+-- 1.5.9 (the author, 11-12: "ainda tô achando meio bagunçado... parece que o de cima não tem tanta
+-- importância... Eu pedi uma reestruturação de visual e de interface, de experiência do usuário,
+-- justamente para isso, para as pessoas lerem e ser muito claro"): Church > Invites as the window draws
+-- it, in both input styles: its sections in the order they are used, every heading in the same font,
+-- each action a row the player clicks, the JOINs waiting inside Recruiting, and (review of 1.5.8) a
+-- member whose rank can't invite reads why under the switch.
+test("gamepad Church > Invites (1.5.9): sections under headings of one weight, every action a click away in both input styles", function()
+	local function Master(saved)
+		return { saved = saved, setup = function(c) c.units.player.rank, c.units.player.rankIndex = "Zeus", 0 end,
+			roster = {
+				{ "Tester-Realm", "Zeus", 0, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+				{ "Titanmate-Realm", "Titan", 1, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+			} }
+	end
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, Master(Answered()))
+		C.Advance(1)
+		local U, R, L = ns.UI, ns.Recruit, ns.L
+		C.channels.General = 1
+		C.env.C_ChatInfo.GetChannelInfoFromIdentifier = function(name) if name == "General" then return { zoneChannelID = 11 } end end
+		assert(U.SelectTab("church"))
+		local invite
+		for _, strip in ipairs(rawget(assert(Main(C)), "pageNavRows") or {}) do
+			for _, tab in ipairs(rawget(strip, "nav") or {}) do
+				if tab.item and tab.item.text == L.CHURCH_NAV_INVITES then invite = tab end
+			end
+		end
+		C.Click(assert(invite, "the Invites page in Church")); U.Refresh()
+		eq(U.PageId(), "church/invites")
+		local function Rows()
+			local out = {}
+			for _, row in ipairs(U.SelfTestView().rows) do if row:IsShown() and row.line then out[#out + 1] = row end end
+			return out
+		end
+		local function Row(id)
+			for _, row in ipairs(Rows()) do if row.line.id == id then return row end end
+		end
+		local function Headings()
+			local ids, font = {}, nil
+			for _, row in ipairs(Rows()) do
+				if row.line.header then
+					ids[#ids + 1] = row.line.id
+					font = font or row.left:GetFontObject()
+					eq(row.left:GetFontObject(), font, "every heading in one font: " .. tostring(row.line.id))
+				end
+			end
+			return table.concat(ids, ","), font
+		end
+		local function Click(id)
+			local row = assert(Row(id), id .. " is on the page")
+			assert(row.line.onClick, id .. " takes a click")
+			C.Click(row); U.Refresh()
+		end
+		local SECTIONS = "recruit-section-recruiting,recruit-section-ads,recruit-section-scan,recruit-section-handoffs,charter-help-section"
+		local headings, font = Headings()
+		eq(headings, SECTIONS, "recruiting off: every section, the Apostles' help last for a guild master")
+		eq(font, "GameFontNormal")
+		eq(Row("recruit-whisper-toggle").left:GetFontObject() ~= font, true, "the switch is a row under its heading")
+		Click("recruit-whisper-toggle")
+		eq(R.IsWhisperRecruiting(), true, "the switch turns recruiting on")
+		eq((Headings()), SECTIONS)
+		C.Switch(not initialPad); C.Advance(1); U.Refresh()
+		-- Each action of the page, one click each, in the other input style too.
+		Click("recruit-whisper-arrival")
+		assert(Row("recruit-whisper-arrival").line.text:find(L.RECRUIT_WHISPER_QUEUE_ONLY, 1, true))
+		Click("recruit-whisper-arrival")
+		local ad
+		for _, row in ipairs(Rows()) do
+			if row.line.text and row.line.text:find(L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), 1, true) then ad = row end
+		end
+		C.Click(assert(ad, "Send ad to /1 General"))
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT"), "its draft opens")
+		C.Click(draft.buttons[1])
+		assert(Row("recruit-announcement-reminder"), "the reminder's dropdown")
+		Click("recruit-announcement-rotate")
+		assert(Row("recruit-announcement-rotate").line.text:find(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED, 1, true))
+		Click("recruit-candidate-toggle")
+		eq(R.Candidates.Enabled(), true, "the scan on")
+		Click("recruit-candidate-prompts")
+		Click("recruit-handoff-accept")
+		eq(R.Handoff.Accepting(), true, "handoffs taken")
+		Click("recruit-handoff-overflow")
+		eq(R.Handoff.AutoOn(), true, "the player's own waiting players offered")
+		local help = assert(Row("charter-help-section"), "the Apostles' help")
+		local ask
+		for i, row in ipairs(Rows()) do if row == help then ask = Rows()[i + 1] end end
+		assert(ask and ask.line.onClick and ask.line.text:find(L.CHARTER_HELP_REQUEST, 1, true), "its request a click away")
+		-- A JOIN: inside the Recruiting section, above the ads' heading, with its actions.
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Applicant-Realm")
+		for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY" }) do
+			local open = ns.Dialog.Find(which)
+			if open then open:Hide() end
+		end
+		U.Refresh()
+		local at = {}
+		for i, row in ipairs(Rows()) do if row.line.id then at[row.line.id] = i end end
+		assert(at["recruit-requests"], "the JOINs waiting are on the page")
+		assert(at["recruit-requests"] < at["recruit-section-ads"], "inside Recruiting, before the ads")
+		eq((Headings()), SECTIONS, "no heading of their own")
+		local dismiss
+		for _, row in ipairs(Rows()) do
+			if row.line.text and row.line.text:find(L.JOIN_DISMISS, 1, true) then dismiss = row end
+		end
+		C.Click(assert(dismiss, "the JOIN's own actions")); U.Refresh()
+		eq(Row("recruit-requests"), nil, "dismissed")
+		-- A rank the game does not let invite: the reason under the switch, no section it can't use.
+		C.env.CanGuildInvite = function() return false end
+		C.Fire("GUILD_ROSTER_UPDATE"); U.Refresh()
+		eq(R.IsWhisperRecruiting(), false)
+		eq((Headings()), "recruit-section-recruiting,charter-help-section")
+		local why = assert(Row("recruit-no-invite"), "why the switch does nothing")
+		assert(why.line.text:find(L.RECRUIT_NO_INVITE_SHORT, 1, true))
+		C.Switch(initialPad); C.Advance(1)
+		Check(C.ledger, "Church > Invites")
+		NoErrors(C, "Church > Invites")
+	end
 end)
 
 -- 1.2.5.1: the Olympus Accord (Accord.lua) on a fresh account's first session, gamepad UI on from the

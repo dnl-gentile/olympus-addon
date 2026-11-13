@@ -490,7 +490,10 @@ test("relay tree (1.5.5): the registrant is the first guildmate whose hello says
 		eq(ms.broadcasts, 0, "and reports nothing while no fallback runs")
 		M.Comm.Hello(true)
 		for _ = 1, 5 do M.Comm.Pump() end
-		assert(tostring(ms.sent[#ms.sent].msg):match("~R~N$"), "its hello says N: " .. tostring(ms.sent[#ms.sent].msg))
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(tostring(ms.sent[#ms.sent].msg):match("~R~N~j$"), "its hello says N: " .. tostring(ms.sent[#ms.sent].msg))
 		-- A 1.5.5 guildmate without RelayTree.lua, neither reporter nor registrant: nothing.
 		local C, cdeliver, cs = Client("Ccc Plain-Realm", false)
 		cdeliver("GUILD", "Aaa Old-Realm", OLD)
@@ -499,7 +502,7 @@ test("relay tree (1.5.5): the registrant is the first guildmate whose hello says
 		eq(C.Comm.isRegistrant, false); eq(cs.registered, 0)
 		C.Comm.Hello(true)
 		for _ = 1, 5 do C.Comm.Pump() end
-		assert(tostring(cs.sent[#cs.sent].msg):match("~R$"), "no N without RelayTree.lua: " .. tostring(cs.sent[#cs.sent].msg))
+		assert(tostring(cs.sent[#cs.sent].msg):match("~R~~j$"), "no N without RelayTree.lua: " .. tostring(cs.sent[#cs.sent].msg))
 		-- A reporter without N does not register while an N guildmate is known; alone, it does.
 		local P, pdeliver, ps = Client("Abb First-Realm", false)
 		pdeliver("GUILD", "Mid Member-Realm", NEW)

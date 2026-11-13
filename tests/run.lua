@@ -7145,7 +7145,10 @@ test("1.4.1 channel lanes: three InvalidChannel refusals on our channel move us 
 		for _ = 1, 20 do if #sent > n then break end C.Pump() end
 		local hello = sent[#sent]
 		eq(hello.dist, "GUILD")
-		assert(hello.msg:match("^H1~[^~]+~[^~]*~p~~~L1~R$"), "the lane in the hello: " .. tostring(hello.msg))
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(hello.msg:match("^H1~[^~]+~[^~]*~p~~~L1~R~~j$"), "the lane in the hello: " .. tostring(hello.msg))
 		-- A member's hello naming a higher lane is noted alone; a Lord's moves us.
 		Deliver("GUILD", "Member-Realm", "H1~1.4.1~Realm~p~~~L2")
 		eq(C.Lane(), 1, "a member's word moves nobody")
@@ -8349,7 +8352,10 @@ test("1.4.3 the relay: the election counts only guildmates whose hello carries t
 		C_ChatInfo.SendAddonMessage = function(_, msg, dist) out[#out + 1] = msg return 0 end
 		C.Hello(true)
 		for _ = 1, 20 do C.Pump() end
-		assert(out[#out]:match("^H1~[^~]+~[^~]*~p~~~~R$"), "our hello: " .. tostring(out[#out]))
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(out[#out]:match("^H1~[^~]+~[^~]*~p~~~~R~~j$"), "our hello: " .. tostring(out[#out]))
 		-- The whisper name on Forever.
 		ns.splitNames = true
 		eq(ns.TellName("Hildryn Payne-CAMWOWUS2Realm7PvE"), "Hildryn Payne")
@@ -8623,14 +8629,17 @@ test("hello: guild peers say their realm, older versions count as old", function
 		C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
 		cns.Comm.Hello()
 		cns.Comm.Pump()
-		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p~~~~R", "ours names our realm and channel (public)")
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		eq(sent[1], "GUILD H1~" .. ns.VERSION .. "~Realm~p~~~~R~~j", "ours names our realm and channel (public)")
 		local savedKey = ns.rdb.realmKey
 		ns.rdb.realmKey = "secret"
 		cns.clock = cns.clock + 600
 		cns.Comm.Hello()
 		cns.Comm.Pump()
 		ns.rdb.realmKey = savedKey
-		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s~~~~R", "sealed")
+		eq(sent[2], "GUILD H1~" .. ns.VERSION .. "~Realm~s~~~~R~~j", "sealed")
 	end)
 	C_ChatInfo = nil
 	if not ok then error(err, 0) end
@@ -14217,7 +14226,10 @@ test("0.9.1 privacy: what our census sends follows our answer and our guildmates
 		-- Our hello says we share; a hello without it (0.9.0, or a no since) reads as no.
 		C.Hello(true)
 		for _ = 1, 5 do C.Pump() end
-		eq(sent[#sent].msg, "H1~" .. ns.VERSION .. "~Realm~p~z~~~R")
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		eq(sent[#sent].msg, "H1~" .. ns.VERSION .. "~Realm~p~z~~~R~~j")
 		Deliver("GUILD", "Member2", "H1~0.9.0~Realm~p")
 		eq(C.SharesZone("Member2"), false)
 		Deliver("GUILD", "Member3", "H1~0.9.1~Realm~p~z")

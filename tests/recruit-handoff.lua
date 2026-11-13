@@ -96,6 +96,9 @@ local DRAFT, CLAIM = "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_HANDOFF_CL
 local function Find(rows, text)
 	for _, row in ipairs(rows) do if row.text and row.text:find(text, 1, true) then return row end end
 end
+local function Id(rows, id)
+	for _, row in ipairs(rows) do if row.id == id then return row end end
+end
 
 test("recruit handoff: opt-in applicant intent and one trusted claimant gate sharing and acknowledgement", function()
 	WithHandoff(function(scene)
@@ -432,7 +435,9 @@ test("recruit (1.5.8): turning recruiting on without the game's invite permissio
 		ns.Dialog = D
 		eq(R.ToggleWhisperRecruiting(), false, "turned off first")
 		scene.permission = false
-		local toggle = assert(R.WhisperLines()[1], "Church > Invites shows the switch to every member")
+		-- (Changed on purpose, 1.5.9, the author's ask for a page "muito claro": the Recruiting section's
+		-- heading comes first now; the switch is found by its id.)
+		local toggle = assert(Id(R.WhisperLines(), "recruit-whisper-toggle"), "Church > Invites shows the switch to every member")
 		eq(toggle.onClick(), false)
 		eq(R.IsWhisperRecruiting(), false, "recruiting stays off")
 		eq(scene.printed[#scene.printed], ns.L.RECRUIT_NO_INVITE_RIGHT)
@@ -1977,5 +1982,614 @@ test("recruit handoff (1.5.9): Pass sends the passed JOIN on and leaves the auto
 		eq(H.AutoOn(), true)
 		scene.tick()
 		assert(scene.packets[sent + 1].word:match("^J4~P~"), "with the switch on, a probe for the waiting")
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.5.9: Church > Invites in sections, and the handoffs' network fixes from the 1.5.8 reviews.
+---------------------------------------------------------------------------
+
+-- The headings of a page's lines, by id, in order.
+local function Headings(lines)
+	local out = {}
+	for _, line in ipairs(lines) do
+		if line.header then
+			assert(not line.onClick, "a heading takes no click: " .. tostring(line.text))
+			out[#out + 1] = line.id or ("?" .. tostring(line.text))
+		end
+	end
+	return table.concat(out, ",")
+end
+-- The lines from the heading `id` to the next heading (the heading first).
+local function SectionOf(lines, id)
+	local out
+	for _, line in ipairs(lines) do
+		if line.header and out then break end
+		if line.id == id then out = {} end
+		if out then out[#out + 1] = line end
+	end
+	return assert(out, "no section " .. id)
+end
+local SECTIONS = "recruit-section-recruiting,recruit-section-ads,recruit-section-scan,recruit-section-handoffs"
+
+-- 1.5.9 (the author, 11-12: "ainda tô achando meio bagunçado... public recruitment announcement... ele
+-- tá maior do que o de cima, aí parece que o de cima não tem tanta importância... talvez precisasse de
+-- uma seção aqui com esse título maior... para as pessoas lerem e ser muito claro"): every part of the
+-- page under a heading of the same kind, in the order they are used; the JOINs waiting inside the
+-- Recruiting section, not under a heading of their own.
+test("recruit Invites page (1.5.9): four sections in order under headings of one weight, the JOINs waiting inside Recruiting", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		local L = ns.L
+		eq(R.ToggleWhisperRecruiting(), false, "recruiting off first")
+		local off = R.WhisperLines()
+		eq(Headings(off), SECTIONS, "off, the four sections all the same")
+		eq(off[1].text, L.RECRUIT_SECTION_RECRUITING, "the page opens with Recruiting's heading")
+		local recruiting = SectionOf(off, "recruit-section-recruiting")
+		eq(recruiting[2].id, "recruit-whisper-toggle", "its switch under it")
+		assert(recruiting[2].text:find(L.RECRUIT_WHISPER_OFF, 1, true) and recruiting[2].onClick)
+		assert(recruiting[3].text:find(L.RECRUIT_WHISPER_OFF_HINT, 1, true), "and what turning it on does")
+		eq(SectionOf(off, "recruit-section-ads")[1].text, L.RECRUIT_ANNOUNCE_OPEN)
+		-- (Review of 1.5.9: the ads too. They ask for JOIN whispers, which only Recruiting answers.)
+		for _, id in ipairs({ "recruit-section-ads", "recruit-section-scan", "recruit-section-handoffs" }) do
+			local section = SectionOf(off, id)
+			eq(#section, 2, id .. ": its heading and one line")
+			assert(section[2].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true), id .. " says recruiting comes first")
+		end
+		for i = 2, #off do
+			if off[i].header then eq(off[i - 1].gapAfter, true, "a gap before " .. off[i].id) end
+		end
+
+		eq(R.ToggleWhisperRecruiting(), true)
+		R.OnWhisper("JOIN", "First Waiting-" .. home)
+		R.OnWhisper("JOIN", "Second Waiting-" .. home)
+		local on = R.WhisperLines()
+		eq(Headings(on), SECTIONS, "on, with JOINs waiting: the same four headings, none for the JOINs")
+		recruiting = SectionOf(on, "recruit-section-recruiting")
+		assert(recruiting[2].text:find(L.RECRUIT_WHISPER_ON, 1, true))
+		assert(recruiting[3].text:find(L.RECRUIT_WHISPER_HINT, 1, true))
+		eq(recruiting[4].id, "recruit-whisper-arrival", "how a JOIN comes in")
+		local count = assert(Id(recruiting, "recruit-requests"), "the JOINs waiting are in the Recruiting section")
+		eq(count.text, L.JOIN_REQUESTS:format(2)); eq(count.header, nil); eq(count.indent, 1)
+		local first = assert(Find(recruiting, "First Waiting"), "each JOIN under it")
+		assert((first.indent or 0) >= 1, "one step in")
+		assert(Find(recruiting, L.RECRUIT_WHISPER_PREPARE_BUTTON).indent >= 2, "and its actions one more")
+		-- (Review of 1.5.9: every section alike, its switch under the heading and the switch's grey line
+		-- under it, as Recruiting has them.)
+		local scan = SectionOf(on, "recruit-section-scan")
+		eq(scan[2].id, "recruit-candidate-toggle", "the scan's switch first in its section")
+		assert(scan[3].text:find(L.RECRUIT_SCAN_HINT, 1, true), "then what it does")
+		assert(SectionOf(on, "recruit-section-ads")[2].text:find(L.RECRUIT_ADS_HINT, 1, true))
+		local handoffs = SectionOf(on, "recruit-section-handoffs")
+		eq(handoffs[1].text, L.RECRUIT_SECTION_HANDOFFS .. " " .. L.RECRUIT_EXPERIMENTAL, "Experimental on the heading")
+		eq(handoffs[2].id, "recruit-handoff-accept"); eq(handoffs[3].id, "recruit-handoff-overflow")
+		assert(handoffs[4].text:find(L.RECRUIT_HANDOFFS_HINT, 1, true), "both handoff switches, then what they do")
+		local tagged = 0
+		for _, line in ipairs(on) do
+			if line.text and line.text:find(L.RECRUIT_EXPERIMENTAL, 1, true) then tagged = tagged + 1 end
+		end
+		eq(tagged, 1, "said once, on the heading, not cut off the end of each switch")
+	end)
+end)
+
+-- 1.5.9, the review of 1.5.8 (the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai
+-- avisar, tipo, você não pode convidar mesmo para sua guilda, fale com o seu GM"): the reason showed
+-- only after a click on the switch. Now it is under the switch, and the sections he can't use are gone
+-- (an ad asking for JOIN whispers he could not answer helped nobody).
+test("recruit Invites page (1.5.9, regression): a member whose rank can't invite reads why under the switch", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		eq(R.ToggleWhisperRecruiting(), false)
+		scene.permission = false
+		local lines = R.WhisperLines()
+		eq(Headings(lines), "recruit-section-recruiting", "only the Recruiting section")
+		eq(lines[2].id, "recruit-whisper-toggle")
+		local why = assert(Id(lines, "recruit-no-invite"), "the reason is on the page, no click needed")
+		assert(why.text:find(ns.L.RECRUIT_NO_INVITE_SHORT, 1, true))
+		local tip = {}
+		why.tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+		eq(tip[1], ns.L.RECRUIT_NO_INVITE_RIGHT, "the whole sentence in its tooltip")
+		eq(Find(lines, ns.L.RECRUIT_ADS_HINT), nil, "no ads to post")
+		scene.permission = true
+		eq(Id(R.WhisperLines(), "recruit-no-invite"), nil, "a member who can invite reads none")
+	end)
+end)
+
+-- Hellos as a guildmate's client hears them (the real Comm.lua, FreshComm), lent to the main
+-- namespace's Comm for the time of `fn`: what RecruitHandoff and Versions read of the hellos.
+local function WithHellos(hellos, fn)
+	local savedChat, savedPeers, savedVersion = C_ChatInfo, ns.Comm.HandoffPeers, ns.Comm.PeerVersion
+	local ok, err = pcall(function()
+		local cns, deliver = FreshComm()
+		for _, hello in ipairs(hellos) do deliver("GUILD", hello[1], hello[2]) end
+		ns.Comm.HandoffPeers, ns.Comm.PeerVersion = cns.Comm.HandoffPeers, cns.Comm.PeerVersion
+		fn(cns, deliver)
+	end)
+	C_ChatInfo, ns.Comm.HandoffPeers, ns.Comm.PeerVersion = savedChat, savedPeers, savedVersion
+	if not ok then error(err, 0) end
+end
+-- `flag`: true, the hello says "J" (he takes handoffs); false, "j" (he takes none: since the review of
+-- 1.5.9 a 1.5.9 hello says it, never the version); nil, neither, as a client before the flag says.
+local function Hello(version, flag)
+	return ("H1~%s~%s~p~~~~R~N%s"):format(version, home, flag == true and "~J" or flag == false and "~j" or "")
+end
+
+-- 1.5.9, the review of 1.5.8: "Offer to another member" listed the first six members online by rank,
+-- so a plain member who takes handoffs (any rank may, since 1.5.8) was never there. Those whose hello
+-- says they take them come first now; one whose hello says he takes none is not listed.
+test("recruit handoff picker (1.5.9, regression): members who take handoffs come first, past the six highest ranks", function()
+	WithHandoff(function(scene)
+		local online, ranks = {}, { [me] = 5 }
+		for i = 1, 7 do
+			local name = ("Officer %s-%s"):format(string.char(64 + i), home)
+			online[#online + 1] = { name = name }
+			ranks[name] = 1
+		end
+		local plain, refuser = "Plain Taker-" .. home, "Officer B-" .. home
+		online[#online + 1] = { name = plain }
+		ranks[plain] = 6
+		ns.Roster.online = online
+		ns.Roster.RankOf = function(name) return ranks[name] end
+		WithHellos({ { plain, Hello("1.5.9", true) }, { refuser, Hello("1.5.9", false) }, { "Officer C-" .. home, Hello("1.5.8") } }, function()
+			R.OnWhisper("JOIN", applicant)
+			assert(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_PICK)).onClick()
+			local offers = {}
+			for _, line in ipairs(R.RequestLines(true)) do
+				if line.indent == 2 and line.onClick then offers[#offers + 1] = line.text end
+			end
+			eq(#offers, 6, "six members offered")
+			assert(offers[1]:find("Plain Taker", 1, true), "the member whose hello says he takes handoffs first: " .. offers[1])
+			assert(offers[2]:find("Officer C", 1, true), "then one known to run Olympus (1.5.8): " .. offers[2])
+			for _, text in ipairs(offers) do
+				eq(text:find("Officer B", 1, true), nil, "never one whose hello says he takes none")
+			end
+			-- The listed taker's offer goes to him.
+			for _, line in ipairs(R.RequestLines(true)) do
+				if line.text and line.text:find("Plain Taker", 1, true) and line.onClick then line.onClick(); break end
+			end
+			local offer = assert(scene.packets[1], "the offer went")
+			eq(offer.peer, plain)
+			assert(offer.word:match("^J4~O~"))
+		end)
+	end)
+end)
+
+-- 1.5.9, the review of 1.5.8 (throughput): a member without Olympus never answers a probe, and each
+-- costs PROBE_TTL (20 s). Clients that take handoffs say so in their hello (Comm.Hello's "J"); the
+-- probes ask them first, members known to run Olympus otherwise after a turn over them (a 1.5.8
+-- hello has no flag yet), and never a member whose hello says he takes none or names a version
+-- before handoffs. The unheard still get one probe after each turn (review of 1.5.8).
+test("recruit overflow (1.5.9, regression): the probes ask members whose hello says they take handoffs first", function()
+	WithHandoff(function(scene)
+		local taker, mate158, old, refuser, quiet = "Taker Member-" .. home, "Older Member-" .. home,
+			"Ancient Member-" .. home, "Refusing Member-" .. home, "Quiet Member-" .. home
+		-- (Roster order: the unheard and the ones who can't take handoffs ahead of the taker.)
+		ns.Roster.online = { { name = quiet }, { name = old }, { name = refuser }, { name = mate158 }, { name = taker } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			for _, row in ipairs(ns.Roster.online) do if row.name == name then return 6 end end
+		end
+		WithHellos({ { taker, Hello("1.5.9", true) }, { mate158, Hello("1.5.8") }, { old, Hello("1.5.7") },
+			{ refuser, Hello("1.5.9", false) } }, function()
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Flag Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i], "one probe a step").peer
+				scene.now = scene.now + 21
+			end
+			eq(asked[1], taker, "first the member whose hello says he takes handoffs")
+			eq(asked[2], mate158, "after a turn over those, one whose 1.5.8 hello could not say")
+			eq(asked[3], taker)
+			eq(asked[4], quiet, "after a turn over both, one never heard from")
+			eq(asked[5], taker); eq(asked[6], mate158)
+			for _, peer in ipairs(asked) do
+				assert(peer ~= old and peer ~= refuser, "never a client that can't take handoffs or said no: " .. peer)
+			end
+		end)
+	end)
+end)
+
+-- Older clients only (no hello carries the flag): the 1.5.8 order, from the hellos themselves.
+test("recruit overflow (1.5.9): with 1.5.8 clients only, those heard run Olympus first and the unheard after each turn", function()
+	WithHandoff(function(scene)
+		local first, second, quiet = "First Older-" .. home, "Second Older-" .. home, "Quiet Member-" .. home
+		ns.Roster.online = { { name = quiet }, { name = first }, { name = second } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			if name == first or name == second or name == quiet then return 6 end
+		end
+		WithHellos({ { first, Hello("1.5.8") }, { second, "H1~1.5.8~" .. home .. "~p~~~~R" } }, function()
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Old Queue %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 6 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i]).peer
+				scene.now = scene.now + 21
+			end
+			eq(table.concat(asked, ","), table.concat({ first, second, quiet, first, second, quiet }, ","))
+		end)
+	end)
+end)
+
+-- 1.5.9: the flag a member's hello carries. "J", its 9th field, only while he takes handoffs; a quiet
+-- member (other guildmates sort before him: he says hello every ten minutes) says it at his next tick
+-- (HELLO_EVERY) after it turns, either way. A hello without it reads as before, here and on a 0.9.8
+-- client (older clients read the fields before it), and the fields before it read the same with it.
+test("recruit hello (1.5.9, regression): a member who takes handoffs says so in his hello at the next tick", function()
+	WithHandoff(function(scene)
+		local savedChat, savedTime = C_ChatInfo, GetTime
+		local ok, err = pcall(function()
+			local cns, deliver = FreshComm()
+			-- Twelve guildmates who sort before this member: he is a quiet one.
+			for i = 1, 12 do deliver("GUILD", ("Aa%02d Peer-%s"):format(i, home), Hello("1.5.8")) end
+			local sent = {}
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+			local function Tick()
+				local before, hello = #sent, nil
+				cns.Comm.Hello()
+				for _ = 1, 4 do cns.Comm.Pump() end
+				for i = before + 1, #sent do if sent[i]:find("^GUILD H1~") then hello = sent[i] end end
+				return hello
+			end
+			local first = assert(Tick(), "the first hello")
+			-- (Changed on purpose, the review of 1.5.9: "j" says he takes none, so no guildmate reads it
+			-- from his version, which a test build of 1.5.9 still names 1.5.8.)
+			eq(first:match("^GUILD H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)"), "j", "j: he takes none")
+			eq(Tick(), nil, "a quiet member says nothing more within ten minutes")
+			eq(H.Toggle(), true, "he takes handoffs now")
+			local flagged = assert(Tick(), "the next tick says so")
+			eq(flagged:match("^GUILD H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)"), "J", "J, the 9th field")
+			eq(flagged:match("^(.*)~J$"), first:match("^(.*)~j$"), "the fields before it as they were")
+			eq(Tick(), nil, "once")
+			eq(H.Toggle(), false)
+			eq(Tick(), first, "turned off: the next tick says it, j again")
+
+			-- A guildmate's client reads it; a hello without it reads as before.
+			local reader, hear = FreshComm()
+			reader.me = "Reader Member-" .. home -- (a client drops its own words)
+			hear("GUILD", me, flagged:sub(7))
+			hear("GUILD", mate, first:sub(7))
+			local heard = reader.Comm.HandoffPeers()
+			eq(heard.full[me].takes, true); eq(heard.full[me].version, ns.VERSION)
+			eq(heard.full[mate].takes, false)
+			eq(heard.short[ns.Fold(ns.ShortName(me))], heard.full[me], "by the short name too")
+			eq(reader.Comm.PeerRealm(me), reader.Comm.PeerRealm(mate), "the realm field reads the same")
+			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other.
+			local oldest, hearOld = FreshComm(true)
+			oldest.me = "Reader Member-" .. home
+			hearOld("GUILD", me, flagged:sub(7))
+			eq(oldest.Comm.PeerVersions()[ns.VERSION], 2, "ours and the flagged peer's, its flag ignored")
+		end)
+		C_ChatInfo, GetTime = savedChat, savedTime
+		if not ok then error(err, 0) end
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- The review of 1.5.9: the network fixes and Church > Invites, checked again.
+---------------------------------------------------------------------------
+
+-- Review of 1.5.9 (P2): the Offer picker asked Versions.HasOlympus of every member online it heard no
+-- hello from, and each ask went through every hello heard: about 150 ms a redraw with 400 online and
+-- 150 heard, against 0.1 ms in 1.5.8. The picker reads the hellos once now, in the same order.
+test("recruit handoff picker (review of 1.5.9, regression): 400 online are listed from the hellos, none asked about one by one", function()
+	WithHandoff(function(scene)
+		local online, ranks, hellos = {}, { [me] = 5 }, {}
+		local taker, first158, second158
+		for i = 1, 400 do
+			local name = ("Picker %s-%s"):format(Letters(i), home)
+			online[i] = { name = name }
+			ranks[name] = 6
+			-- The last 150 heard: one takes handoffs, two run 1.5.8, the rest take none.
+			if i == 399 then taker = name; hellos[#hellos + 1] = { name, Hello("1.5.9", true) }
+			elseif i == 300 or i == 350 then
+				if i == 300 then first158 = name else second158 = name end
+				hellos[#hellos + 1] = { name, Hello("1.5.8") }
+			elseif i > 250 then hellos[#hellos + 1] = { name, Hello("1.5.9", false) } end
+		end
+		ns.Roster.online = online
+		ns.Roster.RankOf = function(name) return ranks[name] end
+		local V = ns.Versions
+		local saved, asked = V.HasOlympus, 0
+		local ok, err = pcall(WithHellos, hellos, function()
+			V.HasOlympus = function(...) asked = asked + 1; return saved(...) end
+			R.OnWhisper("JOIN", applicant)
+			assert(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_PICK)).onClick()
+			asked = 0
+			local offers = {}
+			for _, line in ipairs(R.WhisperLines()) do
+				if line.indent == 3 and line.onClick then offers[#offers + 1] = line.text end
+			end
+			eq(asked, 0, "no member online asked about one by one: the hellos are read once")
+			eq(#offers, 6)
+			assert(offers[1]:find(ns.ShortName(taker), 1, true), "the one whose hello says he takes them first: " .. offers[1])
+			assert(offers[2]:find(ns.ShortName(first158), 1, true), "then the 1.5.8 ones: " .. offers[2])
+			assert(offers[3]:find(ns.ShortName(second158), 1, true), offers[3])
+			assert(offers[4]:find(ns.ShortName(online[1].name), 1, true), "then the unheard, in the roster's order: " .. offers[4])
+		end)
+		V.HasOlympus = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.9 (P2): "takes none" was read from the version, a hello naming 1.5.9 or newer without
+-- "J". This branch's builds still name 1.5.8, so a member running one with handoffs off was probed every
+-- turn and listed; and a release after 1.5.9 would have read every 1.5.9 client, which takes handoffs
+-- through the 1.5.8 words, as taking none. The hello says "j" now, and a hello with neither is asked.
+test("recruit hello (review of 1.5.9, regression): a client that takes no handoffs says so, whatever version it names", function()
+	WithHandoff(function(scene)
+		local savedChat = C_ChatInfo
+		local hello, oldCount
+		local ok, err = pcall(function()
+			local cns = FreshComm()
+			local sent = {}
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+			cns.Comm.Hello(true)
+			for _ = 1, 4 do cns.Comm.Pump() end
+			for _, line in ipairs(sent) do if line:find("^GUILD H1~") then hello = line:sub(7) end end
+			-- An older client reads it as any hello: a 0.9.8 one counts its version.
+			local oldest, hearOld = FreshComm(true)
+			oldest.me = "Reader Member-" .. home
+			if hello then hearOld("GUILD", "Refusing Member-" .. home, hello) end
+			oldCount = oldest.Comm.PeerVersions()[ns.VERSION]
+		end)
+		C_ChatInfo = savedChat
+		if not ok then error(err, 0) end
+		assert(hello, "this build's own hello went (the real Comm.Hello)")
+		eq(H.Accepting(), false, "from a member with handoffs off")
+		eq(oldCount, 2, "a 0.9.8 client counts its version as before")
+		local refuser, newer, older = "Refusing Member-" .. home, "Newer Member-" .. home, "Older Member-" .. home
+		ns.Roster.online = { { name = refuser }, { name = newer }, { name = older } }
+		ns.Roster.RankOf = function(name)
+			if name == me then return 5 end
+			for _, row in ipairs(ns.Roster.online) do if row.name == name then return 6 end end
+		end
+		-- This build's hello; one naming a later version without the flag (a client from before it: it
+		-- takes handoffs as 1.5.8 does); a 1.5.8 one.
+		WithHellos({ { refuser, hello }, { newer, "H1~1.6.0~" .. home .. "~p~~~~R~N" }, { older, Hello("1.5.8") } }, function()
+			R.OnWhisper("JOIN", applicant)
+			assert(Find(R.RequestLines(true), ns.L.RECRUIT_HANDOFF_PICK)).onClick()
+			local listed = {}
+			for _, line in ipairs(R.RequestLines(true)) do
+				if line.indent == 2 and line.onClick then listed[#listed + 1] = line.text end
+			end
+			local all = table.concat(listed, " | ")
+			eq(all:find("Refusing Member", 1, true), nil, "not listed: his hello says he takes none (" .. all .. ")")
+			assert(all:find("Newer Member", 1, true), "a hello without the flag is listed, whatever its version: " .. all)
+			assert(all:find("Older Member", 1, true), all)
+			for i = 1, 3 do R.OnWhisper("JOIN", ("Flag Wait %d-%s"):format(i, home)) end
+			eq(H.ToggleAuto(), true)
+			local asked = {}
+			for i = 1, 4 do
+				scene.tick()
+				asked[i] = assert(scene.packets[i], "one probe a step").peer
+				scene.now = scene.now + 21
+			end
+			for _, peer in ipairs(asked) do assert(peer ~= refuser, "never probed: his hello says he takes none") end
+			eq(table.concat(asked, ","), table.concat({ newer, older, newer, older }, ","))
+		end)
+	end)
+end)
+
+-- Review of 1.5.9 (P2): with Recruiting off the page still offered "Send ad to /1 General". An ad asks
+-- players to whisper JOIN, which only Recruiting answers: every reply was dropped. (The author, 11-12:
+-- "Os botões que façam sentido".) Off, the ads say Recruiting comes first, as the scan and handoffs do.
+test("recruit ads (review of 1.5.9, regression): with Recruiting off no ad is offered, opened or posted", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local savedList, savedChat = GetChannelList, C_ChatInfo
+		local posted = 0
+		GetChannelList = function() return 1, "General", false end
+		C_ChatInfo = setmetatable({
+			GetChannelInfoFromIdentifier = function(name) if name == "General" then return { zoneChannelID = 11 } end end,
+			SendChatMessage = function() posted = posted + 1 end,
+		}, { __index = savedChat })
+		local ok, err = pcall(function()
+			local L, AD = ns.L, "OLYMPUS_RECRUIT_ANNOUNCEMENT"
+			local label = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General")
+			eq(R.IsWhisperRecruiting(), true)
+			local send = assert(Find(R.WhisperLines(), label), "on, the ad for General is offered")
+			send.onClick()
+			local draft = assert(D.Find(AD), "its draft opens")
+			eq(R.ToggleWhisperRecruiting(), false, "recruiting turned off")
+			eq(D.Find(AD), nil, "the open draft closes with it")
+			local lines = R.WhisperLines()
+			eq(Find(lines, label), nil, "off, no ad offered")
+			eq(Id(lines, "recruit-announcement-reminder"), nil, "nor its reminder")
+			local ads = SectionOf(lines, "recruit-section-ads")
+			eq(#ads, 2, "the ads' heading and one line")
+			assert(ads[2].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true), "saying Recruiting comes first")
+			send.onClick()
+			eq(D.Find(AD), nil, "a row kept from before opens no draft")
+			-- Why: a JOIN whispered while recruiting is off is answered by nobody.
+			R.OnWhisper("JOIN", applicant)
+			eq(#R.requests, 0)
+			-- The game took the rank's invite away with a draft open: Post sends nothing and closes it.
+			eq(R.ToggleWhisperRecruiting(), true)
+			assert(Find(R.WhisperLines(), label)).onClick()
+			draft = assert(D.Find(AD))
+			draft.editBox = { GetText = function() return draft.data.command end }
+			scene.permission = false
+			eq(R.IsWhisperRecruiting(), false)
+			draft.def.OnButton2(draft, draft.data, "clicked")
+			eq(posted, 0, "nothing posted")
+			eq(D.Find(AD), nil, "the draft closed")
+		end)
+		GetChannelList, C_ChatInfo = savedList, savedChat
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.9 (P2): the sections were not laid out alike. Recruiting showed its switch and then its
+-- grey line; the scan and the handoffs their grey line, one step in, above switches further left (the
+-- author's ask: "uma coisa que faz sentido depois da outra"). Every section now: its heading, its
+-- switches at the left, the one grey line under them, and the rest one step in.
+test("recruit Invites page (review of 1.5.9, regression): every section its heading, its switches, then one grey line", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		local function Check(lines, label)
+			local i, sections = 1, 0
+			while i <= #lines do
+				local section = assert(lines[i].header and lines[i].id, label .. ": a heading at " .. i)
+				sections = sections + 1
+				local j = i + 1
+				while lines[j] and not lines[j].header and lines[j].text and (lines[j].indent or 0) == 0 do
+					assert(lines[j].onClick, label .. " " .. section .. ": a row at the left is a switch")
+					j = j + 1
+				end
+				local note = assert(lines[j], label .. " " .. section .. ": a line under it")
+				eq(note.indent, 1, label .. " " .. section .. ": its grey line one step in")
+				eq(note.onClick, nil, label .. " " .. section .. ": a line to read")
+				j = j + 1
+				while lines[j] and not lines[j].header do
+					if lines[j].text then
+						assert((lines[j].indent or 0) >= 1, label .. " " .. section .. ": nothing at the left after it: " .. lines[j].text)
+					end
+					j = j + 1
+				end
+				i = j
+			end
+			eq(sections, 4, label .. ": four sections")
+		end
+		R.OnWhisper("JOIN", applicant)
+		Check(R.WhisperLines(), "on")
+		assert(Find(R.WhisperLines(), ns.L.RECRUIT_CANDIDATES_OFF)).onClick()
+		H.Toggle()
+		Check(R.WhisperLines(), "scan and handoffs on")
+		eq(R.ToggleWhisperRecruiting(), false)
+		Check(R.WhisperLines(), "off")
+	end)
+end)
+
+-- Review of 1.5.9 (P2): the JOINs moved one step in, and rows already long were cut: "Waiting for
+-- confirmation from Local Recruiter <Olympus Prime>", or "joined your guild" in German, Spanish, French,
+-- Italian and Russian. The length test listed none of them. The window's rows do not wrap: here is the
+-- page as the window gets it, every kind of row on it, in every language, with long names, each row
+-- within what its indent leaves (Views.lua: 12 pixels a step in; about 5 pixels a character).
+local ROOT = debug.getinfo(1, "S").source:match("^@(.-)tests/[^/]*$") or ""
+local function LanguageLines(code)
+	local lns, saved = {}, GetLocale
+	GetLocale = function() return code end
+	local ok, err = pcall(function()
+		for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+			local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+			if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", lns) end
+		end
+	end)
+	GetLocale = saved
+	if not ok then error(err, 0) end
+	return lns.L
+end
+-- `fn` with the addon's words in language `code`: each file holds ns.L itself, so they are swapped in place.
+local function InLanguage(code, fn)
+	local L, saved = ns.L, {}
+	for k, v in pairs(L) do saved[k] = v end
+	local ok, err = pcall(function()
+		for k, v in pairs(LanguageLines(code)) do L[k] = v end
+		fn()
+	end)
+	for k in pairs(saved) do L[k] = saved[k] end
+	for k in pairs(L) do if saved[k] == nil then L[k] = nil end end
+	if not ok then error(err, 0) end
+end
+local function Plain(text) return (tostring(text):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+local function Chars(s)
+	local n = 0
+	for _ in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
+	return n
+end
+-- Characters a row has room for at each indent (the window's 296-pixel list), and a heading's larger font.
+local ROOM, HEADING_ROOM = { [0] = 54, 54, 51, 48 }, 40
+
+test("recruit Invites page (review of 1.5.9, regression): no row is cut, in any language, with long names", function()
+	WithHandoff(function(scene)
+		UseCandidates()
+		local L = ns.L
+		-- Forever's names are "First Surname"; these (made up) are 18 characters.
+		local function Name(first, last) return first .. " " .. last .. "-" .. home end
+		local m1, m2, m3, m4 = Name("Sebastian", "Rockwell"), Name("Valentina", "Hawthorn"),
+			Name("Christoph", "Lockhart"), Name("Theodora", "Blackwood")
+		local joins = { Name("Ernestina", "Wrenford"), Name("Annabelle", "Thornton"), Name("Rosamunde", "Kingsley"),
+			Name("Cassandra", "Holloway"), Name("Josephine", "Whitlock"), Name("Ferdinand", "Ashworth") }
+		local scanned = { Name("Clementia", "Westbury"), Name("Benedicta", "Harcourt"), Name("Willemina", "Cromwell"),
+			Name("Aurelius", "Pendleton") }
+		ns.Roster.online = { { name = m1 }, { name = m2 }, { name = m3 }, { name = m4 } }
+		local joined = joins[3]
+		ns.Roster.RankOf = function(name)
+			if name == me then return 0 end
+			if name == m1 or name == m2 or name == m3 or name == m4 or (name == joined and scene.joined) then return 6 end
+		end
+		local savedList, savedChat = GetChannelList, C_ChatInfo
+		GetChannelList = function() return 1, "General", false, 4, "LookingForGroup", false end
+		C_ChatInfo = setmetatable({ GetChannelInfoFromIdentifier = function(name) return { zoneChannelID = #name } end },
+			{ __index = savedChat })
+		local ok, err = pcall(function()
+			for _, name in ipairs(joins) do R.OnWhisper("JOIN", name) end
+			scene.joined = true -- (the roster shows him in the guild since)
+			local req = {}
+			for _, r in ipairs(R.requests) do req[r.name] = r end
+			-- Offered, waiting for the member's claim; handed off; refused by the game.
+			eq(H.Offer(req[joins[4]], m1, own), true)
+			eq(H.Offer(req[joins[5]], m2, own), true)
+			local offer = scene.packets[#scene.packets].word
+			eq(H.Receive("WHISPER", m2, (offer:gsub("^J4~O~", "J4~C~"))), true)
+			eq(H.Receive("WHISPER", m2, (offer:gsub("^J4~O~", "J4~A~"))), true)
+			ns.Dialog = Dialogs()
+			eq(R.Accept(req[joins[6]]), true)
+			-- The scan: one listed, one passed on, one offered, one handed off.
+			assert(Find(R.WhisperLines(), L.RECRUIT_CANDIDATES_OFF)).onClick()
+			local rows = {}
+			for _, name in ipairs(scanned) do R.Candidates.ObserveWho(name, "", "Human") end
+			R.Candidates.EachRow(function(row) rows[row.full] = row end)
+			eq(H.Pass(assert(rows[scanned[2]])), true)
+			eq(H.Offer(assert(rows[scanned[3]]), m1, own), true)
+			eq(H.Offer(assert(rows[scanned[4]]), m2, own), true)
+			offer = scene.packets[#scene.packets].word
+			eq(H.Receive("WHISPER", m2, (offer:gsub("^J4~O~", "J4~C~"))), true)
+			eq(H.Receive("WHISPER", m2, (offer:gsub("^J4~O~", "J4~A~"))), true)
+			-- Handoffs taken here: one offer to claim, one claimed and waiting for its name.
+			H.Toggle()
+			eq(H.Receive("WHISPER", m3, Packet(scene, "O", own, own, nil, "1111-aa-1")), true)
+			eq(H.Receive("WHISPER", m4, Packet(scene, "O", own, own, nil, "2222-bb-2")), true)
+			assert(Find(R.WhisperLines(), L.RECRUIT_HANDOFF_CLAIM:format("Theodora Blackwood", own))).onClick()
+			-- A reminder, for its line; and the picker open on the last JOIN (an offer closes it).
+			Id(R.WhisperLines(), "recruit-announcement-reminder").filters[1].options[2].onClick()
+			assert(Find(R.RequestLines(true), L.RECRUIT_HANDOFF_PICK)).onClick()
+
+			local page = R.WhisperLines()
+			local function Has(text) return Find(page, text) ~= nil end
+			-- (Each with the guild too: before the review of 1.5.9 these rows named it, and it is no harm now.)
+			for _, text in ipairs({ L.RECRUIT_WHISPER_JOINED, L.RECRUIT_HANDOFF_PENDING:format("Sebastian Rockwell", own),
+				L.RECRUIT_HANDOFF_DONE:format("Valentina Hawthorn", own), L.RECRUIT_HANDOFF_BLOCKED, L.RECRUIT_HANDOFF_OFFER:format("Christoph Lockhart", own),
+				L.RECRUIT_HANDOFF_CLAIM:format("Christoph Lockhart", own), L.RECRUIT_HANDOFF_WAITING:format("Theodora Blackwood", own),
+				L.RECRUIT_CANDIDATE_WHO:format("Clementia Westbury"), L.RECRUIT_CANDIDATE_PASSING:format("Benedicta Harcourt"),
+				L.JOIN_MORE:format(1), L.RECRUIT_ANNOUNCE_CHANNEL:format(4, "LookingForGroup"), L.JOIN_DECLINE }) do
+				assert(Has(text), "the page shows " .. text)
+			end
+			local pending = 0
+			for _, line in ipairs(page) do
+				if line.text and line.text:find(L.RECRUIT_HANDOFF_PENDING:format("Sebastian Rockwell", own), 1, true) then pending = pending + 1 end
+			end
+			eq(pending, 2, "a JOIN and a scanned player offered to him")
+
+			for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+				InLanguage(code, function()
+					for _, line in ipairs(R.WhisperLines()) do
+						if line.text then
+							local text = Plain(line.text) .. (line.right and line.right ~= "" and ("  " .. Plain(line.right)) or "")
+							local room = line.header and HEADING_ROOM or ROOM[line.indent or 0] or ROOM[3]
+							assert(Chars(text) <= room, ("%s, indent %d: %d characters, room for %d: %s"):format(code,
+								line.indent or 0, Chars(text), room, text))
+						end
+					end
+				end)
+			end
+		end)
+		GetChannelList, C_ChatInfo = savedList, savedChat
+		if not ok then error(err, 0) end
 	end)
 end)

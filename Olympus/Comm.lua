@@ -97,6 +97,7 @@ local peerLaneUsable = {} -- guild peer -> true/false for a present valid/invali
 local peerRelay = {}  -- guild peer -> true when its hello says it carries the relay (1.4.3)
 local peerZone = {} -- guild peer -> true when its hello says it shares its zone (0.9.1, Comm.SharesZone)
 local peerBank = {} -- guild peer -> true while its hello says it is an arena bank on duty (1.2, Electable)
+local peerHandoff = {} -- guild peer -> true ("J") or false ("j") as its hello says it takes recruitment handoffs or none (1.5.9, Comm.HandoffPeers)
 -- Short name -> last time we heard it report our guild on the channel. Short: the server may
 -- send a name with its realm over GUILD and without it over CHANNEL (names are region-unique
 -- on the realmless client).
@@ -110,6 +111,7 @@ local crossedAt = -math.huge
 local peerGuild = GetGuildInfo("player")
 local guildChangedAt = 0
 local guildSession, lastHello = 0, 0
+local saidHandoffs = false -- (1.5.9) whether our last hello said we take recruitment handoffs ("J")
 -- Quiet presence (1.2.5.1, Core.lua) is on: see Comm.QUIET_WORDS.
 local function Quiet() return ns.QuietPresence ~= nil and ns.QuietPresence() == true end
 
@@ -172,6 +174,25 @@ function Comm.PeerVersion(name)
 		if ns.Fold(ns.ShortName(peer)) == short and (not at or t > at) then version, at = peerVersion[peer] or "?", t end
 	end
 	return version, at
+end
+
+-- (1.5.9) What our guildmates' hellos heard within COUNT_WINDOW say of recruitment handoffs, for
+-- RecruitHandoff's probes and picker: { full = { [Name-Realm] = e }, short = { [folded short name]
+-- = e } }, e = { takes, version (the version it named), at }. `takes`: true when the hello said "J",
+-- false when it said "j" (it takes none), nil when it said neither (a client before 1.5.9). By the
+-- short name too, as PeerVersion reads them (on Forever the server stamps a guildmate's words with
+-- the reader's own sub-realm), the newest hello of a short name winning.
+function Comm.HandoffPeers()
+	local now, full, short = ns.Now(), {}, {}
+	for name, t in pairs(peers) do
+		if now - t <= COUNT_WINDOW then
+			local e = { takes = peerHandoff[name], version = peerVersion[name], at = t }
+			full[name] = e
+			local key = ns.Fold(ns.ShortName(name))
+			if not short[key] or t > short[key].at then short[key] = e end
+		end
+	end
+	return { full = full, short = short }
 end
 
 -- (1.5.4, the layer hop across Forever's sub-realms) The realm this guildmate's last hello named
@@ -963,13 +984,13 @@ SyncGuild = function()
 	guildSession = guildSession + 1
 	guildAsm, outsiderAsm, whisperAsm = Codec.NewAssembler(), Codec.NewAssembler(), Codec.NewAssembler()
 	wipe(peers); wipe(peerRealm); wipe(peerVersion); wipe(peerSealed); wipe(peerZone); wipe(peerBank)
-	wipe(peerLane); wipe(peerLaneUsable); wipe(peerRelay)
+	wipe(peerLane); wipe(peerLaneUsable); wipe(peerRelay); wipe(peerHandoff)
 	wipe(heardOwn); wipe(benched)
 	watch, lastKeyAsk, early = nil, nil, nil
 	crossedAt, lastBroadcast, lastAnswer = -math.huge, 0, -math.huge
 	Comm.isReporter, Comm.isRunnerUp, Comm.reporterName, Comm.lastReport = nil, nil, nil, nil
 	guildChangedAt = ns.Now()
-	lastHello, Comm.lastKeyAnswer = 0, nil
+	lastHello, Comm.lastKeyAnswer, saidHandoffs = 0, nil, false
 	askTries, heardAsk, askedAgain = 0, -math.huge, false
 	stats.asked, stats.askSkipped = 0, 0
 	-- Moving between Olympus guilds invalidates the old guild session; leaving the
@@ -1884,6 +1905,16 @@ local function TreeLoaded()
 	return type(T) == "table" and not T.missing
 end
 
+-- (1.5.9, the review of 1.5.8: a guildmate without Olympus never answers a recruiting probe and costs
+-- it 20 seconds.) Whether this client takes recruitment handoffs now (RecruitHandoff.lua: its switch
+-- on, for the guild whose roster confirms it may invite): "J", the hello's 9th field, so the automatic
+-- offers of its guildmates ask such members first; "j" when it takes none, so they never ask it.
+local function TakesHandoffs()
+	local R = ns.Recruit
+	local H = type(R) == "table" and R.Handoff
+	return type(H) == "table" and type(H.Accepting) == "function" and H.Accepting() == true
+end
+
 -- force: now, whatever the above (the player changed what the hello says).
 function Comm.Hello(force)
 	SyncGuild()
@@ -1902,8 +1933,12 @@ function Comm.Hello(force)
 	-- before it: it may be our registrant (MaybeBroadcast), and a quiet one is past PEER_WINDOW there.
 	local quietAfter = Comm.QuietAfter(now)
 	local talk = before < quietAfter or (TreeLoaded() and beforeTree < quietAfter)
-	if not force and not talk and now - lastHello < 600 then return end
-	lastHello = now
+	-- (1.5.9) A quiet client says hello again at its next tick (HELLO_EVERY) once it takes handoffs or
+	-- stops: whatever turned it (the switch, the roster confirming it, a rank change), guildmates know
+	-- within a minute, and a switch flipped back and forth sends one hello a minute at most.
+	local takes = TakesHandoffs()
+	if not force and not talk and takes == saidHandoffs and now - lastHello < 600 then return end
+	lastHello, saidHandoffs = now, takes
 	-- Our realm rides along: guildmates on another realm show in /oly status (topology). So does
 	-- our channel: without the key we can't hear a reporter on the sealed one (MaybeBroadcast).
 	-- And "z" when we share our zone (0.9.1): our guild's reporter may name it then, never
@@ -1913,8 +1948,11 @@ function Comm.Hello(force)
 	-- our channel lane when it is not the first. Empty ones at the end are left out, as before.
 	-- (1.5.5) "N" after "R": this client takes the relay's tree (RelayTree.lua; a 1.5.5 client updated
 	-- without restarting the game has its stand-in, and says nothing). Older versions never read it.
+	-- (1.5.9) "J" after "N": this client takes recruitment handoffs (TakesHandoffs); "j": it takes
+	-- none. Older versions never read it. (Review of 1.5.9: said both ways, so a guildmate never has
+	-- to guess it from the version: a hello without either is a client from before the flag.)
 	local tail = { ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing() and "z" or "", Comm.BankOnDuty() and "b" or "",
-		Lane() > 0 and ("L" .. Lane()) or "", "R", TreeLoaded() and "N" or "" } -- (1.4.3: "R", this client carries the relay)
+		Lane() > 0 and ("L" .. Lane()) or "", "R", TreeLoaded() and "N" or "", takes and "J" or "j" } -- (1.4.3: "R", this client carries the relay)
 	while #tail > 0 and tail[#tail] == "" do tail[#tail] = nil end
 	local extra = #tail > 0 and ("~" .. table.concat(tail, "~")) or ""
 	Enqueue("GUILD", { "H1~" .. ns.VERSION .. "~" .. tostring(ns.realm) .. "~" .. sealed .. extra }, "hello")
@@ -2466,6 +2504,9 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		if laneField == nil then peerLaneUsable[sender] = nil else peerLaneUsable[sender] = lane ~= nil end
 		peerRelay[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)") == "R" or nil -- (1.4.3)
 		peerTree[sender] = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~N") ~= nil or nil -- (1.5.5)
+		-- (1.5.9) "J" he takes recruitment handoffs, "j" none; neither: a client before the flag.
+		local handoffs = text:match("^H1~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~[^~]*~([^~]*)")
+		if handoffs == "J" then peerHandoff[sender] = true elseif handoffs == "j" then peerHandoff[sender] = false else peerHandoff[sender] = nil end
 		if lane and lane > Lane() then
 			local rank = ns.Roster and ns.Roster.RankOf and ns.Roster.RankOf(sender)
 			if type(rank) == "number" and rank <= (ns.CAPTAIN_RANK or 2) then Comm.TakeLane(lane, sender) end

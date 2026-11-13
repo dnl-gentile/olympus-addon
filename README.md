@@ -3358,7 +3358,14 @@ cancellation, compatibility and the in-game checks for the transport queue.
 
 ### Recruiting by whisper
 
-Turn **Recruiting by whisper** on in **Church → Invites**.
+**Church → Invites** has four sections, each under a heading of the same size, in the order they
+are used: **Recruiting** (the switch, how an incoming JOIN arrives, and the JOINs waiting),
+**Recruiting ads**, **Find unguilded players** and **Handoffs (Experimental)**; a guild master's
+**Help from the Apostles** follows. Each section shows its heading, then its switch when it has
+one, then one grey line saying what it does, and the rest one step in. Turn **Recruiting** on there. While it is off,
+the other three sections say it comes first. That includes the ads: an ad asks players to whisper
+JOIN, and only Recruiting answers a JOIN. A member whose rank the game does not let invite reads
+why under the switch, and the sections he cannot use are not shown.
 It starts off for each character. An officer's choice to enable recruiting is remembered for
 that character in the same guild, as long as the game still allows that character to invite.
 Each switch in **Church → Invites** (1.5.9) shows after a `/reload` or a login what you left it
@@ -3396,25 +3403,33 @@ copies the selected command and hands focus to empty game chat. You can also cop
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft.
 
-For a referral, the receiving officer turns on **Accept recruitment handoffs** in the same tab.
-Open **Offer to another officer** on the applicant's request and choose a listed officer.
-The recipient claims the offer before Olympus shares the character name in a private addon
+For a referral, the receiving member turns on **Accept recruitment handoffs** in the Handoffs
+section. Open **Offer to another member** on the applicant's request and choose a listed member.
+Members whose client says it takes handoffs come first, then members whose hello says they run
+Olympus, then the rest; a member whose client says it takes none is not listed. A row names the
+member alone, and adds his guild only when it is another guild's. The recipient claims the offer before Olympus shares the character name in a private addon
 message. **JOIN** can be referred inside the same guild. **JOIN OLYMPUS** can also be referred
 to a sister guild in the same faction, region and ruleset. The recipient prepares and sends
 their own invite through the game's chat. A handoff confirms who received the request. The
 recruiter's native roster can show whether the player actually joined.
 
-The sending officer can also turn on **Offer queued JOINs to other
-guild officers**. With at least three eligible requests waiting, it asks one current officer of
-the same guild at a time. Only a recipient who enabled **Accept recruitment handoffs** and has
-room replies. The offer carries no applicant name until the recipient claims it. The sender's
+The sender can also turn on **Offer my waiting players to members**. With at least three eligible
+requests waiting, or at the game's limit of ten invites a minute, it asks one member of the same
+guild at a time. From 1.5.9 a client's guild hello says whether it takes handoffs ("J") or takes
+none ("j"); older clients ignore the field. Members who take them are asked first; after each turn
+over them, one member known to run Olympus otherwise (a 1.5.8 hello has no such field), and after
+each turn over those, one never heard from. A member whose hello says it takes none, or names a
+version before 1.5.8, is never asked. The order matters
+because a member without Olympus never answers, and each probe to one waits 20 seconds. Only a recipient who enabled
+**Accept recruitment handoffs** and has room replies. The offer carries no applicant name until the recipient claims it. The sender's
 oldest eligible request and any open reply window stay with the sender. Officers still prepare
 and send invitations themselves. **Pass** on a pop-up sends that player the same way (on a JOIN's
 pop-up, the JOINs waiting behind it too), and (1.5.9) leaves this switch as you set it.
 
 ### Public recruiting announcement
 
-In **Church → Invites**, select a joined public channel under **Public recruitment announcement**.
+In **Church → Invites**, turn **Recruiting** on, then select a joined public channel under
+**Recruiting ads**. Turning Recruiting off closes an open draft.
 Click **Post** or press Enter with the draft focused to ask the game to send it, then check the channel.
 To edit or send it yourself, copy the draft into the game's own chat and press Enter.
 A rounded lower bound appears only when the current census holds fresh accepted character
