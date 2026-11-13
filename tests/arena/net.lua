@@ -1602,7 +1602,10 @@ test("1.2 the arena's foundation: the hello's sixth field says an arena bank on 
 		assert(not sent[#sent].msg:find("~b$"), sent[#sent].msg)
 		duty = true
 		C.Hello(true); C.Pump()
-		assert(sent[#sent].msg:find("^H1~[^~]*~[^~]*~[^~]*~[^~]*~b~~R$"), sent[#sent].msg) -- (1.4.3: the relay field after it)
+		-- (Changed on purpose, 1.5.9, the author's "tem coisa que a gente deixou para ela da estrutura da rede,
+		-- do repasse" and its review: the hello ends "~j" when this client takes no recruitment handoffs,
+		-- so no guildmate reads it from the version; RecruitHandoff.lua, Comm.Hello.)
+		assert(sent[#sent].msg:find("^H1~[^~]*~[^~]*~[^~]*~[^~]*~b~~R~~j$"), sent[#sent].msg) -- (1.4.3: the relay field after it)
 		duty = false
 		-- Guildmates: a bank (first by name) and another.
 		Deliver("GUILD", "Abank-Realm", "H1~1.2.0~Realm~p~~b")

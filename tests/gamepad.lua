@@ -4765,6 +4765,17 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		local header = assert(Find(L.RECRUIT_ANNOUNCE_OPEN))
 		assert(header.header and not header.onClick, "the announcement heading needs no click")
 		local general, trade = L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"), L.RECRUIT_ANNOUNCE_CHANNEL:format(2, "Trade")
+		-- (Changed on purpose, the review of 1.5.9, the author's "Os botões que façam sentido": an ad asks
+		-- players to whisper JOIN, which only Recruiting answers, so with it off the section says it comes
+		-- first and offers no ad. This test posted its ads with recruiting off; it turns recruiting on.)
+		eq(Find(general), nil, "recruiting off: no ad offered")
+		local lines = R.WhisperLines()
+		for i, line in ipairs(lines) do
+			if line == header or (line.header and line.text == header.text) then
+				assert(lines[i + 1].text:find(L.RECRUIT_SECTION_NEEDS_ON, 1, true), "the ads say Recruiting comes first")
+			end
+		end
+		InClick(C, function() assert(R.ToggleWhisperRecruiting(), "recruiting on") end)
 		assert(Find(general) and Find(trade), "joined public channels are immediately visible")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(5, "OlympusNet")), nil, "Olympus is omitted even if reported with a zone ID")
@@ -4842,6 +4853,8 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		C.Click(picker.choices.buttons[2])
 		ns.Every = every
 		eq(ReminderChoices()[2].selected, true)
+		-- (Set where the ads are, with recruiting on; off, it waits.)
+		eq(R.ToggleWhisperRecruiting(), false)
 		local before = #C.printed
 		C.Advance(2 * 60 - 1)
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "no reminder before two minutes")
@@ -4849,6 +4862,11 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		eq(Printed(L.RECRUIT_ANNOUNCE_REMIND, before), false, "recruiting is off")
 		eq(Draft(), nil)
 		eq(#(C.said or {}), sends, "neither drafts nor reminders sent a public message")
+		assert(R.ToggleWhisperRecruiting(), "recruiting on again")
+		-- (Its timer stops here, so none of its drafts opens while the Post checks below run; the
+		-- reminder's own ticks are called directly further down, as before.)
+		InClick(C, ReminderChoices()[1].onClick)
+		eq(ReminderChoices()[1].selected, true)
 
 		C.now = C.now + 121
 		ClickLine(trade)
@@ -4902,7 +4920,7 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		Post(C.said[#C.said][1], ns.me, 2, 22, "Trade")
 		eq(Draft(), nil, "the observed echo closes the draft")
 		eq(C.chatBox, nil, "Post does not touch the game's chat editor")
-		assert(R.ToggleWhisperRecruiting())
+		eq(R.IsWhisperRecruiting(), true, "recruiting on")
 		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE), "new reminders rotate public channels by default")
 		ClickLine(L.RECRUIT_ANNOUNCE_REMINDER_ROTATE)
 		assert(Find(L.RECRUIT_ANNOUNCE_REMINDER_SELECTED), "the recruiter can opt into one channel")
@@ -4954,6 +4972,10 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		eq(#C.said, sends + 2, "rotation never posts when opening or dismissing a draft")
 		eq(R.ToggleWhisperRecruiting(), false)
 		eq(Draft(), nil, "stopping recruitment closes its reminder")
+		eq(Find(general), nil, "off, no ad to send")
+		reminderTick()
+		eq(Draft(), nil, "nor a reminder's draft")
+		InClick(C, function() assert(R.ToggleWhisperRecruiting()) end)
 		ClickLine(general)
 		C.Click(assert(Draft()).buttons[2])
 		eq(#C.said, sends + 3)

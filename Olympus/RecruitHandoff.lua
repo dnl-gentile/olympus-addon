@@ -234,15 +234,19 @@ function H.Claim(ref)
 	return true
 end
 
--- (1.5.9) What a guildmate's hello says of handoffs (Comm.HandoffPeers, Comm.Hello's "J"), for the
--- probes and the Offer picker. Tiers:
---   1 his hello says he takes them;
---   2 he runs Olympus as far as this client knows and may take them: a 1.5.8 hello (it had no flag
---     yet), one whose version can't be read, a stale hello or a version check's answer (HasOlympus);
+-- (1.5.9) What a guildmate's hello says of handoffs (Comm.HandoffPeers, Comm.Hello's "J" or "j"), for
+-- the probes and the Offer picker. Tiers:
+--   1 his hello says he takes them ("J");
+--   2 he runs Olympus as far as this client knows and may take them: a hello without the flag (a
+--     1.5.8 client: it had none yet), or one whose version can't be read; for the probes also what
+--     `known` (Versions.HasOlympus) knows besides: a stale hello or a version check's answer;
 --   3 never heard from: his hello may not have reached this client (review of 1.5.8);
---   nil: his hello says he takes none (H.FLAG_SINCE and newer without the flag), or names a version
---     before handoffs: asked, he would answer no, or nothing at all.
-H.FLAG_SINCE, H.HANDOFFS_SINCE = "1.5.9", "1.5.8"
+--   nil: his hello says he takes none ("j"), or names a version before handoffs: asked, he would
+--     answer no, or nothing at all.
+-- (Review of 1.5.9: the flag says it, never the version. A version cutoff read a test build of
+-- 1.5.9, which still names 1.5.8, as a 1.5.8 client; and had this shipped after a 1.5.9 without it,
+-- it would have read every such client, which takes handoffs as 1.5.8 does, as taking none.)
+H.HANDOFFS_SINCE = "1.5.8"
 local function Before(version, since)
 	local W = ns.Workshop
 	return type(version) == "string" and type(W) == "table" and type(W.Newer) == "function" and W.Newer(since, version) == true
@@ -255,14 +259,23 @@ local function Tier(name, index, known)
 	local full = ns.FullName(name)
 	local e = index and (index.full[full] or index.short[ns.Fold(ns.ShortName(full))])
 	if e then
-		if e.takes then return 1 end
-		if type(e.version) ~= "string" or e.version == "?" then return 2 end
-		if not Before(e.version, H.FLAG_SINCE) or Before(e.version, H.HANDOFFS_SINCE) then return nil end
+		if e.takes == true then return 1 end
+		if e.takes == false then return nil end
+		if type(e.version) == "string" and e.version ~= "?" and Before(e.version, H.HANDOFFS_SINCE) then return nil end
 		return 2
 	end
 	if known and known(full) then return 2 end
 	return 3
 end
+
+-- (1.5.9, review: Church > Invites' rows do not wrap) A member as a handoff's row names him: his
+-- name, and his guild only when it is not this player's own (a sister guild's, JOIN OLYMPUS).
+local function Who(name, guild)
+	local who = ns.DisplayName(name) or name
+	if type(guild) == "string" and not Same(guild, GetGuildInfo("player")) then who = who .. " <" .. guild .. ">" end
+	return who
+end
+H.Who = Who
 
 -- The next member of `list` (roster indices of one tier, in order) after the one this tier asked
 -- last, going round; tier 3's members are checked here, as they come.
@@ -552,12 +565,14 @@ local function Contacts(req, own)
 	local ownLimit = req.handoffIntent == "federation" and LIMIT / 2 or LIMIT
 	-- (1.5.9, the review of 1.5.8: the first members online by rank were listed, so a plain member who
 	-- takes handoffs, any rank since 1.5.8, was never there.) Those whose hello says they take them
-	-- first, then those known to run Olympus, then the rest, each in the roster's order (Tier); never
-	-- one whose hello says he takes none, whose client would let the offer expire unanswered.
-	local V = ns.Versions
-	local known, index, ranked = V and V.HasOlympus, HandoffIndex(), {}
+	-- first, then those whose hello says they run Olympus, then the rest, each in the roster's order
+	-- (Tier); never one whose hello says he takes none, whose client would let the offer expire
+	-- unanswered. (Review of 1.5.9: from the hellos alone, read once. Versions.HasOlympus for each
+	-- member online went through every hello heard for each one it did not find, and the page took
+	-- about 150 ms a redraw with 400 online.)
+	local index, ranked = HandoffIndex(), {}
 	for i, row in ipairs(ns.Roster.online or {}) do
-		local tier = Tier(row.name, index, known)
+		local tier = Tier(row.name, index)
 		if tier then ranked[#ranked + 1] = { name = row.name, tier = tier, i = i } end
 	end
 	table.sort(ranked, function(a, b)
@@ -610,7 +625,8 @@ end
 
 -- Church > Invites' Handoffs section (Recruit.WhisperLines). (1.5.8, the author's ask: "botar
 -- experimental nessa feature": since 1.5.9 its heading says it, not each switch, which it cut off.)
-function H.Controls(lines, V)
+-- `hint`: the section's grey line, under its switches as every section has it (review of 1.5.9).
+function H.Controls(lines, V, hint)
 	local own = LocalGuild()
 	if not own then return end
 	Prune(ns.Now())
@@ -620,12 +636,13 @@ function H.Controls(lines, V)
 	lines[#lines + 1] = { id = "recruit-handoff-overflow",
 		text = autoGuild == own and V.Green(L.RECRUIT_OVERFLOW_ON) or V.Grey(L.RECRUIT_OVERFLOW_OFF),
 		onClick = ToggleAutoSaved }
+	if hint then lines[#lines + 1] = { indent = 1, text = V.Grey(hint) } end
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
 		if Same(ref.to, own) and Member(ref.peer, ref.from) and ref.state ~= "received" then
 			local label = ref.state == "offered" and L.RECRUIT_HANDOFF_CLAIM or L.RECRUIT_HANDOFF_WAITING
 			lines[#lines + 1] = {
-				indent = 1, text = V.Gold(label:format(ns.DisplayName(ref.peer), ref.from)),
+				indent = 1, text = V.Gold(label:format(Who(ref.peer, ref.from))),
 				onClick = ref.state == "offered" and function() H.Claim(ref) end or nil,
 			}
 		end
@@ -636,7 +653,7 @@ function H.RequestLines(lines, V, req)
 	local state = H.State(req)
 	if state then
 		lines[#lines + 1] = { indent = 1, text = V.Grey((state == "assigned" and L.RECRUIT_HANDOFF_DONE
-			or L.RECRUIT_HANDOFF_PENDING):format(ns.DisplayName(req.handoff.peer), req.handoff.to)) }
+			or L.RECRUIT_HANDOFF_PENDING):format(Who(req.handoff.peer, req.handoff.to))) }
 		return
 	end
 	local own = LocalGuild()
@@ -647,7 +664,7 @@ function H.RequestLines(lines, V, req)
 	local contacts = Contacts(req, own)
 	if #contacts == 0 then lines[#lines + 1] = { indent = 2, text = V.Grey(L.RECRUIT_HANDOFF_EMPTY) } end
 	for _, contact in ipairs(contacts) do
-		lines[#lines + 1] = { indent = 2, text = V.Gold(L.RECRUIT_HANDOFF_OFFER:format(ns.DisplayName(contact.name), contact.guild)),
+		lines[#lines + 1] = { indent = 2, text = V.Gold(L.RECRUIT_HANDOFF_OFFER:format(Who(contact.name, contact.guild))),
 			onClick = function() H.Offer(req, contact.name, contact.guild) end }
 	end
 end

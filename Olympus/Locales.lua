@@ -2290,7 +2290,6 @@ L.RECRUIT_NO_INVITE_SHORT = "Your rank can't invite: ask your guild master."
 L.RECRUIT_ADS_HINT = "Your ad asks players to whisper you JOIN."
 L.RECRUIT_SCAN_HINT = "From nameplates, target, mouseover and /who."
 L.RECRUIT_HANDOFFS_HINT = "Members pass on players they can't invite in time."
-L.RECRUIT_ANNOUNCE_REMINDER_PAUSED = "Reminders wait until Recruiting is on."
 L.CHARTER_HELP_SECTION = "Help from the Apostles"
 -- 1.1: the Board (Board.lua, Fern's): who is looking for a group, and where.
 L.BOARD_FLAG_D = "Dungeon"
@@ -4862,7 +4861,6 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_ADS_HINT = "Seu anúncio pede para te sussurrarem JOIN."
 	L.RECRUIT_SCAN_HINT = "Por placas de nome, alvo, cursor e /who."
 	L.RECRUIT_HANDOFFS_HINT = "Membros repassam quem não conseguem convidar a tempo."
-	L.RECRUIT_ANNOUNCE_REMINDER_PAUSED = "Os lembretes esperam o Recrutamento ativado."
 	L.CHARTER_HELP_SECTION = "Ajuda dos Apóstolos"
 end -- (the Portuguese lines)
 
