@@ -1753,6 +1753,81 @@ test("join screen request (1.5.9): Decline still whispers; recruiting off sends 
 	end)
 end)
 
+-- Review of 1.5.9: the game's ignore list holds back a player's whispers, not his addon messages, so
+-- a JOIN whisper never comes from an ignored player but his J3 still does. Fails before the fix: at
+-- a recruiting member it opened the invite popup by itself (and with recruiting off it made a
+-- Census row and a chat line), every time the ignored player clicked Send.
+test("join screen request (review of 1.5.9): a J3 from a player on the game's ignore list is dropped, recruiting or not", function()
+	WithHandoff(function(scene)
+		WithLog(function()
+			WithWatchNotice(function(noticed)
+				local D = Dialogs()
+				ns.Dialog = D
+				local savedFriends, asked, ignored = C_FriendList, {}, { ["New Recruit"] = true }
+				C_FriendList = { IsIgnored = function(name) asked[#asked + 1] = name; return ignored[name] == true end }
+				local ok, err = pcall(function()
+					-- Recruiting: no request, no popup, no chat line; the recruiting log says why.
+					local printed = #scene.printed
+					eq(R.OnJoinRequest("WHISPER", applicant, J3), false)
+					eq(asked[#asked], "New Recruit", "asked by the name /ignore takes")
+					eq(#R.requests, 0, "no request")
+					eq(D.Find(DRAFT), nil, "no popup")
+					eq(#scene.printed, printed, "no chat line")
+					eq(#noticed, 0, "nothing of his reaches this member's screen")
+					assert(LogHas("JOINDROP " .. H.Tag(applicant) .. " ignored"), "the recruiting log says why")
+					LogNever("New Recruit")
+					-- Recruiting off: no Census row and no chat line either.
+					eq(R.ToggleWhisperRecruiting(), false, "recruiting off")
+					printed = #scene.printed
+					eq(R.OnJoinRequest("WHISPER", applicant, J3), false)
+					eq(#R.requests, 0, "no Census row")
+					eq(#scene.printed, printed, "no chat line")
+					-- Off the list, his next request counts at once: the drop held nothing against him.
+					ignored["New Recruit"] = nil
+					eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+					eq(assert(R.requests[1]).name, applicant)
+					assert(Find(R.RequestLines(false), "New Recruit"), "on top of the Census")
+				end)
+				C_FriendList = savedFriends
+				if not ok then error(err, 0) end
+			end)
+		end)
+	end)
+end)
+
+-- Review of 1.5.9: a J3 passed on whose offer no member has claimed yet ("offered": nobody has its
+-- name) goes back to the Census when recruiting is turned off, and a claim heard after that gets no
+-- name. (Before this test, removing "offered" from that rule in StopRecruiting passed every test.)
+test("join screen request (review of 1.5.9): recruiting off while a J3's offer waits for a claim brings it back to the Census; a late claim gets no name", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(R.OnJoinRequest("WHISPER", applicant, J3), true)
+		local req = R.requests[1]
+		local draft = assert(D.Find(DRAFT))
+		draft.def.OnButton2(draft, draft.data) -- Pass
+		draft:Hide()
+		scene.tick()
+		local probe = assert(scene.packets[1])
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		local offer = assert(scene.packets[2])
+		assert(offer.word:match("^J4~O~") and offer.word:sub(-1) == "~", "no name with the offer")
+		eq(H.State(req), "offered", "offered, not claimed: no member has its name")
+		eq(R.ToggleWhisperRecruiting(), false, "recruiting off")
+		eq(#R.requests, 1); eq(R.requests[1], req, "kept")
+		eq(req.viaWhisper, nil); eq(H.State(req), nil, "its offer withdrawn")
+		eq(Find(R.RequestLines(true), "New Recruit"), nil)
+		assert(Find(R.RequestLines(false), "New Recruit"), "back in the Census as it came")
+		-- The member's claim comes in late: refused, and no name goes to him.
+		local sent = #scene.packets
+		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), false)
+		eq(#scene.packets, sent, "nothing sent to the member who claimed late")
+		for _, p in ipairs(scene.packets) do assert(not p.word:find("New Recruit", 1, true), p.word) end
+		eq(R.requests[1], req); eq(req.viaWhisper, nil, "still the Census's")
+	end)
+end)
+
 -- An unguilded player on the Join Olympus screen: the whispers he sends, his addon whispers outside
 -- Olympus and his timers, on a clock the test moves. w.Send() clicks the request window's Send.
 local function WithJoinScreen(fn)

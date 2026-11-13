@@ -3357,7 +3357,8 @@ that character in the same guild, as long as the game still allows that characte
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
-pop-up, invite limit, handoffs and recruiting log.
+pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
+dropped, recruiting or not, as the game drops his whisper.
 
 **Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
 keeps up to 24 candidates locally for the current session. It learns from friendly visible

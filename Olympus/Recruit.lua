@@ -1352,18 +1352,34 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 	ns.Fire("DATA_CHANGED")
 	return true, req
 end
+-- The game's ignore list holds back a player's whispers, not his addon messages (Board.lua and
+-- Channels.lua drop an ignored sender's posts the same way).
+local function Ignored(sender)
+	local api = C_FriendList and C_FriendList.IsIgnored
+	if not api then return false end
+	local ok, res = pcall(api, ns.DisplayName(sender))
+	return ok and res == true
+end
+
 -- (1.5.9, the author's ask, 11-12, about the Join screen's request: "podia aparecer o pop-up também
 -- para dar Ctrl-C, Ctrl-V e Enter, que nem outro fluxo") At a member whose recruiting is on, a J3
 -- is a JOIN to his guild: the same invite popup on its own, the minute's invites, the handoffs to
 -- other members and the recruiting log. With recruiting off it is the Census row it always was.
+-- A J3 from a player this member ignores is dropped in either case: his whisper never came in, so
+-- no JOIN of his could open the popup, and his clicks on Send must not either.
 function Recruit.OnJoinRequest(dist, sender, text)
 	if dist ~= "WHISPER" or not ns.IsMember() then return false end
 	local guild, level, class = tostring(text):match("^J3~([^~]+)~(%d+)~(%u*)$")
 	local own = GetGuildInfo("player")
 	if not guild or not own or guild:lower() ~= own:lower() then return false end
+	local queue = Recruiting() and NameForCommand(sender) ~= nil
+	if Ignored(sender) then
+		if queue and Recruit.Handoff then Recruit.Handoff.Log("JOINDROP", Recruit.Handoff.Tag(sender) .. " ignored") end
+		return false
+	end
 	local w = whispers[sender]
 	local said = w and ns.Now() - w.t <= 120 and w.text or nil
-	if not Recruiting() or not NameForCommand(sender) then
+	if not queue then
 		return (AddRequest(sender, own, level, class, said, nil, true))
 	end
 	said = type(said) == "string" and ns.Codec.SanitizeChat(ns.Cut(said, 180)) or ""
