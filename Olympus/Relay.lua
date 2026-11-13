@@ -1234,7 +1234,8 @@ end
 --     fast as before. Such a first batch goes as an ordinary job, so a burst of ordinary whispers still
 --     pushes it out before it begins, as before the pace;
 --   * a census transfer, and a begun one, makes room as Comm does, by dropping the ordinary whispers still
---     waiting (Comm.QueueRoom(true)); an other one waits for free room, DRIP_ROOM_AFTER at most;
+--     waiting (Comm.QueueRoom(true)), and so does another server's census (a look: QA, CX), in the other
+--     transfers' turn; any other one waits for free room, DRIP_ROOM_AFTER at most;
 --   * a transfer begun takes its next batch at once, ahead of the pace (paid back before the next transfer
 --     starts), so its receiver never waits past its 60 seconds for the rest;
 --   * a census transfer goes ahead of the other ones, and they keep a share of the drip's whispers while
@@ -1279,7 +1280,7 @@ local function Turn(d, now, tokens)
 	local n = #d.batches[d.index]
 	local room = ns.Comm.QueueRoom()
 	if ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
-	local evicts = d.started or CensusTransfer(d) or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
+	local evicts = d.started or CensusTransfer(d) or d.look or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
 	if ns.Comm.QueueRoom(evicts == true) >= n and (d.started or tokens >= n) then return "paid" end
 	return nil
 end
@@ -1302,7 +1303,7 @@ local function Next(now)
 	local w = drip[o]
 	local n = #w.batches[w.index]
 	-- (An other one that waits for free room, DRIP_ROOM_AFTER at most, is no turn to save the pace for.)
-	local waits = ns.Comm.QueueRoom() < n and now - (w.at or now) < Relay.DRIP_ROOM_AFTER
+	local waits = not w.look and ns.Comm.QueueRoom() < n and now - (w.at or now) < Relay.DRIP_ROOM_AFTER
 	if not waits and dripOwed >= n then return o, freed end
 	return c, freed
 end
@@ -1423,8 +1424,9 @@ end
 
 -- Replace only a complete waiting transfer, even when the new copy has fewer batches.
 -- The table is its identity: an in-flight copy and at most one waiting successor stay distinct.
--- census (1.5.9): a census transfer (CensusTransfer, above).
-local function DripBatches(name, word, batches, waitingOnly, across, census)
+-- census (1.5.9): a census transfer (CensusTransfer, above); look (1.5.9's review): another server's census
+-- (CensusLook, below), which makes room at once as a census transfer does, in the other transfers' turn.
+local function DripBatches(name, word, batches, waitingOnly, across, census, look)
 	for _, d in ipairs(drip) do
 		if d.name == name and d.word == word and not d.started then
 			d.batches = batches
@@ -1453,7 +1455,8 @@ local function DripBatches(name, word, batches, waitingOnly, across, census)
 			table.remove(drip, evict)
 		end
 	end
-	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil, at = Now() }
+	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil,
+		look = look == true or nil, at = Now() }
 	Drip()
 end
 
@@ -1981,6 +1984,12 @@ Relay.ResetKingSent = function() wipe(kingSent) end -- (tests)
 -- snapshot", in a waiting one's place, and which origin's set it is the origin preference says
 -- (CensusFor), from the last whole set of each origin held here (MAX_RELAYS origins) with its time; a
 -- registrant is never sent again the set it was handed last.
+-- (1.5.9's review) Whether a word (its head, or a mesh kind such as "QA~1" or "CX~3~S") is another
+-- server's census: the author's signed look (QA) or a realm group's carried totals (CX). The drip hands it
+-- over as it does a census transfer, making room at once (Turn), in the other transfers' turn.
+local function CensusLook(head)
+	return type(head) == "string" and (head:match("^QA~1") ~= nil or head:match("^CX~[123]~S") ~= nil)
+end
 local census = { held = {}, sent = {}, sentN = 0 }
 local function ForgetCensus()
 	wipe(census.held); wipe(census.sent)
@@ -2163,7 +2172,10 @@ local function ToReporters(flag, origin, body, sender)
 			-- and the census snapshots waited behind it, hours stale. A copy takes the waiting one's
 			-- place while every batch of that one still waits; with one in flight it takes the one
 			-- "next" place, which the copy after it takes in turn: at most two copies a reporter, whole.
-			DripBatches(r.name, word, batches, waitingOnly)
+			-- (1.5.9's review) The other servers' census, a signed look (QA) and carried totals (CX), makes
+			-- room at once (CensusLook): waiting for free room, under a busy queue no look reached a
+			-- registrant (0 of 5 in five minutes; at 30 registrants 26 of 30 none in ten).
+			DripBatches(r.name, word, batches, waitingOnly, nil, nil, CensusLook(head))
 		else
 			pieces = pieces or Envelope("RM", "RM~" .. flag .. "~" .. wire .. "~" .. body)
 			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
@@ -2335,7 +2347,7 @@ local function Across(flag, origin, body, set)
 		if key ~= mine and key ~= from and mesh.Fresh(key, now) then
 			if type(set) == "table" then
 				batches = batches or SetBatches(flag, origin, set, "RX")
-				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true)
+				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true, nil, CensusLook(kind))
 				stats.across = (stats.across or 0) + #set
 			else
 				pieces = pieces or Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body)

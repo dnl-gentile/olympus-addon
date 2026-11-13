@@ -435,3 +435,30 @@ test("relay mesh (1.5.8): a relay's own signed look (QA) crosses to a mesh peer 
 		assert(Took(reg, cg), "and B's registrant takes it whole, past the trickle, though A's look came just before")
 	end)
 end)
+
+-- 1.5.9's review (P2): the relay's own signed look crossing to a mesh peer is another server's census
+-- (Relay.lua's CensusLook): with the relay's queue full of ordinary whispers it makes room at once, as
+-- a census transfer does, and goes ahead of them. Fails before (it waited in the drip for free room, up
+-- to the drip's DRIP_ROOM_AFTER; on 3dc2906e for as long as the queue stayed full).
+test("relay mesh (1.5.9's review): a relay's own signed look crossing to a mesh peer makes room in a queue full of ordinary whispers at once, and reaches the peer before them", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta")
+		b.c.Comm.Handle("QA", function(dist, sender, text) b.got[#b.got + 1] = { dist = dist, sender = sender, text = text } end)
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(a, a.c.Relay.MeshPeer, B_NAME), true)
+		As(a, function()
+			for i = 1, a.c.Comm.MAX_QUEUE do a.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. i, nil, false, false) end
+		end)
+		eq(As(a, a.c.Comm.QueueRoom), 0, "A's queue full of ordinary whispers")
+		local base = Count(a, "RX~", B_NAME)
+		local qa = Word("QA~1~" .. ("s"):rep(86) .. "~CX~3~S~", 2)
+		Own(a, As, qa, "91")
+		eq(As(a, a.c.Relay.DripStats).waiting, 0, "the look did not wait in the drip: it was handed to the queue")
+		-- A few of A's pumps, nothing else: the look's whispers go before the ordinary ones.
+		As(a, a.pump, 3)
+		eq(Count(a, "RX~", B_NAME) - base > 0, true, "the look's first whispers went to the peer")
+		Flush()
+		assert(Took(b, qa), "B's client takes it whole")
+	end)
+end)
