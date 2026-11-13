@@ -1070,7 +1070,11 @@ function Channels.Send(tier, text, now, keepMute)
 	-- they are told so before anything leaves (Channels.Confirm sends it). The warning holds the
 	-- channel it named too (GitHub #34).
 	if not Warned()[tier] then
-		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName(), keepMute = keepMute or nil })
+		-- (1.5.9's review) And the audience it named: on Forever a realm key changes who reads a line, not
+		-- the channel's name (Comm.ChannelSpec).
+		local audience = ns.Comm.Audience()
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), audience, { tier = tier, text = text, channel = ns.Comm.ChannelName(),
+			audience = audience, keepMute = keepMute or nil })
 		return false, "confirm"
 	end
 	local guild = GetGuildInfo("player")
@@ -1160,7 +1164,10 @@ function Channels.Confirm(data, send)
 	end
 	local channel = ns.Comm.ChannelName()
 	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text, nil, data.keepMute) end
-	if data.channel ~= channel then
+	-- (1.5.9's review) The audience it named, too: on Forever a key cleared while the warning was open (K7)
+	-- keeps the channel's name and turns the chat hall on, and a line confirmed for the sealed audience went
+	-- out as plain text in the public channel.
+	if data.channel ~= channel or (data.audience ~= nil and data.audience ~= ns.Comm.Audience()) then
 		stats.moved = stats.moved + 1
 		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
 		ns.Fire("CHAT_SEND_FAILED", data.tier, "moved", data.text, 0)

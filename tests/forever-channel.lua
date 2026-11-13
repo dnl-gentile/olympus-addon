@@ -263,3 +263,68 @@ test("1.5.9 one channel on Forever: the sealed channel and the older lane still 
 	NUM_CHAT_WINDOWS, ChatFrame_RemoveChannel, ChatFrame1, ChatFrame2 = saved.num, saved.remove, saved.f1, saved.f2
 	if not ok then error(err, 0) end
 end)
+
+-- 1.5.9's review (C3): the first line of a tier waits for the player's OK under a warning that names its
+-- audience (GitHub #34: a line written for one audience is never sent to another). The guard compared the
+-- channel's name alone; on Forever a key cleared while the warning is open (K7, Keys.TakeClear) keeps the
+-- name and turns the chat hall on, so a line confirmed for the sealed audience went out as plain text in
+-- the public channel. It is dropped as moved now, the tier not counted as warned. Real Comm, Channels and
+-- ChatHall. Fails before (Confirm sent it, and the game was asked to say it in the channel).
+test("1.5.9's review one channel on Forever: a line confirmed under the first-line warning for key holders is dropped as moved when a key clear arrives meanwhile, never typed into the public channel; off Forever too", function()
+	local FreshComm = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")
+	for _, forever in ipairs({ true, false }) do
+		local saved = { name = GetChannelName, leave = LeaveChannelByName, join = JoinChannelByName, guild = GetGuildInfo,
+			time = GetTime, info = C_ChatInfo, say = rawget(_G, "SendChatMessage"),
+			slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+			dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+		local ok, err = pcall(function()
+			local cns = FreshComm()
+			local said, printed, dialogs, ids, clock = {}, {}, {}, {}, 100000
+			cns.db = { addonChat = true, chatWarned = {}, blocked = {} }
+			cns.rdb = { guilds = {}, realmKey = "fixture-secret" }
+			cns.IsMember = function() return true end
+			cns.OnForever = function() return forever end
+			cns.splitNames = forever
+			cns.Print = function(msg) printed[#printed + 1] = tostring(msg) end
+			cns.Fire = function() end
+			cns.ShowDialog = function(which, a, b, data) dialogs[#dialogs + 1] = { which = which, audience = b, data = data } end
+			cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data })
+			GetGuildInfo = function() return "OLYMPUS FIXTURE", "Lord", 0 end
+			GetTime = function() return clock end
+			GetChannelName = function(name) return ids[name] or 0 end
+			LeaveChannelByName = function(name) ids[name] = nil end
+			JoinChannelByName = function() end
+			C_ChatInfo = { RegisterAddonMessagePrefix = function() end, SendAddonMessage = function() return 0 end,
+				SendAddonMessageLogged = function() return 0 end }
+			SendChatMessage = function(text, kind) said[#said + 1] = { text = text, kind = kind } end
+			assert(loadfile(ADDON .. "Channels.lua"))("Olympus", cns)
+			assert(loadfile(ADDON .. "ChatHall.lua"))("Olympus", cns)
+			local C, Chan = cns.Comm, cns.Channels
+			ids[C.ChannelSpec()] = 6
+			ids.OlympusNet = ids.OlympusNet or 7
+			C.JoinChannel()
+			local label = forever and "on Forever" or "off Forever"
+			local _, why = Chan.Send("A", "a line for key holders only")
+			eq(why, "confirm", label .. ": the warning shows")
+			local d = assert(dialogs[1], "a warning")
+			eq(d.audience, ns.L.CHANNEL_SEALED, label .. ": it names the key holders")
+			-- What Keys.TakeClear does (K7): the key cleared, then JoinChannel.
+			cns.rdb.realmKey = nil
+			C.JoinChannel()
+			local r1, r2 = Chan.Confirm(d.data, true)
+			for _ = 1, 10 do C.Pump() end
+			eq(r1, false, label); eq(r2, "moved", label .. ": dropped as moved")
+			local typed = 0
+			for _, x in ipairs(said) do if x.text:find("a line for key holders only", 1, true) then typed = typed + 1 end end
+			eq(typed, 0, label .. ": never typed into a channel")
+			eq(cns.db.chatWarned.A, nil, label .. ": the tier is not counted as warned")
+			eq(printed[#printed], ns.L.CHAN_MOVED:format("Olympus"), label .. ": the player is told")
+		end)
+		GetChannelName, LeaveChannelByName, JoinChannelByName, GetGuildInfo = saved.name, saved.leave, saved.join, saved.guild
+		GetTime, C_ChatInfo, SendChatMessage = saved.time, saved.info, saved.say
+		SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+		StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+		StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+		if not ok then error(err, 0) end
+	end
+end)
