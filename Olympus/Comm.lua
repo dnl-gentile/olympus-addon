@@ -1824,7 +1824,9 @@ function Comm.DeliveredLogged() return deliveredLogged end
 -- anyone without a realm key, whoever holds the key with one. (1.5.9's review) On Forever, with a key,
 -- the public channel, into which nothing of the player's goes (ChatHall.On is off, and every channel word
 -- goes by the relays there): what is for all guilds reaches them by the relays. Said for any message the
--- questions send (zone, Board, groups, the privacy page, the Treasurer's share, chat).
+-- questions send (zone, Board, groups, the privacy page, the Treasurer's share, chat). (Round 2 of the
+-- review) Four of them say first that it goes on, or is read on, the Olympus channel: the text follows that
+-- (the relays carry the channel; none of it shows as text in the game's public one), never denying it.
 function Comm.Audience()
 	if not (ns.rdb and ns.rdb.realmKey) then return ns.L.CHANNEL_PUBLIC end
 	return OneChannel() and ns.L.CHANNEL_SEALED_FOREVER or ns.L.CHANNEL_SEALED
