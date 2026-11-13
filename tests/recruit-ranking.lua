@@ -1235,3 +1235,59 @@ test("1.5.9 recruiting ranking: in a guild no keeper is in, a stay word comes on
 	-- A High Councillor's word is taken from anyone signed.
 	eq(w:As(c.a1, c.a1.RR.TakeEvidence, World.COUNCILLOR, StayWord("Gus Vale", "Vale Kid", World.GUILD2, hour, false)), true)
 end)
+
+-- Review of the 1.5.9 release (S2): every keeper takes a witness's report itself (the reporter whispers each
+-- one online), and each of them pushed the changed record to every other keeper: K x (K - 1) whispers for one
+-- officer's word, all of them repeating what each keeper already took, and ahead of the Church's own sends. A
+-- keeper pushes only what the others can't weigh: its own guildmate's word; and only past the Church's room.
+test("1.5.9 recruiting ranking: a word every keeper weighs alike makes no pushes between them; a guildmate's word only his keeper weighs still goes to the others, past the Church's room", function()
+	local THIRD = "Olympus Third"
+	local names = { A1, A2, "Cato Hall-Realm", "Dara Hall-Realm" }
+	local w = World.New({ apostles = names })
+	local keepers = { w:Client(A1), w:Client(A2, { guild = World.GUILD2 }), w:Client(names[3], { guild = "Olympus Hall" }),
+		w:Client(names[4], { guild = "Olympus Hall" }) }
+	local ola = w:Client("Ola Officer", { guild = THIRD, rank = 1 })
+	local gus = w:Client("Gus Third", { guild = THIRD })
+	local wes = w:Client("Wes Brook")
+	for _, cl in ipairs(w.clients) do Loud(cl) end
+	for _, k in ipairs(keepers) do
+		k.c.Channels.VerifiedLevel = function(n, g)
+			if Key(n) == Key("Ola Officer") and g == THIRD then return 2, true, 1 end
+			return 1, false
+		end
+	end
+	w:Run(3600)
+	w:Presence()
+	w:Run(60)
+	local hour = Hour(w)
+	local function Pushes()
+		local n = 0
+		for _, k in ipairs(keepers) do n = n + #w:Sent(k, "NE", "WHISPER", "r") end
+		return n
+	end
+	w:ClearSent()
+	w:As(gus, gus.RR.Report, W("Gus Third", "Third Kid", THIRD, hour, hour))
+	w:Run(10)
+	w:As(ola, ola.RR.Report, W("Gus Third", "Third Kid", THIRD, hour, hour))
+	w:Run(10)
+	eq(#w:Sent(ola, "NE", "WHISPER", "w"), 4, "her word, to each keeper online")
+	eq(Pushes(), 0, "no record pushed between keepers")
+	for _, k in ipairs(keepers) do eq(State(w, k, "Third Kid", "Gus Third"), "credited", k.name .. ": from its own copy") end
+	-- Wes, a guildmate of Aldric's whom only Aldric weighs: Aldric tells the other three.
+	Recruit(w, World.GUILD, "Ivo Plain", "Ember Kid", 0)
+	w:ClearSent()
+	w:ReadLog(wes)
+	w:Run(10)
+	eq(#w:Sent(keepers[1], "NE", "WHISPER", "r"), 3)
+	for i = 2, 4 do eq(Rec(w, keepers[i], "Ember Kid", "Ivo Plain").wk[1], Key("Wes Brook"), keepers[i].name) end
+	-- Comm's queue holding no more than the Church's own sends need: Aldric pushes nothing for now.
+	Recruit(w, World.GUILD, "Ivo Plain", "Late Kid", 0)
+	w:ClearSent()
+	w.room = keepers[1].RR.SEND_ROOM + keepers[1].RR.CHURCH_ROOM
+	w:Run(61)
+	w:ReadLog(wes)
+	w:Run(10)
+	w.room = nil
+	assert(Rec(w, keepers[1], "Late Kid", "Ivo Plain"), "Aldric took Wes's word")
+	eq(#w:Sent(keepers[1], "NE", "WHISPER", "r"), 0, "the Church's sends first")
+end)

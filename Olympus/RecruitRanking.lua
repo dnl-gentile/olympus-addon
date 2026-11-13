@@ -850,13 +850,16 @@ local function MakeRoom(l, now)
 	Changed()
 end
 
--- A keeper's word on a record to the other keepers online (Comm's queue left room).
+-- A keeper's word on a record to the other keepers online (Comm's queue left room). (Review of the 1.5.9
+-- release: only while it keeps CHURCH_ROOM more free than this file's other sends, as its line transfers
+-- do, LineRoom: the Church's own record push needs room for one whisper a keeper online, and these took
+-- it. A push left out reaches the others in their catch-up.)
 local function Push(id)
 	local r = Led().r[id]
 	if not r then return end
 	local line = RR.RecordLine(id, r)
 	for _, k in ipairs(Church.KeepersOnline(false)) do
-		if not Room() then break end
+		if not Room(RR.CHURCH_ROOM) then break end
 		ns.Comm.Whisper(k.name, line, nil, false, false, nil, { owner = RR })
 	end
 	stats.pushed = stats.pushed + 1
@@ -980,9 +983,14 @@ function RR.TakeEvidence(sender, text)
 		local strong = Signed(sender) or (ours and Mate(sender) and Count.SawInvite(inviter, invitee, ti))
 		stats.taken = stats.taken + 1
 		-- (A keeper outside the pair's guild can't weigh a guildmate there: the one that did tells the others,
-		-- on any change. A signed witness's word reaches every keeper online itself.)
+		-- on any change. Review of the 1.5.9 release: every other witness's word reaches every keeper online
+		-- itself, its reporter whispering each, and each weighs it alike: the signed, an officer as the census
+		-- names him, a guild's correspondent. Pushed as well, one officer's word was K x (K - 1) whispers
+		-- between the keepers, ahead of the Church's own sends; a keeper whose census lacks him gets the
+		-- record in its catch-up.)
+		local localOnly = ours and Mate(sender) and not Signed(sender)
 		RR.MergeIn(id, { n = Short(invitee), bn = Short(inviter), g = guild, tc = ti * 3600, tj = tj * 3600,
-			ws = strong and { sk } or nil, wk = (not strong) and { sk } or nil }, not Signed(sender))
+			ws = strong and { sk } or nil, wk = (not strong) and { sk } or nil }, localOnly)
 		return true
 	end
 	if kind == "h" then
@@ -1021,7 +1029,10 @@ function RR.TakeEvidence(sender, text)
 	local y = on == "1" and 1 or 0
 	if r.y == 1 or r.y == y then return true end
 	stats.taken = stats.taken + 1
-	RR.MergeIn(id, { y = y }, true)
+	-- (Review of the 1.5.9 release: nothing to push. Taken here only from a sender every keeper weighs
+	-- alike, who tells each keeper online himself; the keeper of the record's guild pushes what its own
+	-- roster shows, KeeperChecks.)
+	RR.MergeIn(id, { y = y }, false)
 	return true
 end
 
