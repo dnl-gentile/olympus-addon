@@ -978,7 +978,15 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 			-- the player, for 120 days. And the inviter's own report, the passer's word, the top 10.)
 			"a move no keeper's addon saw is not caught", "so he does not count again in that time",
 			"when his addon and yours both say so", "each inviter's own report and each passer's word",
-			"the top 10 and his own place", "your own invites whose player joined, always" }) do
+			"the top 10 and his own place", "your own invites whose player joined, always",
+			-- (Review of the 1.5.9 release: the pages put the keeper's guildmate whose invite the keeper's own
+			-- log saw among the witnesses that need your own report, left out a High Councillor, who confirms
+			-- alone, and the hello's row did not say it tells whether you take handoffs; and with the gamepad
+			-- UI a line written under another ruleset reaches one's own alone.)
+			"It is **confirmed** when the addon of a Church keeper or a High Councillor saw the join, or that of a keeper's guildmate whose invite the keeper's own log saw;",
+			"(an officer, the Church correspondent, or another guildmate of a keeper)",
+			"| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) |",
+			"With the gamepad UI, or while the Olympus channel is not joined, a line goes by the hidden way alone, which reaches your own ruleset only" }) do
 			assert(doc:find(phrase, 1, true), path .. ": " .. phrase)
 		end
 	end

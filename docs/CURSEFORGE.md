@@ -572,9 +572,10 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   copy, a guildmate, his guild in one ruleset's census); one nobody can place shows under **All**
   alone. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
   says so): its players see it, under **All** too, and others only by choosing it. Under **All** or
-  another ruleset, and from the game's own chat box, a line goes to every ruleset. Versions before
-  1.5.9 show every line to everyone. `/oly bug` has a `chat rulesets:` line that counts how the lines
-  were filed.
+  another ruleset, and from the game's own chat box, a line goes to every ruleset. With the gamepad UI,
+  or while the Olympus channel is not joined, a line goes by the hidden way alone, which reaches your
+  own ruleset only; under another ruleset the box says so. Versions before 1.5.9 show every line to
+  everyone. `/oly bug` has a `chat rulesets:` line that counts how the lines were filed.
 - Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
   players' lines on the left, yours on the right in the channel's colour (a line another of your
   characters wrote shows under that character's name, on the left); the writer's name, guild and
@@ -1551,9 +1552,10 @@ master (or the Head, the King or the author), who keeps that guild full and answ
   pages a member sees and sends no Church actions.
 - **The recruiting ranking for everyone (1.5.9).** Any Olympus member's recruit counts here, not only
   the Church's: an invite in your guild's log followed by that player's join. It is **confirmed** when
-  a Church keeper's addon saw the join, or when your own addon and the addon of another member a keeper
-  can check in your guild both did (a guildmate of that keeper whose invite the keeper's own log saw,
-  an officer, or the Church correspondent); until then it waits as yours. 10 points for each confirmed
+  the addon of a Church keeper or a High Councillor saw the join, or that of a keeper's guildmate whose
+  invite the keeper's own log saw; or when your own addon and another one a keeper can check both did
+  (an officer, the Church correspondent, or another guildmate of a keeper); until then it waits as
+  yours. 10 points for each confirmed
   recruit and 5 more if he is still in the guild 7 days later; the member who passed that player on (a
   JOIN request or a scanned player, **Pass to other members**) gets 25% of those points when his addon
   and yours both say so. An invite whose player never joins counts nothing, and one player counts once:
@@ -1881,7 +1883,7 @@ goes where:
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from the giver's own addon every few minutes for late logins |
 | The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks whom his own /who saw in that guild (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
-| Hello: addon version, realm, public or sealed channel, whether you share your zone | your guild | every minute or so |
+| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) | your guild | every minute or so |
 | The signed leadership snapshot (1.2, only after the author explicitly activates it): each Olympus guild's Lord and Captains for this realm group and faction, its generation, issue and expiry times, and the author's signatures | Olympus addons in that realm group and faction; a client asks on the Olympus channel and in its guild, then a holder answers that client alone by whisper, one bounded signed part at a time | after login while missing or behind (four short retries, then every 10 minutes); a holder answers one requester at most every 2 minutes and stops immediately if its own membership, net-off state or signed generation changes |
 | Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
 | The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore, and to the author only after your yes to his roll calls (his checks are roll calls) |
