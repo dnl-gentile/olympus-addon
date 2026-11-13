@@ -235,7 +235,10 @@ function Relay.Stats()
 		-- (1.5.5) The chat lane: whispers waiting in it, lost (past its bound or its time), and skipped
 		-- (nobody to send to by then: ChatAddressee).
 		chatWaiting = Relay.ChatWaiting and Relay.ChatWaiting() or 0, chatLost = stats.chatLost or 0,
-		chatSkipped = stats.chatSkipped or 0 }
+		chatSkipped = stats.chatSkipped or 0,
+		-- (1.5.9's review) The drip's whispers handed to Comm: census transfers', the others', and those
+		-- of either that went past its pace (Relay.DRIP_PER_MIN) while nothing else waited.
+		dripCensus = stats.dripCensus or 0, dripOther = stats.dripOther or 0, dripFree = stats.dripFree or 0 }
 end
 
 local function Now() return ns.Now() end
@@ -1209,16 +1212,99 @@ end
 -- in 300 s, no tree registrant complete in 25 minutes), and any other transfer waiting at the front of
 -- the drip held every census transfer behind it the same way. A census transfer (`census`: a
 -- registrant's snapshot, the tree's word to a seed or a registrant and its repairs, the relay's own
--- snapshot to a mesh peer) now starts once Comm can take its batch that way (Comm.QueueRoom(true)),
--- waits there as an urgent job, which nothing pushes out, and goes first while the transfer at the
--- front, not begun, waits for free room. The other transfers wait for free room, as before.
+-- snapshot to a mesh peer) starts once Comm can take its batch that way (Comm.QueueRoom(true)), waits
+-- there as an urgent job, which nothing pushes out, and goes ahead of the other transfers.
+--
+-- (The review of 1.5.9.) Sent urgent back to back, the census took about half the relay's 200 whispers
+-- a minute, and five of every eight sends while one of its batches went (Comm's BATCH_SLOTS): the chat
+-- lane, the relay's own single words to every reporter, the trickle and the King's presence lost what
+-- 1.5.8 delivered (the offline harness, 90 registrants and a chat line every 45 s: 727 of 3,060 chat
+-- whispers lost, 1.5.8 none). An other transfer handed to Comm went as an ordinary batch, waited behind
+-- the urgent ones, was pushed out and handed over again for up to a minute, the census held behind it
+-- (75 of 90 registrants without a census in 20 minutes); its later batch waited for free room for good,
+-- every census transfer behind it (a word one whisper past MAX_CHUNKS, begun in a lull: no census
+-- whisper in five minutes); and the census went ahead of an other one for as long as any census waited
+-- (the relay's own word in pieces: 0 of 90 registrants in an hour). So now the drip has a pace:
+--   * at most DRIP_PER_MIN whispers a minute (one batch at once, MAX_CHUNKS), urgent, so nothing pushes
+--     a batch out of the queue once it is there; the rest of the relay's sends, some 140 a minute, are
+--     for the chat lane (Relay.CHAT_PER_MIN), the King's words, the tree's digests, the trickle and the
+--     relay's own single words;
+--   * past that pace, without paying, while nothing else waits (no chat whisper in the lane, no ordinary
+--     whisper in the queue, room for the batch): a relay with nothing else to send sends the census as
+--     fast as before. Such a first batch goes as an ordinary job, so a burst of ordinary whispers still
+--     pushes it out before it begins, as before the pace;
+--   * a census transfer, and a begun one, makes room as Comm does, by dropping the ordinary whispers still
+--     waiting (Comm.QueueRoom(true)); an other one waits for free room, DRIP_ROOM_AFTER at most;
+--   * a transfer begun takes its next batch at once, ahead of the pace (paid back before the next transfer
+--     starts), so its receiver never waits past its 60 seconds for the rest;
+--   * a census transfer goes ahead of the other ones, and they keep a share of the drip's whispers while
+--     census transfers wait (DRIP_OTHER_SHARE, a quarter), so the lists and the relay's own words in
+--     pieces still go; the next transfer chosen waits at the front for its turn, the pace saved up for it
+--     (a small one never takes a big one's turn whisper by whisper).
+-- The pace is a trade between the census and the chat (the offline harness, 90 registrants, 9 on 1.5.4,
+-- the relay's own rounds, a chat line every 45 s for 30 minutes, the King's presence, the relay's own
+-- words): at 40 no chat whisper lost and the slowest line 82 s, but the 1.5.4 registrants got no census
+-- (the tree's rounds took the pace); at 60 none lost, the slowest line 197 s, every registrant served
+-- within 15 minutes; at 80, 38 chat whispers lost. (1.5.8: none lost, 58 s, 69 registrants without a
+-- census; 1.5.9 before this: 728 lost, 317 s.) With a chat line a minute or less, 60 delivered every
+-- line within 82 s.
+Relay.DRIP_PER_MIN = 60
+Relay.DRIP_OTHER_SHARE = 0.25
+Relay.DRIP_ROOM_AFTER = 120
+local dripBucket = { at = -math.huge } -- tokens: whispers the drip may hand Comm now (DripTokens)
+local dripOwed = 0 -- whispers the other transfers are owed of their share (DRIP_OTHER_SHARE), one batch at most
+local function DripTokens(now)
+	local b, most = dripBucket, ns.Codec.MAX_CHUNKS
+	if b.tokens == nil then b.tokens = most end
+	if now > b.at then b.tokens = math.min(most, b.tokens + (now - b.at) * Relay.DRIP_PER_MIN / 60) end
+	b.at = math.max(b.at, now)
+	return b.tokens
+end
+-- Whether the chat lane has no whisper waiting (those in flight are in Comm's queue already, ahead).
+local function ChatIdle() return not (type(Relay.ChatWaiting) == "function" and Relay.ChatWaiting() > 0) end
 local function CensusTransfer(d) return d.census == true end
--- The first census transfer behind the front one, not begun (only the front one is ever begun).
-local function CensusBehind()
-	for i = 2, #drip do
-		if drip[i].census == true and not drip[i].started then return i end
+-- Whether transfer d still goes: begun, or its receiver still one (a registrant here, a relay answering,
+-- a mesh peer for the relay's own census). Eligibility is pinned at the first queue handoff.
+local function Current(d)
+	if d.started then return true end
+	if d.censusAt then
+		return Now() - d.censusAt <= Relay.SET_MAX_AGE and CensusAcrossAllowed() and Relay.MeshPeer(d.name) and true or false
+	elseif d.across then
+		return Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR and true or false
 	end
+	return StillReporter(d.name)
+end
+-- How transfer d's next batch may go now (the pace, above): "free", "paid" or nil (not yet).
+local function Turn(d, now, tokens)
+	local n = #d.batches[d.index]
+	local room = ns.Comm.QueueRoom()
+	if ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
+	local evicts = d.started or CensusTransfer(d) or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
+	if ns.Comm.QueueRoom(evicts == true) >= n and (d.started or tokens >= n) then return "paid" end
 	return nil
+end
+-- The transfer to start next (none begun): the first census one, unless the first other one is owed its
+-- share's batch, or no census one waits. On the way, the transfers that no longer go are dropped (and true
+-- returned when one of them was to a relay: an across slot freed).
+local function Next(now)
+	local c, o, freed, i = nil, nil, false, 1
+	while drip[i] and not (c and o) do
+		local w = drip[i]
+		if Current(w) then
+			if CensusTransfer(w) then c = c or i else o = o or i end
+			i = i + 1
+		else
+			table.remove(drip, i) -- a complete transfer, before its first batch
+			if w.across then freed = true end
+		end
+	end
+	if not (c and o) then return c or o, freed end
+	local w = drip[o]
+	local n = #w.batches[w.index]
+	-- (An other one that waits for free room, DRIP_ROOM_AFTER at most, is no turn to save the pace for.)
+	local waits = ns.Comm.QueueRoom() < n and now - (w.at or now) < Relay.DRIP_ROOM_AFTER
+	if not waits and dripOwed >= n then return o, freed end
+	return c, freed
 end
 
 -- One transfer owns all its batches. Eligibility is pinned at the first queue handoff;
@@ -1228,59 +1314,68 @@ local function Drip()
 	if dripping or dripBusy then return end
 	dripping = true
 	while not dripBusy and drip[1] do
-		local d = drip[1]
-		local current = d.started
-		if not current then
-			if d.censusAt then
-				current = Now() - d.censusAt <= Relay.SET_MAX_AGE and CensusAcrossAllowed() and Relay.MeshPeer(d.name)
-			elseif d.across then
-				current = Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR
-			else current = StillReporter(d.name) end
+		local now = Now()
+		if not drip[1].started then
+			local k, freed = Next(now)
+			if k and k > 1 then table.insert(drip, 1, table.remove(drip, k)) end
+			if freed and refillCensusAcross then refillCensusAcross() end
 		end
-		local batch = d.batches[d.index]
-		local urgent = CensusTransfer(d)
-		local behind = not urgent and not d.started and current and ns.Comm.QueueRoom() < #batch and CensusBehind() or nil
-		if behind then
-			table.insert(drip, 1, table.remove(drip, behind)) -- (taken next turn, current or not)
-		elseif not current then
-			table.remove(drip, 1) -- a complete transfer, before its first batch
+		local d = drip[1]
+		if d and not d.started and not Current(d) then
+			table.remove(drip, 1) -- (put at the front by the mesh's refill, and gone meanwhile)
 			if d.across and refillCensusAcross then refillCensusAcross() end
-		elseif ns.Comm.QueueRoom(urgent) < #batch then
-			dripBusy = true
-			ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
-		else
-			Quiet(d.name)
-			if not d.tried then stats.forwarded, d.tried, d.t = stats.forwarded + 1, true, Now() end
-			d.started, dripBusy = true, true
-			ns.Comm.SendBatch("WHISPER", batch, nil, d.name, urgent, function(sent, why)
-				if not sent and (why == "full" or why == "dropped") then
-					-- Comm never capacity-evicts a batch once it starts. Only an unsent
-					-- first batch may yield to a newer complete copy or expire on retry.
-					if d.index == 1 then
-						d.started = nil
-						for i = 2, #drip do
-							local w = drip[i]
-							if w.name == d.name and w.word == d.word then
-								d.batches = w.batches; table.remove(drip, i); break
+		elseif d then
+			local batch = d.batches[d.index]
+			local tokens = DripTokens(now)
+			local how = Turn(d, now, tokens)
+			if not how then
+				dripBusy = true
+				ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
+			else
+				if how == "paid" then dripBucket.tokens = tokens - #batch end
+				-- (The other transfers' share: a census batch earns them a part of its whispers, theirs spend it.)
+				local share = Relay.DRIP_OTHER_SHARE
+				if CensusTransfer(d) then dripOwed = math.min(ns.Codec.MAX_CHUNKS, dripOwed + #batch * share / (1 - share))
+				else dripOwed = math.max(0, dripOwed - #batch) end
+				local kind = CensusTransfer(d) and "dripCensus" or "dripOther"
+				stats[kind] = (stats[kind] or 0) + #batch
+				if how == "free" then stats.dripFree = (stats.dripFree or 0) + #batch end
+				-- (A first batch past the pace goes as an ordinary job: one that has not begun gives way to a
+				-- burst of ordinary whispers, as before the pace. Any other batch urgent: nothing pushes it out.)
+				local urgent = how ~= "free" or d.started == true
+				Quiet(d.name)
+				if not d.tried then stats.forwarded, d.tried, d.t = stats.forwarded + 1, true, now end
+				d.started, dripBusy = true, true
+				ns.Comm.SendBatch("WHISPER", batch, nil, d.name, urgent, function(sent, why)
+					if not sent and (why == "full" or why == "dropped") then
+						-- Comm never capacity-evicts a batch once it starts. Only an unsent
+						-- first batch may yield to a newer complete copy or expire on retry.
+						if d.index == 1 then
+							d.started = nil
+							for i = 2, #drip do
+								local w = drip[i]
+								if w.name == d.name and w.word == d.word then
+									d.batches = w.batches; table.remove(drip, i); break
+								end
 							end
 						end
+						if d.index > 1 or Now() - d.t < Relay.SET_WAIT then
+							ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
+							return
+						end
 					end
-					if d.index > 1 or Now() - d.t < Relay.SET_WAIT then
-						ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
-						return
+					if sent and d.index < #d.batches then
+						d.index, d.tried = d.index + 1, nil
+					else
+						-- Terminal transport refusals (privacy, net-off, leaving, etc.) still stop it.
+						table.remove(drip, 1)
+						if sent and d.censusSent then d.censusSent() end
+						if d.across and refillCensusAcross then refillCensusAcross() end
 					end
-				end
-				if sent and d.index < #d.batches then
-					d.index, d.tried = d.index + 1, nil
-				else
-					-- Terminal transport refusals (privacy, net-off, leaving, etc.) still stop it.
-					table.remove(drip, 1)
-					if sent and d.censusSent then d.censusSent() end
-					if d.across and refillCensusAcross then refillCensusAcross() end
-				end
-				dripBusy = false
-				Drip()
-			end)
+					dripBusy = false
+					Drip()
+				end)
+			end
 		end
 	end
 	dripping = false
@@ -2927,6 +3022,16 @@ function Relay.Dripping(name, word)
 	end
 	return false
 end
+-- (1.5.9's review) How long the census snapshot that has waited longest in the drip for a registrant (the
+-- star, not the tree's words) has waited, not begun; 0 when none waits (RelayTree.lua's StarFirst).
+function Relay.StarWaiting(now)
+	now = now or Now()
+	local most = 0
+	for _, d in ipairs(drip) do
+		if d.word == "census snapshot" and not d.started then most = math.max(most, now - (d.at or now)) end
+	end
+	return most
+end
 -- (1.5.9) The drip for /oly bug, without a name: the transfers waiting (not begun), how many of them are
 -- census transfers (CensusTransfer), and the longest any of them, and any census one, has waited since
 -- it was queued (a census transfer goes ahead of one waiting for free room: the front is not the oldest).
@@ -3191,6 +3296,7 @@ function Relay.Reset()
 	wipe(sets); wipe(drip)
 	wipe(listOrigins); wipe(Origins()); wipe(listShares); wipe(listSets)
 	dripBusy, dripping = false, false
+	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
 	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end

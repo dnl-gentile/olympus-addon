@@ -313,6 +313,18 @@ local function SeedsWaiting()
 	return false
 end
 
+-- (1.5.9's review) Whether the next round waits for the star: a registrant that does not take the tree (1.5.4)
+-- has waited TREE_ROUND_EVERY for its census snapshot in the relay's drip (Relay.StarWaiting), which every
+-- round's seeds go ahead of, and the last round is less than twice TREE_ROUND_EVERY old. With the drip at
+-- its pace (Relay.DRIP_PER_MIN) the rounds took all of it under a busy chat lane, and the 1.5.4 registrants
+-- got no census (the offline harness, 90 registrants, 10 of them on 1.5.4, a chat line every 45 s: 5 of
+-- the 10 none in 20 minutes; with this, every one within 8 minutes, the others within 11).
+local function StarFirst(now)
+	local R = ns.Relay
+	if not lastRound or type(R.StarWaiting) ~= "function" or now - lastRoundAt >= 2 * RelayTree.TREE_ROUND_EVERY then return false end
+	return R.StarWaiting(now) >= RelayTree.TREE_ROUND_EVERY
+end
+
 -- One form of the word as a tree among the registrants that read it: its pieces, k seeds, each seed's
 -- list, the registrants no seed can serve (left), and the digest for every one (the seeds' first).
 -- done: the transfers of the last round, for the registrants that completed theirs.
@@ -385,11 +397,12 @@ end
 
 -- A round: the word to the seeds whole (the front of the relay's drip), to the registrants no seed can
 -- serve (after the drip's other transfers), and a digest to every one. At most each TREE_ROUND_EVERY,
--- never while the last round's seeds wait for theirs. Where some registrants read the packed form
--- (RelayTree.Reads), two trees: the packed word among them, the word as written among the others, the
--- round's seeds shared between the two by their work (SEEDS_MIN each at least), the packed tree's first.
+-- never while the last round's seeds wait for theirs (nor, 1.5.9's review, while the star waits too long:
+-- StarFirst). Where some registrants read the packed form (RelayTree.Reads), two trees: the packed word
+-- among them, the word as written among the others, the round's seeds shared between the two by their
+-- work (SEEDS_MIN each at least), the packed tree's first.
 local function Round(word, n, regs, now)
-	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() then
+	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() or StarFirst(now) then
 		stats.deferred = stats.deferred + 1
 		return
 	end
