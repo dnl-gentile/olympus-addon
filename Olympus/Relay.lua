@@ -3,13 +3,16 @@ local L = ns.L
 local Relay = {}
 ns.Relay = Relay
 
--- 1.4.3 (launch night, 2026-11-04). WoW: Forever's live realms accept an addon's messages on any
--- player-made chat channel and never deliver them, not even back to the sender (measured on launch
+-- 1.4.3 (launch night, 2026-11-04). WoW: Forever's live realms accepted an addon's messages on any
+-- player-made chat channel and delivered none of them, not even back to the sender (measured on launch
 -- night: 0 of 123 members' messages heard in a minute; the beta delivered them, as Classic's beta
--- did before patch 1.13.3 cut it). The guild and addon whispers are delivered, to any player of the
--- faction on any of Forever's sub-realms, by his plain "First Surname". So where names split
--- (ns.splitNames: Forever), everything the addon says "on the channel" travels like this instead,
--- and no module changes: the census, the signed lists, the key, the rankings' words, the chat.
+-- did before patch 1.13.3 cut it). (1.5.9) Two /oly bug reports of 2026-11-12 showed older clients'
+-- census arriving on the public channel, OlympusNet (some 500 census pieces at a client there beyond
+-- what its relay carried, beside words no relay hands on); not yet confirmed in game. Comm.ChannelSpec
+-- puts every Forever client on that channel now. The guild and addon whispers are delivered, to any
+-- player of the faction on any of Forever's sub-realms, by his plain "First Surname". So where names
+-- split (ns.splitNames: Forever), everything the addon says "on the channel" travels like this
+-- instead, and no module changes: the census, the signed lists, the key, the rankings' words, the chat.
 --
 --   hop 1  origin -> relay      RL~<f>~<text>            by whisper, to one relay (Pick)
 --   hop 2  relay -> reporters   RM~<f>~<origin>~<text>   by whisper, one per guild (its reporter)

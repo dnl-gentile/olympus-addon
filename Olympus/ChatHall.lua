@@ -1,14 +1,16 @@
 local ADDON, ns = ...
 
 -- 1.5.0 (2026-11-05, the dev's ask after the launch): the Olympus chats as the game's own text.
--- WoW: Forever delivers nothing an addon says on a chat channel (Relay.lua), but a line a player
--- types in a channel it delivers to everyone in it, across every sub-realm (measured on
--- 2026-11-05: a player-made channel, two sub-realms, the line arrived). So where names split
--- (Forever), a chat line leaves as the player's own text in the hidden Olympus channel Comm.lua
--- already joins (its lane, its key as the password when sealed), written exactly as the hidden
--- message would be (Codec.EncodeChat: M1~tier~guild~id~class~text), and every client reads the
--- channel's text and takes such a line as it takes the hidden one (Channels.Receive: the same
--- rooms, mutes, ids, our own echo once). The channel stays off the game's chat windows (Comm's
+-- WoW: Forever delivered nothing an addon said on a chat channel at launch (Relay.lua; two /oly bug
+-- reports of 2026-11-12 showed older clients' census arriving on the public channel, not yet
+-- confirmed in game), but a line a player types in a channel it delivers to everyone in it, across
+-- every sub-realm (measured on 2026-11-05: a player-made channel, two sub-realms, the line arrived).
+-- So where names split (Forever), a chat line leaves as the player's own text in the hidden Olympus
+-- channel Comm.lua already joins (its lane, its key as the password when sealed; 1.5.9: on Forever
+-- the public first lane, and none of this for a client holding a realm key, Hall.On), written exactly
+-- as the hidden message would be (Codec.EncodeChat: M1~tier~guild~id~class~text), and every client
+-- reads the channel's text and takes such a line as it takes the hidden one (Channels.Receive: the
+-- same rooms, mutes, ids, our own echo once). The channel stays off the game's chat windows (Comm's
 -- HideChannelFromChat), so nobody sees the raw lines. The send is the player's Enter in the
 -- Olympus box (a hardware event): where the realm refuses it all the same, no echo comes back
 -- within ECHO_WAIT and the line goes the hidden way, by the relay, as 1.4.x sent it. With the
