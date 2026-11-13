@@ -763,7 +763,9 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
 On WoW: Forever (1.5.9) every client sits on the public "OlympusNet" whatever its key: there a key
 keeps your guild's typed lines out of it as text, and the relays carry them to every other guild,
-where anyone with the addon reads them; the grey public-channel line is not shown there.
+where anyone with the addon reads them. There the officers' grey line says that anyone who joins
+reads the guild's typed lines, its tooltip says what a key does instead of how to seal the
+channel, and no count of guildmates on a sealed channel shows.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 While your channel is public, officers see one quiet grey line saying so on the
 Census, the Realm and the Chat tab's settings (its tooltip says who can read it and how to seal

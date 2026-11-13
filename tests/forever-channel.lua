@@ -76,6 +76,44 @@ local function ReportPieces(guild, id)
 	return ns.Codec.Chunk(ns.Codec.EncodeReport({ guild = guild, total = 980, online = 120, zones = {}, faction = "Alliance" }), id)
 end
 
+-- Every language's lines as a game in it loads them (the TOC's locale files, as tests/locales-full.lua
+-- loads them), each language once: [code] = its L.
+local languages
+local function Languages()
+	if languages then return languages end
+	languages = {}
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			for line in io.lines(ADDON .. "Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ADDON .. f:gsub("\\", "/")))("Olympus", lns) end
+			end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		languages[code] = lns.L
+	end
+	return languages
+end
+-- Each of `keys` in its own words in all seven languages: never the English line, with its format codes
+-- (a line whose codes differ stays English, ns.Locale), and no em dash in Russian.
+local function InEveryLanguage(keys)
+	local all = Languages()
+	for _, k in ipairs(keys) do
+		local en = all.enUS[k]
+		assert(type(en) == "string" and en ~= "", "English: " .. k)
+		for code, L in pairs(all) do
+			if code ~= "enUS" then
+				assert(type(L[k]) == "string" and L[k] ~= en, code .. " translates " .. k)
+				eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(en), code .. " " .. k .. ": its format codes")
+			end
+		end
+		assert(not all.ruRU[k]:find("\226\128\148", 1, true), "ruRU " .. k .. ": no em dash")
+	end
+end
+
 -- Fails before: the client sat on the key's sealed channel of lane 7 and dropped the report as another
 -- channel's (otherChannel 1, reports 0).
 test("1.5.9 one channel on Forever: a client holding a realm key on lane 7 sits on the faction's public first lane, unsealed, keeps its key, and takes the census report a 1.5.4 client broadcast there", function()
@@ -359,7 +397,7 @@ end)
 -- which happens there any more (Comm.ChannelSpec). Each message says what happens instead, in every
 -- language (tests/locales-full.lua): the key kept, every guild on the public channel, a key holder's
 -- typed lines by the relays alone. Off Forever, the old messages. And the Census's public channel line
--- ("seal it with the key"; guildmates "on the sealed channel", 1.5.8's hellos) is not shown on Forever.
+-- has no "seal it with the key" on Forever (since B1 of the review, its own words there: the next test).
 -- Fails before (the old messages on Forever).
 test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /oly help and the chat warning's audience say what a key does on Forever; off Forever as before; no sealing advice on the Census", function()
 	local L = ns.L
@@ -373,7 +411,8 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 			w.C.SetRealmKey("fixture-secret")
 			eq(printed[#printed], forever and L.KEY_SET_FOREVER or L.KEY_SET, label .. ": /oly key")
 			eq(w.C.Audience(), forever and L.CHANNEL_SEALED_FOREVER or L.CHANNEL_SEALED, label .. ": the chat warning's audience")
-			-- The Census's line for a public guild: never on Forever.
+			-- The Census's line for a public guild's officer: (changed on purpose, B1 of 1.5.9's review) on
+			-- Forever too, in its Forever words, without the advice to seal the channel.
 			w.cns.rdb.realmKey = nil
 			w.cns.Roster.IsOfficer = function() return true end
 			local lines = {}
@@ -382,7 +421,8 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 			local okV, shown = pcall(ns.Views.PublicLines, lines)
 			ns.Comm, ns.OnForever, ns.Roster.IsOfficer = saved.comm, saved.forever, saved.roster
 			assert(okV, shown)
-			eq(shown, not forever, label .. ": the public channel line on the Census")
+			eq(shown, true, label .. ": the public channel line on the Census")
+			assert(lines[1].text:find((forever and L.PUBLIC_NET_FOREVER or L.PUBLIC_NET):format("OlympusNet"), 1, true), label .. ": " .. lines[1].text)
 		end)
 		-- Keys.lua in a namespace of its own (its handlers off the shared Comm).
 		local kns = setmetatable({ rdb = { realmKey = "fixture-old" }, OnForever = function() return forever end,
@@ -415,4 +455,72 @@ test("1.5.9's review one channel on Forever: /oly key, a key taken or cleared, /
 	end)
 	ns.OnForever, print = saved.forever, saved.print
 	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (B1, from eb2e95a9): the Census's public channel line was hidden on Forever whatever the
+-- key, so a key-less officer there no longer saw that his guild's typed chat lines go as plain text into
+-- the public channel (ChatHall.On), which is still so and the one thing a key still changes there. His
+-- line is back on Forever in words true there: anyone who joins reads the guild's typed chat lines; its
+-- tooltip, that 1.5.5 and later send the census by the relays, so what is read there is the typed lines of
+-- guilds without a key and older clients' census, and that a key (/oly key) keeps the guild's lines out of
+-- it, the relays carrying them to the other guilds. No advice to seal it and no count of guildmates "on
+-- the sealed channel" (1.5.8's hellos) there; a member sees nothing, a key holder nothing; off Forever as
+-- before. In all seven languages. Fails before (no line on Forever).
+test("1.5.9's review one channel on Forever: a key-less officer's Census line says anyone in the public channel reads his guild's typed chat lines, its tooltip what a key does there, in every language; no sealing advice or sealed count; off Forever as before", function()
+	local L = ns.L
+	for _, forever in ipairs({ true, false }) do
+		local label = forever and "on Forever" or "off Forever"
+		WithClient({ key = nil, lane = 0, forever = forever }, function(w)
+			-- Two guildmates whose hellos (1.5.8's) say they are on the sealed channel.
+			w.Guild("Old Sealer-Realm", "H1~1.5.8~Realm~s")
+			w.Guild("Other Sealer-Realm", "H1~1.5.8~Realm~s")
+			eq(w.C.SealedPeers(), 2, label .. ": their hellos heard")
+			local function Build(officer)
+				local lines = {}
+				local saved = { comm = ns.Comm, forever = ns.OnForever, officer = ns.Roster.IsOfficer }
+				ns.Comm, ns.OnForever, ns.Roster.IsOfficer = w.C, function() return forever end, function() return officer end
+				local ok, shown = pcall(ns.Views.PublicLines, lines)
+				ns.Comm, ns.OnForever, ns.Roster.IsOfficer = saved.comm, saved.forever, saved.officer
+				assert(ok, shown)
+				return shown, lines
+			end
+			local function Tip(line)
+				local tip = {}
+				line.tooltip({ AddLine = function(_, t) tip[#tip + 1] = t end })
+				return tip
+			end
+			local shown, lines = Build(true)
+			eq(shown, true, label .. ": an officer's line")
+			if forever then
+				eq(#lines, 1, "on Forever: the officer's line alone, no count of guildmates on a sealed channel")
+				assert(lines[1].text:find(L.PUBLIC_NET_FOREVER:format("OlympusNet"), 1, true), lines[1].text)
+				local tip = Tip(lines[1])
+				eq(#tip, 2, "its title and what it means, no advice to seal it")
+				eq(tip[1], L.PUBLIC_NET_TITLE)
+				eq(tip[2], L.PUBLIC_NET_TIP_FOREVER:format("OlympusNet"))
+				local memberShown, memberLines = Build(false)
+				eq(memberShown, false, "on Forever: nothing for a member")
+				eq(#memberLines, 0)
+			else
+				eq(#lines, 2, "off Forever: the officer's line and the guildmates on the sealed channel")
+				assert(lines[1].text:find(L.PUBLIC_NET:format("OlympusNet"), 1, true), lines[1].text)
+				assert(lines[2].text:find(L.PUBLIC_NET_SPLIT:format(2), 1, true), lines[2].text)
+				local tip = Tip(lines[1])
+				eq(tip[1], L.PUBLIC_NET_TITLE)
+				eq(tip[2], L.PUBLIC_NET_TIP:format("OlympusNet"))
+				eq(tip[3], L.PUBLIC_NET_OFFICER, "off Forever: how to seal it")
+				local memberShown, memberLines = Build(false)
+				eq(memberShown, true, "off Forever: a member sees the count")
+				eq(#memberLines, 1)
+			end
+			-- A key held: no line, on Forever or off it (there its typed lines stay out of the channel).
+			w.cns.rdb.realmKey = "fixture-secret"
+			eq((Build(true)), false, label .. ": an officer holding a key")
+		end)
+	end
+	-- The Forever words: the typed chat lines, the relays and what a key does there, never sealing.
+	assert(L.PUBLIC_NET_FOREVER:find("typed chat lines", 1, true), L.PUBLIC_NET_FOREVER)
+	assert(L.PUBLIC_NET_TIP_FOREVER:find("/oly key", 1, true) and L.PUBLIC_NET_TIP_FOREVER:find("relays", 1, true), L.PUBLIC_NET_TIP_FOREVER)
+	for _, k in ipairs({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" }) do assert(not L[k]:lower():find("seal", 1, true), k) end
+	InEveryLanguage({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" })
 end)
