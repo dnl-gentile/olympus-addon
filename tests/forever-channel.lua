@@ -217,12 +217,15 @@ test("1.5.9 one channel on Forever: a client still in its key's sealed channel a
 	WithClient({ key = "fixture-secret", lane = 7 }, function(w)
 		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
 		Ids(w, { [PUBLIC_ID] = "OlympusNet", [6] = sealed, [9] = sealed .. "7", [8] = "OlympusNet7", [3] = "SomeOtherChannel" })
+		local heard = 0
 		for k, id in ipairs({ 6, 9, 8 }) do
 			for _, piece in ipairs(ReportPieces(("OLYMPUS OLD %d"):format(k), tostring(50 + k))) do
 				w.Native(id, ("Older Broadcaster%d-Realm"):format(k), piece)
+				heard = heard + 1
 			end
 		end
 		eq(w.C.Stats().otherChannel, 0, "none dropped as another channel's")
+		eq(w.C.Stats().leftover, heard, "each counted as taken on a leftover channel (/oly bug's channel line)")
 		eq(w.C.Stats().reports, 3, "the census broadcast on the old sealed channel, its lane 7 and OlympusNet7 is taken")
 		local stranger = ReportPieces("OLYMPUS STRANGER", "60")
 		for _, piece in ipairs(stranger) do w.Native(3, "Some Stranger-Realm", piece) end
@@ -239,6 +242,7 @@ test("1.5.9 one channel on Forever: a client still in its key's sealed channel a
 		local pieces = ReportPieces("OLYMPUS OLD 9", "61")
 		for _, piece in ipairs(pieces) do w.Native(8, "Older Broadcaster9-Realm", piece) end
 		eq(w.C.Stats().reports, 0); eq(w.C.Stats().otherChannel, #pieces, "off Forever another lane is another channel, as before")
+		eq(w.C.Stats().leftover, 0, "and nothing taken on a leftover channel")
 	end)
 end)
 

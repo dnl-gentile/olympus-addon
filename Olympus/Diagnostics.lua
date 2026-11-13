@@ -622,7 +622,10 @@ end
 -- review) And the transfer in flight, which holds every other one while its batch waits (census or other,
 -- its batch of how many, and for how long): a begun transfer stuck between batches showed as nothing.
 -- In the status (StatusText, below the channel line), not the debug section: a report sent in game stops
--- at Workshop.BUG_MAX bytes, past which a relay's debug section fell.
+-- at Workshop.BUG_MAX bytes, past which a relay's debug section fell. (Round 1's re-review) And the drip's
+-- whispers handed to the send queue since login (Relay.Stats): its census transfers', the others', and
+-- those of either past its pace (Relay.DRIP_PER_MIN) while nothing else waited: census starved behind
+-- other words, or a pace that never lets census go, shows there.
 local function RelayHereLine()
 	local R = ns.Relay
 	if type(R) ~= "table" or type(R.IsRelay) ~= "function" or Try(R.IsRelay, ns.me) ~= true then return nil end
@@ -636,11 +639,14 @@ local function RelayHereLine()
 			f and ("%s, batch %d/%d, for %s"):format(f.census and "census" or "other", tonumber(f.batch) or 0, tonumber(f.of) or 0,
 				Span(f.since)) or "none")
 	end
+	local s = type(R.Stats) == "function" and Try(R.Stats) or nil
+	local sent = type(s) == "table" and ("%d census, %d other, %d past the pace"):format(tonumber(s.dripCensus) or 0,
+		tonumber(s.dripOther) or 0, tonumber(s.dripFree) or 0) or "?"
 	local T = ns.RelayTree
 	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil
 	local round = type(tree) == "table" and type(tree.round) == "table" and tonumber(tree.round.age) or nil
-	return ("relay here: quiet presence %s  |  drip %s  |  own tree round %s"):format(quiet and "on" or "off", drip,
-		round and (Span(round) .. " ago") or "none")
+	return ("relay here: quiet presence %s  |  drip %s  |  drip sent %s  |  own tree round %s"):format(quiet and "on" or "off",
+		drip, sent, round and (Span(round) .. " ago") or "none")
 end
 
 -- The fallback's election and queue counts only. Its detailed stats contain peer names.
@@ -806,10 +812,13 @@ function ns.StatusText()
 	if c then
 		-- (1.2.1: the sealed channel's name never: see Scrub.) (1.5.9) The guild's registrant beside its
 		-- reporter (the one that registers it with its relay, so the census reaches it), each with the
-		-- version its hello named.
+		-- version its hello named. (Round 1's re-review) And the words taken on Olympus's leftover channels
+		-- on Forever (Comm.Leftover: an older key's sealed channel or a later lane, still joined from an
+		-- earlier session, where older clients broadcast their census), their names never.
 		local function Version(v) return v and (" v" .. tostring(v)) or "" end
-		add("channel %s = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s%s (me: %s)  |  registrant=%s%s (me: %s)",
-			c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"), tostring(c.channel), tostring(c.sealed), c.peers,
+		add("channel %s = #%s  sealed=%s  leftover taken=%d  |  peers in guild=%d  |  reporter=%s%s (me: %s)  |  registrant=%s%s (me: %s)",
+			c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"), tostring(c.channel), tostring(c.sealed),
+			tonumber(c.leftover) or 0, c.peers,
 			tostring(c.reporter), Version(c.reporterVersion), tostring(c.isReporter), tostring(c.registrant), Version(c.registrantVersion),
 			tostring(c.isRegistrant))
 		local here = Try(RelayHereLine) -- (1.5.9: a relay's own client alone)

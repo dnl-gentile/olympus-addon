@@ -237,6 +237,8 @@ function Comm.Stats()
 		partial = stats.partial, echo = stats.echo, byType = stats.byType, otherChannel = stats.otherChannel,
 		chanArgs = stats.chanArgs, asked = stats.asked, answered = stats.answered, runnerUp = Comm.isRunnerUp, pending = (function() local n = 0 for _ in pairs(asm.buf) do n = n + 1 end return n end)(),
 		raw = stats.raw, rawSample = stats.rawSample, reportRealms = stats.reportRealms, shared = ns.rdb and ns.rdb.shared,
+		-- (1.5.9's review) Words taken on Olympus's leftover channels on Forever (Comm.Leftover, /oly bug).
+		leftover = stats.leftover or 0,
 		peerRealms = PeerRealms(now), heardOwn = lastOwn and ns.DisplayName(lastOwn), heardOwnAt = lastOwn and lastOwnAt,
 		benched = out, guard = Comm.GuardStats and Comm.GuardStats(), askSkipped = stats.askSkipped,
 		-- 1.0.0: whom the election counts (our realm's peers, or every realm's on a shared channel),
