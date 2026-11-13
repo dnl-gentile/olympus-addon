@@ -884,6 +884,11 @@ test("census author (1.5.9): the author's signed look and his own look last past
 		B.clock = B.clock + 3600
 		local carried = assert(B.Data.PortablePayload(B.clock, true))
 		assert(carried:match("^CX~3~S~Quill Lancer%-"), "the newer look is carried: " .. carried)
+		-- (The review of the census lane. Failed before: once both were past GROUP_COUNT the older look,
+		-- covering more guilds, took the turn again, eleven days older than his own CX 1 and QA.)
+		B.clock = B.clock + 3 * DAY
+		carried = assert(B.Data.PortablePayload(B.clock, false))
+		assert(carried:match("^CX~3~S~Quill Lancer%-"), "still the newer look three days later: " .. carried)
 	end)
 end)
 
@@ -971,5 +976,111 @@ test("census author (1.5.9): Data.Groups names the oldest other server's look it
 		g = L.Data.Groups()
 		assert(g.characters >= 90, "our live count alone")
 		eq(g.oldestOther, nil, "none while no other server counts")
+	end)
+end)
+
+-- 1.5.9 (the review of the census lane). Most members hear the census in a guildmate's hand-over (RG),
+-- whose origin is his word: it counts GROUP_COUNT alone. Fails before: such a row, or two members' looks
+-- agreeing, went over a lasting row and took it along when it left: a look past GROUP_KEEP at once (the
+-- author's client carries his own that old), a newer one uncounted from its third day and gone after
+-- seven, and the family's row was missing from the member's census.
+test("census author (1.5.9): a hand-over or a witnessed row never wipes a lasting row: an old look in a hand-over is refused, a newer row counts while it can, then the lasting row is back", function()
+	World(function(Node)
+		local DAY = 86400
+		local T = 40 * DAY
+		local function Holding(N)
+			N.clock = T
+			N.db.groupCensus = { ["Alliance|ForeverPvP"] = { group = "ForeverPvP", faction = "Alliance", characters = 5000, people = 4900,
+				guilds = 20, observed = T - 20 * DAY, src = "author", by = AUTHOR, w = 1 } }
+			return N
+		end
+		local function Look(at, n) return ("CX~3~S~%s-%s~ForeverPvP~Alliance~%d,%d,22,%d~"):format(AUTHOR_PVP, PVP, n, n - 100, at) end
+		local function Lasted(N, what)
+			local row = assert(PvP(N.Data.Groups()), what)
+			eq(row.characters, 5000, what); eq(row.counted, true, what); eq(row.observed, T - 20 * DAY, what); eq(row.src, "author", what)
+		end
+		-- The author's own ten-day-old look, which his client carries, handed over by a guildmate: refused.
+		local L = Holding(Node(LISTENER))
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 10 * DAY, 6000))
+		Lasted(L, "an old look in a hand-over leaves the lasting row")
+		eq((L.Data.CensusStats().last[1] or {}).why, "look", "refused")
+		-- On a relay's hop it is proven: it replaces the lasting row, as before.
+		local R = Holding(Node(LISTENER))
+		R.Relay.TakeVia("M", "Sage Ledger", AUTHOR, Look(T - 10 * DAY, 6000))
+		eq(assert(PvP(R.Data.Groups())).characters, 6000)
+		-- A three-day-old one in a hand-over would not count: it goes over nothing.
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 3 * DAY, 6100))
+		Lasted(L, "a hand-over that would not count")
+		-- A fresh one counts while it can (GROUP_COUNT), then the lasting row is back as it was observed.
+		L.Relay.TakeVia("G", "Guild Mate-" .. PVE, AUTHOR, Look(T - 60, 6200))
+		local row = assert(PvP(L.Data.Groups()))
+		eq(row.characters, 6200); eq(row.counted, true)
+		L.clock = T + 3 * DAY
+		Lasted(L, "back once the hand-over counts no more")
+		L.clock = T + 10 * DAY
+		Lasted(L, "and kept")
+		-- A councillor's row (CX 1) in a hand-over likewise.
+		local C = Holding(Node(LISTENER))
+		C.Relay.TakeVia("G", "Guild Mate-" .. PVE, "Sage Warden-" .. PVE, ("CX~1~S~%d~ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 600))
+		row = assert(PvP(C.Data.Groups()))
+		eq(row.characters, 5551); eq(row.counted, true); eq(row.src, "relay")
+		C.clock = T + 3 * DAY
+		Lasted(C, "back once the councillor's hand-over counts no more")
+		-- Two members' looks agreeing (a witnessed row) likewise.
+		local W = Holding(Node(LISTENER))
+		W.Relay.TakeVia("M", "Sage Ledger", "Pvp Member-" .. PVP, ("CX~3~S~Pvp Member-%s~ForeverPvP~Alliance~7000,6900,25,%d~"):format(PVP, T - 120))
+		W.Relay.TakeVia("M", "Sage Ledger", "Pvp Second-" .. PVP, ("CX~3~S~Pvp Second-%s~ForeverPvP~Alliance~7010,6910,25,%d~"):format(PVP, T - 100))
+		row = assert(PvP(W.Data.Groups()))
+		eq(row.src, "witnessed"); eq(row.characters, 7010); eq(row.counted, true)
+		W.clock = T + 3 * DAY
+		Lasted(W, "back once the witnessed row counts no more")
+		-- A newer proven look replaces both for good.
+		W.Relay.TakeVia("M", "Sage Ledger", AUTHOR, Look(W.clock - 60, 7100))
+		W.clock = W.clock + 10 * DAY
+		row = assert(PvP(W.Data.Groups()))
+		eq(row.characters, 7100); eq(row.counted, true); eq(row.src, "author")
+	end)
+end)
+
+-- 1.5.9 (the review of the census lane, security). Fails before: a group that is no Forever family is
+-- free text, and since 1.5.9 a trusted sender's row lasted: two members' agreeing rows of an invented
+-- server, said again by a councillor in his next session, counted for good everywhere.
+test("census author (1.5.9): only a Forever family's row lasts: an invented server's row from a trusted client goes after seven days, an older one is refused, and so is its look", function()
+	World(function(Node)
+		local Ed = ns.Ed25519
+		local DAY = 86400
+		local T = 40 * DAY
+		local function Fake(g) return Row(g, "Fakeville") end
+		-- A councillor says an invented server's row with the PvP one: a listener counts both for now.
+		local L = Node(LISTENER)
+		L.clock = T
+		L.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE,
+			("CX~1~S~%d~Fakeville,Alliance,90100,90100,290,%d;ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 100, T - 100))
+		eq(assert(Fake(L.Data.Groups())).counted, true)
+		L.clock = T + 8 * DAY
+		eq(Fake(L.Data.Groups()), nil, "gone after seven days, as before 1.5.9")
+		eq(L.Data.Groups().characters, 5551, "out of the totals")
+		eq(assert(PvP(L.Data.Groups())).counted, true, "the family's row lasts")
+		-- Older than seven days from a trusted sender: not taken; the family's row in the same word is.
+		local O = Node(LISTENER)
+		O.clock = T
+		O.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE,
+			("CX~1~S~%d~Fakeville,Alliance,90100,90100,290,%d;ForeverRP,Alliance,2100,2000,9,%d"):format(T, T - 8 * DAY, T - 8 * DAY))
+		eq(Fake(O.Data.Groups()), nil, "an old invented row is not taken")
+		eq(assert(Row(O.Data.Groups(), "ForeverRP")).counted, true)
+		-- Its look (CX 3) that old is refused, even from its trusted observer.
+		local P = Node(LISTENER)
+		P.clock = T
+		eq(P.Data.ReceivePortable("Sage Warden-" .. PVE, ("CX~3~S~Sage Warden-%s~Fakeville~Alliance~90100,90100,290,%d~"):format(PVE, T - 8 * DAY)), false)
+		eq(Fake(P.Data.Groups()), nil)
+		-- A signed look of one held that old is no longer said.
+		local PK = Ed.ToB64(Ed.PublicKey(string.rep("\37", 32)))
+		local A = Node(AUTHOR, { pk = PK })
+		A.clock = T
+		local wire = ("CX~3~S~%s~Fakeville~Alliance~90100,90100,290,%d~"):format(AUTHOR, T - 8 * DAY)
+		A.db.groupAttest = { ["Alliance|Fakeville"] = { group = "Fakeville", faction = "Alliance", observed = T - 8 * DAY, wire = wire,
+			text = "QA~1~" .. string.rep("A", 86) .. "~" .. wire } }
+		eq(A.Data.AttestPayload(T), nil, "not said")
+		eq(A.db.groupAttest["Alliance|Fakeville"], nil, "dropped")
 	end)
 end)
