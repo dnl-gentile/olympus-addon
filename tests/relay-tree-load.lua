@@ -450,7 +450,8 @@ local function Run(o)
 		-- whispers over GUILD.
 		local ownGuild
 		if mate then
-			ownGuild = { made = 0, took = 0, twice = 0, longest = 0, whispers = R.kinds.guild or 0 }
+			ownGuild = { made = 0, took = 0, twice = 0, longest = 0, whispers = R.kinds.guild or 0,
+				every = R.c.Relay.GUILD_CENSUS_EVERY, round = R.c.Relay.GLOBAL_EVERY }
 			for _ in pairs(made) do ownGuild.made = ownGuild.made + 1 end
 			local last, once = start, {}
 			for _, x in ipairs(mate.takes) do
@@ -660,6 +661,28 @@ test("relay tree under load (1.5.9's review): the relay's own rounds, 90 registr
 	eq(r.chat.missed, 0, "every line reached every registrant")
 	eq(r.never, 0, "every registrant took a snapshot")
 	assert(r.by["1.5.4"] and r.by["1.5.4"].never == 0, "the 1.5.4 registrants too")
+end)
+
+-- 1.5.9's review (round 1's re-review): a relay that is its own guild's registrant hands each piece of a
+-- census snapshot to its guild over GUILD as it comes (ToReporters, hop 3 on its own client). Behind the
+-- drip's urgent census batches those ordinary whispers waited, and a batch that needed room pushed them
+-- out: its guild put none of its snapshots together (round 1's probe at a line every 45 s: 39 whispers to
+-- its guild in 30 minutes, 1.5.8 1,087). One census word every Relay.GUILD_CENSUS_EVERY goes by the census
+-- lane to its guild now (Relay.lua's GuildCensus). Fails before: the guild took none of the 10.
+test("relay tree under load (1.5.9's review): a relay that is its own guild's registrant, its own rounds, 90 registrants (ten on 1.5.4), a chat line every 45 s for 20 minutes: its guild takes one of its census snapshots whole at least every Relay.GUILD_CENSUS_EVERY and a round, and no chat whisper is lost", function()
+	local r = Run({ registrants = 90, guilds = 140, minutes = 20, chat = 45, mix = { new = 90, ["1.5.4"] = 10 }, ownGuild = true })
+	Sound(r)
+	local og = r.ownGuild
+	-- (One every GUILD_CENSUS_EVERY: the first snapshot made after it, one GLOBAL_EVERY later at most, then
+	-- its pieces by the lane.)
+	local bound = (og.every or 0) + og.round + 60
+	assert(og.made >= 10, ("%d snapshots made"):format(og.made))
+	assert(og.took >= 3, ("its guild took %d of the relay's %d snapshots whole"):format(og.took, og.made))
+	eq(og.twice, 0, "each once")
+	assert(og.longest <= bound, ("its guild went %d s without a new census snapshot, past %d"):format(og.longest, bound))
+	eq(r.chat.lost, 0, "no chat whisper lost")
+	eq(r.chat.missed, 0, "every line reached every registrant")
+	eq(r.never, 0, "every registrant took a snapshot")
 end)
 
 -- (T1 of the review) A relay that makes no round of its own (quiet presence: Data.SendGlobalCensus says

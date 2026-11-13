@@ -494,6 +494,9 @@ local function DripTo(name, word, batches)
 end
 -- A word to the registrants (and, toPeers, to the elected peers) as RO, never back to its origin or to
 -- `except`; an own word to our own guild as well, as a relay hands its own words to its guild.
+-- (1.5.9's review) Every word here is census (CG, CX, QA), so the hand-on to our guild goes by its census
+-- lane (Relay's ToGuild: urgent, a whisper a second): an ordinary job, it never began behind the drip's
+-- urgent batches, and was pushed out.
 local function Spread(flag, origin, word, toPeers, except)
 	local R, now = ns.Relay, Now()
 	local batches = R.SetBatches(flag, origin, { word }, "RO")
@@ -509,7 +512,7 @@ local function Spread(flag, origin, word, toPeers, except)
 			if key ~= from and key ~= except then DripTo(p, tag, batches) end
 		end
 	end
-	if from == Key(ns.me) then R.HandOn(flag, origin, word) end
+	if from == Key(ns.me) then R.HandOn(flag, origin, word, true) end
 	Pump()
 end
 
@@ -700,7 +703,7 @@ function F.HandleRO(dist, sender, text)
 	stats.roIn = stats.roIn + 1
 	if not R.TakeVia("O", sender, origin, word, flag == "L") then return true end
 	if Check(origin, word, now) then return true end
-	R.HandOn("P", origin, word)
+	R.HandOn("P", origin, word, true) -- (census alone comes by RO, Carried: by the census lane, as Spread's)
 	if serving and Key(origin) ~= Key(ns.me) and (word:match("^CG~%d+~S~") or word:match("^QA~")) then
 		Spread(flag, origin, word, false, Key(sender))
 	end

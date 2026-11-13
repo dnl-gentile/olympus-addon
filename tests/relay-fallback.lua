@@ -569,6 +569,142 @@ test("1.5.9's review fallback: a provisional relay whose queue ordinary whispers
 	end
 end)
 
+-- 1.5.9's review (round 1's re-review): a serving provisional relay hands its own census snapshot (Spread)
+-- and each one its elected peers send it (RO, HandleRO) to its own guild over GUILD, as a relay hands its
+-- own words to its guild. Since its census batches to its registrants go urgent (the test above), back to
+-- back while any registrant waits, that hand-on, an ordinary job of many pieces, never began, and a census
+-- batch that needed room pushed it out: its guild took none of them. A census word handed to its own guild
+-- goes by the census lane now (Relay.lua's ToGuild: urgent, two whispers in the queue at a time). Fails
+-- before: the guildmate took none of the relay's own 10; with Spread's change alone, none of the peer's 10.
+test("1.5.9's review fallback: a serving provisional relay with 10 registrants hands its own census snapshot and its peer's, each made every Relay.GLOBAL_EVERY for 20 minutes, to its own guild whole over GUILD, every one", function()
+	World(function(W)
+		local ps = Provisional(W)
+		Elect(W, ps)
+		local peer, p = ps[1], ps[2]
+		eq(p.c.RelayFallback.Serving(), true, "serving: its peers elected it")
+		local mate = W.Node("Prov Mate", p.guild)
+		local function Register()
+			for i = 1, 10 do W.As(p, p.deliver, "WHISPER", ("Rep%02d Near-Realm"):format(i), "RL~P~RR~Olympus Near " .. i) end
+		end
+		Register()
+		local atMate = Watch(mate, { "CG" })
+		local R, F = p.c.Relay, p.c.RelayFallback
+		-- The game's timing: one pump a step for each client, the timers due first, each provisional relay's
+		-- ticker every F.TICK, each registrant's registration every Relay.REGISTER_EVERY; what a client sends
+		-- reaches, in that step, the client it whispers or its guildmates; the registrants are nobody here.
+		local STEP, nextTick, nextRegister = p.c.Comm.SEND_INTERVAL, W.now, W.now
+		for _, n in ipairs(W.nodes) do n.cursor = #n.sent end
+		local function Step()
+			W.now = W.now + STEP
+			for _, n in ipairs(W.nodes) do n.c.clock = W.now end
+			local due = W.timers
+			W.timers = {}
+			for _, t in ipairs(due) do if t.at <= W.now then W.As(t.n, t.f) else W.timers[#W.timers + 1] = t end end
+			if W.now >= nextTick then
+				nextTick = nextTick + F.TICK
+				for _, n in ipairs(ps) do W.As(n, n.c.RelayFallback.Tick) end
+			end
+			if W.now >= nextRegister then nextRegister = nextRegister + R.REGISTER_EVERY; Register() end
+			for _, n in ipairs(W.nodes) do W.As(n, n.c.Comm.Pump) end
+			for _, n in ipairs(W.nodes) do
+				while n.cursor < #n.sent do
+					n.cursor = n.cursor + 1
+					local x = n.sent[n.cursor]
+					for _, to in ipairs(W.nodes) do
+						if to ~= n and ((x.dist == "WHISPER" and ns.ShortName(to.c.me) == ns.ShortName(x.target or ""))
+							or (x.dist == "GUILD" and to.guild == n.guild)) then
+							W.As(to, to.deliver, x.dist, n.c.me, x.msg)
+						end
+					end
+				end
+			end
+		end
+		-- Each one's own snapshot every GLOBAL_EVERY, 140 guilds (26 pieces), new each time, said as
+		-- Data.SendGlobalCensus says it: on the channel, which on Forever is its own client as relay.
+		local made, toRegs = { [p] = {}, [peer] = {} }, {}
+		local mark = #p.sent
+		local stop, nextSnap = W.now + 20 * 60, W.now
+		while W.now < stop do
+			if W.now >= nextSnap then
+				nextSnap = nextSnap + R.GLOBAL_EVERY
+				for k, n in ipairs({ p, peer }) do
+					local t = math.floor(W.now) - k
+					local rows = {}
+					for i = 1, 140 do rows[i] = ("OLYMPUS GUILD %03d,%d,%d,%d,%d"):format(i, 100 + i, 10, 300, t - i) end
+					local word = ("CG~1~S~%d~"):format(t) .. table.concat(rows, ";")
+					made[n][#made[n] + 1] = word
+					eq(W.As(n, n.c.Comm.SendChunked, word, false, "CHANNEL"), true)
+				end
+			end
+			Step()
+		end
+		for k = mark + 1, #p.sent do
+			local x = p.sent[k]
+			if x.dist == "WHISPER" and tostring(x.target):match("^Rep%d+ Near") then toRegs[x.target] = (toRegs[x.target] or 0) + 1 end
+		end
+		local _, got = atMate("CG")
+		local took = {}
+		for _, g in ipairs(got) do took[g.text] = (took[g.text] or 0) + 1 end
+		for _, case in ipairs({ { p, "its own" }, { peer, "its peer's" } }) do
+			local words = made[case[1]]
+			eq(#words, 10, "ten snapshots in 20 minutes")
+			local whole = 0
+			for _, word in ipairs(words) do if took[word] then whole = whole + 1 end end
+			eq(whole, #words, "the guildmate took every snapshot of " .. case[2] .. ", whole, the same bytes")
+		end
+		eq(#got, 20, "each once, and nothing else")
+		local served = 0
+		for _, n in pairs(toRegs) do if n >= #ns.Codec.Chunk(made[p][1], "1") then served = served + 1 end end
+		eq(served, 10, "and every registrant was still sent a whole snapshot")
+	end)
+end)
+
+-- 1.5.9's review (round 1's re-review): the census lane to a relay's own guild keeps
+-- Relay.GUILD_CENSUS_INFLIGHT of its whispers in the send queue at a time, the next as one leaves, so a word
+-- of 26 never fills the queue's urgent room at once, which the chat lane and the King's presence need; each
+-- goes urgent, so a queue that ordinary whispers keep full pushes none of them out, and the guildmate puts
+-- the word together. Fails before (the word one ordinary batch: 25 of it in the queue at once once begun),
+-- and with the word handed over urgent in one go (26).
+test("1.5.9's review fallback: a census word handed to the relay's own guild goes by its census lane, two whispers in the send queue at a time, each urgent: its guildmate takes it whole, with a queue ordinary whispers keep full or not", function()
+	for _, pressure in ipairs({ 0, 3 }) do
+		World(function(W)
+			local p = W.Node("Lane Keeper", "Olympus Lane")
+			local mate = W.Node("Lane Mate", "Olympus Lane")
+			local atMate = Watch(mate, { "CG" })
+			local t = math.floor(W.now)
+			local rows = {}
+			for i = 1, 140 do rows[i] = ("OLYMPUS GUILD %03d,%d,%d,%d,%d"):format(i, 100 + i, 10, 300, t - i) end
+			local word = ("CG~1~S~%d~"):format(t) .. table.concat(rows, ";")
+			local busy, cursor, most = 0, #p.sent, 0
+			local function Press(k)
+				W.As(p, function() for _ = 1, k do busy = busy + 1; p.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. busy, nil, false, false) end end)
+			end
+			Press(70) -- (the queue full of ordinary whispers when the word comes, or empty)
+			if pressure == 0 then W.As(p, function() for _ = 1, 200 do p.c.Comm.Pump() end end) end
+			eq(W.As(p, p.c.Relay.HandOn, "P", p.c.me, word, true), true)
+			for _ = 1, 120 do
+				W.now = W.now + p.c.Comm.SEND_INTERVAL
+				p.c.clock, mate.c.clock = W.now, W.now
+				local due = W.timers
+				W.timers = {}
+				for _, x in ipairs(due) do if x.at <= W.now then W.As(x.n, x.f) else W.timers[#W.timers + 1] = x end end
+				-- (The urgent whispers in the queue, the lane's alone here: all of them less the ordinary ones.)
+				most = math.max(most, p.c.Comm.QueueSize() - (p.c.Comm.QueueRoom(true) - p.c.Comm.QueueRoom()))
+				Press(pressure)
+				W.As(p, p.c.Comm.Pump)
+				while cursor < #p.sent do
+					cursor = cursor + 1
+					local x = p.sent[cursor]
+					if x.dist == "GUILD" then W.As(mate, mate.deliver, "GUILD", p.c.me, x.msg) end
+				end
+			end
+			local label = pressure > 0 and "a full queue" or "an empty queue"
+			eq(most, 2, label .. ": the lane's whispers in the queue at once, at most")
+			eq((atMate("CG", word)), 1, label .. ": the guildmate took the word whole, once")
+		end)
+	end
+end)
+
 test("1.5.5 fallback: Pick prefers the pinned relay, then an answered signed relay that named the preferred release, then any answered signed one, then an unsigned code pin", function()
 	World(function(W)
 		local m = W.Node("Picky Member", "Olympus Pick")

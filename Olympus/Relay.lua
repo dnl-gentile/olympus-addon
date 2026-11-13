@@ -922,12 +922,69 @@ local function Deliver(origin, text, logged)
 	return true
 end
 
+-- (1.5.9's review) The census lane to our own guild: a census word (a census snapshot, CG, or another
+-- server's census, QA and CX) a relay hands its own guild, signed or provisional (ToGuild's `census`). Its
+-- census batches to its registrants go urgent back to back (Drip below, RelayFallback's Pump), and that
+-- hand-on, an ordinary job, never began and was the first a census batch pushed out: its own guild put
+-- none of its snapshots together (the offline harness: a provisional relay with 10 registrants, none of
+-- its 20 in 20 minutes; a signed relay that is its guild's registrant, none of its 10). Here each whisper
+-- goes urgent, so nothing pushes it out, GUILD_CENSUS_INFLIGHT in the queue at a time, the next as one
+-- leaves, so a word never fills the queue's urgent room at once (26 whispers in one go), which the chat
+-- lane and the King's presence, sent to every registrant at once, need. One waits while the queue has no
+-- urgent room (Comm.QueueRoom(true)), SET_MAX_AGE at most; past GUILD_CENSUS_MAX waiting, the oldest go.
+-- Only the guild it was handed to gets it.
+Relay.GUILD_CENSUS_INFLIGHT = 2
+Relay.GUILD_CENSUS_MAX = 102 -- (three words of Codec.MAX_CHUNKS pieces)
+local guildLane, guildInflight, guildFeeding, guildTimer = {}, 0, false, false
+local FeedGuildLane
+local function FeedGuildLaneNow()
+	local now, guild = Now(), GetGuildInfo and GetGuildInfo("player")
+	while guildInflight < Relay.GUILD_CENSUS_INFLIGHT and guildLane[1] do
+		local e = table.remove(guildLane, 1)
+		if now - e.t < Relay.SET_MAX_AGE and e.guild == guild and IsInGuild() then
+			if ns.Comm.QueueRoom(true) < 1 then
+				-- (No urgent room: back at the front, tried again in a second.)
+				table.insert(guildLane, 1, e)
+				if not guildTimer then
+					guildTimer = true
+					ns.After(1, "relay guild census", function() guildTimer = false; FeedGuildLane() end)
+				end
+				return
+			end
+			guildInflight = guildInflight + 1
+			local settled = false
+			ns.Comm.Send("GUILD", e.msg, nil, true, false, function()
+				if settled then return end
+				settled = true
+				guildInflight = math.max(0, guildInflight - 1)
+				FeedGuildLane()
+			end)
+		end
+	end
+end
+FeedGuildLane = function()
+	if guildFeeding then return end
+	guildFeeding = true
+	local ok = ns.SafeCall("relay guild census", FeedGuildLaneNow)
+	guildFeeding = false
+	if not ok then wipe(guildLane) end
+end
+local function GuildLane(pieces)
+	local now, guild = Now(), GetGuildInfo and GetGuildInfo("player")
+	for _, msg in ipairs(pieces) do guildLane[#guildLane + 1] = { msg = msg, t = now, guild = guild } end
+	while #guildLane > Relay.GUILD_CENSUS_MAX do table.remove(guildLane, 1) end
+	FeedGuildLane()
+	return true
+end
+
 -- A reporter hands a message to its guild once (hop 3). (1.5.5) A chat line (flag L) goes urgent: a
 -- reporter hands its guild every word its relay sends, at one whisper every 1.2 s, and an ordinary
--- chat line was the first a full queue pushed out, for its whole guild and for good.
-ToGuild = function(flag, origin, text)
+-- chat line was the first a full queue pushed out, for its whole guild and for good. (1.5.9's review)
+-- A census word (`census`) goes by the census lane to our own guild, above.
+ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
 	local pieces = Envelope("RG", "RG~" .. flag .. "~" .. origin .. "~" .. text)
+	if census == true then return GuildLane(pieces) end
 	local urgent = flag == "L"
 	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false) ~= false end
 	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent) ~= false
@@ -963,6 +1020,9 @@ local function SnapshotExpired(s, now)
 	return SetExpired(s, now)
 end
 
+-- Whether a piece of a bounded snapshot transfer from a relay (below), and (1.5.9's review) that transfer:
+-- its `census` is whether it is census (a census snapshot, CG, or another server's census, CX or QA; not
+-- a verification snapshot, GV), which the relay may hand its own guild by the census lane (GuildCensus).
 local function SnapshotPart(origin, body, now)
 	if not Relay.IsRelay(origin) then return false end
 	local id, index, total, part = body:match("^C(%w+):(%d+):(%d+):(.*)$")
@@ -989,14 +1049,14 @@ local function SnapshotPart(origin, body, now)
 			else count = count + 1 end
 		end
 		if count >= Relay.MAX_RELAYS then return false end
-		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {} }
+		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {}, census = not part:match("^GV~") }
 		snapshotTransfers[key] = transfer
 	end
 	if transfer.id ~= id or transfer.total ~= total or transfer.parts[index] then return false end
 	if transfer.bytes + #part > ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS then return false end
 	transfer.parts[index], transfer.bytes = true, transfer.bytes + #part
 	transfer.got, transfer.last = transfer.got + 1, now
-	return true
+	return true, transfer
 end
 -- Whole sets, one reporter at a time (GitHub #76: the census showed only the player's own guild).
 --
@@ -2082,6 +2142,25 @@ local function DropWaitingCensus(name)
 	return false
 end
 
+-- (1.5.9's review) A relay that is its own guild's registrant hands its guild every census word it takes,
+-- piece by piece (ToReporters, hop 3 on its own client): its own snapshot every GLOBAL_EVERY and each
+-- mesh peer's as it crosses. One of them every GUILD_CENSUS_EVERY goes by the census lane to our guild
+-- (ToGuild), the first whose first piece comes then, its own or (under quiet presence, none of its own)
+-- a peer's; the others as before, ordinary: its own snapshot carries its peers' rows, and every census
+-- word handed over urgent took the chat lane's and the registrants' census's room at a peak (the offline
+-- harness, its own rounds, 90 registrants, 30 minutes, each word urgent in one go: at a line every 35 s,
+-- 18 registrants without a census instead of 5; the King's presence reached 27 to 36 of 90, not 45 to 56).
+Relay.GUILD_CENSUS_EVERY = 300
+local guildCensusAt = -math.huge
+local function GuildCensus(transfer, now)
+	if type(transfer) ~= "table" or not transfer.census then return false end
+	if transfer.ourGuild == nil then
+		transfer.ourGuild = now - guildCensusAt >= Relay.GUILD_CENSUS_EVERY
+		if transfer.ourGuild then guildCensusAt = now end
+	end
+	return transfer.ourGuild
+end
+
 local function ToReporters(flag, origin, body, sender)
 	local now = Now()
 	if Crown(origin, body) then
@@ -2112,7 +2191,9 @@ local function ToReporters(flag, origin, body, sender)
 	-- snapshot mid-transfer. This admits no new authority and does not bypass
 	-- Comm's queue/throughput limits; malformed or unreserved parts use the trickle.
 	-- (1.5.5) And a signed relay's own staff word (Relay.StaffWord), in one piece: past the trickle.
-	local snapshot = SnapshotPart(origin, body, now) or Relay.StaffWord(origin, body)
+	-- (1.5.9's review) transfer: the snapshot transfer a piece belongs to (GuildCensus).
+	local snapshot, transfer = SnapshotPart(origin, body, now)
+	if not snapshot then snapshot = Relay.StaffWord(origin, body) end
 	-- A trickle-exempt word in pieces goes to the other reporters as a whole set (above).
 	-- (1.5.4) And a list of a kind carried whole, from any origin, in one piece too (ListSet); once
 	-- whole, to the reporters ListSend names, in place of a waiting batch alone when it says so.
@@ -2153,7 +2234,7 @@ local function ToReporters(flag, origin, body, sender)
 		elseif scoped and g ~= scoped and not (fxKind == "G" and Presenting(g, now)) then
 			stats.scoped = (stats.scoped or 0) + 1 -- (another guild's presentation: heard here alone)
 		elseif r.name == ns.me then
-			if Deliver(origin, body, flag == "L") then ToGuild(flag, wire, body) end
+			if Deliver(origin, body, flag == "L") then ToGuild(flag, wire, body, GuildCensus(transfer, now)) end
 		elseif set == false then
 			-- (Some pieces of the set are still on their way: the whole set goes once they are here.)
 		elseif set and listTo and not listTo[g] then
@@ -3029,7 +3110,9 @@ WithHop = function(h, sender, fn, ...)
 end
 function Relay.TakeVia(h, sender, origin, text, logged) return WithHop(h, sender, Deliver, origin, text, logged) end
 function Relay.Take(origin, text, logged) return Deliver(origin, text, logged) end
-function Relay.HandOn(flag, origin, text) return ToGuild(flag, origin, text) end
+-- (1.5.9's review) census: a census word (a snapshot, CG; another server's census, QA or CX), which goes by
+-- the census lane to our guild (ToGuild).
+function Relay.HandOn(flag, origin, text, census) return ToGuild(flag, origin, text, census) end
 Relay.Envelope = Envelope
 function Relay.SetBatches(flag, origin, set, kind) return SetBatches(flag, origin, set, kind) end
 -- A whole transfer to `name` through the drip, keyed `word` (a newer one takes a waiting one's place).
@@ -3339,6 +3422,7 @@ function Relay.Reset()
 	dripBusy, dripping = false, false
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
 	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
+	wipe(guildLane); guildInflight, guildFeeding, guildTimer, guildCensusAt = 0, false, false, -math.huge -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	hop, hopSender = nil, nil -- (1.5.5)
