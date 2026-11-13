@@ -83,6 +83,7 @@ local askTries = 0 -- census requests tried while the channel was not joined (Co
 local heardAsk = -math.huge -- someone else's census request last heard on our channel (Comm.AskCensus)
 local askedAgain = false    -- the second census request is on its way, or went (Comm.AskCensus)
 local joinedName -- name of the channel we joined (set by Comm.JoinChannel)
+local leftoversHidden = false -- (1.5.9's review: Comm.JoinChannel, once a session on Forever)
 -- 1.4.1: the channel lane (declared here: SendNow and Comm.Stats, above the lane's own code, use them).
 local laneRefused, laneProbe = 0, false
 local Lane
@@ -1269,6 +1270,24 @@ function Comm.SealedBase()
 	if type(key) ~= "string" or key == "" then return nil end
 	return (ns.faction == "Horde" and "OlyH" or "Oly") .. Hash36(key)
 end
+-- (1.5.9's review) Whether `name` is one of Olympus's own channels this client may still sit in on Forever
+-- from an earlier session, beside the public first lane it joins now: a later public lane (OlympusNet7),
+-- or the sealed channel the realm key it holds gives, on any lane. JoinChannel leaves only the channel it
+-- joined this session, so after a /reload (and a relog, where the game rejoins its channels) the client
+-- is still in them, and older clients still broadcast their census there: 1.4.0 and 1.4.1 always, 1.4.3
+-- to 1.5.4 while no relay answers them, on the sealed channel when they hold the key. Never off Forever.
+function Comm.Leftover(name)
+	if not OneChannel() or type(name) ~= "string" then return false end
+	local function Lane(rest, first) local n = rest:match("^%d+$") and tonumber(rest) return n ~= nil and n >= first and n <= Comm.LANE_MAX end
+	local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
+	if type(public) == "string" and name:sub(1, #public) == public and Lane(name:sub(#public + 1), 1) then return true end
+	local sealed = Comm.SealedBase()
+	if sealed and name:sub(1, #sealed) == sealed then
+		local rest = name:sub(#sealed + 1)
+		return rest == "" or Lane(rest, 1)
+	end
+	return false
+end
 
 -- Each faction has its own channel (and sealed name), so the Horde and the Alliance never
 -- mix their census, chat or decrees, whether or not the game shares channel names between them.
@@ -1736,6 +1755,21 @@ function Comm.JoinChannel()
 	end
 	if joinedName ~= name then watch, laneRefused = nil, 0 end -- another channel: the election guard starts again
 	joinedName = name
+	-- (1.5.9's review) On Forever, Olympus's own channels from an earlier session (Comm.Leftover) are kept,
+	-- for the census older clients still broadcast there, but off the chat windows again, once a session:
+	-- a 1.5.8 key holder's chat line goes as text into the sealed one, and a window whose channel list was
+	-- reset showed it raw. Never left: that would lose those clients' census.
+	if OneChannel() and not leftoversHidden and GetChannelName then
+		leftoversHidden = true
+		local public = ns.faction == "Horde" and ns.CHANNEL_HORDE or ns.CHANNEL
+		local sealed = Comm.SealedBase()
+		for lane = 0, Comm.LANE_MAX do
+			local suffix = lane > 0 and tostring(lane) or ""
+			for _, there in ipairs({ lane > 0 and public and (public .. suffix) or false, sealed and (sealed .. suffix) or false }) do
+				if there and (GetChannelName(there) or 0) > 0 then HideChannelFromChat(there) end
+			end
+		end
+	end
 	local id = GetChannelName(name)
 	if id and id > 0 then
 		if channelIndex ~= id then ns.Log("channel %s is #%d", name, id) end
@@ -2389,8 +2423,16 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 			local id = name and GetChannelName and GetChannelName(name) or 0
 			if id and id > 0 and joinedName then channelIndex = id end
 			if id ~= localID then
-				stats.otherChannel = stats.otherChannel + 1
-				return
+				-- (1.5.9's review) On Forever, Olympus's own channel from an earlier session (Comm.Leftover):
+				-- the census older clients broadcast there is taken, as a 1.5.8 client on it took it. Its name
+				-- by its number (GetChannelName); any other channel's words, as ever, never.
+				local there
+				if GetChannelName then there = select(2, GetChannelName(localID)) end
+				if not Comm.Leftover(there) then
+					stats.otherChannel = stats.otherChannel + 1
+					return
+				end
+				stats.leftover = (stats.leftover or 0) + 1
 			end
 		end
 	end

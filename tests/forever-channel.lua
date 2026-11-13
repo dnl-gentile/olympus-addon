@@ -195,3 +195,71 @@ test("1.5.9 one channel on Forever: /oly status says the key held, not sealing; 
 	ns.OnForever, ns.rdb.realmKey, ns.rdb.channelLane, ns.db.log = saved.forever, saved.key, saved.lane, saved.log
 	if not ok then error(err, 0) end
 end)
+
+-- 1.5.9's review (C1): on Forever a client takes native words from the public first lane alone, yet it may
+-- still sit in Olympus's own channels from an earlier session (Comm.JoinChannel leaves only the one it
+-- joined this session): its key's sealed channel and a later lane. Older clients still broadcast their
+-- census there (1.4.0 and 1.4.1 always, 1.4.3 to 1.5.4 while no relay answers, on the sealed channel when
+-- they hold the key), and a 1.5.8 client on it took it. Those words are taken again (Comm.Leftover); a
+-- channel that is not Olympus's, never. Off Forever, as before. Fails before (reports 0, otherChannel 1
+-- for each piece).
+test("1.5.9 one channel on Forever: a client still in its key's sealed channel and an older lane from an earlier session takes the census older clients broadcast there; another channel's words never; off Forever as before", function()
+	local function Ids(w, byId)
+		GetChannelName = function(x)
+			if type(x) == "number" then return byId[x] and x or 0, byId[x] end
+			for id, name in pairs(byId) do if name == x then return id, name end end
+			return 0, x
+		end
+	end
+	WithClient({ key = "fixture-secret", lane = 7 }, function(w)
+		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+		Ids(w, { [PUBLIC_ID] = "OlympusNet", [6] = sealed, [9] = sealed .. "7", [8] = "OlympusNet7", [3] = "SomeOtherChannel" })
+		for k, id in ipairs({ 6, 9, 8 }) do
+			for _, piece in ipairs(ReportPieces(("OLYMPUS OLD %d"):format(k), tostring(50 + k))) do
+				w.Native(id, ("Older Broadcaster%d-Realm"):format(k), piece)
+			end
+		end
+		eq(w.C.Stats().otherChannel, 0, "none dropped as another channel's")
+		eq(w.C.Stats().reports, 3, "the census broadcast on the old sealed channel, its lane 7 and OlympusNet7 is taken")
+		local stranger = ReportPieces("OLYMPUS STRANGER", "60")
+		for _, piece in ipairs(stranger) do w.Native(3, "Some Stranger-Realm", piece) end
+		eq(w.C.Stats().reports, 3, "a channel that is not Olympus's: nothing taken")
+		eq(w.C.Stats().otherChannel, #stranger, "each of its pieces dropped as another channel's")
+		eq(w.C.Leftover(sealed), true); eq(w.C.Leftover(sealed .. "7"), true); eq(w.C.Leftover("OlympusNet7"), true)
+		eq(w.C.Leftover("OlympusNet"), false, "the joined one is no leftover"); eq(w.C.Leftover("OlympusNetH7"), false, "nor the Horde's")
+		eq(w.C.Leftover("SomeOtherChannel"), false); eq(w.C.Leftover(sealed .. "77"), false, "no lane past LANE_MAX")
+	end)
+	WithClient({ key = "fixture-secret", lane = 0, forever = false }, function(w)
+		local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+		Ids(w, { [SEALED_ID] = sealed, [8] = "OlympusNet7" })
+		eq(w.C.Leftover("OlympusNet7"), false, "off Forever no leftover")
+		local pieces = ReportPieces("OLYMPUS OLD 9", "61")
+		for _, piece in ipairs(pieces) do w.Native(8, "Older Broadcaster9-Realm", piece) end
+		eq(w.C.Stats().reports, 0); eq(w.C.Stats().otherChannel, #pieces, "off Forever another lane is another channel, as before")
+	end)
+end)
+
+-- 1.5.9's review (P6): those channels are kept for that census, never left, but off the chat windows again
+-- once a session: a 1.5.8 key holder's chat line goes as text into the sealed one, and a window whose
+-- channel list was reset showed it raw. Fails before (only the joined channel was kept off them).
+test("1.5.9 one channel on Forever: the sealed channel and the older lane still joined from an earlier session are kept off the chat windows again, never left", function()
+	local saved = { num = NUM_CHAT_WINDOWS, remove = ChatFrame_RemoveChannel, f1 = rawget(_G, "ChatFrame1"), f2 = rawget(_G, "ChatFrame2") }
+	local removed = {}
+	local ok, err = pcall(function()
+		NUM_CHAT_WINDOWS, ChatFrame1, ChatFrame2 = 2, {}, {}
+		ChatFrame_RemoveChannel = function(frame, name) removed[name] = (removed[name] or 0) + 1 end
+		WithClient({ key = "fixture-secret", lane = 7 }, function(w)
+			local sealed = "Oly" .. w.C.Hash36("fixture-secret")
+			eq(removed.OlympusNet, 2, "the joined channel off both windows, as ever")
+			eq(removed.OlympusNet7, 2, "the older lane off both windows")
+			eq(removed[sealed], 2, "the sealed channel off both windows")
+			eq(removed[sealed .. "7"], 2, "and its lane 7")
+			eq(#w.left, 0, "none of them left")
+			removed = {}
+			w.C.JoinChannel()
+			eq(removed.OlympusNet7, nil, "once a session")
+		end)
+	end)
+	NUM_CHAT_WINDOWS, ChatFrame_RemoveChannel, ChatFrame1, ChatFrame2 = saved.num, saved.remove, saved.f1, saved.f2
+	if not ok then error(err, 0) end
+end)
