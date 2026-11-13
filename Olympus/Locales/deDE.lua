@@ -50,13 +50,13 @@ ns.Locale("deDE", {
 
 Wie versprochen kommt hier der Rest. Jedes Mitglied kann jetzt in der Rekrutierungsrangliste aufsteigen, und Gilden, die im Zensus nur einen Teil der Armee sahen, sollten jetzt die ganze sehen.
 
-- {church} Die Rangliste ist für alle offen: Kirche > Rangliste > Alle. Jeder Spieler, der nach deiner Einladung deiner Gilde beitritt, bringt dir 10 Punkte, und 5 mehr, wenn er 7 Tage später noch dabei ist. Das Mitglied, das dir diesen Spieler weitergegeben hat, bekommt ein Viertel dieser Punkte. Ein Rekrut zählt, sobald auch das Addon eines anderen Mitglieds seinen Beitritt sieht. Die Seite zeigt die ersten 10 und deinen Platz.
+- {church} Die Rangliste ist für alle offen: Kirche > Rangliste. Jeder Spieler, der nach deiner Einladung deiner Gilde beitritt, bringt dir 10 Punkte, und 5 mehr, wenn er 7 Tage später noch dabei ist. Das Mitglied, das dir diesen Spieler weitergegeben hat, bekommt ein Viertel dieser Punkte. Ein Rekrut zählt, sobald auch das Addon eines Offiziers, des Kirchenkorrespondenten deiner Gilde oder eines Verwahrers der Kirche seinen Beitritt sieht. Die Seite zeigt die ersten 10 und deinen Platz.
 - {church} Kirche > Einladungen ist leichter zu lesen: Rekrutierung, Rekrutierungsanzeigen, Spieler ohne Gilde finden und Weitergaben, jeweils unter einer eigenen Überschrift. Wenn du einen Spieler weitergibst, werden zuerst die Mitglieder gefragt, die Weitergaben annehmen, und Einem anderen Mitglied anbieten listet sie zuerst auf.
 - {church} Ein Spieler, der deine Gildeneinladung ablehnt, wird dir 7 Tage lang nicht mehr angeboten, außer er bittet selbst wieder um Aufnahme. Deine Rekrutierungsschalter bleiben nach einem /reload oder einer neuen Anmeldung so, wie du sie gelassen hast. Solange die Rekrutierung an ist, sagt es eine Zeile oben im Zensus: Ein Klick darauf öffnet die Einstellungen.
 - {guild} Ein Mitglied, das rekrutiert, bekommt eine Anfrage von der Seite Olympus beitreten jetzt wie ein geflüstertes JOIN: dasselbe Einladungsfenster und dieselben Weitergaben.
 - {guild} Der Zensus für die Gilden, die zu wenige von uns sahen: Auf WoW: Forever treten jetzt alle Olympus-Gilden deiner Fraktion demselben Kanal bei, auch versiegelte, und die Relays geben wieder den ganzen Zensus weiter, auch wenn sie ausgelastet sind. Wer noch eine alte Version hat, wird höchstens einmal am Tag gebeten, sie zu aktualisieren.
 - {guild} Die Zahlen der anderen Regelwerke bleiben jetzt, bis eine neuere Zählung sie ersetzt, und die Zahlen, die der Client des Autors sieht, erreichen jedes Mitglied. Die Zensusdetails zeigen, wann sie gezählt wurden.
-- {news} Im Olympus-Chat steht jede Zeile unter dem Regelwerk ihres Schreibers: Zeilen anderer Regelwerke landen nicht mehr unter deinem. Ist dein eigenes Regelwerk gewählt, geht, was du schreibst, nur an dein Regelwerk.
+- {news} Im Olympus-Chat steht jede Zeile unter dem Regelwerk ihres Schreibers: Zeilen anderer Regelwerke landen nicht mehr unter deinem. Ist im Chat-Tab dein eigenes Regelwerk gewählt, erscheint, was du dort schreibst, nur unter deinem Regelwerk; Versionen vor 1.5.9 zeigen weiterhin jede Zeile allen.
 - {crown} Die Gilde des Königs trägt im Zensus das Häkchen einer verifizierten Gilde.
 
 Danke für die Berichte mit /oly bug: Sie haben gezeigt, wo der Zensus zu kurz kam.
@@ -1454,7 +1454,7 @@ Lang lebe der König. Lang lebe Olympus.]==],
 	CHURCH_EVERYONE_YOU_NONE = "Du hast noch keinen bestätigten Rekruten.",
 	CHURCH_EVERYONE_YOU_TITLE = "Dein Platz",
 	CHURCH_EVERYONE_PENDING = "%d deiner Rekruten warten auf ein anderes Addon",
-	CHURCH_EVERYONE_PENDING_TIP = "Bisher hat nur dein eigenes Addon diese Beitritte gesehen. Jeder zählt, sobald das Addon eines anderen Mitglieds ihn auch sieht.",
+	CHURCH_EVERYONE_PENDING_TIP = "Für diese Beitritte liegt bisher nur die Meldung deines eigenen Addons vor. Jeder zählt, sobald ihn auch das Addon eines Offiziers deiner Gilde, deines Kirchenkorrespondenten oder eines Verwahrers der Kirche sieht.",
 	CHURCH_EVERYONE_TIP = "Hier zählen die bestätigten Rekruten jedes Olympus-Mitglieds, nicht nur die der Kirche. Jeder bringt %d Punkte und %d mehr, wenn er %d Tage nach dem Beitritt noch in der Gilde ist. Das Mitglied, das diesen Spieler weitergegeben hat (eine JOIN-Anfrage oder ein gefundener Spieler), erhält %d%% dieser Punkte, wenn sein Addon und das des Einladenden es beide melden. Ein Rekrut ist bestätigt, wenn das Addon eines Verwahrers der Kirche seinen Beitritt gesehen hat oder wenn dein eigenes Addon und ein Addon deiner Gilde, das die Verwahrer prüfen können, ihn beide gesehen haben. Eine Einladung, deren Spieler nie beitritt, zählt nichts, ebenso wenig ein Twink, eine Rückkehr oder ein Wechsel aus einer anderen Olympus-Gilde, in der ihn das Addon eines Verwahrers gesehen hat.",
 	CHURCH_EVERYONE_ROW_TIP = "%s Punkte: %d Rekruten, davon %d nach %d Tagen noch dabei, und %d an andere weitergegebene Spieler.",
 	CHURCH_LIST_CORRESPONDENTS = "Korrespondenten",

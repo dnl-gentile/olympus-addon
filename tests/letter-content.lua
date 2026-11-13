@@ -518,9 +518,12 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 			end
 			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
 		end
-		-- The pages and buttons as this language's player sees them named.
-		local ranking = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_RANKING .. " > " .. L.CHURCH_LIST_EVERYONE
-		assert(raw:find(ranking, 1, true), code .. ": the ranking as shown: " .. ranking)
+		-- The pages and buttons as this language's player sees them named. (Changed on purpose, review of the
+		-- 1.5.9 release: the letter sent readers to Church > Ranking > Everyone, and a member outside the
+		-- Church's audience, most readers, has no Who filter there: his page is that list alone.)
+		local ranking = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_RANKING
+		assert(raw:find(ranking .. ".", 1, true), code .. ": the ranking as shown: " .. ranking)
+		eq(raw:find(ranking .. " > ", 1, true), nil, code .. ": no list a plain member never sees")
 		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
 		local at = raw:find(invites, 1, true)
 		assert(at, code .. ": Church > Invites as shown: " .. invites)
@@ -539,8 +542,14 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 		previous = raw
 	end
 	-- What a recruit needs before it counts, in the page's own words (CHURCH_EVERYONE_PENDING_TIP).
-	assert(en.CHURCH_EVERYONE_PENDING_TIP:find("once another member's addon sees", 1, true))
-	assert(english:find("A recruit counts once another member's addon sees him join too.", 1, true))
+	-- (Changed on purpose, review of the 1.5.9 release: both said any other member's addon confirms a
+	-- recruit, and the keepers refuse a plain member of another guild, RecruitRanking.TakeEvidence.)
+	assert(en.CHURCH_EVERYONE_PENDING_TIP:find("once an officer's addon in your guild, your Church correspondent's or a Church keeper's sees it too", 1, true))
+	assert(english:find("A recruit counts once an officer's addon, your guild's Church correspondent's or a Church keeper's sees him join too.", 1, true))
+	-- (Review of the 1.5.9 release: the letter said a line written under one's own ruleset goes to it
+	-- alone; it goes on the shared channel, another ruleset's 1.5.9 player sees it by choosing that ruleset,
+	-- and an older client shows it to everyone.)
+	assert(english:find("what you write there shows under your ruleset alone; versions before 1.5.9 still show every line to everyone.", 1, true))
 	assert(english:find("As promised, here is the rest.", 1, true), "the rest the 1.5.8 letter promised")
 	-- The census for the guilds that saw too few of us: one channel a faction, sealed guilds too.
 	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, sealed guilds too", 1, true))

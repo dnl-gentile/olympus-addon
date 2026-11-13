@@ -50,13 +50,13 @@ ns.Locale({ "esES", "esMX" }, {
 
 Como prometimos, aquí está el resto. Ahora cualquier miembro puede subir en la clasificación de reclutamiento, y las hermandades que veían solo una parte del ejército en el censo deberían verlo entero.
 
-- {church} La clasificación está abierta a todos: Iglesia > Clasificación > Todos. Cada jugador que entra en tu hermandad tras tu invitación te da 10 puntos, y 5 más si sigue en ella 7 días después. El miembro que te pasó a ese jugador recibe una cuarta parte de esos puntos. Un recluta cuenta cuando el addon de otro miembro también ve su entrada. La página muestra los 10 primeros y tu puesto.
+- {church} La clasificación está abierta a todos: Iglesia > Clasificación. Cada jugador que entra en tu hermandad tras tu invitación te da 10 puntos, y 5 más si sigue en ella 7 días después. El miembro que te pasó a ese jugador recibe una cuarta parte de esos puntos. Un recluta cuenta cuando el addon de un oficial, del corresponsal de la Iglesia de tu hermandad o de un custodio de la Iglesia también ve su entrada. La página muestra los 10 primeros y tu puesto.
 - {church} Iglesia > Invitaciones se lee mejor: Reclutamiento, Anuncios de reclutamiento, Buscar jugadores sin hermandad y Derivaciones, cada una bajo su propio título. Cuando pasas a un jugador, primero se pregunta a los miembros que aceptan derivaciones, y Ofrecer a otro miembro los muestra primero.
 - {church} Un jugador que rechaza la invitación de tu hermandad no se te vuelve a ofrecer durante 7 días, salvo que vuelva a pedir entrar. Tus interruptores de reclutamiento se quedan como los dejaste tras un /reload o un nuevo inicio de sesión. Mientras el reclutamiento está activado, una línea arriba en el Censo lo dice: haz clic en ella para abrir los ajustes.
 - {guild} Una solicitud desde la página Únete a Olympus llega ahora a un miembro que está reclutando como llegaría un JOIN susurrado: la misma ventana de invitación y las mismas derivaciones.
 - {guild} El censo de las hermandades que veían a muy pocos de nosotros: en WoW: Forever todas las hermandades Olympus de tu facción entran ahora en el mismo canal, también las selladas, y los relays vuelven a pasar el censo completo, incluso cuando están ocupados. A quien sigue con una versión antigua se le pide actualizar, como mucho una vez al día.
 - {guild} Los totales de las otras reglas se mantienen ahora hasta que un recuento más nuevo los sustituya, y los totales que ve el cliente del autor llegan a todos los miembros. Los detalles del censo muestran cuándo se contaron.
-- {news} En el chat de Olympus, cada línea aparece bajo las reglas de quien la escribe: las líneas de otras reglas ya no caen en las tuyas. Con tus propias reglas elegidas, lo que escribes va solo a tus reglas.
+- {news} En el chat de Olympus, cada línea aparece bajo las reglas de quien la escribe: las líneas de otras reglas ya no caen en las tuyas. Con tus propias reglas elegidas en la pestaña Chat, lo que escribes allí aparece solo bajo tus reglas; las versiones anteriores a la 1.5.9 siguen mostrando cada línea a todos.
 - {crown} La hermandad del Rey lleva en el Censo la marca de hermandad verificada.
 
 Gracias por los informes con /oly bug: nos mostraron dónde se quedaba corto el censo.
@@ -1454,7 +1454,7 @@ Larga vida al Rey. Larga vida a Olympus.]==],
 	CHURCH_EVERYONE_YOU_NONE = "Aún no tienes ningún recluta confirmado.",
 	CHURCH_EVERYONE_YOU_TITLE = "Tu puesto",
 	CHURCH_EVERYONE_PENDING = "%d tuyos esperan a otro addon",
-	CHURCH_EVERYONE_PENDING_TIP = "Hasta ahora solo tu propio addon vio estas entradas. Cada una cuenta cuando el addon de otro miembro también la vea.",
+	CHURCH_EVERYONE_PENDING_TIP = "De estas entradas, por ahora solo llegó el aviso de tu propio addon. Cada una cuenta cuando también la vea el addon de un oficial de tu hermandad, de tu corresponsal de la Iglesia o de un custodio de la Iglesia.",
 	CHURCH_EVERYONE_TIP = "Aquí cuentan los reclutas confirmados de cualquier miembro de Olympus, no solo los de la Iglesia. Cada uno vale %d puntos, y %d más si sigue en la hermandad %d días después de entrar. El miembro que pasó a ese jugador (una solicitud JOIN o un jugador encontrado) recibe el %d%% de esos puntos cuando su addon y el de quien invitó lo dicen los dos. Un recluta queda confirmado cuando el addon de un custodio de la Iglesia vio su ingreso, o cuando tu propio addon y un addon de tu hermandad que los custodios pueden comprobar lo vieron. Una invitación cuyo jugador nunca entra no cuenta nada, ni tampoco un alt, un regreso o un traslado desde otra hermandad de Olympus donde lo vio el addon de un custodio.",
 	CHURCH_EVERYONE_ROW_TIP = "%s puntos: %d reclutas, %d de ellos aún dentro tras %d días, y %d jugadores pasados a otros.",
 	CHURCH_LIST_CORRESPONDENTS = "Corresponsales",

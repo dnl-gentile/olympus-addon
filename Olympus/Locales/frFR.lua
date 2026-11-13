@@ -50,13 +50,13 @@ ns.Locale("frFR", {
 
 Comme promis, voici la suite. Chaque membre peut maintenant grimper dans le classement du recrutement, et les guildes qui ne voyaient qu'une partie de l'armée dans le recensement devraient maintenant la voir en entier.
 
-- {church} Le classement est ouvert à tous : Église > Classement > Tous. Chaque joueur qui rejoint ta guilde après ton invitation te rapporte 10 points, et 5 de plus s'il y est encore 7 jours plus tard. Le membre qui t'a transmis ce joueur reçoit un quart de ces points. Une recrue compte dès que l'addon d'un autre membre voit aussi son arrivée. La page montre les 10 premiers et ta place.
+- {church} Le classement est ouvert à tous : Église > Classement. Chaque joueur qui rejoint ta guilde après ton invitation te rapporte 10 points, et 5 de plus s'il y est encore 7 jours plus tard. Le membre qui t'a transmis ce joueur reçoit un quart de ces points. Une recrue compte dès que l'addon d'un officier, du correspondant de l'Église de ta guilde ou d'un gardien de l'Église voit aussi son arrivée. La page montre les 10 premiers et ta place.
 - {church} Église > Invitations se lit plus facilement : Recrutement, Annonces de recrutement, Trouver des joueurs sans guilde et Transferts, chacun sous son propre titre. Quand tu transmets un joueur, les membres qui acceptent les transferts sont sollicités en premier, et Proposer à un autre membre les affiche en premier.
 - {church} Un joueur qui refuse l'invitation de ta guilde ne t'est plus proposé pendant 7 jours, sauf s'il redemande à rejoindre. Tes interrupteurs de recrutement restent comme tu les as laissés après un /reload ou une nouvelle connexion. Tant que le recrutement est activé, une ligne en haut du Recensement le dit : clique dessus pour ouvrir les réglages.
 - {guild} Un membre qui recrute reçoit maintenant une demande de la page Rejoindre Olympus comme un JOIN chuchoté : la même fenêtre d'invitation et les mêmes transferts.
 - {guild} Le recensement des guildes qui voyaient trop peu d'entre nous : sur WoW: Forever, toutes les guildes Olympus de ta faction rejoignent maintenant le même canal, les guildes scellées aussi, et les relais transmettent de nouveau le recensement entier, même quand ils sont chargés. Les joueurs encore sur une ancienne version reçoivent une demande de mise à jour, une fois par jour au plus.
 - {guild} Les totaux des autres règles restent maintenant jusqu'à ce qu'un compte plus récent les remplace, et les totaux que voit le client de l'auteur arrivent à chaque membre. Les détails du recensement indiquent quand ils ont été comptés.
-- {news} Dans le chat d'Olympus, chaque ligne apparaît sous les règles de celui qui l'écrit : les lignes des autres règles n'arrivent plus sous les tiennes. Avec tes propres règles choisies, ce que tu écris ne va qu'à tes règles.
+- {news} Dans le chat d'Olympus, chaque ligne apparaît sous les règles de celui qui l'écrit : les lignes des autres règles n'arrivent plus sous les tiennes. Avec tes propres règles choisies dans l'onglet Discussion, ce que tu y écris n'apparaît que sous tes règles ; les versions avant 1.5.9 montrent encore chaque ligne à tous.
 - {crown} La guilde du Roi porte dans le Recensement la coche des guildes vérifiées.
 
 Merci pour les rapports /oly bug : ils nous ont montré où le recensement ne suivait pas.
@@ -1454,7 +1454,7 @@ Vive le Roi. Vive Olympus.]==],
 	CHURCH_EVERYONE_YOU_NONE = "Tu n'as encore aucune recrue confirmée.",
 	CHURCH_EVERYONE_YOU_TITLE = "Ta place",
 	CHURCH_EVERYONE_PENDING = "%d des tiennes attendent un autre addon",
-	CHURCH_EVERYONE_PENDING_TIP = "Pour l'instant, seul ton propre addon a vu ces arrivées. Chacune compte dès que l'addon d'un autre membre la voit aussi.",
+	CHURCH_EVERYONE_PENDING_TIP = "Pour ces arrivées, seul le signalement de ton propre addon est là pour l'instant. Chacune compte dès que l'addon d'un officier de ta guilde, de ton correspondant de l'Église ou d'un gardien de l'Église la voit aussi.",
 	CHURCH_EVERYONE_TIP = "Ici comptent les recrues confirmées de tout membre d'Olympus, pas seulement celles de l'Église. Chacune rapporte %d points, et %d de plus si elle est toujours dans la guilde %d jours après son arrivée. Le membre qui a transmis ce joueur (une demande JOIN ou un joueur repéré) reçoit %d%% de ces points quand son addon et celui de l'inviteur le disent tous les deux. Une recrue est confirmée quand l'addon d'un gardien de l'Église a vu son arrivée, ou quand ton propre addon et un addon de ta guilde que les gardiens peuvent vérifier l'ont vue. Une invitation dont le joueur n'arrive jamais ne compte rien, pas plus qu'un reroll, un retour ou un passage depuis une autre guilde Olympus où l'addon d'un gardien l'a vu.",
 	CHURCH_EVERYONE_ROW_TIP = "%s points : %d recrues, dont %d encore là après %d jours, et %d joueurs transmis à d'autres.",
 	CHURCH_LIST_CORRESPONDENTS = "Correspondants",

@@ -50,13 +50,13 @@ ns.Locale("itIT", {
 
 Come promesso, ecco il resto. Ora ogni membro può scalare la classifica del reclutamento, e le gilde che nel censimento vedevano solo una parte dell'esercito dovrebbero vederlo tutto.
 
-- {church} La classifica è aperta a tutti: Chiesa > Classifica > Tutti. Ogni giocatore che entra nella tua gilda dopo il tuo invito ti dà 10 punti, e altri 5 se è ancora lì 7 giorni dopo. Il membro che ti ha passato quel giocatore riceve un quarto di quei punti. Una recluta conta quando anche l'addon di un altro membro vede il suo ingresso. La pagina mostra i primi 10 e il tuo posto.
+- {church} La classifica è aperta a tutti: Chiesa > Classifica. Ogni giocatore che entra nella tua gilda dopo il tuo invito ti dà 10 punti, e altri 5 se è ancora lì 7 giorni dopo. Il membro che ti ha passato quel giocatore riceve un quarto di quei punti. Una recluta conta quando anche l'addon di un ufficiale, del corrispondente della Chiesa della tua gilda o di un custode della Chiesa vede il suo ingresso. La pagina mostra i primi 10 e il tuo posto.
 - {church} Chiesa > Inviti si legge meglio: Reclutamento, Annunci di reclutamento, Trova giocatori senza gilda e Inoltri, ognuno sotto il suo titolo. Quando passi un giocatore, si chiede prima ai membri che accettano gli inoltri, e Proponi a un altro membro li mostra per primi.
 - {church} Un giocatore che rifiuta l'invito nella tua gilda non ti viene riproposto per 7 giorni, a meno che non chieda di nuovo di entrare. I tuoi interruttori di reclutamento restano come li hai lasciati dopo un /reload o un nuovo accesso. Finché il reclutamento è attivo, una riga in cima al Censimento lo dice: cliccala per aprire le impostazioni.
 - {guild} Una richiesta dalla pagina Unisciti a Olympus ora arriva a un membro che sta reclutando come arriverebbe un JOIN sussurrato: la stessa finestra di invito e gli stessi inoltri.
 - {guild} Il censimento delle gilde che vedevano troppo pochi di noi: su WoW: Forever tutte le gilde Olympus della tua fazione entrano ora nello stesso canale, anche quelle sigillate, e i relay passano di nuovo il censimento intero, anche quando sono occupati. Chi usa ancora una versione vecchia riceve una richiesta di aggiornare, al massimo una volta al giorno.
 - {guild} I totali delle altre regole ora restano finché un conteggio più recente non li sostituisce, e i totali che vede il client dell'autore arrivano a ogni membro. I dettagli del censimento mostrano quando sono stati contati.
-- {news} Nella chat di Olympus, ogni riga appare sotto le regole di chi la scrive: le righe di altre regole non finiscono più sotto le tue. Con le tue regole scelte, ciò che scrivi va solo alle tue regole.
+- {news} Nella chat di Olympus, ogni riga appare sotto le regole di chi la scrive: le righe di altre regole non finiscono più sotto le tue. Con le tue regole scelte nella scheda Chat, ciò che scrivi lì appare solo sotto le tue regole; le versioni precedenti alla 1.5.9 mostrano ancora ogni riga a tutti.
 - {crown} La gilda del Re porta nel Censimento il segno di spunta delle gilde verificate.
 
 Grazie per le segnalazioni con /oly bug: ci hanno mostrato dove il censimento non arrivava.
@@ -1454,7 +1454,7 @@ Lunga vita al Re. Lunga vita a Olympus.]==],
 	CHURCH_EVERYONE_YOU_NONE = "Non hai ancora reclute confermate.",
 	CHURCH_EVERYONE_YOU_TITLE = "Il tuo posto",
 	CHURCH_EVERYONE_PENDING = "%d delle tue aspettano un altro addon",
-	CHURCH_EVERYONE_PENDING_TIP = "Finora solo il tuo addon ha visto questi ingressi. Ognuno conta quando lo vede anche l'addon di un altro membro.",
+	CHURCH_EVERYONE_PENDING_TIP = "Per questi ingressi finora c'è solo la segnalazione del tuo addon. Ognuno conta quando lo vede anche l'addon di un ufficiale della tua gilda, del tuo corrispondente della Chiesa o di un custode della Chiesa.",
 	CHURCH_EVERYONE_TIP = "Qui contano le reclute confermate di qualsiasi membro di Olympus, non solo quelle della Chiesa. Ognuna vale %d punti, e %d in più se è ancora nella gilda %d giorni dopo l'ingresso. Il membro che ha passato quel giocatore (una richiesta JOIN o un giocatore trovato) riceve il %d%% di quei punti quando il suo addon e quello di chi ha invitato lo dicono entrambi. Una recluta è confermata quando l'addon di un custode della Chiesa ha visto il suo ingresso, o quando il tuo addon e un addon della tua gilda che i custodi possono verificare l'hanno visto. Un invito il cui giocatore non entra mai non conta nulla, e nemmeno un alt, un ritorno o uno spostamento da un'altra gilda Olympus dove l'addon di un custode l'ha visto.",
 	CHURCH_EVERYONE_ROW_TIP = "%s punti: %d reclute, %d ancora dentro dopo %d giorni, e %d giocatori passati ad altri.",
 	CHURCH_LIST_CORRESPONDENTS = "Corrispondenti",
