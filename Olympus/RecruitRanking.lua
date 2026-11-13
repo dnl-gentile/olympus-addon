@@ -18,16 +18,29 @@ local L = ns.L
 -- - Who reports a pair: about two members of the guild and about two of its officers (RR.ELECT, a draw
 --   on their own name and the pair's, the same on every client: the census names officers, so a keeper
 --   in another guild can vouch for them), and always a keeper, a High Councillor or the guild's Church
---   correspondent. The inviter's own client reports his pair only when a member passed him that player:
---   his report names that member, the source. Each report goes to the Church's keepers online (the Head,
---   the Apostles, the author), whispered, and waits in an outbox OUTBOX_DAYS while none takes it.
--- - Pending or confirmed, as the Church's: the inviter's own report leaves a record pending; a report
---   from a witness the keeper can vouch for in the pair's guild (ChurchCount.VerifiedWitness) confirms
---   it, and the keeper that vouched tells the others.
--- - One recruit counts once, for the earliest confirmed claim: the same player invited again later, by
---   anyone and in any guild, is taken. Never an alt (Alts.Linked, either way, ChurchCount.AltOf), nor a
---   player a keeper's own roster memory saw in another Olympus guild in Count.NEW_DAYS before his join,
---   or in the same guild before the invite (a return); the keeper that saw it tells the others.
+--   correspondent. The inviter's own client reports every pair of his (review of 1.5.9: it reads its log
+--   as a Church person's does for OWN_READ_HOURS after it took an invite command to chat, and while a
+--   name another member passed it waits); his report names the member who passed him that player, if
+--   one did. The member who passed it says so himself when the name was taken (NE h, RecruitHandoff.lua).
+--   Each report goes to the Church's keepers online (the Head, the Apostles, the author), whispered, and
+--   waits in an outbox OUTBOX_DAYS while none takes it.
+-- - Pending or confirmed (review of 1.5.9: one officer's or a correspondent's word made up recruits for
+--   any name, and a guildmate's took a real recruit from his inviter). A keeper weighs each witness's
+--   word (ChurchCount.VerifiedWitness first): strong from a keeper, the King or a High Councillor, or from
+--   a guildmate of the keeper's own guild when the keeper's own read of the log saw that same invite
+--   (ChurchCount.SawInvite); weak from anyone else it can vouch for (an officer as the census names him,
+--   a correspondent, a guildmate whose invite its own log did not show). A strong word confirms a record
+--   alone. A weak one confirms it only beside the inviter's own report, and one weak witness confirms
+--   WEAK_DAY recruits a join day at most, the same on every keeper (RR.Credits): a name nobody's own
+--   addon stands behind never ranks. The inviter's own report and the passer's are kept apart from the
+--   ledger (OWN_MAX, OWN_DAYS): they only mark a record a witness made (s), and name who passed the
+--   player on when both say the same (src). The keeper that weighed a word tells the others.
+-- - One recruit counts once: a strong claim before a weak one, then the earliest: the same player invited
+--   again later, by anyone and in any guild, is taken. Never an alt (Alts.Linked, either way,
+--   ChurchCount.AltOf), nor a player a keeper's own roster memory saw in another Olympus guild in
+--   Count.NEW_DAYS before his join, or in the same guild before the invite (a return); the keeper that
+--   saw it tells the others. (A move out of a guild no keeper's addon saw is not caught: no other client's
+--   word on where a player was can be checked.)
 -- - Still in the guild STAY_DAYS after his join: the witnesses that reported the pair say so then (NE y),
 --   and a keeper of that guild sees it on its own roster.
 --
@@ -37,26 +50,34 @@ local L = ns.L
 -- Nothing for an invite whose player never joined. Windows: this week, the last 30 days, all time.
 --
 -- Who sees what: every Olympus member sees the ranking (Church > Ranking): the top RANK_ROWS rows and
--- his own, asked of a keeper online, and the last answer kept on his computer.
+-- his own, asked of a keeper online, and the last answer kept on his computer. (Review of 1.5.9: one
+-- character could take most of a keeper's sending with its asks, and the Church's own answers came back
+-- "busy". A keeper answers an asker whose ask names an Olympus guild that nothing it knows of him
+-- contradicts, ANSWERS_PER times in ANSWER_WINDOW, ANSWERS_ALL askers in all, on a line queue of its own
+-- that leaves the Church's room first; a member's asks start at a keeper his name picks.)
 --
 -- Kept on the keepers' computers (ns.rdb.recruits.led): each record RECORDS_DAYS after its join, then its
 -- points fold into its people's all-time totals; RECORDS_MAX records at most. A recruit whose claim was
--- folded is never counted again for GONE_DAYS.
+-- folded is not counted again for GONE_DAYS.
 --
 -- The wire (NE, whole messages, version 1, whispers only; clients before 1.5.9 drop them unread):
 --   NE~1~w~<inviter>~<invitee>~<guild>~<invite hour36>~<join hour36>~<source|->   a log pair -> keepers
+--       (the source: only in the inviter's own report, the member who passed him that player)
+--   NE~1~h~<recruit>~<inviter>   the member who passed that player on, his own word -> keepers
 --   NE~1~y~<inviter>~<invitee>~<guild>~<join hour36>~<1|0>   a witness's word, STAY_DAYS on -> keepers
 --   NE~1~k~<h1,h2,...>   a keeper's receipt for the reports it took (Comm.Hash36 of each) -> reporter
 --   NE~1~x~<h1,h2,...>   a keeper's refusal: a witness it can't vouch for; another keeper may -> reporter
+--   NE~1~l~<h1,h2,...>   a keeper refused these for now: they go to it again later -> reporter
 --   NE~1~r~<recruit>~<inviter>~<guild|->~<tc36>~<tj36|->~<flags|->~<witnesses|->~<source|->~<u36>
 --       a record between keepers; flags: s the inviter's own report, a alt, t moved in or came back,
---       y still in after STAY_DAYS, n gone by then
+--       y still in after STAY_DAYS, n gone by then; witnesses: two at most, the strong ones first, a weak
+--       one marked "!"
 --   NE~1~p~<name>~<joins>~<stays>~<passed on>~<of them stayed>~<u36>   a person's folded totals
 --   NE~1~g~<recruit>~<inviter>~<t36>   a claim folded into the totals: its recruit counts no more
 --   NE~1~q~<id>~<since36>~<tie|->   a keeper asks another for what changed after its cursor
 --   NE~1~d~<id>~<i>~<row>   a row of that answer (an r, p or g line without its "NE~1~")
 --   NE~1~e~<id>~<rows>~<more 0|1>~<last36>~<tie|->   its end: the next cursor, once every row came
---   NE~1~a~<id>~<w|m|a>   a member asks a keeper for the ranking
+--   NE~1~a~<id>~<w|m|a>~<guild>   a member asks a keeper for the ranking (his own guild)
 --   NE~1~o~<id>~<rank>~<name>~<score*100>~<own*100>~<share*100>~<joins>~<stays>~<passed on>   a row
 --   NE~1~n~<id>~<rows>~<ranked>~<asOf36>~<pending>   its end (pending: the asker's own, unconfirmed)
 
@@ -80,11 +101,19 @@ RR.EVIDENCE_HOUR, RR.EVIDENCE_DAY, RR.CENSUS_HOUR, RR.CENSUS_DAY = 300, 2000, 30
 RR.ELECT = 2                     -- members, and officers, who report one pair: about this many each
 RR.SOURCES_MAX, RR.SOURCE_HOURS = 200, 72
 RR.SEEN_MAX, RR.STAY_LATE = 800, 7
-RR.RANK_ROWS = 25
-RR.ASK_GAP, RR.RANK_REFRESH, RR.ASK_WINDOW = 60, 300, 120
-RR.ANSWERS_PER, RR.ANSWER_WINDOW = 6, 300
+-- (Review of 1.5.9) The inviters' own reports and the passers' words, kept apart from the ledger: this
+-- many of each at most, this many days. One weak witness's word confirms WEAK_DAY recruits a join day.
+RR.OWN_MAX, RR.OWN_DAYS, RR.WEAK_DAY = 6000, 14, 25
+RR.OWN_READ_HOURS = 3            -- the inviter's client reads its log this long after an invite command
+-- (Review of 1.5.9: 25 rows were 27 whispers an answer, about 32 seconds of a keeper's sending.)
+RR.RANK_ROWS = 10
+RR.ASK_GAP, RR.RANK_REFRESH, RR.ASK_WINDOW = 60, 900, 120
+RR.ANSWERS_PER, RR.ANSWERS_ALL, RR.ANSWER_WINDOW = 2, 8, 300
 RR.CATCHUP_EVERY, RR.CATCHUP_LINES, RR.CATCHUP_RETRY, RR.CATCHUP_GAP = 1800, 120, 120, 4
 RR.DUE_EVERY, RR.SETTLE_MAX, RR.SEND_ROOM = 600, 900, 20
+-- The ranking's own line queue: QUEUE_MAX transfers, members' answers QUEUE_ASKS of them; it sends only
+-- while Comm's queue keeps CHURCH_ROOM more free than the Church's own lines need (ChurchCount.SendLines).
+RR.QUEUE_MAX, RR.QUEUE_ASKS, RR.CHURCH_ROOM = 6, 3, 10
 
 RR.after = function(seconds, where, fn) ns.After(seconds, where, fn) end
 
@@ -111,6 +140,18 @@ end
 local function IsKeeper(name) return Church.IsKeeper(name or ns.me) and not Church.IsKing(name or ns.me) end
 local function Room(n) return ns.Comm.QueueRoom() > RR.SEND_ROOM + (n or 0) end
 local function Hundred(v) return floor((tonumber(v) or 0) * 100 + 0.5) end
+local function Same(a, b) return type(a) == "string" and type(b) == "string" and ns.Fold(a) == ns.Fold(b) end
+-- A witness every keeper vouches for wherever he is: the signed (a keeper, the King, a High Councillor).
+local function Signed(name)
+	local who = ns.FullName(name)
+	return Church.IsKeeper(who) or Church.IsKing(who) or (ns.IsHighCouncillor ~= nil and ns.IsHighCouncillor(who) == true)
+end
+-- A guildmate on this client's fresh roster.
+local function Mate(name)
+	local R = ns.Roster
+	local fresh = R and R.Fresh and R.Fresh()
+	return fresh ~= nil and fresh ~= false and R.RankOf ~= nil and R.RankOf(ns.FullName(name)) ~= nil
+end
 
 -- The keepers heard to take these records this session (any NE word of theirs): an older keeper drops
 -- them unread, so a report goes to one not heard yet once, and a member's ask goes to one heard first.
@@ -137,14 +178,17 @@ local function Out() return Sub("out", function() return {} end) end
 local function Sources() return Sub("src", function() return {} end) end
 local function Seen() return Sub("seen", function() return {} end) end
 local function Views() return Sub("view", function() return {} end) end
-local function NewLedger() return { v = 1, n = 0, r = {}, p = {}, gone = {}, from = {}, caught = {} } end
+-- (own: the inviters' own reports, hand: the passers' words, both by record id: kept apart from r.)
+local function NewLedger() return { v = 1, n = 0, r = {}, p = {}, gone = {}, from = {}, caught = {}, own = {}, hand = {} } end
 local function Led()
 	local l = Sub("led", NewLedger)
 	if l and (l.v ~= 1 or type(l.r) ~= "table" or type(l.p) ~= "table" or type(l.gone) ~= "table" or type(l.from) ~= "table") then
 		Store().led = NewLedger()
 		l = Store().led
 	end
-	if l and type(l.caught) ~= "table" then l.caught = {} end
+	if l then
+		for _, k in ipairs({ "caught", "own", "hand" }) do if type(l[k]) ~= "table" then l[k] = {} end end
+	end
 	return l
 end
 RR.Led = Led
@@ -320,7 +364,7 @@ end
 -- refusal (x): those reports go to that keeper no more, and wait for another (one that can vouch for
 -- this witness in its own guild).
 local function TakeReceipt(sender, text)
-	local kind, list = text:match("^NE~1~([kx])~([0-9a-z,]+)$")
+	local kind, list = text:match("^NE~1~([kxl])~([0-9a-z,]+)$")
 	if not list then return Drop("shape") end
 	if not IsKeeper(sender) then return Drop("keeper") end
 	local got, n = {}, 0
@@ -336,23 +380,27 @@ local function TakeReceipt(sender, text)
 			if kind == "k" then
 				table.remove(out, i)
 				stats.receipts = stats.receipts + 1
-			elseif type(o.to) == "table" then
+			elseif kind == "x" and type(o.to) == "table" then
 				o.to[k] = { n = RR.RESEND_TRIES, w = now }
 			end
+			-- (l: refused for now. The report stays, and goes to that keeper again RESEND_GAP after it last
+			-- did: hearing this word made him one that takes these, RESEND_TRIES sends.)
 		end
 	end
 	return true
 end
 
 -- The receipts this keeper owes: for a report it took, or one no other try can change (k); for a witness
--- it cannot vouch for, a refusal (x: another keeper may). None for a report refused for now (a budget
--- spent, a record or a roster not here yet), and none to a keeper.
+-- it cannot vouch for, a refusal (x: another keeper may); (review of 1.5.9) for a report refused for now (a
+-- budget spent, a record or a roster not here yet), a later (l): before it, a reporter that had never heard
+-- this keeper take these sent it once and never again. None to a keeper.
 local owed, owing = {}, false
-local FINAL = { shape = true, kind = true, times = true, self = true, recruit = true, guild = true }
+local FINAL = { shape = true, kind = true, times = true, self = true, recruit = true, guild = true, alt = true }
+local LATER = { budget = true, roster = true, none = true, early = true }
 local function SendReceipts()
 	owing = false
 	for k, r in pairs(owed) do
-		for _, kind in ipairs({ "k", "x" }) do
+		for _, kind in ipairs({ "k", "x", "l" }) do
 			local ids = r[kind]
 			while #ids > 0 and Room() do
 				local n = min(#ids, RR.RECEIPT_IDS)
@@ -360,19 +408,19 @@ local function SendReceipts()
 				for _ = 1, n do table.remove(ids, 1) end
 			end
 		end
-		if #r.k == 0 and #r.x == 0 then owed[k] = nil end
+		if #r.k == 0 and #r.x == 0 and #r.l == 0 then owed[k] = nil end
 	end
 	if next(owed) then owing = true; RR.after(RR.RECEIPT_GAP, "recruit ranking receipts", SendReceipts) end
 end
 function RR.Receipt(sender, text, ok, why)
-	local kind = (ok == true or FINAL[why or ""]) and "k" or (why == "unverified" and "x") or nil
+	local kind = (ok == true or FINAL[why or ""]) and "k" or (why == "unverified" and "x") or (LATER[why or ""] and "l") or nil
 	if not kind then return false end
 	local k = Key(sender)
 	if not k or k == Key(ns.me) or IsKeeper(sender) then return false end
 	local r = owed[k]
 	if not r then
 		Church.Capped(owed, RR.PEOPLE_MAX)
-		r = { name = ns.FullName(sender), k = {}, x = {} }
+		r = { name = ns.FullName(sender), k = {}, x = {}, l = {} }
 		owed[k] = r
 	end
 	if #r[kind] >= RR.RECEIPT_IDS * 4 then return false end
@@ -392,18 +440,23 @@ function RR.Pair(inviter, invitee, guild, ti, tj)
 	if not ik or not xk or ik == xk or xk == me or not g or not ti or not tj then return false end
 	stats.pairs = stats.pairs + 1
 	local id = xk .. ":" .. ik
-	local source = ik == me and RR.SourceOf(invitee, ti) or nil
-	local why = Reporter(id, guild)
-	-- (The inviter's own report confirms nothing: it is sent only to name the member who passed him on.)
-	if ik == me and not source then return false end
-	if not why and not source then return false end
-	if why and ik ~= me then Remember(id, inviter, invitee, g, tj) end
-	return RR.Report(("NE~1~w~%s~%s~%s~%s~%s~%s"):format(Short(inviter), Short(invitee), g, B36(ti), B36(tj), source or "-"))
+	local function Text(source)
+		return table.concat({ "NE~1~w", Short(inviter), Short(invitee), g, B36(ti), B36(tj), source or "-" }, "~")
+	end
+	-- (Review of 1.5.9) The inviter's own client reports every pair of his, not only one a member passed
+	-- him: his word is what makes his recruit pending ("N of yours wait for another addon"), and what a
+	-- weak witness's word needs beside it. It names the member who passed him that player, if one did.
+	if ik == me then return RR.Report(Text(RR.SourceOf(invitee, ti))) end
+	if not Reporter(id, guild) then return false end
+	Remember(id, inviter, invitee, g, tj)
+	return RR.Report(Text(nil))
 end
 
 -- (1.5.9) Whether this client should read its guild's log for these records (ChurchCount.MaybeRead):
--- "own" while a member's handoff waits for its invite and join (this client names him), "drawn" in any
--- Olympus guild (the Church's draw: about two readers a guild), nil otherwise.
+-- "own" while a member's handoff waits for its invite and join (this client names him), and (review of
+-- 1.5.9) OWN_READ_HOURS after this player took an invite command to chat (Recruit.LastInviteAt): his own
+-- report of the join; "drawn" in any Olympus guild (the Church's draw: about two readers a guild), nil
+-- otherwise.
 function RR.ReadWanted()
 	if Off() or not ns.IsMember() or Church.IsKing(ns.me) then return nil end
 	local guild = OwnGuild()
@@ -412,7 +465,20 @@ function RR.ReadWanted()
 	for _, s in pairs(Sources() or {}) do
 		if type(s) == "table" and now - (tonumber(s.at) or 0) <= (RR.PAIR_HOURS + 2) * 3600 then return "own" end
 	end
+	local R = ns.Recruit
+	local invited = R and R.LastInviteAt and R.LastInviteAt()
+	if invited and ns.Now() - invited <= RR.OWN_READ_HOURS * 3600 then return "own" end
 	return "drawn"
+end
+
+-- (Review of 1.5.9) RecruitHandoff passed `name` on and the member `to` took it (his "A"): this client's
+-- own word to the keepers. The member who passed a player on gets his share only when the inviter's own
+-- report names him too: neither one's word alone makes a source.
+function RR.HandedOut(name, to)
+	local n, t = WireName(name), WireName(to)
+	local xk, tk, me = Key(n), Key(t), Key(ns.me)
+	if Off() or not xk or not tk or xk == tk or xk == me or tk == me then return false end
+	return RR.Report(("NE~1~h~%s~%s"):format(Short(n), Short(t)))
 end
 
 -- A witness's stays: STAY_DAYS after each join it reported, whether its guild's roster holds the recruit,
@@ -453,9 +519,10 @@ local function Witnesses(list)
 	return out
 end
 
--- o into r (both of one recruit and inviter): the earliest times, every flag, the two smallest
--- independent witnesses, the stronger stay word, the inviter's own word on who passed the player on.
--- The order they come in makes no difference.
+-- o into r (both of one recruit and inviter): the earliest times, every flag, the two smallest strong
+-- witnesses and the two smallest weak ones, the stronger stay word, who passed the player on (as both
+-- his and the inviter's own words said, a keeper's line or this keeper's side tables). The order they
+-- come in makes no difference.
 local function MergeRec(r, o)
 	local changed = false
 	local function Set(k, v) if r[k] ~= v then r[k], changed = v, true end end
@@ -465,12 +532,14 @@ local function MergeRec(r, o)
 	for _, f in ipairs({ "s", "a", "t" }) do if o[f] and not r[f] then Set(f, 1) end end
 	if o.y == 1 and r.y ~= 1 then Set("y", 1) elseif o.y == 0 and r.y == nil then Set("y", 0) end
 	if o.src and (not r.src or (Key(o.src) or "") < (Key(r.src) or "")) then Set("src", o.src) end
-	if o.ws then
-		local all = {}
-		for _, s in ipairs(r.ws or {}) do all[#all + 1] = s end
-		for _, s in ipairs(o.ws) do all[#all + 1] = s end
-		local ws = Witnesses(all)
-		if table.concat(ws, ",") ~= table.concat(r.ws or {}, ",") then Set("ws", #ws > 0 and ws or nil) end
+	for _, f in ipairs({ "ws", "wk" }) do
+		if o[f] then
+			local all = {}
+			for _, s in ipairs(r[f] or {}) do all[#all + 1] = s end
+			for _, s in ipairs(o[f]) do all[#all + 1] = s end
+			local list = Witnesses(all)
+			if table.concat(list, ",") ~= table.concat(r[f] or {}, ",") then Set(f, #list > 0 and list or nil) end
+		end
 	end
 	return changed
 end
@@ -502,14 +571,21 @@ local function Flags(r)
 	return f ~= "" and f or "-"
 end
 local function Time36(t) return B36(max(0, tonumber(t) or 0)) end
+-- Two witnesses at most on the wire: the strong ones first, then the weak ones, each marked "!".
+local function WitnessField(r)
+	local out = {}
+	for _, s in ipairs(r.ws or {}) do if #out < 2 then out[#out + 1] = s end end
+	for _, s in ipairs(r.wk or {}) do if #out < 2 then out[#out + 1] = "!" .. s end end
+	return #out > 0 and table.concat(out, ",") or "-"
+end
 function RR.RecordLine(id, r)
 	return ("NE~1~r~%s~%s~%s~%s~%s~%s~%s~%s~%s"):format(Short(r.n) or "?", Short(r.bn) or "?", CleanGuild(r.g) or "-", Time36(r.tc),
-		tonumber(r.tj) and Time36(r.tj) or "-", Flags(r), r.ws and table.concat(r.ws, ",") or "-", r.src and Short(r.src) or "-", Time36(r.u))
+		tonumber(r.tj) and Time36(r.tj) or "-", Flags(r), WitnessField(r), r.src and Short(r.src) or "-", Time36(r.u))
 end
 -- A saved record of the right shape (CheckSaved): its fields of the types this file writes.
 local function ValidRecord(r)
 	if type(r) ~= "table" or type(r.n) ~= "string" or type(r.bn) ~= "string" or type(r.tc) ~= "number" then return false end
-	for f, kind in pairs({ tj = "number", g = "string", ws = "table", src = "string", u = "number", y = "number" }) do
+	for f, kind in pairs({ tj = "number", g = "string", ws = "table", wk = "table", src = "string", u = "number", y = "number", s = "number" }) do
 		if r[f] ~= nil and type(r[f]) ~= kind then return false end
 	end
 	return true
@@ -528,13 +604,16 @@ local function ParseRecord(text)
 		y = flags:find("y", 1, true) and 1 or (flags:find("n", 1, true) and 0 or nil) }
 	if not rec.tc or (tj ~= "-" and not rec.tj) then return nil end
 	if ws ~= "-" then
-		local list = {}
+		local strong, weak = {}, {}
 		for s in ws:gmatch("[^,]+") do
-			local k = Key(WireName(s))
+			local isWeak = s:sub(1, 1) == "!"
+			local k = Key(WireName(isWeak and s:sub(2) or s))
 			if not k then return nil end
+			local list = isWeak and weak or strong
 			list[#list + 1] = k
 		end
-		rec.ws = Witnesses(list)
+		rec.ws = #strong > 0 and Witnesses(strong) or nil
+		rec.wk = #weak > 0 and Witnesses(weak) or nil
 	end
 	if src ~= "-" then
 		local name = WireName(src)
@@ -598,18 +677,23 @@ local function Fold(l, id, r, now)
 	stats.folded = stats.folded + 1
 end
 
-local function Confirmed(r) return r.ws ~= nil and #r.ws > 0 end
-local function Before(id, r, bid, b)
-	local conf, bconf = Confirmed(r), Confirmed(b)
-	return (conf and not bconf) or (conf == bconf and ((r.tc or 0) < (b.tc or 0) or ((r.tc or 0) == (b.tc or 0) and id < bid)))
+-- (Review of 1.5.9) How strongly a claim stands: STRONG, a strong witness's word; WEAK, a weak witness's
+-- beside the inviter's own report (within its witness's WEAK_DAY); else only one of them: pending.
+local STRONG, WEAK, PENDING = 3, 2, 1
+-- The claim that comes first on one recruit: the stronger, then the earliest invite, then the smaller id.
+-- (A made-up claim dated earlier, on a weak witness's word, takes no recruit a strong word holds.)
+local function Before(id, r, c, bid, b, bc)
+	if c ~= bc then return c > bc end
+	return (r.tc or 0) < (b.tc or 0) or ((r.tc or 0) == (b.tc or 0) and id < bid)
 end
 
--- Per recruit, the claim that counts: credited (confirmed), pending (only its inviter's own word), taken
--- (another claim holds him, or a folded one did), transfer, alt.
+-- Per recruit, the claim that counts: credited (confirmed), pending (not yet: one witness's or its
+-- inviter's word alone), taken (another claim holds him, or a folded one did), transfer, alt. The same
+-- on every keeper holding the same records: a weak witness's day fills in the order of the joins.
 function RR.Credits()
 	if credits and credits.rev == rev then return credits end
 	local l = Led()
-	local states, winners = {}, {}
+	local states, winners, class, weak = {}, {}, {}, {}
 	for id, r in pairs(l.r) do
 		local xk = id:match("^([^:]+):")
 		local state
@@ -618,14 +702,42 @@ function RR.Credits()
 		elseif r.a then state = "alt"
 		elseif l.gone[xk] then state = "taken"
 		else
-			local bid = winners[xk]
-			if not bid then winners[xk] = id; state = "valid"
-			elseif Before(id, r, bid, l.r[bid]) then states[bid], winners[xk], state = "taken", id, "valid"
-			else state = "taken" end
+			state = "valid"
+			if r.ws and #r.ws > 0 then class[id] = STRONG
+			else
+				class[id] = PENDING
+				if r.s and r.wk and #r.wk > 0 then weak[#weak + 1] = id end
+			end
 		end
 		states[id] = state
 	end
-	for _, id in pairs(winners) do states[id] = Confirmed(l.r[id]) and "credited" or "pending" end
+	table.sort(weak, function(a, b)
+		local ta, tb = l.r[a].tj, l.r[b].tj
+		if ta ~= tb then return ta < tb end
+		return a < b
+	end)
+	local used = {}
+	for _, id in ipairs(weak) do
+		local r = l.r[id]
+		local day = Day(r.tj)
+		for _, w in ipairs(r.wk) do
+			local k = w .. ":" .. day
+			if (used[k] or 0) < RR.WEAK_DAY then
+				used[k], class[id] = (used[k] or 0) + 1, WEAK
+				break
+			end
+		end
+	end
+	for id, r in pairs(l.r) do
+		if states[id] == "valid" then
+			local xk = id:match("^([^:]+):")
+			local bid = winners[xk]
+			if not bid then winners[xk] = id
+			elseif Before(id, r, class[id], bid, l.r[bid], class[bid]) then states[bid], winners[xk] = "taken", id
+			else states[id] = "taken" end
+		end
+	end
+	for _, id in pairs(winners) do states[id] = class[id] >= WEAK and "credited" or "pending" end
 	credits = { rev = rev, states = states, winners = winners }
 	return credits
 end
@@ -667,9 +779,9 @@ end
 RR.Push = Push
 
 -- A record into this ledger (new, or merged); push: to the keepers online. A record new here is checked
--- against this keeper's own knowledge (OwnFacts), and what that finds goes to the others. True when it
--- changed anything.
-function RR.MergeIn(id, rec, push)
+-- against this keeper's own knowledge (OwnFacts), and what that finds goes to the others. fromLine: it
+-- came in another keeper's line. True when it changed anything.
+function RR.MergeIn(id, rec, push, fromLine)
 	local l, now = Led(), Clock()
 	local r = l.r[id]
 	local changed, new = false, false
@@ -685,12 +797,19 @@ function RR.MergeIn(id, rec, push)
 		changed, new = true, true
 	end
 	if MergeRec(r, rec) then changed = true end
-	if new then
-		local o = OwnFacts(r)
-		if (o.a and not r.a) or (o.t and not r.t) then
-			MergeRec(r, o)
-			push = true
-		end
+	local o = new and OwnFacts(r) or {}
+	local know = (o.a and not r.a) or (o.t and not r.t)
+	-- (Review of 1.5.9) What this keeper's side tables add: the inviter's own report (s), and who passed
+	-- the player on once his own word and the inviter's agree (src). Told back to the keeper whose line
+	-- lacked it (fromLine); the keepers online took those words themselves (the catch-up brings the rest).
+	local own, hand = l.own[id], l.hand[id]
+	if type(own) == "table" then
+		o.s = 1
+		if type(own.src) == "string" and type(hand) == "table" and Same(hand.by, own.src) then o.src = own.src end
+	end
+	local side = (o.s and not r.s) or (o.src and r.src ~= o.src)
+	if know or side then
+		if MergeRec(r, o) then changed, push = true, push or know or (side and fromLine == true) end
 	end
 	if changed then
 		r.u = now
@@ -700,7 +819,21 @@ function RR.MergeIn(id, rec, push)
 	return changed
 end
 
--- Budgets per sender: large for every report, small also for one only the census or an alt stands behind.
+-- (Review of 1.5.9) An inviter's own report or a passer's word into its side table (by record id), kept
+-- OWN_DAYS, OWN_MAX at most (the oldest go first): never a record by itself. A record a witness made
+-- already takes what it adds (RR.MergeIn).
+local function Side(l, which, id, entry)
+	local t = l[which]
+	local old = t[id]
+	if type(old) == "table" and old.src ~= nil and entry.src == nil then entry.src = old.src end
+	t[id] = entry
+	Bound(t, RR.OWN_MAX, "at")
+	if l.r[id] then RR.MergeIn(id, {}, false) end
+	Changed()
+end
+
+-- Budgets per sender: large for every report, small also for one only the census stands behind, an
+-- inviter's own report and a passer's word.
 local rates = {}
 local function Budget(sender, now, large)
 	local k = Key(sender)
@@ -720,7 +853,7 @@ end
 function RR.TakeEvidence(sender, text)
 	if not IsKeeper(ns.me) or Off() then return Drop("not keeper") end
 	local kind = tostring(text or ""):match("^NE~1~(%a)~")
-	if kind ~= "w" and kind ~= "y" then return Drop("kind") end
+	if kind ~= "w" and kind ~= "y" and kind ~= "h" then return Drop("kind") end
 	local now = Clock()
 	local M = ns.Moderation
 	if M and M.Hides and M.Hides(sender, nil) then return Drop("netoff") end
@@ -736,25 +869,46 @@ function RR.TakeEvidence(sender, text)
 		local ik, xk = Key(inviter), Key(invitee)
 		if ik == xk then return Drop("self") end
 		if sk == xk or Count.Linked(invitee, sender) then return Drop("recruit") end
-		local own = sk == ik
-		local alt = not own and Count.Linked(inviter, sender)
-		local independent, how = false, nil
-		if not own and not alt then
-			independent, how = Count.VerifiedWitness(sender, guild, invitee, tj)
-			if not independent then return Drop(how or "unverified") end
+		local l, id = Led(), xk .. ":" .. ik
+		local ours = Same(OwnGuild(), guild)
+		if sk == ik then
+			-- (Review of 1.5.9) The inviter's own report: kept apart from the ledger, the smaller budget too
+			-- (anyone can whisper one). It only marks a record a witness made, and names who passed him the
+			-- player. In our own guild, only from a member our roster holds or held.
+			if ours and not Mate(sender) then
+				local f = Count.Fact(sender)
+				if not (f and Same(f.guild, guild)) then return Drop("unverified") end
+			end
+			if not Budget(sender, now, false) then return Drop("budget") end
+			stats.taken = stats.taken + 1
+			Side(l, "own", id, { at = now, t = tj * 3600, src = src ~= "-" and ValidSource(src, inviter, invitee) or nil })
+			return true
 		end
-		if (alt or how == "census") and not Budget(sender, now, false) then return Drop("budget") end
-		local source = own and src ~= "-" and ValidSource(src, inviter, invitee) or nil
+		-- (An alt of the inviter's is his own word, not a witness's: nothing.)
+		if Count.Linked(inviter, sender) then return Drop("alt") end
+		local ok, how = Count.VerifiedWitness(sender, guild, invitee, tj)
+		if not ok then return Drop(how or "unverified") end
+		if how == "census" and not Budget(sender, now, false) then return Drop("budget") end
+		-- (Review of 1.5.9) Strong: the signed anywhere, or a guildmate of ours for an invite our own read
+		-- of the log saw by the same inviter (a guildmate's word otherwise named any inviter for a recruit
+		-- our roster showed). Every other witness we vouch for is weak.
+		local strong = Signed(sender) or (ours and Mate(sender) and Count.SawInvite(inviter, invitee, ti))
 		stats.taken = stats.taken + 1
-		local id = xk .. ":" .. ik
-		local held = Led().r[id]
-		local had = held ~= nil and Confirmed(held)
-		RR.MergeIn(id, { n = Short(invitee), bn = Short(inviter), g = guild, tc = ti * 3600, tj = tj * 3600, s = own and 1 or nil,
-			src = source, ws = independent and { sk } or nil }, false)
-		-- (A keeper outside the pair's guild can't vouch for a guildmate there: the one that did tells the
-		-- others. The inviter's own word reaches them all itself.)
-		local r = Led().r[id]
-		if independent and not had and r and Confirmed(r) and sk ~= Key(ns.me) then Push(id) end
+		-- (A keeper outside the pair's guild can't weigh a guildmate there: the one that did tells the others,
+		-- on any change. A signed witness's word reaches every keeper online itself.)
+		RR.MergeIn(id, { n = Short(invitee), bn = Short(inviter), g = guild, tc = ti * 3600, tj = tj * 3600,
+			ws = strong and { sk } or nil, wk = (not strong) and { sk } or nil }, not Signed(sender))
+		return true
+	end
+	if kind == "h" then
+		-- (Review of 1.5.9) The member who passed a player on, his own word: kept apart from the ledger.
+		local recruit, inviter = text:match("^NE~1~h~([^~]+)~([^~]+)$")
+		recruit, inviter = WireName(recruit), WireName(inviter)
+		if not recruit or not inviter or Key(recruit) == Key(inviter) then return Drop("shape") end
+		if not ValidSource(sender, inviter, recruit) then return Drop("self") end
+		if not Budget(sender, now, false) then return Drop("budget") end
+		stats.taken = stats.taken + 1
+		Side(Led(), "hand", Key(recruit) .. ":" .. Key(inviter), { at = now, by = Short(sender) })
 		return true
 	end
 	local inviter, invitee, guild, tj, on = text:match("^NE~1~y~([^~]+)~([^~]+)~([^~]+)~([0-9a-z]+)~([01])$")
@@ -843,15 +997,17 @@ local function TakeLine(sender, text)
 		local id, rec = ParseRecord(text)
 		if not id then return Drop("shape") end
 		if (rec.tc or 0) > now + 3600 or (rec.tj and rec.tj > now + 3600) then return Drop("ahead") end
-		if rec.ws then
-			local ws = {}
-			for _, s in ipairs(rec.ws) do
-				if s ~= Key(rec.bn) and s ~= Key(rec.n) and not Count.Linked(s, rec.bn) and not Count.Linked(s, rec.n) then ws[#ws + 1] = s end
+		for _, f in ipairs({ "ws", "wk" }) do
+			if rec[f] then
+				local list = {}
+				for _, s in ipairs(rec[f]) do
+					if s ~= Key(rec.bn) and s ~= Key(rec.n) and not Count.Linked(s, rec.bn) and not Count.Linked(s, rec.n) then list[#list + 1] = s end
+				end
+				rec[f] = #list > 0 and list or nil
 			end
-			rec.ws = #ws > 0 and ws or nil
 		end
 		if rec.src and not ValidSource(rec.src, rec.bn, rec.n) then rec.src = nil end
-		return RR.MergeIn(id, rec, false)
+		return RR.MergeIn(id, rec, false, true)
 	elseif kind == "p" then
 		local n, j, y, h, hy = text:match("^NE~1~p~([^~]+)~(%d+)~(%d+)~(%d+)~(%d+)~[0-9a-z]+$")
 		local name = WireName(n)
@@ -897,6 +1053,62 @@ local function TakeLine(sender, text)
 	return Drop("kind")
 end
 RR.TakeLine = TakeLine
+
+-- (Review of 1.5.9) The ranking's own line transfers, one target each: { target, list, i, terminal }.
+-- They took the Church's eight slots (ChurchCount.SendLines) and its answers came back "busy"; now they
+-- wait in a queue of their own, and go only while Comm's queue keeps CHURCH_ROOM more free than the
+-- Church's sends need, so the Church's go first. A keeper's catch-up page may take every slot, a
+-- member's answer QUEUE_ASKS of them.
+local outq, pumping = {}, false
+local function LineRoom() return ns.Comm.QueueRoom() > RR.SEND_ROOM + RR.CHURCH_ROOM end
+local function LinesEnd(o)
+	if not o.terminal or not o.closed or o.pending > 0 or o.failed then return end
+	local line = o.terminal
+	o.terminal = nil
+	local function Send()
+		if LineRoom() and (not o.guard or o.guard()) then
+			ns.Comm.Whisper(o.target, line, nil, false, false, nil, { owner = RR, guard = o.guard })
+		end
+	end
+	if LineRoom() then Send() else RR.after(3, "recruit ranking terminal", Send) end
+end
+local function PumpOut()
+	pumping = false
+	while outq[1] and LineRoom() do
+		local o = outq[1]
+		if o.guard and not o.guard() then o.failed = true end
+		while o.i <= #o.list and not o.failed and LineRoom() do
+			local done
+			if o.terminal then
+				o.pending = o.pending + 1
+				done = function(ok)
+					o.pending = o.pending - 1
+					if not ok then o.failed = true end
+					LinesEnd(o)
+				end
+			end
+			ns.Comm.Whisper(o.target, o.list[o.i], nil, false, false, done, { owner = RR, guard = o.guard })
+			o.i = o.i + 1
+		end
+		if o.i <= #o.list and not o.failed then break end
+		table.remove(outq, 1)
+		o.closed = true
+		LinesEnd(o)
+	end
+	if outq[1] then
+		pumping = true
+		RR.after(3, "recruit ranking lines", PumpOut)
+	end
+end
+local function SendLines(target, list, terminal, guard, limit)
+	if #list == 0 and not terminal then return true end
+	if #outq >= (limit or RR.QUEUE_MAX) then return Drop("busy") end
+	outq[#outq + 1] = { target = target, list = list, i = 1, terminal = terminal, pending = 0, guard = guard }
+	if not pumping then PumpOut() end
+	return true
+end
+RR.SendLines = SendLines
+function RR.Queued() return #outq end
 
 local catch = { settled = false, last = -math.huge, asked = {}, seq = 0 }
 local served = {}
@@ -954,7 +1166,7 @@ local function AnswerCatchUp(sender, text)
 	local terminal = ("NE~1~e~%s~%d~%s~%s~%s"):format(rid, n, more and "1" or "0", B36(last), lastSid or "-")
 	stats.pages = stats.pages + 1
 	local guard = function() return IsKeeper(ns.me) and not Off() end
-	return Count.SendLines(ns.FullName(sender), lines, terminal, guard)
+	return SendLines(ns.FullName(sender), lines, terminal, guard)
 end
 
 local function AskPage(name, k)
@@ -1084,8 +1296,19 @@ function RR.Ranking(window)
 					if joined then s.passed = s.passed + 1 end
 				end
 			end
-		elseif state == "pending" and by and r.tj >= from then
+		elseif state == "pending" and by and r.s and r.tj >= from and not l.own[id] then
+			-- (A record another keeper marked with the inviter's own report, not confirmed yet.)
 			local a = A(by, Short(r.bn))
+			a.pending = a.pending + 1
+		end
+	end
+	-- (Review of 1.5.9) A member's pending recruits: the joins his own addon reported that no witness
+	-- confirmed yet (no record, or one still pending).
+	for id, o in pairs(l.own) do
+		local ik = type(o) == "table" and (tonumber(o.t) or 0) >= from and id:match("^[^:]+:(.+)$")
+		local state = ik and C.states[id]
+		if ik and (state == nil or state == "pending") then
+			local a = A(ik, nil)
 			a.pending = a.pending + 1
 		end
 	end
@@ -1127,23 +1350,49 @@ local function RowText(rid, row)
 		Hundred(row.share), row.joins, row.stays, row.passed)
 end
 
+-- (Review of 1.5.9) An asker this keeper places in an Olympus guild: the guild his ask names is one, and
+-- nothing this keeper knows of him names another (its own roster; the guild his own Olympus messages
+-- named, Moderation.GuildOf and Data.ClaimedGuild; his Church presence). Where the channel carries no
+-- addon words (Forever), a keeper hears nothing of most members of other guilds: an asker it knows
+-- nothing of is taken at his word. The rows are names and points, the load is bounded below.
+local function Placed(sender, guild)
+	if not guild or not ns.IsFederation(guild) then return false end
+	local who = ns.FullName(sender)
+	local R = ns.Roster
+	if R and R.RankOf and R.RankOf(who) ~= nil then return Same(OwnGuild(), guild) end
+	local M, D = ns.Moderation, ns.Data
+	local heard = Church.Heard()[Key(who) or ""]
+	local known = { M and M.GuildOf and M.GuildOf(who) or nil, D and D.ClaimedGuild and D.ClaimedGuild(who) or nil,
+		type(heard) == "table" and heard.guild or nil }
+	for i = 1, 3 do
+		if type(known[i]) == "string" and known[i] ~= "" and not Same(known[i], guild) then return false end
+	end
+	return true
+end
+RR.Placed = Placed
+
 -- A member's ask (anyone in Olympus: the ranking is everyone's): the top RANK_ROWS and his own row.
+-- (Review of 1.5.9) ANSWERS_PER to one asker and ANSWERS_ALL to all in ANSWER_WINDOW, on this file's
+-- own queue (SendLines): a busy keeper drops the ask, and the asker's page asks the next keeper.
+local answeredAll = {}
 local function Answer(sender, text)
 	if not IsKeeper(ns.me) or Off() or not ns.IsMember() then return Drop("not keeper") end
-	local rid, window = text:match("^NE~1~a~([0-9a-z]+)~([wma])$")
+	local rid, window, guild = text:match("^NE~1~a~([0-9a-z]+)~([wma])~([^~]+)$")
 	if not rid or #rid > 12 then return Drop("shape") end
 	if not LedgerPeer(sender) then return Drop("scope") end
 	local M = ns.Moderation
 	if M and M.Hides and M.Hides(sender, nil) then return Drop("netoff") end
+	if not Placed(sender, CleanGuild(guild)) then return Drop("member") end
 	if not RR.Settled() then return Drop("catching up") end
 	local t, k = ns.Now(), Key(sender)
 	if not k then return Drop("shape") end
+	for i = #answeredAll, 1, -1 do if t - answeredAll[i] >= RR.ANSWER_WINDOW then table.remove(answeredAll, i) end end
+	if #answeredAll >= RR.ANSWERS_ALL or #outq >= RR.QUEUE_ASKS then return Drop("busy") end
 	if not answersTo[k] then Church.Capped(answersTo, RR.PEOPLE_MAX) end
 	local h = answersTo[k] or {}
 	answersTo[k] = h
 	for i = #h, 1, -1 do if t - h[i] >= RR.ANSWER_WINDOW then table.remove(h, i) end end
 	if #h >= RR.ANSWERS_PER then return Drop("ask rate") end
-	h[#h + 1] = t
 	local rows, byKey = RR.Ranking(window)
 	local lines = {}
 	for i, row in ipairs(rows) do
@@ -1151,33 +1400,44 @@ local function Answer(sender, text)
 	end
 	local mine = byKey[k]
 	lines[#lines + 1] = ("NE~1~n~%s~%d~%d~%s~%d"):format(rid, #lines, #rows, B36(Clock()), mine and mine.pending or 0)
+	if not SendLines(ns.FullName(sender), lines, nil, function() return IsKeeper(ns.me) and not Off() end, RR.QUEUE_ASKS) then
+		return false, "busy"
+	end
+	h[#h + 1], answeredAll[#answeredAll + 1] = t, t
 	stats.answers = stats.answers + 1
-	return Count.SendLines(ns.FullName(sender), lines, nil, function() return IsKeeper(ns.me) and not Off() end)
+	return true
 end
 
 local asks = {}
 
 -- Asks a keeper online for the window's ranking: one heard to take these first, the next one after a
--- silent one; ASK_GAP apart, RANK_REFRESH after a complete answer (force: the Refresh button). The King's
--- client asks only while his Church page shows it (ChurchView.PollRanking), as for the Church's pages.
+-- silent one; ASK_GAP apart, RANK_REFRESH after a complete answer (force: the Refresh button, still
+-- ASK_GAP apart). The King's client asks only while his Church page shows it (ChurchView.PollRanking),
+-- as for the Church's pages. (Review of 1.5.9: every member asked the first keeper by name. A member's
+-- keepers start at a place his own name picks among those heard to take these: the asks spread.)
 function RR.Ask(window, force)
 	if not WINDOWS[window] or Off() or not ns.IsMember() then return false end
+	local guild = CleanGuild(OwnGuild())
+	if not guild or not ns.IsFederation(guild) then return false end
 	local t, previous = ns.Now(), asks[window]
 	if previous then
 		local elapsed = t - previous.t
-		if previous.complete then
-			if not force and elapsed < RR.RANK_REFRESH then return false, "gap" end
-		elseif elapsed < RR.ASK_GAP then return false, "gap" end
+		if elapsed < RR.ASK_GAP then return false, "gap" end
+		if previous.complete and not force and elapsed < RR.RANK_REFRESH then return false, "gap" end
 	end
+	local heard, others = {}, {}
+	for _, o in ipairs(Church.KeepersOnline(false)) do
+		local list = Serving(o.name) and heard or others
+		list[#list + 1] = o
+	end
+	if #heard + #others == 0 then Church.FindKeeper(); return false, "no keeper" end
+	local function ByKey(a, b) return (Key(a.name) or "") < (Key(b.name) or "") end
+	table.sort(heard, ByKey)
+	table.sort(others, ByKey)
 	local keepers = {}
-	for _, o in ipairs(Church.KeepersOnline(false)) do keepers[#keepers + 1] = o end
-	if #keepers == 0 then Church.FindKeeper(); return false, "no keeper" end
-	-- (The ones heard to take these first; after a silent one, the next.)
-	table.sort(keepers, function(a, b)
-		local sa, sb = Serving(a.name), Serving(b.name)
-		if sa ~= sb then return sa end
-		return (Key(a.name) or "") < (Key(b.name) or "")
-	end)
+	local start = #heard > 0 and floor(RR.score(Key(ns.me) or "", "ask") * #heard) or 0
+	for i = 1, #heard do keepers[i] = heard[(start + i - 1) % #heard + 1] end
+	for _, o in ipairs(others) do keepers[#keepers + 1] = o end
 	local first = 1
 	if previous and not previous.complete then
 		for i, o in ipairs(keepers) do if Key(o.name) == previous.k then first = i % #keepers + 1; break end end
@@ -1185,7 +1445,7 @@ function RR.Ask(window, force)
 	local keeper = keepers[first]
 	local a = { k = Key(keeper.name), rid = NewId(), t = t, expires = t + RR.ASK_WINDOW, rows = {}, seen = {} }
 	asks[window] = a
-	return ns.Comm.Whisper(keeper.name, ("NE~1~a~%s~%s"):format(a.rid, window), nil, false, false, nil, { owner = RR,
+	return ns.Comm.Whisper(keeper.name, ("NE~1~a~%s~%s~%s"):format(a.rid, window, guild), nil, false, false, nil, { owner = RR,
 		guard = function() return asks[window] == a and ns.Now() < a.expires end })
 end
 
@@ -1268,11 +1528,11 @@ function RR.Receive(dist, sender, text)
 			serving[k] = ns.Now()
 		end
 	end
-	if kind == "w" or kind == "y" then
+	if kind == "w" or kind == "y" or kind == "h" then
 		local ok, why = RR.TakeEvidence(sender, text)
 		RR.Receipt(sender, text, ok, why)
 		return ok, why
-	elseif kind == "k" or kind == "x" then return TakeReceipt(sender, text)
+	elseif kind == "k" or kind == "x" or kind == "l" then return TakeReceipt(sender, text)
 	elseif kind == "r" or kind == "p" or kind == "g" then return TakeLine(sender, text)
 	elseif kind == "q" then return AnswerCatchUp(sender, text)
 	elseif kind == "d" or kind == "e" then return TakePage(sender, text)
@@ -1295,6 +1555,12 @@ function RR.Prune()
 			l.r[id] = nil
 			l.n = max(0, (l.n or 0) - 1)
 			changed = true
+		end
+	end
+	-- (Review of 1.5.9) The inviters' own reports and the passers' words, OWN_DAYS.
+	for _, which in ipairs({ "own", "hand" }) do
+		for id, e in pairs(l[which]) do
+			if type(e) ~= "table" or now - (tonumber(e.at) or 0) > RR.OWN_DAYS * DAY then l[which][id], changed = nil, true end
 		end
 	end
 	local marks = {}
@@ -1331,6 +1597,16 @@ function RR.CheckSaved()
 			l.n = n
 			for k, p in pairs(l.p) do if type(p) ~= "table" then l.p[k] = nil end end
 			if type(l.caught) ~= "table" then l.caught = {} end
+			-- (Review of 1.5.9) The side tables: an entry of the wrong shape goes alone.
+			for _, which in ipairs({ "own", "hand" }) do
+				if type(l[which]) ~= "table" then l[which] = {} end
+				for id, e in pairs(l[which]) do
+					local ok = type(id) == "string" and id:find(":", 1, true) and type(e) == "table" and type(e.at) == "number"
+						and (e.t == nil or type(e.t) == "number") and (e.src == nil or type(e.src) == "string")
+						and (which == "own" or type(e.by) == "string")
+					if not ok then l[which][id] = nil end
+				end
+			end
 		end
 	end
 	for _, key in ipairs({ "out", "src", "seen", "view" }) do
@@ -1372,13 +1648,16 @@ function RR.StatusLines()
 	local dropped = {}
 	for why, n in pairs(stats.dropped) do dropped[#dropped + 1] = why .. "=" .. n end
 	table.sort(dropped)
-	local keepers = 0
+	local keepers, own, hand = 0, 0, 0
 	for _ in pairs(serving) do keepers = keepers + 1 end
+	for _ in pairs(l.own) do own = own + 1 end
+	for _ in pairs(l.hand) do hand = hand + 1 end
 	return {
 		("recruiting ranking (everyone): pairs read %d, reported %d, stays told %d, sent %d, outbox %d, receipts %d"):format(stats.pairs,
 			stats.reported, stats.stays, stats.sent, #(Out() or {}), stats.receipts),
 		("ranking ledger %d records, %d people, %d marks, taken %d, pushed %d, lines %d, pages %d, answers %d, folded %d, keepers serving %d, settled %s"):format(
 			l.n or 0, p, g, stats.taken, stats.pushed, stats.lines, stats.pages, stats.answers, stats.folded, keepers, tostring(RR.Settled())),
+		("ranking side: inviters' own reports %d, passers' words %d, lines waiting %d"):format(own, hand, #outq),
 		"ranking dropped: " .. (#dropped > 0 and table.concat(dropped, ", ") or "-"),
 	}
 end
@@ -1386,7 +1665,8 @@ end
 function RR.ResetForTests()
 	catch = { settled = false, last = -math.huge, asked = {}, seq = 0 }
 	wipe(served); wipe(serving); wipe(answersTo); wipe(asks); wipe(rates); wipe(owed); wipe(rechecked)
-	recheckedN = 0
+	wipe(outq); wipe(answeredAll)
+	recheckedN, pumping = 0, false
 	owing, lastDue, lastKeeperDue, nextPrune = false, -math.huge, -math.huge, nil
 	stats.dropped = {}
 	Changed()

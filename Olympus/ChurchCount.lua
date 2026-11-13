@@ -786,6 +786,15 @@ local function SeenHere(invitee, guild, tj)
 	return false, "roster"
 end
 
+-- (Review of 1.5.9) Whether this client's own read of our guild's log saw `inviter` invite `invitee` at
+-- hour `ti` (an hour off either way, as Count.Events reads them): the recruiting ranking for everyone
+-- takes a guildmate's word on who invited as strong only then (RecruitRanking.TakeEvidence).
+function Count.SawInvite(inviter, invitee, ti)
+	local ik, xk, ev = Key(inviter), Key(invitee), Ev()
+	if not ik or not xk or not tonumber(ti) or not ev or type(ev.k) ~= "table" then return false end
+	return SeenEvent(ev, "invite:" .. ik .. ":" .. xk, tonumber(ti)) ~= nil
+end
+
 -- (1.2.1) A witness this client can vouch for in the pair's guild, as the desk's seen-checks keep their
 -- answers to (CheckRecipients): the signed (a keeper, the King, a High Councillor); that guild's
 -- correspondent, named by its guild master (the book); in our own guild, a guildmate on our fresh roster (a

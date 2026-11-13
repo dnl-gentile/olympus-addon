@@ -78,11 +78,23 @@ test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a
 	local w, c = Cast()
 	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)
 	eq(w:ReadLog(c.ivo), true)
-	eq(#w:Sent(c.ivo, "NE"), 0, "the inviter's own read, nobody having passed him the player: his word confirms nothing, so it goes nowhere")
+	-- (Changed on purpose, review of 1.5.9: the inviter's own addon reports every join of his, not only a
+	-- player another member passed him. The author's "O ranking para todo mundo" page tells each member how
+	-- many of his recruits wait for another addon; his own word is that count. It confirms nothing and
+	-- makes no record.)
+	eq(#w:Sent(c.ivo, "NE", "WHISPER", "w"), 2, "the inviter's own report, to each keeper online")
+	eq(State(w, c.a1, "New Guy", "Ivo Plain"), nil, "his word alone makes no record")
+	eq(Row(w, c.a1, "Ivo Plain").pending, 1)
+	eq(Score(w, c.a1, "Ivo Plain"), 0)
 	eq(w:ReadLog(c.wes), true)
 	eq(#w:Sent(c.wes, "NE", "WHISPER", "w"), 2, "a guildmate's read: to each keeper heard online")
-	eq(State(w, c.a1, "New Guy", "Ivo Plain"), "credited", "his guild's keeper vouches for his guildmate who saw the join")
-	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").ws[1], Key("Wes Brook"))
+	-- (Changed on purpose, review of 1.5.9: a guildmate's word is strong only for an invite the keeper's
+	-- own read of the log saw; a guildmate's word alone named any inviter. Points only for a player really
+	-- invited who joined, the author's "Se a pessoa for convidada e aceitar entrar na guilda". Aldric has
+	-- not read his log here, so Wes's word is weak: it confirms the recruit beside Ivo's own report.)
+	eq(State(w, c.a1, "New Guy", "Ivo Plain"), "credited", "his guild's keeper vouches for his guildmate who saw the join, beside the inviter's own word")
+	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").wk[1], Key("Wes Brook"))
+	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").s, 1)
 	eq(State(w, c.a2, "New Guy", "Ivo Plain"), "credited", "the other guild's keeper took it from the one that vouched")
 	local row = Row(w, c.a1, "Ivo Plain")
 	eq(row.score, 10); eq(row.own, 10); eq(row.share, 0); eq(row.joins, 1); eq(row.stays, 0); eq(row.rank, 1)
@@ -111,6 +123,10 @@ test("1.5.9 recruiting ranking: a player another member passed on: pending on th
 	local w, c = Cast()
 	-- Sid passed Ivo a JOIN (RecruitHandoff's name, Recruit.TakeHandoff): Ivo's client keeps who did.
 	eq(w:As(c.ivo, c.ivo.RR.HandedIn, "New Guy-Realm", "Sid Pass-Realm"), true)
+	-- (Review of 1.5.9: Sid's own addon says so too, to the keepers, once Ivo took the name: RecruitHandoff's
+	-- "A". The inviter's report alone no longer names a source.)
+	eq(w:Act(c.sid, c.sid.RR.HandedOut, "New Guy-Realm", "Ivo Plain-Realm"), true)
+	eq(#w:Sent(c.sid, "NE", "WHISPER", "h"), 2)
 	eq(w:As(c.ivo, c.ivo.RR.ReadWanted), "own", "his client reads its log as a Church person's does, to name him")
 	eq(w:As(c.wes, c.wes.RR.ReadWanted), "drawn", "any other member's: drawn")
 	-- (Read every READ_EVERY, whatever the draw: his guild's 300 addon users would almost never draw him.)
@@ -123,9 +139,10 @@ test("1.5.9 recruiting ranking: a player another member passed on: pending on th
 	local sent = w:Sent(c.ivo, "NE", "WHISPER", "w")
 	eq(#sent, 2, "his own report, to each keeper online")
 	assert(sent[1].msg:match("~Sid Pass$"), sent[1].msg)
-	eq(State(w, c.a1, "New Guy", "Ivo Plain"), "pending", "only the inviter's word")
-	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").src, "Sid Pass")
-	eq(Rec(w, c.a1, "New Guy", "Ivo Plain").s, 1)
+	-- (Changed on purpose, review of 1.5.9: the inviter's own report is kept apart from the ledger, so
+	-- anyone's whispered "own reports" never fill it: no record yet, only his pending recruit. Nothing
+	-- counts before the join is confirmed, the author's "Se a pessoa for convidada e aceitar entrar na guilda".)
+	eq(State(w, c.a1, "New Guy", "Ivo Plain"), nil, "only the inviter's word: no record")
 	eq(Score(w, c.a1, "Ivo Plain"), 0, "no points before another addon confirms the join")
 	eq(Row(w, c.a1, "Ivo Plain").pending, 1)
 	eq(Score(w, c.a1, "Sid Pass"), 0, "nor for the member who passed him")
@@ -133,6 +150,8 @@ test("1.5.9 recruiting ranking: a player another member passed on: pending on th
 	w:ReadLog(c.wes)
 	for _, k in ipairs({ c.a1, c.a2 }) do
 		eq(State(w, k, "New Guy", "Ivo Plain"), "credited", k.name)
+		eq(Rec(w, k, "New Guy", "Ivo Plain").src, "Sid Pass", k.name)
+		eq(Rec(w, k, "New Guy", "Ivo Plain").s, 1, k.name)
 		eq(Score(w, k, "Ivo Plain"), 10, k.name)
 		local sid = Row(w, k, "Sid Pass")
 		eq(sid.score, 2.5, k.name); eq(sid.share, 2.5); eq(sid.own, 0); eq(sid.passed, 1); eq(sid.joins, 0)
@@ -148,6 +167,9 @@ test("1.5.9 recruiting ranking: still in the guild 7 days after joining: 5 more 
 	local w, c = Cast()
 	w:As(c.ivo, c.ivo.RR.HandedIn, "Stays Long-Realm", "Sid Pass-Realm")
 	w:As(c.ivo, c.ivo.RR.HandedIn, "Leaves Soon-Realm", "Sid Pass-Realm")
+	-- (Review of 1.5.9: Sid's own word on each, as RecruitHandoff gives it once Ivo took the name.)
+	w:Act(c.sid, c.sid.RR.HandedOut, "Stays Long-Realm", "Ivo Plain-Realm")
+	w:Act(c.sid, c.sid.RR.HandedOut, "Leaves Soon-Realm", "Ivo Plain-Realm")
 	w:Run(600)
 	w:Presence()
 	Recruit(w, World.GUILD, "Ivo Plain", "Stays Long", 0)
@@ -173,11 +195,13 @@ test("1.5.9 recruiting ranking: still in the guild 7 days after joining: 5 more 
 	end
 end)
 
-test("1.5.9 recruiting ranking: who passed the player on counts only as the inviter's own report names him, and never as his own alt or the recruit", function()
+test("1.5.9 recruiting ranking: who passed the player on counts only as the inviter's own report and his own word name him, and never as the inviter's own alt or the recruit", function()
 	local w, c = Cast()
 	w.alts[Key("Ivo Plain")] = { "Ivo Twink-Realm" }
 	w:As(c.ivo, c.ivo.RR.HandedIn, "Alt Pal-Realm", "Ivo Twink-Realm")
 	eq(w:As(c.ivo, c.ivo.RR.HandedIn, "Same Guy-Realm", "Same Guy-Realm"), false, "nobody passes himself on")
+	-- (Review of 1.5.9: the passer's own word, needed now, is refused from the inviter's own alt.)
+	eq(select(2, w:As(c.a1, c.a1.RR.TakeEvidence, "Ivo Twink-Realm", "NE~1~h~Alt Pal~Ivo Plain")), "self")
 	w:Run(600)
 	w:Presence()
 	Recruit(w, World.GUILD, "Ivo Plain", "Alt Pal", 0)
@@ -193,7 +217,9 @@ test("1.5.9 recruiting ranking: who passed the player on counts only as the invi
 	Join(w, World.GUILD, "Other Pal")
 	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Wes Brook-Realm", text), true)
 	eq(Rec(w, c.a1, "Other Pal", "Ivo Plain").src, nil)
-	eq(Rec(w, c.a1, "Other Pal", "Ivo Plain").ws[1], Key("Wes Brook"))
+	-- (Changed on purpose, review of 1.5.9: Aldric's own log never showed this invite, so Wes's word is weak:
+	-- the author's "Se a pessoa for convidada e aceitar entrar na guilda" needs the inviter's own word too.)
+	eq(Rec(w, c.a1, "Other Pal", "Ivo Plain").wk[1], Key("Wes Brook"))
 end)
 
 test("1.5.9 recruiting ranking: one recruit counts once: invited again elsewhere after leaving, back in his old guild, an alt of the inviter", function()
@@ -201,6 +227,9 @@ test("1.5.9 recruiting ranking: one recruit counts once: invited again elsewhere
 	-- Roamer joins Olympus Ember through Ivo, confirmed; he leaves and Vik invites him into Olympus Vale,
 	-- where Bera (a keeper) reads it herself.
 	Recruit(w, World.GUILD, "Ivo Plain", "Roamer", 1)
+	-- (Review of 1.5.9: Ivo's own addon reads too; a guildmate's word whose invite Aldric's log did not see
+	-- confirms only beside the inviter's own report.)
+	w:ReadLog(c.ivo)
 	w:ReadLog(c.wes)
 	eq(Score(w, c.a1, "Ivo Plain"), 10)
 	w:Tick()
@@ -241,6 +270,7 @@ test("1.5.9 recruiting ranking: one recruit counts once: invited again elsewhere
 	-- The same invite and join read twice, or a second invite by the same member: one record.
 	Recruit(w, World.GUILD, "Ivo Plain", "Twice Guy", 0)
 	w:Run(61)
+	w:ReadLog(c.ivo)
 	w:ReadLog(c.wes)
 	w:Run(3 * 3600)
 	w:Presence()
@@ -256,6 +286,8 @@ test("1.5.9 recruiting ranking: the keepers' records: a keeper away catches up i
 	local w, c = Cast()
 	c.a2.online = false
 	w:As(c.ivo, c.ivo.RR.HandedIn, "Rec Aa-Realm", "Sid Pass-Realm")
+	-- (Review of 1.5.9: Sid's own word too, to the keeper online.)
+	w:Act(c.sid, c.sid.RR.HandedOut, "Rec Aa-Realm", "Ivo Plain-Realm")
 	w:Run(600)
 	w:Presence()
 	for _, name in ipairs({ "Rec Aa", "Rec Bb", "Rec Cc", "Rec Dd" }) do Recruit(w, World.GUILD, "Ivo Plain", name, 0) end
@@ -353,6 +385,9 @@ test("1.5.9 recruiting ranking: older clients: a 1.5.8 keeper drops these words 
 	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 0)
 	w:ReadLog(c.old)
 	eq(#w:Sent(c.old, "NE"), 0, "a 1.5.8 member reports nothing of it")
+	-- (Review of 1.5.9: Ivo's own addon reads too; Aldric's log did not see this invite, so Wes's word
+	-- confirms it beside Ivo's own report.)
+	w:ReadLog(c.ivo)
 	w:ReadLog(c.wes)
 	eq(SentTo(w, c.wes, "Cato Old", "w"), 1)
 	eq(State(w, c.a1, "New Guy", "Ivo Plain"), "credited")
@@ -363,19 +398,20 @@ test("1.5.9 recruiting ranking: older clients: a 1.5.8 keeper drops these words 
 	c.a1.online = false
 	Recruit(w, World.GUILD, "Ivo Plain", "Later Guy", 0)
 	w:Run(61)
+	w:ReadLog(c.ivo)
 	w:ReadLog(c.wes)
 	eq(SentTo(w, c.wes, "Cato Old", "w"), 2)
 	eq(Outbox(c.wes), 1)
 	for _ = 1, 3 do
 		w:Run(c.wes.RR.RESEND_GAP + 1)
 		w:Presence()
-		w:Tick({ c.wes })
+		w:Tick({ c.wes, c.ivo })
 	end
 	eq(SentTo(w, c.wes, "Cato Old", "w"), 2, "once to a keeper not heard to take these")
 	-- Aldric back: the report reaches him, his receipt empties the outbox.
 	c.a1.online = true
 	w:Presence()
-	w:Tick({ c.wes })
+	w:Tick({ c.wes, c.ivo })
 	w:Run(6)
 	eq(State(w, c.a1, "Later Guy", "Ivo Plain"), "credited")
 	eq(Outbox(c.wes), 0)
@@ -415,7 +451,10 @@ test("1.5.9 recruiting ranking: who reports a pair: about two members drawn on t
 		end
 	end
 	assert(drawn >= n * 0.04 and drawn <= n * 0.2, "about a tenth drawn: " .. drawn .. " of " .. n)
-	eq(c.a1.RR.score("pair1:ivo plain", "Member aa"), c.lucky.RR.score ~= nil and c.a1.RR.score("pair1:ivo plain", "Member aa"), "the same number on every client")
+	-- (Review of 1.5.9: this compared Aldric's number with itself. The guild master's client keeps the
+	-- real draw too: the same number there.)
+	eq(c.gm.RR.score("pair1:ivo plain", "Member aa"), c.a1.RR.score("pair1:ivo plain", "Member aa"), "the same number on every client")
+	assert(c.gm.RR.score("pair1:ivo plain", "Member aa") ~= c.gm.RR.score("pair2:ivo plain", "Member aa"), "a number of the pair too")
 end)
 
 test("1.5.9 recruiting ranking: a Church missionary's recruit counts in the Church's rankings and in this one, each on its own ledger", function()
@@ -438,7 +477,7 @@ test("1.5.9 recruiting ranking: a Church missionary's recruit counts in the Chur
 	eq(w:As(c.a1, c.a1.RR.Led).r[Id("Church Kid", "Mira Wells")] ~= nil, true)
 end)
 
-test("1.5.9 recruiting ranking: every member's Ranking page: the rows, his own place past the top 25, what is pending, short lines", function()
+test("1.5.9 recruiting ranking: every member's Ranking page: the rows, his own place past the top 10, what is pending, short lines", function()
 	local w = World.New({ apostles = { A1 } })
 	local c = { a1 = w:Client(A1, { view = true }), pia = w:Client("Pia Plain", { view = true }) }
 	for _, cl in pairs(c) do Loud(cl) end
@@ -476,7 +515,9 @@ test("1.5.9 recruiting ranking: every member's Ranking page: the rows, his own p
 		if line.text and line.text:find(L.CHURCH_EVERYONE_YOU:format(31, 31, "10"), 1, true) then standing = line end
 		if line.text and line.text:find(L.CHURCH_EVERYONE_PENDING:format(1), 1, true) then pending = line end
 	end
-	eq(rows, 26, "the top 25 and his own")
+	-- (Changed on purpose, review of 1.5.9: the top 10, not 25. "O ranking para todo mundo": every member's
+	-- page asks a keeper, and 27 whispers an answer were about 32 seconds of a keeper's sending.)
+	eq(rows, 11, "the top 10 and his own")
 	assert(mine and mine.cols[1]:find("31.  Pia Plain", 1, true), "his own row, in gold")
 	eq(mine.cols[2], "10"); eq(mine.cols[3], L.CHURCH_SPLIT:format("10", "0")); eq(mine.cols[4], L.CHURCH_RECRUITS:format(1, 0))
 	assert(dots, "a gap before his row")
@@ -504,7 +545,9 @@ test("1.5.9 recruiting ranking: every member's Ranking page: the rows, his own p
 	for _, code in ipairs({ "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
 		Each(code, function(T)
 			for key, args in pairs(keys) do
-				assert(rawget(T, key), code .. " translates " .. key)
+				-- (Review of 1.5.9: ChurchText.lua writes the English line into the same table before its pt-BR
+				-- one, so for pt-BR the line must differ from the English.)
+				assert(rawget(T, key) and (code ~= "ptBR" or T[key] ~= L[key]), code .. " translates " .. key)
 				local text = T[key]:format(unpack(args))
 				assert(Letters(text) <= 55, code .. " " .. key .. ": " .. text)
 				if code == "ruRU" then assert(not text:find("\226\128\148", 1, true), "no em dash in ruRU") end
@@ -592,6 +635,336 @@ test("1.5.9 recruiting ranking: the wire: every word fits a whisper at its longe
 	eq(l.n, 1)
 end)
 
+-- Review of 1.5.9: the words the keepers weigh, the members' asks, who passed a player on.
+local B36 = ns.Codec.Base36
+-- A log pair as a report says it (hours).
+local function W(inviter, recruit, guild, ti, tj, src)
+	return ("NE~1~w~%s~%s~%s~%s~%s~%s"):format(inviter, recruit, guild, B36(ti), B36(tj), src or "-")
+end
+-- Two letters for the i-th made-up name: aa, ab, ... (names are letters only).
+local function Two(i) return string.char(96 + math.floor((i - 1) / 26) + 1, 96 + (i - 1) % 26 + 1) end
+local function Hour(w) return math.floor(w.clock / 3600) end
+local function Count(t) local n = 0 for _ in pairs(t or {}) do n = n + 1 end return n end
+
+-- Review of 1.5.9 (P1-1): one officer as the census names him in a guild with no keeper (two characters
+-- make one), or a guild's correspondent, made up confirmed recruits for any name, and every member's page
+-- ranked a name nobody has first. Such a witness's word is weak now: it confirms a recruit only beside the
+-- inviter's own report, and WEAK_DAY recruits of one join day at most.
+test("1.5.9 recruiting ranking: an officer the census names confirms nothing alone: a made-up inviter never ranks; beside the inviter's own report it counts, WEAK_DAY a join day per witness", function()
+	local w = World.New({ apostles = { A1 } })
+	local c = { a1 = w:Client(A1, { view = true }), pia = w:Client("Pia Plain", { view = true }),
+		ola = w:Client("Ola Officer", { guild = World.GUILD2, rank = 1 }), gus = w:Client("Gus Vale", { guild = World.GUILD2 }) }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- Ola is Olympus Vale's officer as the census reads it (what Channels.VerifiedLevel gives for her there).
+	c.a1.c.Channels.VerifiedLevel = function(n, g)
+		if Key(n) == Key("Ola Officer") and g == World.GUILD2 then return 2, true, 1 end
+		return 1, false
+	end
+	local hour, taken = Hour(w), 0
+	for i = 1, 30 do
+		if w:As(c.a1, c.a1.RR.TakeEvidence, "Ola Officer-Realm", W("Nobody Real", "Ghost " .. Two(i), World.GUILD2, hour - 1, hour)) then taken = taken + 1 end
+	end
+	eq(taken, 30, "her words are taken, as weak ones")
+	eq(State(w, c.a1, "Ghost aa", "Nobody Real"), "pending")
+	eq(Row(w, c.a1, "Nobody Real", "w"), nil, "no point for a name no addon of its own stands behind")
+	-- A plain member's page: no such row.
+	c.pia.View.page = "ranking"
+	w:As(c.pia, c.pia.View.Build)
+	w:Flush()
+	for _, line in ipairs(w:As(c.pia, c.pia.View.Build)) do
+		if line.cols then assert(not Plain(line.cols[1]):find("Nobody", 1, true), Plain(line.cols[1])) end
+	end
+	-- A real invite there: Gus's own addon reports it (kept apart: pending for him), Ola's word confirms it.
+	w:Run(3600)
+	w:Presence()
+	hour = Hour(w)
+	w:LogEvent(World.GUILD2, "invite", "Gus Vale", "Vale Kid", 0)
+	w:LogEvent(World.GUILD2, "join", "Vale Kid", nil, 0)
+	w:ReadLog(c.gus)
+	eq(#w:Sent(c.gus, "NE", "WHISPER", "w"), 1, "his own report, to the keeper online")
+	eq(State(w, c.a1, "Vale Kid", "Gus Vale"), nil, "the inviter's word alone makes no record")
+	eq(Row(w, c.a1, "Gus Vale").pending, 1)
+	eq(Score(w, c.a1, "Gus Vale"), 0)
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Ola Officer-Realm", W("Gus Vale", "Vale Kid", World.GUILD2, hour, hour)), true)
+	eq(State(w, c.a1, "Vale Kid", "Gus Vale"), "credited", "her word beside his own")
+	eq(Score(w, c.a1, "Gus Vale"), 10)
+	eq(Row(w, c.a1, "Gus Vale").pending, 0)
+	-- One weak witness confirms WEAK_DAY recruits a join day; the rest of hers that day wait.
+	c.a1.RR.WEAK_DAY = 3
+	for i = 1, 5 do
+		local kid = "Guskid " .. Two(i)
+		w:As(c.a1, c.a1.RR.TakeEvidence, "Gus Vale-Realm", W("Gus Vale", kid, World.GUILD2, hour, hour))
+		w:As(c.a1, c.a1.RR.TakeEvidence, "Ola Officer-Realm", W("Gus Vale", kid, World.GUILD2, hour, hour))
+	end
+	local gus = Row(w, c.a1, "Gus Vale")
+	eq(gus.joins, 3, "three of her six that day")
+	eq(gus.pending, 3)
+	eq(Row(w, c.a1, "Nobody Real", "w"), nil)
+end)
+
+-- Review of 1.5.9 (P1-2): a plain member of a keeper's guild named another inviter for a recruit the
+-- keeper's roster showed, an hour earlier, and took him from his real inviter. A guildmate's word is strong
+-- only for an invite the keeper's own read of the log saw; a weak claim never displaces a strong one.
+test("1.5.9 recruiting ranking: a guildmate's word naming another inviter, dated earlier, takes no recruit from the one the keeper's own log saw invite him", function()
+	local w, c = Cast({ thief = { name = "Thief Pal" } })
+	Recruit(w, World.GUILD, "Ivo Plain", "Real Kid", 1)
+	w:ReadLog(c.a1)
+	w:ReadLog(c.wes)
+	eq(State(w, c.a1, "Real Kid", "Ivo Plain"), "credited")
+	eq(Rec(w, c.a1, "Real Kid", "Ivo Plain").ws[1], Key(A1), "the keeper's own read")
+	local hour = Hour(w) - 1
+	-- Sid whispers an invite by Thief Pal five hours before Ivo's, and Thief Pal's own addon backs it.
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Sid Pass-Realm", W("Thief Pal", "Real Kid", World.GUILD, hour - 5, hour)), true)
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Thief Pal-Realm", W("Thief Pal", "Real Kid", World.GUILD, hour - 5, hour)), true)
+	w:Flush()
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		eq(State(w, k, "Real Kid", "Ivo Plain"), "credited", k.name)
+		eq(Score(w, k, "Ivo Plain"), 10, k.name)
+		eq(Score(w, k, "Thief Pal"), 0, k.name)
+	end
+	eq(State(w, c.a1, "Real Kid", "Thief Pal"), "taken")
+	eq(Rec(w, c.a1, "Real Kid", "Thief Pal").wk[1], Key("Sid Pass"), "a weak word: the keeper's log never showed that invite")
+	-- A guildmate's word for the invite the keeper's log did see is strong.
+	eq(Rec(w, c.a1, "Real Kid", "Ivo Plain").ws[2], Key("Wes Brook"))
+end)
+
+-- Review of 1.5.9 (P1-3): any player's asks took most of a keeper's sending, and they filled the Church's
+-- own line queue: its answer to the Church's audience came back "busy".
+test("1.5.9 recruiting ranking: members' answers wait on the ranking's own queue: the Church's answer to its audience is never refused busy, and the Church's lines go first", function()
+	local w = World.New({ apostles = { A1 } })
+	local c = { a1 = w:Client(A1), mira = w:Client("Mira Wells") }
+	w:Act(c.a1, c.a1.Church.NameMissionary, "Mira Wells")
+	local members = {}
+	for i = 1, 9 do members[i] = w:Client("Member " .. Two(i)) end
+	for _, cl in pairs(c) do Loud(cl) end
+	for _, cl in ipairs(members) do Loud(cl) end
+	w:Run(8 * 3600)
+	w:Presence()
+	for i = 1, 12 do
+		local by = "Inviter " .. Two(i)
+		w:As(c.a1, c.a1.RR.MergeIn, Id("Kid " .. Two(i), by), { n = "Kid " .. Two(i), bn = by, g = World.GUILD, tc = w.clock - 7200,
+			tj = w.clock - 3600, ws = { "wes brook" } }, false)
+	end
+	c.a1.RR.Settled = function() return true end
+	-- Comm's queue is full (the keeper's whispers drain at the game's pace): nothing goes for now.
+	w.room = c.a1.RR.SEND_ROOM
+	for _, m in ipairs(members) do w:As(m, m.RR.Ask, "m") end
+	w:Flush()
+	-- The Church's own answer to its audience still takes a slot of its own queue.
+	local ok, why = w:As(c.a1, c.a1.Count.Answer, "Mira Wells-Realm", "a", "m")
+	eq(ok, true, tostring(why))
+	eq(c.a1.Count.Stats().dropped.busy, nil, "the Church's answer is never refused busy")
+	eq(w:As(c.a1, c.a1.RR.Queued), c.a1.RR.QUEUE_ASKS, "three answers wait, on the ranking's own queue")
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped.busy, #members - c.a1.RR.QUEUE_ASKS, "the others' asks are dropped: their pages ask again")
+	-- Room for the Church's lines, none past them for the ranking's: the Church's go first.
+	w.room = c.a1.RR.SEND_ROOM + 5
+	w:Run(4)
+	assert(#w:Sent(c.a1, "NR", "WHISPER") > 0, "the Church's answer went")
+	eq(#w:Sent(c.a1, "NE", "WHISPER", "o"), 0, "nothing of the ranking's while the Church needs the room")
+	-- Room again: the ranking's answers go.
+	w.room = nil
+	w:Run(4)
+	eq(w:As(c.a1, c.a1.RR.Queued), 0)
+	eq(#w:Sent(c.a1, "NE", "WHISPER", "n"), c.a1.RR.QUEUE_ASKS)
+end)
+
+test("1.5.9 recruiting ranking: a keeper answers an ask naming its asker's Olympus guild, the top 10 and his own row, two an asker and eight in all in 5 minutes; an ask naming none, or a guild its asker is known outside, gets nothing", function()
+	local w = World.New({ apostles = { A1 } })
+	local c = { a1 = w:Client(A1), mira = w:Client("Mira Wells"), out = w:Client("Out Sider", { guild = "Random Guild" }),
+		vik = w:Client("Vik Stone", { guild = World.GUILD2 }) }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	for i = 1, 14 do
+		local by = "Inviter " .. Two(i)
+		for j = 1, 15 - i do
+			local kid = "Kid " .. Two(i) .. Two(j)
+			w:As(c.a1, c.a1.RR.MergeIn, Id(kid, by), { n = kid, bn = by, g = World.GUILD, tc = w.clock - 7200, tj = w.clock - 3600,
+				ws = { "wes brook" } }, false)
+		end
+	end
+	w:As(c.a1, c.a1.RR.MergeIn, Id("Vik Kid", "Vik Stone"), { n = "Vik Kid", bn = "Vik Stone", g = World.GUILD2, tc = w.clock - 7200,
+		tj = w.clock - 3600, ws = { "wes brook" } }, false)
+	c.a1.RR.Settled = function() return true end
+	local function To(name)
+		local n = 0
+		for _, e in ipairs(w:Sent(c.a1, "NE", "WHISPER")) do if Key(e.target) == Key(name) then n = n + 1 end end
+		return n
+	end
+	-- An ask of the old shape, one naming a guild outside Olympus: nothing.
+	w:Queue(c.out, "WHISPER", "NE~1~a~abc~m", A1)
+	w:Queue(c.out, "WHISPER", "NE~1~a~abd~m~Random Guild", A1)
+	-- One the keeper knows in Olympus Vale (his own Olympus words named it) naming Olympus Ember; a roster
+	-- mate of the keeper naming another guild: nothing.
+	c.a1.c.Data = setmetatable({ ClaimedGuild = function(n) if Key(n) == Key("Vik Stone") then return World.GUILD2 end end }, { __index = c.a1.c.Data })
+	w:Queue(c.vik, "WHISPER", "NE~1~a~abe~m~" .. World.GUILD, A1)
+	w:Queue(c.mira, "WHISPER", "NE~1~a~abf~m~" .. World.GUILD2, A1)
+	w:Flush()
+	eq(To("Out Sider"), 0); eq(To("Vik Stone"), 0); eq(To("Mira Wells"), 0)
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped.member, 3)
+	-- Vik's own page asks (his own guild): the top 10 and his own row, then the end.
+	eq(w:As(c.vik, c.vik.RR.Ask, "m"), true)
+	w:Flush()
+	eq(To("Vik Stone"), c.a1.RR.RANK_ROWS + 2, "ten rows, his own, the end")
+	local rows, _, remote, _, _, mine = w:As(c.vik, c.vik.RR.RankingView, "m")
+	eq(#rows, 11); eq(remote, true); eq(mine.rank, 15); eq(mine.score, 10)
+	-- Two answers an asker in 5 minutes: his third window waits.
+	w:As(c.vik, c.vik.RR.Ask, "a"); w:As(c.vik, c.vik.RR.Ask, "w")
+	w:Flush()
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped["ask rate"], 1)
+	-- Eight answers in all in 5 minutes, whoever asks.
+	local others = {}
+	for i = 1, 8 do others[i] = w:Client("Asker " .. Two(i)); Loud(others[i]) end
+	w:Presence()
+	for _, o in ipairs(others) do w:As(o, o.RR.Ask, "m") end
+	w:Flush()
+	eq(w:As(c.a1, c.a1.RR.Stats).answers, c.a1.RR.ANSWERS_ALL)
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped.busy, 2, "Vik's two and six of theirs; the last two wait for the window")
+	-- Past the window, an asker's page asks again (a keeper that stayed silent: the next one, here the same).
+	w:Run(c.a1.RR.ANSWER_WINDOW + 1)
+	eq(w:As(others[8], others[8].RR.Ask, "m"), true)
+	w:Flush()
+	eq(w:As(c.a1, c.a1.RR.Stats).answers, c.a1.RR.ANSWERS_ALL + 1)
+end)
+
+test("1.5.9 recruiting ranking: members' asks spread over the keepers heard serving, each member's own start", function()
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2) }
+	local members = {}
+	for i = 1, 20 do members[i] = w:Client("Member " .. Two(i)) end
+	for _, cl in pairs(c) do Loud(cl) end
+	for _, cl in ipairs(members) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	for _, m in ipairs(members) do
+		-- Both keepers were heard to take these (any NE word of theirs: a receipt here).
+		w:As(m, m.RR.Receive, "WHISPER", A1, "NE~1~k~zz")
+		w:As(m, m.RR.Receive, "WHISPER", A2, "NE~1~k~zz")
+		w:As(m, m.RR.Ask, "m")
+	end
+	local first, second = 0, 0
+	for _, e in ipairs(w:Sent(nil, "NE", "WHISPER", "a")) do
+		if Key(e.target) == Key(A1) then first = first + 1 elseif Key(e.target) == Key(A2) then second = second + 1 end
+	end
+	eq(first + second, 20)
+	assert(first >= 4 and second >= 4, ("spread: %d and %d"):format(first, second))
+end)
+
+-- Review of 1.5.9 (P1-4): the inviter's own report alone named who passed him the player (an unlinked alt
+-- or a friend took 25% of his recruits), and anyone's own reports were ledger records.
+test("1.5.9 recruiting ranking: who passed the player on counts only when his own addon said so too; an inviter's own report alone makes no record", function()
+	local w, c = Cast()
+	w:Run(600)
+	w:Presence()
+	local hour = Hour(w)
+	Recruit(w, World.GUILD, "Ivo Plain", "Real Kid", 0)
+	-- Ivo's own report names "Ivo Secondchar", a character nobody links to him, as the one who passed him the player.
+	eq(w:As(c.a1, c.a1.RR.TakeEvidence, "Ivo Plain-Realm", W("Ivo Plain", "Real Kid", World.GUILD, hour, hour, "Ivo Secondchar")), true)
+	eq(w:As(c.a1, c.a1.RR.Led).n, 0, "kept apart from the ledger")
+	w:ReadLog(c.a1)
+	eq(State(w, c.a1, "Real Kid", "Ivo Plain"), "credited")
+	eq(Rec(w, c.a1, "Real Kid", "Ivo Plain").s, 1, "his own word marks the record a witness made")
+	eq(Rec(w, c.a1, "Real Kid", "Ivo Plain").src, nil, "nobody's own word says he passed it")
+	eq(Row(w, c.a1, "Ivo Secondchar"), nil)
+	-- Sid passed Ivo the next one, and his addon said so when Ivo took the name (RecruitHandoff's "A").
+	w:As(c.ivo, c.ivo.RR.HandedIn, "Kid Two-Realm", "Sid Pass-Realm")
+	eq(w:Act(c.sid, c.sid.RR.HandedOut, "Kid Two-Realm", "Ivo Plain-Realm"), true)
+	eq(#w:Sent(c.sid, "NE", "WHISPER", "h"), 2, "his word, to each keeper online")
+	w:Run(600)
+	w:Presence()
+	Recruit(w, World.GUILD, "Ivo Plain", "Kid Two", 0)
+	w:ReadLog(c.ivo)
+	w:ReadLog(c.a1)
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		eq(State(w, k, "Kid Two", "Ivo Plain"), "credited", k.name)
+		eq(Rec(w, k, "Kid Two", "Ivo Plain").src, "Sid Pass", k.name)
+		eq(Score(w, k, "Sid Pass"), 2.5, k.name)
+	end
+	-- Sid's word alone, for a player Ivo's report names nobody for: nothing for him.
+	w:Act(c.sid, c.sid.RR.HandedOut, "Kid Three-Realm", "Ivo Plain-Realm")
+	w:Run(600)
+	w:Presence()
+	Recruit(w, World.GUILD, "Ivo Plain", "Kid Three", 0)
+	w:ReadLog(c.ivo)
+	w:ReadLog(c.a1)
+	eq(State(w, c.a1, "Kid Three", "Ivo Plain"), "credited")
+	eq(Rec(w, c.a1, "Kid Three", "Ivo Plain").src, nil)
+	eq(Score(w, c.a1, "Sid Pass"), 2.5)
+	-- Nobody passes a player to himself, nor his own alt.
+	w.alts[Key("Ivo Plain")] = { "Ivo Twink-Realm" }
+	eq(select(2, w:As(c.a1, c.a1.RR.TakeEvidence, "Ivo Twink-Realm", "NE~1~h~Kid Four~Ivo Plain")), "self")
+	-- Own reports of made-up recruits, from a player of another guild: never a record; the side table bounded.
+	local before = w:As(c.a1, c.a1.RR.Led).n
+	c.a1.RR.OWN_MAX = 20
+	for i = 1, 40 do w:As(c.a1, c.a1.RR.TakeEvidence, "Fake Guy-Realm", W("Fake Guy", "Madeup " .. Two(i), World.GUILD2, Hour(w), Hour(w))) end
+	eq(w:As(c.a1, c.a1.RR.Led).n, before, "no record")
+	assert(Count(w:As(c.a1, c.a1.RR.Led).own) <= 20)
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped.budget, 10, "the smaller budget: 30 an hour")
+	eq(Score(w, c.a1, "Fake Guy"), 0)
+end)
+
+-- Review of 1.5.9 (P2-2): the inviter's own client reported only a player another member passed him, so
+-- the page's "N of yours wait for another addon" never showed for his own invites.
+test("1.5.9 recruiting ranking: every join the inviter's own addon saw waits as his pending recruit; his addon reads its log a while after an invite command", function()
+	local w, c = Cast({ pia = { name = "Pia Plain", view = true } })
+	Recruit(w, World.GUILD, "Pia Plain", "Solo Kid", 0)
+	w:ReadLog(c.pia)
+	eq(#w:Sent(c.pia, "NE", "WHISPER", "w"), 2, "her own report, to each keeper online")
+	eq(Row(w, c.a1, "Pia Plain").pending, 1)
+	eq(Score(w, c.a1, "Pia Plain"), 0)
+	-- Her page says so (asked of a keeper online).
+	c.pia.View.page = "ranking"
+	w:As(c.pia, c.pia.View.Build)
+	w:Flush()
+	local found = false
+	for _, line in ipairs(w:As(c.pia, c.pia.View.Build)) do
+		if line.text and line.text:find(L.CHURCH_EVERYONE_PENDING:format(1), 1, true) then found = true end
+	end
+	assert(found, "one of hers waits for another addon")
+	-- The keeper's own read confirms it.
+	w:ReadLog(c.a1)
+	eq(Score(w, c.a1, "Pia Plain"), 10)
+	eq(Row(w, c.a1, "Pia Plain").pending, 0)
+	-- An invite command taken to chat (Recruit.LastInviteAt): her client reads its log for OWN_READ_HOURS.
+	eq(w:As(c.wes, c.wes.RR.ReadWanted), "drawn")
+	local at = w.clock
+	c.wes.c.Recruit = { LastInviteAt = function() return at end }
+	eq(w:As(c.wes, c.wes.RR.ReadWanted), "own")
+	w:Run(c.wes.RR.OWN_READ_HOURS * 3600 + 1)
+	eq(w:As(c.wes, c.wes.RR.ReadWanted), "drawn")
+end)
+
+-- Review of 1.5.9 (the review's experiment ZZR5): a guildmate's report that reached his keeper before its
+-- roster showed the recruit was refused for now with no word back, and a reporter that had never heard
+-- that keeper take these sent it once, never again. The keeper says "later" (NE l): it comes again.
+test("1.5.9 recruiting ranking: a report a keeper refuses for now (its roster not showing the recruit yet) comes again later and is taken", function()
+	local w = World.New({ apostles = { A1 } })
+	local c = { a1 = w:Client(A1), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- The log shows the invite and the join; the keeper's roster has not shown the recruit yet.
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Late Kid", 0)
+	w:LogEvent(World.GUILD, "join", "Late Kid", nil, 0)
+	w:ReadLog(c.wes)
+	eq(w:As(c.a1, c.a1.RR.Stats).dropped.roster, 1)
+	eq(State(w, c.a1, "Late Kid", "Ivo Plain"), nil)
+	w:Run(c.a1.RR.RECEIPT_GAP + 1)
+	eq(SentTo(w, c.a1, "Wes Brook", "l"), 1, "the keeper's later")
+	eq(Outbox(c.wes), 1, "the report waits")
+	-- The recruit shows on the roster; the report goes again an hour later and is taken.
+	Join(w, World.GUILD, "Late Kid")
+	w:Run(c.wes.RR.RESEND_GAP + 1)
+	w:Presence()
+	w:Tick({ c.wes })
+	w:Run(c.a1.RR.RECEIPT_GAP + 1)
+	eq(#w:Sent(c.wes, "NE", "WHISPER", "w"), 2)
+	eq(Rec(w, c.a1, "Late Kid", "Ivo Plain").wk[1], Key("Wes Brook"))
+	eq(Outbox(c.wes), 0, "its receipt")
+end)
+
 -- The README and the CurseForge page tell of it in the same words, and its privacy rows say what goes where.
 test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the ranking for everyone; the privacy table names its words", function()
 	local function Read(p) local f = assert(io.open(ROOT .. p)) local s = f:read("*a") f:close() return s end
@@ -599,7 +972,13 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 		local doc = Read(path):gsub("%s+", " ")
 		for _, phrase in ipairs({ "**The recruiting ranking for everyone (1.5.9).**", "25% of those points", "**Everyone**",
 			"| The recruiting ranking for everyone (1.5.9): what your addon read in your guild's log",
-			"| The recruiting ranking for everyone: its numbers" }) do
+			"| The recruiting ranking for everyone: its numbers",
+			-- (Review of 1.5.9: the pages said a move between Olympus guilds never counted and that a recruit's
+			-- mark kept him from counting twice "never"; the keepers catch a move only where their own addon saw
+			-- the player, for 120 days. And the inviter's own report, the passer's word, the top 10.)
+			"a move no keeper's addon saw is not caught", "so he does not count again in that time",
+			"when his addon and yours both say so", "each inviter's own report and each passer's word",
+			"the top 10 and his own place", "your own invites whose player joined, always" }) do
 			assert(doc:find(phrase, 1, true), path .. ": " .. phrase)
 		end
 	end

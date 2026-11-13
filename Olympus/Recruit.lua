@@ -1429,6 +1429,10 @@ end
 -- otherwise its popup says the limit is reached and offers Pass.
 Recruit.INVITES_PER_MINUTE = 10
 local invitesTaken = {}
+-- (Review of 1.5.9) When this player last took an invite command to chat: the recruiting ranking for
+-- everyone reads the guild's log a while after it, for his own report of the join (RecruitRanking.ReadWanted).
+local lastInviteAt
+function Recruit.LastInviteAt() return lastInviteAt end
 function Recruit.AtInviteLimit()
 	local now = ns.Now()
 	for i = #invitesTaken, 1, -1 do
@@ -1622,6 +1626,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 		if not data.taken then
 			data.taken = true
 			invitesTaken[#invitesTaken + 1] = ns.Now()
+			lastInviteAt = ns.Now()
 			local H = Recruit.Handoff
 			if H and H.LogItem then
 				-- (The minute's own count: a popup can stay open past it.)
@@ -1914,7 +1919,7 @@ function Recruit.ResetForTests()
 	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(lineTimes); wipe(whispers); wipe(invitesTaken)
-	lastRoute = -math.huge
+	lastRoute, lastInviteAt = -math.huge, nil
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}
 	if ns.GuildCharter then ns.GuildCharter.ResetForTests() end
