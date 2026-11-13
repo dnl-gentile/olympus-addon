@@ -624,8 +624,10 @@ end
 -- In the status (StatusText, below the channel line), not the debug section: a report sent in game stops
 -- at Workshop.BUG_MAX bytes, past which a relay's debug section fell. (Round 1's re-review) And the drip's
 -- whispers handed to the send queue since login (Relay.Stats): its census transfers', the others', and
--- those of either past its pace (Relay.DRIP_PER_MIN) while nothing else waited: census starved behind
--- other words, or a pace that never lets census go, shows there.
+-- how many of those went past its pace (Relay.DRIP_PER_MIN) while nothing else waited: census starved
+-- behind other words, or a pace that never lets census go, shows there. (Round 2 of the review) Written as
+-- a part of the two ("1234 census + 56 other (78 of them past the pace)"): three counts side by side read
+-- as a sum too high by the third.
 local function RelayHereLine()
 	local R = ns.Relay
 	if type(R) ~= "table" or type(R.IsRelay) ~= "function" or Try(R.IsRelay, ns.me) ~= true then return nil end
@@ -640,7 +642,7 @@ local function RelayHereLine()
 				Span(f.since)) or "none")
 	end
 	local s = type(R.Stats) == "function" and Try(R.Stats) or nil
-	local sent = type(s) == "table" and ("%d census, %d other, %d past the pace"):format(tonumber(s.dripCensus) or 0,
+	local sent = type(s) == "table" and ("%d census + %d other (%d of them past the pace)"):format(tonumber(s.dripCensus) or 0,
 		tonumber(s.dripOther) or 0, tonumber(s.dripFree) or 0) or "?"
 	local T = ns.RelayTree
 	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil

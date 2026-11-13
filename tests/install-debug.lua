@@ -572,7 +572,9 @@ end)
 -- is asserted gone: the line in the debug section was the one the cut took.
 -- (Round 1's re-review) And the drip's whispers since login, census, other and past its pace (Relay.Stats),
 -- and on the channel line the words taken on Olympus's leftover channels (Comm.Stats().leftover): counted
--- by 1.5.9's review, shown nowhere. Fails before (neither is in the status).
+-- by 1.5.9's review, shown nowhere. Fails before (neither is in the status). (Round 2) Those past the pace
+-- are some of the census and other ones, so the line says so: as three counts side by side ("1234 census,
+-- 56 other, 78 past the pace") they read as 1,368 whispers where 1,290 went.
 test("1.5.9 /oly bug: on a relay, the status says, below the channel line, quiet presence, the drip's waiting transfers and the longest wait, the transfer in flight, the drip's whispers sent (census, other, past its pace), and its own last tree round's age, without a name; the channel line the words taken on leftover channels; on any other client no relay line; a long report sent in game keeps both", function()
 	local saved = { relay = ns.Relay, tree = ns.RelayTree, quiet = ns.QuietPresence, log = ns.db.log, commStats = ns.Comm.Stats }
 	local ok, err = pcall(function()
@@ -596,7 +598,7 @@ test("1.5.9 /oly bug: on a relay, the status says, below the channel line, quiet
 		end }
 		local text = ns.StatusText()
 		local line = "relay here: quiet presence on  |  drip 3 waiting (2 census), the oldest for 95s, the oldest census one for 40s, "
-			.. "in flight: other, batch 2/2, for 5m  |  drip sent 1234 census, 56 other, 78 past the pace  |  own tree round 5m ago"
+			.. "in flight: other, batch 2/2, for 5m  |  drip sent 1234 census + 56 other (78 of them past the pace)  |  own tree round 5m ago"
 		assert(text:find("\n" .. line .. "\n", 1, true), text)
 		assert(text:find("\nchannel [^\n]+\nrelay here: "), "right below the channel line: " .. text)
 		local channel = text:match("\n(channel [^\n]+)\n")
@@ -619,7 +621,7 @@ test("1.5.9 /oly bug: on a relay, the status says, below the channel line, quiet
 		ns.RelayTree = { Stats = function() return { lines = {} } end }
 		ns.Relay.DripStats = function() return { waiting = 0, census = 0 } end
 		text = ns.StatusText()
-		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -, in flight: none  |  drip sent 1234 census, 56 other, 78 past the pace  |  own tree round none\n", 1, true), text)
+		assert(text:find("\nrelay here: quiet presence off  |  drip 0 waiting (0 census), the oldest for -, the oldest census one for -, in flight: none  |  drip sent 1234 census + 56 other (78 of them past the pace)  |  own tree round none\n", 1, true), text)
 		relay = false
 		text = ns.StatusText()
 		assert(not text:find("relay here:", 1, true), "not a relay: no line: " .. text)
