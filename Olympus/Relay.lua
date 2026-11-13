@@ -102,6 +102,11 @@ Relay.SET_WAIT = 60         -- idle seconds without a new piece
 Relay.SET_MAX_AGE = 300     -- absolute assembly lifetime, even with continuing progress
 Relay.ACROSS_MAX = 8        -- complete cross-relay transfers, including the one in flight
 Relay.ACROSS_PER_PEER = 2   -- one peer cannot occupy the whole cross-relay backlog
+-- (Review of the 1.5.9 release) The author's signed looks (QA) crossing to one peer, counted apart from the two
+-- above: a newer look of an origin (a realm group and faction) takes its waiting look's place (DripBatches), so
+-- this many origins' looks wait at once, a faction's Forever families with room to spare; past it, a new look
+-- takes the oldest waiting one's place (that one is said again within GROUP_SAY_EVERY).
+Relay.ACROSS_LOOKS_PER_PEER = 8
 Relay.LAUNCH_PINS = { ForeverPvE = { "Developus Olympicus", "Asmongold Thereal" }, ForeverPvP = { "Twalin Firebraid", "Elrond Oaklance" } }
 -- (1.5.4) The above are Alliance characters: a Horde client's launch pins, by family, go here once
 -- Horde ones exist (a whisper to an Alliance name never arrives on the Horde). None yet.
@@ -1528,8 +1533,9 @@ end
 -- Replace only a complete waiting transfer, even when the new copy has fewer batches.
 -- The table is its identity: an in-flight copy and at most one waiting successor stay distinct.
 -- census (1.5.9): a census transfer (CensusTransfer, above); look (1.5.9's review): another server's census
--- (CensusLook, below), which makes room at once as a census transfer does, in the other transfers' turn.
-local function DripBatches(name, word, batches, waitingOnly, across, census, look)
+-- (CensusLook, below), which makes room at once as a census transfer does, in the other transfers' turn;
+-- signed (review of the 1.5.9 release): across, the author's signed look (QA), with an allowance of its own.
+local function DripBatches(name, word, batches, waitingOnly, across, census, look, signed)
 	for _, d in ipairs(drip) do
 		if d.name == name and d.word == word and not d.started then
 			d.batches = batches
@@ -1538,11 +1544,25 @@ local function DripBatches(name, word, batches, waitingOnly, across, census, loo
 	end
 	if waitingOnly then return end
 	if across then
+		-- (Review of the 1.5.9 release) Since every signed look crosses by the drip (one origin's at a time, each
+		-- said once in GROUP_SAY_EVERY, 65 s or so after the last), a look to a peer holding two waiting transfers
+		-- pushed out the oldest of them: the relay's own census crossing (its census, which goes first) as much
+		-- as another origin's look. In a round of three origins' looks the second took the crossing's place and
+		-- the third the first one's: the peer got neither (the offline harness, the release's realistic load case
+		-- with a mesh peer and three origins' looks, each once in 30 minutes, 65 s apart, a chat line every 60 s
+		-- for three hours: 6 of 12 census crossings pushed out, the first origin's looks across 0 of 6 times;
+		-- now 10 of 10 crossings and every look).
+		-- Now a signed look (signed: QA, LookKind) counts against the signed looks' own allowance to that peer
+		-- (ACROSS_LOOKS_PER_PEER) and takes only the oldest waiting one's place; any other transfer counts
+		-- against ACROSS_PER_PEER and ACROSS_MAX, the signed looks left out, and takes the place of an older one
+		-- that is neither a signed look nor the census crossing, which a newer snapshot alone replaces
+		-- (refillCensusAcross).
+		local isLook = signed == true
 		local total, peer, oldest, peerOldest = 0, 0, nil, nil
 		for i, d in ipairs(drip) do
-			if d.across then
+			if d.across and (d.signed == true) == isLook then
 				total = total + 1
-				local evictable = not d.started and not d.kingCensus
+				local evictable = not d.started and not d.kingCensus and not d.census
 				if evictable then oldest = oldest or i end
 				if d.name == name then
 					peer = peer + 1
@@ -1550,16 +1570,18 @@ local function DripBatches(name, word, batches, waitingOnly, across, census, loo
 				end
 			end
 		end
-		local evict = peer >= Relay.ACROSS_PER_PEER and peerOldest or oldest
-		if peer >= Relay.ACROSS_PER_PEER or total >= Relay.ACROSS_MAX then
-			-- No room when only an in-flight tail or the King's census could be removed.
-			if peer >= Relay.ACROSS_PER_PEER and not peerOldest then return end
+		local perPeer = isLook and Relay.ACROSS_LOOKS_PER_PEER or Relay.ACROSS_PER_PEER
+		local full = peer >= perPeer or (not isLook and total >= Relay.ACROSS_MAX)
+		if full then
+			-- No room when only an in-flight tail, the King's census or the census crossing could be removed.
+			local evict = oldest
+			if peer >= perPeer then evict = peerOldest end
 			if not evict then return end
 			table.remove(drip, evict)
 		end
 	end
 	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil,
-		look = look == true or nil, at = Now() }
+		look = look == true or nil, signed = signed == true or nil, at = Now() }
 	Drip()
 end
 
@@ -2415,8 +2437,11 @@ refillCensusAcross = function()
 	local total, occupied, waiting = 0, {}, {}
 	for _, d in ipairs(drip) do
 		if d.across then
-			total = total + 1
-			occupied[d.name] = (occupied[d.name] or 0) + 1
+			-- (Review of the 1.5.9 release) The signed looks have an allowance of their own (DripBatches): not here.
+			if not d.signed then
+				total = total + 1
+				occupied[d.name] = (occupied[d.name] or 0) + 1
+			end
 			if d.word == p.word then waiting[d.name] = d end
 		end
 	end
@@ -2474,7 +2499,7 @@ end
 local function Across(flag, origin, body, set)
 	if set == false then return end -- the whole transfer follows its last piece
 	local mine, from = Lower(ns.ShortName(ns.me or "")), Lower(ns.ShortName(origin))
-	local kind -- (a chat line is unkeyed, as ever)
+	local kind, signedLook -- (a chat line is unkeyed, as ever; signedLook: the author's signed look, QA)
 	if flag == "L" then
 		if set or (ns.FullName(origin) == ns.me and StaffKind(body)) then return end
 	else
@@ -2494,6 +2519,7 @@ local function Across(flag, origin, body, set)
 		kind = head:match("^(CG~[12]~S)~%d+~") or head:match("^(GV~1~S)~%d+~") or ListKind(head)
 			or (type(set) == "table" and #set > 1 and head:match("^(CX~[123]~S)~")) or signed or nil
 		if not kind then return end
+		signedLook = signed ~= nil and kind == signed
 		if kind:sub(1, 2) == "CG" then
 			local whole = type(set) == "table"
 			local batches = whole and SetBatches(flag, origin, set, "RX") or { Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body) }
@@ -2510,7 +2536,7 @@ local function Across(flag, origin, body, set)
 		if key ~= mine and key ~= from and mesh.Fresh(key, now) then
 			if type(set) == "table" then
 				batches = batches or SetBatches(flag, origin, set, "RX")
-				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true, nil, CensusLook(kind))
+				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true, nil, CensusLook(kind), signedLook)
 				stats.across = (stats.across or 0) + #set
 			else
 				pieces = pieces or Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body)
