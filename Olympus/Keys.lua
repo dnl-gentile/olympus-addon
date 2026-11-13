@@ -1,5 +1,8 @@
 local ADDON, ns = ...
 local L = ns.L
+-- (1.5.9) On WoW: Forever every client sits on its faction's public first lane, whatever key it holds
+-- (Comm.ChannelSpec): a key is kept there, and it moves nobody (1.5.9's review: what the player is told).
+local function Forever() return type(ns.OnForever) == "function" and ns.OnForever() == true end
 
 -- The King's key rotation (1.1, Fern's request #8, its second part): a leaked realm key (/oly key)
 -- shut without teaching everyone /oly key by hand. The King (his pinned character) or one of his
@@ -202,7 +205,8 @@ local function Take(key, at, quiet, retires)
 	stats.taken = stats.taken + 1
 	ns.Log("realm key: a key of epoch %d taken%s", at, changed and " (a new channel)" or "") -- (never the key)
 	if changed then
-		if not quiet then ns.Print(L.KEY_ROTATED_TAKEN) end
+		-- (1.5.9's review) On Forever every client stays on the public first lane: kept, no channel joined.
+		if not quiet then ns.Print(Forever() and L.KEY_ROTATED_TAKEN_FOREVER or L.KEY_ROTATED_TAKEN) end
 		ns.Comm.JoinChannel()
 	end
 	return true
@@ -327,7 +331,7 @@ local function TakeClear(at, quiet, retires)
 	stats.taken = stats.taken + 1
 	ns.Log("realm key: public-channel instruction of epoch %d taken", at)
 	if old ~= nil then
-		if not quiet then ns.Print(L.KEY_CLEARED_TAKEN) end
+		if not quiet then ns.Print(Forever() and L.KEY_CLEARED_TAKEN_FOREVER or L.KEY_CLEARED_TAKEN) end
 		ns.Comm.JoinChannel()
 	end
 	return true
@@ -374,7 +378,7 @@ function Keys.Clear()
 	local list = Hashes(type(e) == "table" and e.retires or nil, ValidKey(old) and Hash(old) or nil)
 	TakeClear(at, true, #list > 0 and table.concat(list, ".") or nil)
 	ns.Comm.Send("GUILD", ("K7~%d~%s"):format(at, #list > 0 and table.concat(list, ".") or ""), "key7")
-	ns.Print(L.KEY_CLEARED)
+	ns.Print(Forever() and L.KEY_CLEARED_FOREVER or L.KEY_CLEARED)
 	return true
 end
 
@@ -701,7 +705,7 @@ end
 
 function Keys.Rotate()
 	if Previewing() then return ns.Print(L.THRONE_PREVIEW_NOTE) end
-	if not Keys.CanRotate() then return ns.Print(L.KEY_ROTATE_ONLY_KING) end
+	if not Keys.CanRotate() then return ns.Print(Keys.OnlyKingText()) end
 	local rot = Rotation()
 	if rot and not rot.moved then return ns.Print(L.KEY_ROTATE_BUSY) end
 	local at = Clock()
@@ -751,7 +755,7 @@ function Keys.Move()
 	rot.saw = nil -- (nothing is handed any more: what his /who saw goes)
 	Take(rot.key, rot.at, true, rot.retires)
 	ToGuild(rot.key, rot.at)
-	ns.Print(L.KEY_ROTATION_MOVED)
+	ns.Print(Forever() and L.KEY_ROTATION_MOVED_FOREVER or L.KEY_ROTATION_MOVED)
 	ns.King.Changed()
 	return true
 end
@@ -834,29 +838,38 @@ function Keys.ThroneLines()
 			onClick = function() Keys.RotatePrompt() end,
 			tooltip = function(tt)
 				tt:AddLine(L.KEY_ROTATE, 1, 0.82, 0)
-				tt:AddLine(L.KEY_ROTATE_TIP, 1, 1, 1, true)
+				-- (1.5.9's review) On Forever nobody moves channel: what rotating does there.
+				tt:AddLine(Forever() and L.KEY_ROTATE_TIP_FOREVER or L.KEY_ROTATE_TIP, 1, 1, 1, true)
 			end })
 	end
 	lines[#lines].gapAfter = true
 	return lines
 end
 
+-- (1.5.9's review) The answer to anyone else, on Forever without the officers' sealing of a channel.
+function Keys.OnlyKingText() return Forever() and L.KEY_ROTATE_ONLY_KING_FOREVER or L.KEY_ROTATE_ONLY_KING end
+
 function Keys.RotatePrompt()
 	if Previewing() then return ns.Print(L.THRONE_PREVIEW_NOTE) end
-	if not Keys.CanRotate() then return ns.Print(L.KEY_ROTATE_ONLY_KING) end
-	ns.ShowDialog("OLYMPUS_KEY_ROTATE", tostring(math.ceil(Keys.GRACE / 60)))
+	if not Keys.CanRotate() then return ns.Print(Keys.OnlyKingText()) end
+	-- (1.5.9's review) On Forever its own question: nobody moves channel there (Comm.ChannelSpec).
+	ns.ShowDialog(Forever() and "OLYMPUS_KEY_ROTATE_FOREVER" or "OLYMPUS_KEY_ROTATE", tostring(math.ceil(Keys.GRACE / 60)))
 end
 
-StaticPopupDialogs["OLYMPUS_KEY_ROTATE"] = {
-	text = L.KEY_ROTATE_CONFIRM,
-	button1 = YES or "Yes",
-	button2 = NO or "No",
-	OnAccept = function() ns.SafeCall("key rotate", Keys.Rotate) end,
-	timeout = 0,
-	whileDead = true,
-	hideOnEscape = true,
-	preferredIndex = 3,
-}
+local function RotateDialog(text)
+	return {
+		text = text,
+		button1 = YES or "Yes",
+		button2 = NO or "No",
+		OnAccept = function() ns.SafeCall("key rotate", Keys.Rotate) end,
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		preferredIndex = 3,
+	}
+end
+StaticPopupDialogs["OLYMPUS_KEY_ROTATE"] = RotateDialog(L.KEY_ROTATE_CONFIRM)
+StaticPopupDialogs["OLYMPUS_KEY_ROTATE_FOREVER"] = RotateDialog(L.KEY_ROTATE_CONFIRM_FOREVER)
 StaticPopupDialogs["OLYMPUS_KEY_HAND_OUT"] = {
 	text = L.KEY_HAND_OUT_CONFIRM,
 	button1 = YES or "Yes",
@@ -886,8 +899,10 @@ function Keys.StatusLine()
 		or rot.picking and "a new key waiting for the guilds to be picked" or "a new key being handed out") or "no rotation here"
 	local retired = 0
 	for _ in pairs(type(ns.rdb and ns.rdb.keyRetired) == "table" and ns.rdb.keyRetired or {}) do retired = retired + 1 end
+	-- (1.5.9) On Forever a key held seals no channel: every client sits on the public first lane there.
+	local held = ns.rdb and ns.rdb.realmKey and (Forever() and "held (the public channel on Forever)" or "sealed")
 	return ("%s  |  epoch %s  |  %s  |  taken %d, refused %d, keys replaced %d (their K1 ignored %d), whispered %d, acks %d, relayed %d"):format(
-		ns.rdb and ns.rdb.realmKey and "sealed" or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
+		held or "public", at and (date and date("%Y-%m-%d %H:%M", at) or tostring(at)) or "none",
 		state, stats.taken, stats.refused, retired, stats.legacy, stats.whispered, stats.acks, stats.relayed)
 end
 function Keys.Stats() return stats end

@@ -243,8 +243,11 @@ end
 
 -- The ruleset the Chat tab's box writes to (Channels.Send's `to`): the one its picker shows, when that
 -- is this character's own (the dev's "só lá"); nil, everyone, under All or another ruleset, and off
--- Forever (no picker). A line for another family's ruleset would reach none of its players with the
--- gamepad UI: only the channel's text crosses families, the relay keeps to its own.
+-- Forever (no picker). A line for another family's ruleset would reach none of its players where the
+-- line is not typed into the channel (ChatHall.On: the gamepad UI, a guild holding a realm key on
+-- Forever, the channel not joined): only the channel's text crosses families, the relay keeps to its
+-- own. "Everyone" is then the writer's own ruleset, even under All, and the box says so under another
+-- ruleset (ChatWindow's hint).
 function Channels.SendTo()
 	if not ns.splitNames then return nil end
 	local view = Channels.GroupView()
@@ -1308,8 +1311,11 @@ function Channels.Send(tier, text, now, keepMute, to)
 	-- they are told so before anything leaves (Channels.Confirm sends it). The warning holds the
 	-- channel it named too (GitHub #34).
 	if not Warned()[tier] then
-		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName(), keepMute = keepMute or nil,
-			to = to })
+		-- (1.5.9's review) And the audience it named: on Forever a realm key changes who reads a line, not
+		-- the channel's name (Comm.ChannelSpec).
+		local audience = ns.Comm.Audience()
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), audience, { tier = tier, text = text, channel = ns.Comm.ChannelName(),
+			audience = audience, keepMute = keepMute or nil, to = to })
 		return false, "confirm"
 	end
 	local guild = GetGuildInfo("player")
@@ -1395,11 +1401,12 @@ end
 -- The warning's answer, with the line it held (with the gamepad UI too: it rides in the
 -- window's data). Send: that channel counts as warned and the line goes through Channels.Send
 -- again, every check with it. Cancel, Escape or another window taking its place: not sent.
--- The channel changed while the warning waited (a new realm key, GitHub #34): the line was
--- written for the audience the warning named, so it is not sent, and the channel is not counted
--- as warned (the new one's audience was never shown); the player is told, as for a line dropped
--- from the lane. Out of an Olympus guild by then, or on no channel (1.1.1): no channel change,
--- Channels.Send's own refusal says why, and nothing counts as warned.
+-- The channel or its audience changed while the warning waited (a new realm key, GitHub #34; on
+-- Forever a key changes the audience alone, 1.5.9's review): the line was written for the audience
+-- the warning named, so it is not sent, and the channel is not counted as warned (the new audience
+-- was never shown); the player is told, as for a line dropped from the lane. Out of an Olympus guild
+-- by then, or on no channel (1.1.1): no channel change, Channels.Send's own refusal says why, and
+-- nothing counts as warned.
 function Channels.Confirm(data, send)
 	if type(data) ~= "table" or not TIERS[data.tier] or data.answered then return end
 	data.answered = true
@@ -1409,7 +1416,10 @@ function Channels.Confirm(data, send)
 	end
 	local channel = ns.Comm.ChannelName()
 	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text, nil, data.keepMute, data.to) end
-	if data.channel ~= channel then
+	-- (1.5.9's review) The audience it named, too: on Forever a key cleared while the warning was open (K7)
+	-- keeps the channel's name and turns the chat hall on, and a line confirmed for a key holder's audience
+	-- went out as plain text in the public channel.
+	if data.channel ~= channel or (data.audience ~= nil and data.audience ~= ns.Comm.Audience()) then
 		stats.moved = stats.moved + 1
 		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
 		ns.Fire("CHAT_SEND_FAILED", data.tier, "moved", data.text, 0)

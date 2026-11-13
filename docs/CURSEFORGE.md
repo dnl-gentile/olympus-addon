@@ -448,7 +448,8 @@ WoW channel number to join). Each channel is exclusive to a rank:
   written for the old channel's audience. Send it again to write on the new one (GitHub
   #34). The same holds for a line the privacy warning holds while the channel changes. Of a
   long line whose first parts had already left, the notice says how many went out, on the old
-  channel.
+  channel. On WoW: Forever (1.5.9) a key no longer changes the channel; a line the privacy warning
+  holds is dropped the same way when the audience it named changes (a key cleared meanwhile).
 - Shift-click an item or spell into the line and it stays a link. Long lines are split into
   up to 3 messages; if the game refuses one of them, the rest of that line is not sent
   either, and you are told (1.1.1).
@@ -538,6 +539,11 @@ all three channels, and the addon only decides what to show. Anyone on that chan
 [Captains] and [Lords] with a one-line script: without `/oly key` that is anyone who joins
 "OlympusNet" by name; with a key, every member of the guilds that have it. The guild tag on an
 [Olympus] line is not verified. Seal the channel with `/oly key`, and never share passwords there.
+On WoW: Forever (1.5.9) every client sits on the public "OlympusNet" whatever its key: there a key
+keeps your guild's typed lines out of it as text, and the relays carry them to every other guild,
+where anyone with the addon reads them. There the officers' grey line says that anyone who joins
+reads the guild's typed lines, its tooltip says what a key does instead of how to seal the
+channel, and no count of guildmates on a sealed channel shows.
 Before your first line in each channel the addon tells you this and waits for **Send**.
 While your channel is public, officers see one quiet grey line saying so on the
 Census, the Realm and the Chat tab's settings (its tooltip says who can read it and how to seal
@@ -958,7 +964,10 @@ does not automatically appoint a group leader. Each Legate organizes an agreed g
   Throne says how many of those he whispered have it (an answer from anyone else is not
   counted), and of how many guilds (each counted for the guild his addon whispered him for,
   never the one his answer names). A guild with no officer online by then stays on the old channel
-  until one of its officers types the key by hand. The King or his Steward: never a Hand.
+  until one of its officers types the key by hand. On WoW: Forever (1.5.9) nobody moves channel:
+  every guild stays on the public channel, with the old key or the new, and either keeps its
+  holders' typed chat lines out of it (the Throne's tooltip and question say so there). The King
+  or his Steward: never a Hand.
   Each 1.1 addon keeps the newest key by the time it was made and remembers the keys a newer
   one replaced: an officer's plain `/oly key` from a version before 1.1 still moves his guild,
   as ever, but never back to a key a newer one replaced (the leaked one). A 1.1 officer's own
@@ -1809,6 +1818,12 @@ Olympus chat, one of its current officers can use `/oly key off`. The recovery i
 inside Blizzard's guild channel, returns updated guildmates to the public Olympus channel, and
 retires the old private key so a delayed message cannot split them again.
 
+**On WoW: Forever (since 1.5.9)** every client sits on its faction's public first lane, "OlympusNet"
+(the Horde's "OlympusNetH"), whatever key or lane it holds, so all guilds meet on one channel and the
+census older clients still broadcast there reaches everyone. A key is still kept, handed out and
+rotated, but there it seals nothing: it only keeps your guild's typed chat lines out of the public
+channel as text, and they reach the other guilds by the relays, which carry the census too.
+
 ## How it works
 
 1. Every guild member can read their own guild's roster: name, level, class, zone, rank,
@@ -2059,7 +2074,8 @@ every member of every guild that has it can read the channel, anyone can pass it
 nobody can take it back. If it leaks, the King or his Steward rotates it for the whole army (1.1, on the
 Throne: a new key by whisper to the Lords and Captains his /who saw in the guilds he picks and
 over guild chat, never on the Olympus channel), or officers set a new one (`/oly key <new secret>`) and
-hand it out again.
+hand it out again. On WoW: Forever (1.5.9) every client is on the public channel whatever its key: a
+key there only keeps its guild's typed chat lines out of the channel's text.
 
 **Chat is never private.** Every client on the channel receives [Olympus], [Captains] and
 [Lords] alike; the addon only decides what to show. Before your first line in each of them
@@ -2396,7 +2412,7 @@ Other limits:
 | `/oly borders on` · `/oly borders off` | elite borders round the portrait of your target, focus, party members and your own frame (Forever): the game's gold wings for the King, silver wings for the High Council and Max's bronze wings for Olympus guild masters (none for a character or guild the moderators took off, net-off). Legates and correspondents use separate verified office shields instead of the old wingless bronze role frame; signed High Council departments use the same shield family without replacing silver, and earned honours remain. The old rank borders (gold for Lords, silver for Captains, bronze for Raiders and Veterans) are gone, and any other member has the nameplate star alone. On by default, hidden with the gamepad UI. Off, the nameplate marks go too |
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V): the game's gold elite mark for the King, silver for the High Council, bronze for guild masters, the verified Legate or department shield for an appointee, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly chatmarks on` · `/oly chatmarks off` | the verified mark before a player's name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the office marks alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the Legate or department shield for an appointee, and the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
-| `/oly key <secret>` | officers: seal the Olympus channel |
+| `/oly key <secret>` | officers: seal the Olympus channel (on WoW: Forever, 1.5.9: keep your guild's typed chat lines out of the public channel, where every guild stays) |
 | `/oly key off` | officers: remove a mismatched guild-only key and return the guild to the public Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) |
 | `/oly block <name>` | ignore a player |

@@ -440,6 +440,14 @@ end
 
 -- Its own sender: one whole transfer at a time, as the queue has room (Relay's drip serves its
 -- registered reporters alone). A newer copy of a word takes a waiting one's place.
+-- (1.5.9's review) Every transfer here is census (its own CG and CX, its peers' CG, the author's QA:
+-- Spread), and it waited for free room for its whole batch and went as an ordinary job: under a queue kept
+-- busy by ordinary whispers none ever started (the offline harness, 10 registrants, three ordinary whispers
+-- a pump, one more than it sends: no whisper to a registrant in 300 s), as the signed relay's drip did
+-- before 1.5.9 (Relay.lua). Now it starts once Comm can make room for its batch by dropping the ordinary
+-- whispers still waiting, and goes urgent, which nothing pushes out. No pace like the signed relay's: a
+-- provisional relay carries no chat lane, its own words are a member's few, and while a batch goes three
+-- of Comm's eight sends stay for the single ones (BATCH_SLOTS).
 local function Wanted(name, now)
 	return Serves(name) or F.IsElected(name, now)
 end
@@ -452,14 +460,14 @@ Pump = function()
 			table.remove(drip, 1)
 		else
 			local batch = d.batches[d.index]
-			if ns.Comm.QueueRoom() < #batch then
+			if ns.Comm.QueueRoom(true) < #batch then
 				dripBusy = true
 				ns.After(1, "relay provisional drip", function() dripBusy = false; Pump() end)
 				return
 			end
 			d.started, dripBusy = true, true
 			ns.Relay.Quiet(d.name)
-			ns.Comm.SendBatch("WHISPER", batch, nil, Short(d.name), false, function(sent)
+			ns.Comm.SendBatch("WHISPER", batch, nil, Short(d.name), true, function(sent)
 				if sent and d.index < #d.batches then
 					d.index = d.index + 1
 				else
@@ -486,6 +494,9 @@ local function DripTo(name, word, batches)
 end
 -- A word to the registrants (and, toPeers, to the elected peers) as RO, never back to its origin or to
 -- `except`; an own word to our own guild as well, as a relay hands its own words to its guild.
+-- (1.5.9's review) Every word here is census (CG, CX, QA), so the hand-on to our guild goes by its census
+-- lane (Relay's ToGuild: urgent, a whisper a second): an ordinary job, it never began behind the drip's
+-- urgent batches, and was pushed out.
 local function Spread(flag, origin, word, toPeers, except)
 	local R, now = ns.Relay, Now()
 	local batches = R.SetBatches(flag, origin, { word }, "RO")
@@ -501,7 +512,7 @@ local function Spread(flag, origin, word, toPeers, except)
 			if key ~= from and key ~= except then DripTo(p, tag, batches) end
 		end
 	end
-	if from == Key(ns.me) then R.HandOn(flag, origin, word) end
+	if from == Key(ns.me) then R.HandOn(flag, origin, word, true) end
 	Pump()
 end
 
@@ -692,7 +703,7 @@ function F.HandleRO(dist, sender, text)
 	stats.roIn = stats.roIn + 1
 	if not R.TakeVia("O", sender, origin, word, flag == "L") then return true end
 	if Check(origin, word, now) then return true end
-	R.HandOn("P", origin, word)
+	R.HandOn("P", origin, word, true) -- (census alone comes by RO, Carried: by the census lane, as Spread's)
 	if serving and Key(origin) ~= Key(ns.me) and (word:match("^CG~%d+~S~") or word:match("^QA~")) then
 		Spread(flag, origin, word, false, Key(sender))
 	end

@@ -7270,7 +7270,9 @@ assert(loadfile(ROOT .. "tests/builds.lua"))(ns, test, eq, { RelayWorld = RelayW
 -- 1.5.5: chat lines, senders and channel names the client keeps secret are never read (tests/secret-chat.lua).
 assert(loadfile(ROOT .. "tests/secret-chat.lua"))(ns, test, eq, { ROOT = ROOT })
 -- 1.5.5: an install that does not fit the game, and /oly bug's bounded debug section (tests/install-debug.lua).
-assert(loadfile(ROOT .. "tests/install-debug.lua"))(ns, test, eq, { ROOT = ROOT })
+assert(loadfile(ROOT .. "tests/install-debug.lua"))(ns, test, eq, { ROOT = ROOT, FreshComm = FreshComm })
+-- 1.5.9: one channel on Forever, whatever realm key or lane a client holds (tests/forever-channel.lua).
+assert(loadfile(ROOT .. "tests/forever-channel.lua"))(ns, test, eq, { addon = ADDON_DIR, FreshComm = FreshComm })
 
 test("1.4.3 the relay: where names split, a channel message goes to the picked signed relay by whisper (RL), pinged once; a chat line goes logged; the relay registers reporters (RR), forwards to each guild's reporter (RM) and hears it itself; a reporter takes it once and hands it to its guild (RG); a guildmate takes it once; a stranger's RM is dropped", function()
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild }
@@ -8445,6 +8447,38 @@ test("1.1.5 census: an impossible breakdown off the channel is a bad report, nev
 		eq(#received, 1); eq(received[1].sender, "Honest-Realm"); eq(received[1].r.zones.m1453, 3); eq(received[1].r.classes.WA, 5)
 	end)
 	GetChannelName, ns.Data.Receive, C_ChatInfo = saved.channel, saved.receive, nil
+	if not ok then error(err, 0) end
+end)
+
+-- 1.5.9's review (C6, T5): on Forever the runner-up pick ignores the channel a hello names (Comm.lua: the
+-- relay carries every report there, and a 1.5.8 guildmate holding the key still says "s" where a 1.5.9 one
+-- says "p"). A sealed guild mid-rollout: its 1.5.8 reporter says "s", a 1.5.9 guildmate before us by name
+-- says "p": that guildmate backs the reporter, not us. Off Forever the same hellos keep the old rule (a peer
+-- on another channel can't back this reporter: we do). Fails with the Forever term removed (we back it too).
+test("runner-up (1.5.9): on Forever a 1.5.9 guildmate saying p backs a 1.5.8 reporter saying s; off Forever it can't, and we do", function()
+	local saved = { channel = GetChannelName, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, forever in ipairs({ true, false }) do
+			GetGuildInfo = function() return MY_GUILD, "Member", 3 end
+			local ours = { guild = MY_GUILD, total = 900, online = 200, zones = {} }
+			local cns, Deliver, Report = FreshComm()
+			cns.OnForever = function() return forever end
+			cns.rdb = { realmKey = "fixture-key" }
+			local C = cns.Comm
+			C.loginAt = cns.clock - 1000
+			C.JoinChannel()
+			Deliver("GUILD", "Aaa Sealed-Realm", "H1~1.5.8~Realm~s~~~~R")
+			Deliver("GUILD", "Bbb Public-Realm", "H1~1.5.9~Realm~p~~~~R")
+			assert("Bbb Public-Realm" < cns.me, "the 1.5.9 guildmate comes before this client by name")
+			Report("Aaa Sealed-Realm", ours)
+			C.MaybeBroadcast(ours)
+			eq(C.reporterName, ns.DisplayName("Aaa Sealed-Realm"), "the 1.5.8 guildmate first by name reports")
+			eq(C.isRunnerUp, not forever, forever and "on Forever the 1.5.9 guildmate backs it, not us"
+				or "off Forever a peer on the other channel can't back it: we do")
+		end
+	end)
+	GetChannelName, GetGuildInfo, C_ChatInfo = saved.channel, saved.guild, nil
 	if not ok then error(err, 0) end
 end)
 

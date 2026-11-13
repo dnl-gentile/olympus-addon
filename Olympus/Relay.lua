@@ -3,13 +3,16 @@ local L = ns.L
 local Relay = {}
 ns.Relay = Relay
 
--- 1.4.3 (launch night, 2026-11-04). WoW: Forever's live realms accept an addon's messages on any
--- player-made chat channel and never deliver them, not even back to the sender (measured on launch
+-- 1.4.3 (launch night, 2026-11-04). WoW: Forever's live realms accepted an addon's messages on any
+-- player-made chat channel and delivered none of them, not even back to the sender (measured on launch
 -- night: 0 of 123 members' messages heard in a minute; the beta delivered them, as Classic's beta
--- did before patch 1.13.3 cut it). The guild and addon whispers are delivered, to any player of the
--- faction on any of Forever's sub-realms, by his plain "First Surname". So where names split
--- (ns.splitNames: Forever), everything the addon says "on the channel" travels like this instead,
--- and no module changes: the census, the signed lists, the key, the rankings' words, the chat.
+-- did before patch 1.13.3 cut it). (1.5.9) Two /oly bug reports of 2026-11-12 showed older clients'
+-- census arriving on the public channel, OlympusNet (some 500 census pieces at a client there beyond
+-- what its relay carried, beside words no relay hands on); not yet confirmed in game. Comm.ChannelSpec
+-- puts every Forever client on that channel now. The guild and addon whispers are delivered, to any
+-- player of the faction on any of Forever's sub-realms, by his plain "First Surname". So where names
+-- split (ns.splitNames: Forever), everything the addon says "on the channel" travels like this
+-- instead, and no module changes: the census, the signed lists, the key, the rankings' words, the chat.
 --
 --   hop 1  origin -> relay      RL~<f>~<text>            by whisper, to one relay (Pick)
 --   hop 2  relay -> reporters   RM~<f>~<origin>~<text>   by whisper, one per guild (its reporter)
@@ -239,7 +242,10 @@ function Relay.Stats()
 		-- (1.5.5) The chat lane: whispers waiting in it, lost (past its bound or its time), and skipped
 		-- (nobody to send to by then: ChatAddressee).
 		chatWaiting = Relay.ChatWaiting and Relay.ChatWaiting() or 0, chatLost = stats.chatLost or 0,
-		chatSkipped = stats.chatSkipped or 0 }
+		chatSkipped = stats.chatSkipped or 0,
+		-- (1.5.9's review) The drip's whispers handed to Comm: census transfers', the others', and those
+		-- of either that went past its pace (Relay.DRIP_PER_MIN) while nothing else waited.
+		dripCensus = stats.dripCensus or 0, dripOther = stats.dripOther or 0, dripFree = stats.dripFree or 0 }
 end
 
 local function Now() return ns.Now() end
@@ -265,8 +271,9 @@ end
 -- (1.5.4) The Horde apart: a Horde client names only relays that can be Horde characters, those
 -- the author's signed list names for its side (its King, its author characters, a Treasurer signed
 -- for it). An Alliance name there was a relay nobody could reach: the whisper never arrives across
--- factions, so the name sat DEAD_FOR and the word fell back to the channel, which Forever never
--- delivers. The council's list names no side (every councillor is Alliance), the code's Treasurer
+-- factions, so the name sat DEAD_FOR and the word fell back to the channel, which Forever did not
+-- deliver (at launch; 1.5.9: older clients' census seen arriving on the public channel since, not yet
+-- confirmed in game). The council's list names no side (every councillor is Alliance), the code's Treasurer
 -- and the launch pins are Alliance characters: an Alliance client's names are as they were.
 -- (1.5.5) signedOnly: the Treasurer's pins only where the signed list names them (Relay.IsSignedRelay).
 function Relay.Names(withSelf, signedOnly)
@@ -333,8 +340,9 @@ end
 --   (4) the signed relays not left out, none answered yet: not sure (Out holds the word and pings);
 --   (5) the provisional relays this client elected (RelayFallback.Elected), sure: each said yes or
 --       answered our ping within VERIFIED_FOR;
--- else nil, and Out holds the word for HOLD_FOR: Forever's channel delivers nothing (1.5.4 sent it
--- there). Within a step our guild's name and the window pick, so the load spreads.
+-- else nil, and Out holds the word for HOLD_FOR: Forever's channel delivered nothing at launch (1.5.4
+-- sent it there; 1.5.9: older clients' census seen arriving on the public channel since, not yet
+-- confirmed in game). Within a step our guild's name and the window pick, so the load spreads.
 Relay.PREFER_VERSION = "1.5.6"
 local function Fallback()
 	local F = ns.RelayFallback
@@ -488,7 +496,7 @@ end
 -- perdido"): the signed relays are swept once a PING_WAIT at most and the provisional relays elected
 -- meanwhile (RelayFallback.lua), and what waited goes to the first relay picked sure, signed or
 -- provisional. 1.5.4 sent it on after PING_WAIT to a relay that had not answered, or with none to
--- pick on Forever's channel, which delivers nothing: both lost it. Past HOLD_FOR its callback hears
+-- pick on Forever's channel, which delivered nothing at launch: both lost it. Past HOLD_FOR its callback hears
 -- "norelay" (counted, /oly bug), once.
 Relay.HOLD_FOR = 600
 local lastLook = -math.huge
@@ -921,12 +929,72 @@ local function Deliver(origin, text, logged)
 	return true
 end
 
+-- (1.5.9's review) The census lane to our own guild: a census word (a census snapshot, CG, or another
+-- server's census, QA and CX) a relay hands its own guild, signed or provisional (ToGuild's `census`). Its
+-- census batches to its registrants go urgent back to back (Drip below, RelayFallback's Pump), and that
+-- hand-on, an ordinary job, never began and was the first a census batch pushed out: its own guild put
+-- none of its snapshots together (the offline harness: a provisional relay with 10 registrants, none of
+-- its 20 in 20 minutes; a signed relay that is its guild's registrant, none of its 10). Here each whisper
+-- goes urgent, so nothing pushes it out, GUILD_CENSUS_INFLIGHT in the queue at a time, the next as one
+-- leaves, so a word never fills the queue's urgent room at once (26 whispers in one go), which the chat
+-- lane and the King's presence, sent to every registrant at once, need. One waits while the queue has no
+-- urgent room (Comm.QueueRoom(true)), SET_MAX_AGE at most; past GUILD_CENSUS_MAX waiting, the oldest go.
+-- Only the guild it was handed to gets it.
+Relay.GUILD_CENSUS_INFLIGHT = 2
+Relay.GUILD_CENSUS_MAX = 102 -- (three words of Codec.MAX_CHUNKS pieces)
+local guildLane, guildInflight, guildFeeding, guildTimer = {}, 0, false, false
+local FeedGuildLane
+local function FeedGuildLaneNow()
+	local now, guild = Now(), GetGuildInfo and GetGuildInfo("player")
+	while guildInflight < Relay.GUILD_CENSUS_INFLIGHT and guildLane[1] do
+		local e = table.remove(guildLane, 1)
+		if now - e.t < Relay.SET_MAX_AGE and e.guild == guild and IsInGuild() then
+			if ns.Comm.QueueRoom(true) < 1 then
+				-- (No urgent room: back at the front, tried again in a second.)
+				table.insert(guildLane, 1, e)
+				if not guildTimer then
+					guildTimer = true
+					ns.After(1, "relay guild census", function() guildTimer = false; FeedGuildLane() end)
+				end
+				return
+			end
+			guildInflight = guildInflight + 1
+			local settled = false
+			local function done()
+				if settled then return end
+				settled = true
+				guildInflight = math.max(0, guildInflight - 1)
+				FeedGuildLane()
+			end
+			-- (Round 2 of the review: a send that throws is that whisper lost, its place in flight given back,
+			-- as the chat lane's. It took the place for good, and after two the lane sent nothing until a /reload.)
+			if not ns.SafeCall("relay guild census send", ns.Comm.Send, "GUILD", e.msg, nil, true, false, done) then done() end
+		end
+	end
+end
+FeedGuildLane = function()
+	if guildFeeding then return end
+	guildFeeding = true
+	local ok = ns.SafeCall("relay guild census", FeedGuildLaneNow)
+	guildFeeding = false
+	if not ok then wipe(guildLane) end
+end
+local function GuildLane(pieces)
+	local now, guild = Now(), GetGuildInfo and GetGuildInfo("player")
+	for _, msg in ipairs(pieces) do guildLane[#guildLane + 1] = { msg = msg, t = now, guild = guild } end
+	while #guildLane > Relay.GUILD_CENSUS_MAX do table.remove(guildLane, 1) end
+	FeedGuildLane()
+	return true
+end
+
 -- A reporter hands a message to its guild once (hop 3). (1.5.5) A chat line (flag L) goes urgent: a
 -- reporter hands its guild every word its relay sends, at one whisper every 1.2 s, and an ordinary
--- chat line was the first a full queue pushed out, for its whole guild and for good.
-ToGuild = function(flag, origin, text)
+-- chat line was the first a full queue pushed out, for its whole guild and for good. (1.5.9's review)
+-- A census word (`census`) goes by the census lane to our own guild, above.
+ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
 	local pieces = Envelope("RG", "RG~" .. flag .. "~" .. origin .. "~" .. text)
+	if census == true then return GuildLane(pieces) end
 	local urgent = flag == "L"
 	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false) ~= false end
 	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent) ~= false
@@ -962,6 +1030,11 @@ local function SnapshotExpired(s, now)
 	return SetExpired(s, now)
 end
 
+-- Whether a piece of a bounded snapshot transfer from a relay (below), and (1.5.9's review) that transfer:
+-- its `census` is whether it is census (a census snapshot, CG, or another server's census, CX or QA; not
+-- a verification snapshot, GV), which the relay may hand its own guild by the census lane (GuildCensus);
+-- (round 2 of the review) its `look`, whether that census is another server's (QA, CX), which has a turn of
+-- its own there.
 local function SnapshotPart(origin, body, now)
 	if not Relay.IsRelay(origin) then return false end
 	local id, index, total, part = body:match("^C(%w+):(%d+):(%d+):(.*)$")
@@ -990,14 +1063,15 @@ local function SnapshotPart(origin, body, now)
 			elseif (who:sub(-3) == "#qa") == signed then count = count + 1 end
 		end
 		if count >= (signed and Relay.MAX_SIGNED_LOOKS or Relay.MAX_RELAYS) then return false end
-		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {} }
+		transfer = { id = id, total = total, t = now, last = now, got = 0, bytes = 0, parts = {}, census = not part:match("^GV~"),
+			look = part:match("^QA~") ~= nil or part:match("^CX~") ~= nil }
 		snapshotTransfers[key] = transfer
 	end
 	if transfer.id ~= id or transfer.total ~= total or transfer.parts[index] then return false end
 	if transfer.bytes + #part > ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS then return false end
 	transfer.parts[index], transfer.bytes = true, transfer.bytes + #part
 	transfer.got, transfer.last = transfer.got + 1, now
-	return true
+	return true, transfer
 end
 -- Whole sets, one reporter at a time (GitHub #76: the census showed only the player's own guild).
 --
@@ -1012,7 +1086,7 @@ end
 -- 60 seconds a receiver waits for missing pieces. Nothing new is trusted and nothing on the wire
 -- changes: a reporter receives the same whispers as before, only all of them.
 local sets = {}   -- origin#id -> { n = pieces expected, got = pieces held, pieces = { [i] = body }, t = first piece, last = last new piece }
-local drip = {}   -- whole transfers, including the one in flight: { name, word, batches, index, started }
+local drip = {}   -- whole transfers, including the one in flight: { name, word, batches, index, started, at (1.5.9: queued) }
 local dripBusy = false -- a queue callback or a retry timer owns the next turn
 local dripping = false
 local refillCensusAcross -- assigned by the mesh; run when an across slot is freed
@@ -1207,6 +1281,134 @@ local function StillReporter(name)
 	return false
 end
 
+-- (1.5.9, an /oly bug of 2026-11-12: no census whisper reached a guild in a whole session.) A census
+-- transfer waited for free room in the send queue for its whole batch, though Comm makes room by
+-- dropping the ordinary whispers still waiting (the trickle, the relay's own single words to every
+-- reporter), and its batch then waited there as an ordinary job, the first one a newer whisper pushed
+-- out. Under a steady load of ordinary words none ever started (the offline harness: no census whisper
+-- in 300 s, no tree registrant complete in 25 minutes), and any other transfer waiting at the front of
+-- the drip held every census transfer behind it the same way. A census transfer (`census`: a
+-- registrant's snapshot, the tree's word to a seed or a registrant and its repairs, the relay's own
+-- snapshot to a mesh peer) starts once Comm can take its batch that way (Comm.QueueRoom(true)), waits
+-- there as an urgent job, which nothing pushes out, and goes ahead of the other transfers.
+--
+-- (The review of 1.5.9.) Sent urgent back to back, the census took about half the relay's 200 whispers
+-- a minute, and five of every eight sends while one of its batches went (Comm's BATCH_SLOTS): the chat
+-- lane, the relay's own single words to every reporter, the trickle and the King's presence lost what
+-- 1.5.8 delivered (the offline harness, 90 registrants and a chat line every 45 s: 727 of 3,060 chat
+-- whispers lost, 1.5.8 none). An other transfer handed to Comm went as an ordinary batch, waited behind
+-- the urgent ones, was pushed out and handed over again for up to a minute, the census held behind it
+-- (75 of 90 registrants without a census in 20 minutes); its later batch waited for free room for good,
+-- every census transfer behind it (a word one whisper past MAX_CHUNKS, begun in a lull: no census
+-- whisper in five minutes); and the census went ahead of an other one for as long as any census waited
+-- (the relay's own word in pieces: 0 of 90 registrants in an hour). So now the drip has a pace:
+--   * at most DRIP_PER_MIN whispers a minute (one batch at once, MAX_CHUNKS), urgent, so nothing pushes
+--     a batch out of the queue once it is there; the rest of the relay's 200 sends a minute are for the
+--     chat lane (Relay.CHAT_PER_MIN), the King's words, the tree's digests, the acks, the trickle and the
+--     relay's own single words. (Round 1's re-review: not some 140 for the chat lane, as this said. At a
+--     busy relay's peak, its own rounds, 90 registrants and a chat line every 35 s, the drip took its 60,
+--     the tree's digests, the acks, the King's presence and the guild's hand-ons some 30, and the chat
+--     lane kept some 110 a minute, under its own CHAT_PER_MIN of 160);
+--   * (round 1's re-review) a transfer not begun waits while the chat lane's oldest whisper has waited
+--     DRIP_CHAT_AGE (Relay.ChatOldest): with some 110 a minute, at a line every 40 s or faster the chat
+--     lane fell behind until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 did not at those rates (the
+--     same harness, 30 minutes: 132 chat whispers lost at a line every 40 s, 613 every 35 s, 1.5.8 none).
+--     With the wait none is lost down to a line every 35 s, the slowest line 187 s; the census is slower
+--     instead. (Round 2 of the review) It is the chat's turn, not a share: with 90 registrants, at a line
+--     every 35 s a registrant takes one or two snapshots in 30 minutes, the longest wait 27 minutes, past
+--     Data.FRESH (the load harness; round 2's probe, with the King's presence and peers' crossings: 0.9 a
+--     registrant, 7 of 90 without one, against 3.8 and none without the wait). Past a line every 33 s or
+--     so the chat lane is over its own CHAT_PER_MIN and loses lines in 1.5.8 too, and chat is no longer
+--     "no worse than in 1.5.8": the census sent before the wait began costs some 200 chat whispers more,
+--     and the wait then holds the census for the rest of the peak (the probe, 30 minutes: a line every
+--     30 s, 217 lost against 1.5.8's 11, 13 of the 90 registrants without a census; every 25 s, 1,069
+--     against 898, 34 without). Without the wait those were 1,245 and 2,156 lost, every registrant served.
+--     Chat first at a peak is the default until the author decides otherwise; the lasting cure is the chat
+--     lane's own (several lines in one whisper: the chat lane's comment, below);
+--   * past that pace, without paying, while nothing else waits (no chat whisper in the lane, no ordinary
+--     whisper in the queue, room for the batch): a relay with nothing else to send sends the census as
+--     fast as before. Such a first batch goes as an ordinary job, so a burst of ordinary whispers still
+--     pushes it out before it begins, as before the pace;
+--   * a census transfer, and a begun one, makes room as Comm does, by dropping the ordinary whispers still
+--     waiting (Comm.QueueRoom(true)), and so does another server's census (a look: QA, CX), in the other
+--     transfers' turn; any other one waits for free room, DRIP_ROOM_AFTER at most;
+--   * a transfer begun takes its next batch at once, ahead of the pace (paid back before the next transfer
+--     starts), so its receiver never waits past its 60 seconds for the rest;
+--   * a census transfer goes ahead of the other ones, and they keep a share of the drip's whispers while
+--     census transfers wait (DRIP_OTHER_SHARE, a quarter), so the lists and the relay's own words in
+--     pieces still go; the next transfer chosen waits at the front for its turn, the pace saved up for it
+--     (a small one never takes a big one's turn whisper by whisper).
+-- The pace is a trade between the census and the chat (the offline harness, 90 registrants, 9 on 1.5.4,
+-- the relay's own rounds, a chat line every 45 s for 30 minutes, the King's presence, the relay's own
+-- words): at 40 no chat whisper lost and the slowest line 82 s, but the 1.5.4 registrants got no census
+-- (the tree's rounds took the pace); at 60 none lost, the slowest line 197 s, every registrant served
+-- within 15 minutes; at 80, 38 chat whispers lost. (1.5.8: none lost, 58 s, 69 registrants without a
+-- census; 1.5.9 before this: 728 lost, 317 s.) With a chat line a minute or less, 60 delivered every
+-- line within 82 s.
+Relay.DRIP_PER_MIN = 60
+Relay.DRIP_OTHER_SHARE = 0.25
+Relay.DRIP_ROOM_AFTER = 120
+Relay.DRIP_CHAT_AGE = 120
+local dripBucket = { at = -math.huge } -- tokens: whispers the drip may hand Comm now (DripTokens)
+local dripOwed = 0 -- whispers the other transfers are owed of their share (DRIP_OTHER_SHARE), one batch at most
+local function DripTokens(now)
+	local b, most = dripBucket, ns.Codec.MAX_CHUNKS
+	-- (Full at the first turn: no refill from the beginning of time, which a pace of 0 made NaN.)
+	if b.tokens == nil or b.at == -math.huge then b.tokens, b.at = most, now end
+	if now > b.at then b.tokens = math.min(most, b.tokens + (now - b.at) * math.max(0, Relay.DRIP_PER_MIN) / 60) end
+	b.at = math.max(b.at, now)
+	return b.tokens
+end
+-- Whether the chat lane has no whisper waiting (those in flight are in Comm's queue already, ahead).
+local function ChatIdle() return not (type(Relay.ChatWaiting) == "function" and Relay.ChatWaiting() > 0) end
+-- Whether the chat lane's oldest whisper waiting has waited past DRIP_CHAT_AGE (Relay.ChatOldest).
+local function ChatBehind() return type(Relay.ChatOldest) == "function" and Relay.ChatOldest() > Relay.DRIP_CHAT_AGE end
+local function CensusTransfer(d) return d.census == true end
+-- Whether transfer d still goes: begun, or its receiver still one (a registrant here, a relay answering,
+-- a mesh peer for the relay's own census). Eligibility is pinned at the first queue handoff.
+local function Current(d)
+	if d.started then return true end
+	if d.censusAt then
+		return Now() - d.censusAt <= Relay.SET_MAX_AGE and CensusAcrossAllowed() and Relay.MeshPeer(d.name) and true or false
+	elseif d.across then
+		return Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR and true or false
+	end
+	return StillReporter(d.name)
+end
+-- How transfer d's next batch may go now (the pace, above): "free", "paid" or nil (not yet).
+local function Turn(d, now, tokens)
+	local n = #d.batches[d.index]
+	local room = ns.Comm.QueueRoom()
+	if not d.pushed and ChatIdle() and room >= n and ns.Comm.QueueRoom(true) == room then return "free" end
+	if not d.started and ChatBehind() then return nil end
+	local evicts = d.started or CensusTransfer(d) or d.look or now - (d.at or now) >= Relay.DRIP_ROOM_AFTER
+	if ns.Comm.QueueRoom(evicts == true) >= n and (d.started or tokens >= n) then return "paid" end
+	return nil
+end
+-- The transfer to start next (none begun): the first census one, unless the first other one is owed its
+-- share's batch, or no census one waits. On the way, the transfers that no longer go are dropped (and true
+-- returned when one of them was to a relay: an across slot freed).
+local function Next(now)
+	local c, o, freed, i = nil, nil, false, 1
+	while drip[i] and not (c and o) do
+		local w = drip[i]
+		if Current(w) then
+			if CensusTransfer(w) then c = c or i else o = o or i end
+			i = i + 1
+		else
+			table.remove(drip, i) -- a complete transfer, before its first batch
+			if w.across then freed = true end
+		end
+	end
+	if not (c and o) then return c or o, freed end
+	local w = drip[o]
+	local n = #w.batches[w.index]
+	-- (An other one that waits for free room, DRIP_ROOM_AFTER at most, is no turn to save the pace for.)
+	local waits = not w.look and ns.Comm.QueueRoom() < n and now - (w.at or now) < Relay.DRIP_ROOM_AFTER
+	if not waits and dripOwed >= n then return o, freed end
+	return c, freed
+end
+
 -- One transfer owns all its batches. Eligibility is pinned at the first queue handoff;
 -- capacity eviction can return that first batch only before it sends anything. Later batches
 -- keep their place and eligibility, even when the peer's verification expires between them.
@@ -1214,55 +1416,70 @@ local function Drip()
 	if dripping or dripBusy then return end
 	dripping = true
 	while not dripBusy and drip[1] do
-		local d = drip[1]
-		local current = d.started
-		if not current then
-			if d.censusAt then
-				current = Now() - d.censusAt <= Relay.SET_MAX_AGE and CensusAcrossAllowed() and Relay.MeshPeer(d.name)
-			elseif d.across then
-				current = Relay.IsRelay(d.name) and Now() - (verified[Lower(d.name)] or -math.huge) < Relay.VERIFIED_FOR
-			else current = StillReporter(d.name) end
+		local now = Now()
+		if not drip[1].started then
+			local k, freed = Next(now)
+			if k and k > 1 then table.insert(drip, 1, table.remove(drip, k)) end
+			if freed and refillCensusAcross then refillCensusAcross() end
 		end
-		local batch = d.batches[d.index]
-		if not current then
-			table.remove(drip, 1) -- a complete transfer, before its first batch
+		local d = drip[1]
+		if d and not d.started and not Current(d) then
+			table.remove(drip, 1) -- (put at the front by the mesh's refill, and gone meanwhile)
 			if d.across and refillCensusAcross then refillCensusAcross() end
-		elseif ns.Comm.QueueRoom() < #batch then
-			dripBusy = true
-			ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
-		else
-			Quiet(d.name)
-			if not d.tried then stats.forwarded, d.tried, d.t = stats.forwarded + 1, true, Now() end
-			d.started, dripBusy = true, true
-			ns.Comm.SendBatch("WHISPER", batch, nil, d.name, false, function(sent, why)
-				if not sent and (why == "full" or why == "dropped") then
-					-- Comm never capacity-evicts a batch once it starts. Only an unsent
-					-- first batch may yield to a newer complete copy or expire on retry.
-					if d.index == 1 then
-						d.started = nil
-						for i = 2, #drip do
-							local w = drip[i]
-							if w.name == d.name and w.word == d.word then
-								d.batches = w.batches; table.remove(drip, i); break
+		elseif d then
+			local batch = d.batches[d.index]
+			local tokens = DripTokens(now)
+			local how = Turn(d, now, tokens)
+			if not how then
+				dripBusy = true
+				ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
+			else
+				if how == "paid" then dripBucket.tokens = tokens - #batch end
+				-- (The other transfers' share: a census batch earns them a part of its whispers, theirs spend it.)
+				local share = Relay.DRIP_OTHER_SHARE
+				if CensusTransfer(d) then dripOwed = math.min(ns.Codec.MAX_CHUNKS, dripOwed + #batch * share / (1 - share))
+				else dripOwed = math.max(0, dripOwed - #batch) end
+				local kind = CensusTransfer(d) and "dripCensus" or "dripOther"
+				stats[kind] = (stats[kind] or 0) + #batch
+				if how == "free" then stats.dripFree = (stats.dripFree or 0) + #batch end
+				-- (A first batch past the pace goes as an ordinary job: one that has not begun gives way to a
+				-- burst of ordinary whispers, as before the pace. Any other batch urgent: nothing pushes it out.)
+				local urgent = how ~= "free" or d.started == true
+				Quiet(d.name)
+				if not d.tried then stats.forwarded, d.tried, d.t = stats.forwarded + 1, true, now end
+				d.started, dripBusy = true, true
+				ns.Comm.SendBatch("WHISPER", batch, nil, d.name, urgent, function(sent, why)
+					if not sent and (why == "full" or why == "dropped") then
+						-- Comm never capacity-evicts a batch once it starts. Only an unsent
+						-- first batch may yield to a newer complete copy or expire on retry.
+						if d.index == 1 then
+							-- (1.5.9's review) Pushed out, it goes back within the pace, urgent: past the pace
+							-- again, a second burst could push it out after SET_WAIT, and it was lost.
+							d.started, d.pushed = nil, true
+							for i = 2, #drip do
+								local w = drip[i]
+								if w.name == d.name and w.word == d.word then
+									d.batches = w.batches; table.remove(drip, i); break
+								end
 							end
 						end
+						if d.index > 1 or Now() - d.t < Relay.SET_WAIT then
+							ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
+							return
+						end
 					end
-					if d.index > 1 or Now() - d.t < Relay.SET_WAIT then
-						ns.After(1, "relay drip", function() dripBusy = false; Drip() end)
-						return
+					if sent and d.index < #d.batches then
+						d.index, d.tried = d.index + 1, nil
+					else
+						-- Terminal transport refusals (privacy, net-off, leaving, etc.) still stop it.
+						table.remove(drip, 1)
+						if sent and d.censusSent then d.censusSent() end
+						if d.across and refillCensusAcross then refillCensusAcross() end
 					end
-				end
-				if sent and d.index < #d.batches then
-					d.index, d.tried = d.index + 1, nil
-				else
-					-- Terminal transport refusals (privacy, net-off, leaving, etc.) still stop it.
-					table.remove(drip, 1)
-					if sent and d.censusSent then d.censusSent() end
-					if d.across and refillCensusAcross then refillCensusAcross() end
-				end
-				dripBusy = false
-				Drip()
-			end)
+					dripBusy = false
+					Drip()
+				end)
+			end
 		end
 	end
 	dripping = false
@@ -1310,7 +1527,9 @@ end
 
 -- Replace only a complete waiting transfer, even when the new copy has fewer batches.
 -- The table is its identity: an in-flight copy and at most one waiting successor stay distinct.
-local function DripBatches(name, word, batches, waitingOnly, across)
+-- census (1.5.9): a census transfer (CensusTransfer, above); look (1.5.9's review): another server's census
+-- (CensusLook, below), which makes room at once as a census transfer does, in the other transfers' turn.
+local function DripBatches(name, word, batches, waitingOnly, across, census, look)
 	for _, d in ipairs(drip) do
 		if d.name == name and d.word == word and not d.started then
 			d.batches = batches
@@ -1339,7 +1558,8 @@ local function DripBatches(name, word, batches, waitingOnly, across)
 			table.remove(drip, evict)
 		end
 	end
-	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across }
+	drip[#drip + 1] = { name = name, word = word, batches = batches, index = 1, across = across, census = census == true or nil,
+		look = look == true or nil, at = Now() }
 	Drip()
 end
 
@@ -1833,6 +2053,12 @@ local function ChatTo(name, pieces, body, wire, guild, across)
 	FeedChat()
 end
 function Relay.ChatWaiting() return ChatWaiting() end -- (/oly status, tests)
+-- (1.5.9's review) How long the chat lane's oldest whisper still waiting has waited, 0 when none does:
+-- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn).
+function Relay.ChatOldest()
+	local e = chatQ[chatFirst]
+	return e and math.max(0, Now() - e.t) or 0
+end
 
 -- (1.5.4) The King's presence (T1~o, King.SendPresence: one piece from his signed character every
 -- King.PRESENCE_EVERY) goes to every reporter as the relay's own words do, ahead of the queue and keyed
@@ -1867,6 +2093,12 @@ Relay.ResetKingSent = function() wipe(kingSent) end -- (tests)
 -- snapshot", in a waiting one's place, and which origin's set it is the origin preference says
 -- (CensusFor), from the last whole set of each origin held here (MAX_RELAYS origins) with its time; a
 -- registrant is never sent again the set it was handed last.
+-- (1.5.9's review) Whether a word (its head, or a mesh kind such as "QA~1" or "CX~3~S") is another
+-- server's census: the author's signed look (QA) or a realm group's carried totals (CX). The drip hands it
+-- over as it does a census transfer, making room at once (Turn), in the other transfers' turn.
+local function CensusLook(head)
+	return type(head) == "string" and (head:match("^QA~1") ~= nil or head:match("^CX~[123]~S") ~= nil)
+end
 local census = { held = {}, sent = {}, sentN = 0 }
 local function ForgetCensus()
 	wipe(census.held); wipe(census.sent)
@@ -1916,6 +2148,50 @@ local function CensusFor(r, e, now)
 	return best or e
 end
 
+-- (1.5.9's review) The census snapshot still waiting in the drip for registrant `name`, dropped: the tree
+-- serves him now (RelayTree.Offer). Sent anyway, it went with the set it held when queued, stale, on top
+-- of the tree's word, and the 1.5.4 registrants' snapshots waited behind it (the offline harness, a peer's
+-- snapshot crossing just before the relay's first own round: all 30 tree-capable registrants took it by
+-- the star as well). He is no longer counted as sent it, so a later turn back to the star sends him the
+-- newest set again.
+local function DropWaitingCensus(name)
+	for i, d in ipairs(drip) do
+		if d.name == name and d.word == "census snapshot" and not d.started then
+			table.remove(drip, i)
+			local who = Lower(name)
+			if census.sent[who] ~= nil then census.sent[who], census.sentN = nil, math.max(0, census.sentN - 1) end
+			return true
+		end
+	end
+	return false
+end
+
+-- (1.5.9's review) A relay that is its own guild's registrant hands its guild every census word it takes,
+-- piece by piece (ToReporters, hop 3 on its own client): its own snapshot every GLOBAL_EVERY and each
+-- mesh peer's as it crosses. One census snapshot every GUILD_CENSUS_EVERY goes by the census lane to our
+-- guild (ToGuild), the first whose first piece comes then, its own or a mesh peer's (whose rows of ours came
+-- from our own crossing to it); the others as before, ordinary: its own snapshot carries its peers' rows,
+-- and every census word handed over urgent took the chat lane's and the registrants' census's room at a
+-- peak (the offline harness, its own rounds, 90 registrants, 30 minutes, each word urgent in one go: at a
+-- line every 35 s, 18 registrants without a census instead of 5; the King's presence reached 27 to 36 of
+-- 90, not 45 to 56). (Round 2 of the review) Another server's census (a look: QA, CX) has a turn of its own,
+-- one every GUILD_CENSUS_EVERY too: in one turn for both, a look said in the window took the snapshot's,
+-- and the guild's census snapshot went stale at a peak (the offline harness, a look every minute and a chat
+-- line every 45 s: 2 of the 10 snapshots by the lane, 569 s without one, 362 s with a turn of its own; the
+-- review's own measure saw 1,037 s, past Data.FRESH, with a look every 130 s and a line every 35 s). A real
+-- relay says each origin's look about once in 30 minutes, in two pieces: its turn costs little.
+Relay.GUILD_CENSUS_EVERY = 300
+local guildCensusAt = {} -- "snapshot" or "look" -> when that kind's last turn by the lane began
+local function GuildCensus(transfer, now)
+	if type(transfer) ~= "table" or not transfer.census then return false end
+	if transfer.ourGuild == nil then
+		local kind = transfer.look and "look" or "snapshot"
+		transfer.ourGuild = now - (guildCensusAt[kind] or -math.huge) >= Relay.GUILD_CENSUS_EVERY
+		if transfer.ourGuild then guildCensusAt[kind] = now end
+	end
+	return transfer.ourGuild
+end
+
 local function ToReporters(flag, origin, body, sender)
 	local now = Now()
 	if Crown(origin, body) then
@@ -1946,7 +2222,9 @@ local function ToReporters(flag, origin, body, sender)
 	-- snapshot mid-transfer. This admits no new authority and does not bypass
 	-- Comm's queue/throughput limits; malformed or unreserved parts use the trickle.
 	-- (1.5.5) And a signed relay's own staff word (Relay.StaffWord), in one piece: past the trickle.
-	local snapshot = SnapshotPart(origin, body, now) or Relay.StaffWord(origin, body)
+	-- (1.5.9's review) transfer: the snapshot transfer a piece belongs to (GuildCensus).
+	local snapshot, transfer = SnapshotPart(origin, body, now)
+	if not snapshot then snapshot = Relay.StaffWord(origin, body) end
 	-- A trickle-exempt word in pieces goes to the other reporters as a whole set (above).
 	-- (1.5.4) And a list of a kind carried whole, from any origin, in one piece too (ListSet); once
 	-- whole, to the reporters ListSend names, in place of a waiting batch alone when it says so.
@@ -1987,7 +2265,7 @@ local function ToReporters(flag, origin, body, sender)
 		elseif scoped and g ~= scoped and not (fxKind == "G" and Presenting(g, now)) then
 			stats.scoped = (stats.scoped or 0) + 1 -- (another guild's presentation: heard here alone)
 		elseif r.name == ns.me then
-			if Deliver(origin, body, flag == "L") then ToGuild(flag, wire, body) end
+			if Deliver(origin, body, flag == "L") then ToGuild(flag, wire, body, GuildCensus(transfer, now)) end
 		elseif set == false then
 			-- (Some pieces of the set are still on their way: the whole set goes once they are here.)
 		elseif set and listTo and not listTo[g] then
@@ -1995,6 +2273,7 @@ local function ToReporters(flag, origin, body, sender)
 		elseif set and type(ns.RelayTree) == "table" and not ns.RelayTree.missing and type(ns.RelayTree.Offer) == "function"
 			and ns.RelayTree.Offer(r, origin, set, flag, own) == true then
 			-- (1.5.5) The tree took this set for this reporter (RelayTree.Offer).
+			DropWaitingCensus(r.name)
 		elseif set and snap then
 			-- (1.5.5) One census snapshot a registrant, the origin's its census trusts (CensusFor), keyed
 			-- "census snapshot" whatever its origin: a newer one takes a waiting one's place. Never the set
@@ -2004,7 +2283,7 @@ local function ToReporters(flag, origin, body, sender)
 				if census.sent[who] == nil then census.sentN = census.sentN + 1 end
 				census.sent[who] = e.key
 				e.batches = e.batches or SetBatches("P", e.origin, e.set)
-				DripBatches(r.name, "census snapshot", e.batches, waitingOnly)
+				DripBatches(r.name, "census snapshot", e.batches, waitingOnly, nil, true)
 			end
 		elseif set then
 			batches = batches or SetBatches(flag, origin, set)
@@ -2030,7 +2309,10 @@ local function ToReporters(flag, origin, body, sender)
 			-- and the census snapshots waited behind it, hours stale. A copy takes the waiting one's
 			-- place while every batch of that one still waits; with one in flight it takes the one
 			-- "next" place, which the copy after it takes in turn: at most two copies a reporter, whole.
-			DripBatches(r.name, word, batches, waitingOnly)
+			-- (1.5.9's review) The other servers' census, a signed look (QA) and carried totals (CX), makes
+			-- room at once (CensusLook): waiting for free room, under a busy queue no look reached a
+			-- registrant (0 of 5 in five minutes; at 30 registrants 26 of 30 none in ten).
+			DripBatches(r.name, word, batches, waitingOnly, nil, nil, CensusLook(head))
 		else
 			pieces = pieces or Envelope("RM", "RM~" .. flag .. "~" .. wire .. "~" .. body)
 			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
@@ -2153,8 +2435,8 @@ refillCensusAcross = function()
 		else
 			local key = peer.key
 			mesh.cgTurn[key], p.tried[key] = now, true
-			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true,
-				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end }
+			local job = { name = peer.name, word = p.word, batches = p.batches, index = 1, across = true, census = true,
+				censusAt = p.at, kingCensus = peer.king, censusSent = function() mesh.cg[key] = Now() end, at = now }
 			-- The King's one due copy waits behind an active transfer, not behind the
 			-- whole local reporter queue. Every waiting job keeps its place behind it.
 			if peer.king then table.insert(drip, drip[1] and drip[1].started and 2 or 1, job)
@@ -2206,7 +2488,7 @@ local function Across(flag, origin, body, set)
 		if key ~= mine and key ~= from and mesh.Fresh(key, now) then
 			if type(set) == "table" then
 				batches = batches or SetBatches(flag, origin, set, "RX")
-				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true)
+				DripBatches(name, "across " .. from .. " " .. kind, batches, false, true, nil, CensusLook(kind))
 				stats.across = (stats.across or 0) + #set
 			else
 				pieces = pieces or Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body)
@@ -2863,16 +3145,19 @@ WithHop = function(h, sender, fn, ...)
 end
 function Relay.TakeVia(h, sender, origin, text, logged) return WithHop(h, sender, Deliver, origin, text, logged) end
 function Relay.Take(origin, text, logged) return Deliver(origin, text, logged) end
-function Relay.HandOn(flag, origin, text) return ToGuild(flag, origin, text) end
+-- (1.5.9's review) census: a census word (a snapshot, CG; another server's census, QA or CX), which goes by
+-- the census lane to our guild (ToGuild).
+function Relay.HandOn(flag, origin, text, census) return ToGuild(flag, origin, text, census) end
 Relay.Envelope = Envelope
 function Relay.SetBatches(flag, origin, set, kind) return SetBatches(flag, origin, set, kind) end
 -- A whole transfer to `name` through the drip, keyed `word` (a newer one takes a waiting one's place).
--- opts.across: to a relay; opts.front: right after the transfer in flight and the front ones before it.
+-- opts.across: to a relay; opts.front: right after the transfer in flight and the front ones before it;
+-- opts.census (1.5.9): a census transfer (CensusTransfer: the tree's).
 function Relay.DripTo(name, word, batches, opts)
 	if type(name) ~= "string" or name == "" or type(word) ~= "string" or type(batches) ~= "table" or #batches == 0 then return false end
 	opts = type(opts) == "table" and opts or {}
 	if not opts.front then
-		DripBatches(name, word, batches, nil, opts.across)
+		DripBatches(name, word, batches, nil, opts.across, opts.census == true)
 		return true
 	end
 	for i, d in ipairs(drip) do
@@ -2880,7 +3165,8 @@ function Relay.DripTo(name, word, batches, opts)
 	end
 	local at = 1
 	while drip[at] and (drip[at].started or drip[at].front) do at = at + 1 end
-	table.insert(drip, at, { name = name, word = word, batches = batches, index = 1, across = opts.across, front = true })
+	table.insert(drip, at, { name = name, word = word, batches = batches, index = 1, across = opts.across, front = true,
+		census = opts.census == true or nil, at = Now() })
 	Drip()
 	return true
 end
@@ -2890,6 +3176,35 @@ function Relay.Dripping(name, word)
 		if d.name == name and d.word == word then return true end
 	end
 	return false
+end
+-- (1.5.9's review) How long the census snapshot that has waited longest in the drip for a registrant (the
+-- star, not the tree's words) has waited, not begun; 0 when none waits (RelayTree.lua's StarFirst).
+function Relay.StarWaiting(now)
+	now = now or Now()
+	local most = 0
+	for _, d in ipairs(drip) do
+		if d.word == "census snapshot" and not d.started then most = math.max(most, now - (d.at or now)) end
+	end
+	return most
+end
+-- (1.5.9) The drip for /oly bug, without a name: the transfers waiting (not begun), how many of them are
+-- census transfers (CensusTransfer), and the longest any of them, and any census one, has waited since
+-- it was queued (a census transfer goes ahead of one waiting for free room: the front is not the oldest).
+-- (1.5.9's review) And the transfer in flight, the one that can hold all the others: census or not, its
+-- batch, of how many, and how long since that batch was handed over (flight; nil when none is).
+function Relay.DripStats()
+	local now, out = Now(), { waiting = 0, census = 0 }
+	for _, d in ipairs(drip) do
+		if not d.started then
+			local waited = math.max(0, now - (d.at or now))
+			out.waiting = out.waiting + 1
+			out.oldest = math.max(out.oldest or 0, waited)
+			if d.census then out.census, out.oldestCensus = out.census + 1, math.max(out.oldestCensus or 0, waited) end
+		elseif not out.flight then
+			out.flight = { census = d.census == true, batch = d.index, of = #d.batches, since = math.max(0, now - (d.t or d.at or now)) }
+		end
+	end
+	return out
 end
 function Relay.FirstHand() return hop == "L" end
 function Relay.ViaProvisional() return hop == "O" end
@@ -3140,7 +3455,9 @@ function Relay.Reset()
 	wipe(sets); wipe(drip)
 	wipe(listOrigins); wipe(Origins()); wipe(listShares); wipe(listSets)
 	dripBusy, dripping = false, false
+	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
 	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
+	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
 	hop, hopSender = nil, nil -- (1.5.5)

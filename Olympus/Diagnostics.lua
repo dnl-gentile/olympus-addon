@@ -45,19 +45,25 @@ end
 -- is a name the game allows), so the shape alone is never enough: the names this client's key gives
 -- go word for word, and one of an older key only where Comm.lua writes a channel's name (its log's
 -- "channel X", "joining channel X", "left channel X"; the first channel message's name= and target=).
+-- (1.5.9) On Forever nobody joins the sealed channel any more (Comm.ChannelSpec), yet the log keeps the
+-- name this client joined before: the names the key it holds gives, on any lane, go too (Comm.SealedBase).
 local SEALED_SHAPE = "OlyH?" .. ("[0-9a-z]"):rep(8)
 local SEALED_AFTER = { "(channel )", "(name=)", "(target=)" }
 local function Scrub(text)
 	text = tostring(text or "")
 	local C = ns.Comm
 	if C then
+		local base = type(C.SealedBase) == "function" and C.SealedBase() or nil
+		if type(base) == "string" and base ~= "" then text = text:gsub(base:gsub("%W", "%%%0") .. "%d?", "(sealed channel)") end
 		local name, key = nil, nil
 		if type(C.ChannelSpec) == "function" then name, key = C.ChannelSpec() end
 		if key and type(name) == "string" then text = Without(text, name, "(sealed channel)") end
 		local joined = type(C.ChannelName) == "function" and C.ChannelName()
 		if type(joined) == "string" and joined:match("^" .. SEALED_SHAPE .. "$") then text = Without(text, joined, "(sealed channel)") end
 	end
-	for _, at in ipairs(SEALED_AFTER) do text = text:gsub(at .. SEALED_SHAPE .. "%f[^%w]", "%1(sealed channel)") end
+	-- (1.5.9's review) An older key's name with its lane digit after it too (a key rotated while this client
+	-- sat on lane 7 left "joining channel Oly...7" in the log): the frontier alone failed on the digit.
+	for _, at in ipairs(SEALED_AFTER) do text = text:gsub(at .. SEALED_SHAPE .. "%d?%f[^%w]", "%1(sealed channel)") end
 	return text
 end
 
@@ -556,14 +562,18 @@ end)
 ---------------------------------------------------------------------------
 -- (1.5.8: 3700, for the census and tree lines added last, so the signed line before them is never cut.)
 ns.DEBUG_LINE, ns.DEBUG_MAX = 320, 3700
-local function Age(t)
-	t = tonumber(t)
-	if not t then return "?" end
-	local d = math.max(0, (ns.Now and ns.Now() or time()) - t)
+-- A length of time, short: 90s, 5m, 3h, 2d.
+local function Span(d)
+	d = math.max(0, tonumber(d) or 0)
 	if d < 120 then return ("%ds"):format(d) end
 	if d < 7200 then return ("%dm"):format(math.floor(d / 60)) end
 	if d < 172800 then return ("%dh"):format(math.floor(d / 3600)) end
 	return ("%dd"):format(math.floor(d / 86400))
+end
+local function Age(t)
+	t = tonumber(t)
+	if not t then return "?" end
+	return Span((ns.Now and ns.Now() or time()) - t)
 end
 local function Cap(line) return #line > ns.DEBUG_LINE and (line:sub(1, ns.DEBUG_LINE - 3) .. "...") or line end
 
@@ -603,6 +613,42 @@ local function RelayReporterLine()
 	return ("relay: %s  |  reporter: this client %s, guild's known %s, guild peers %s, reports heard %s, bad %s, incomplete %s"):format(
 		relay, c.isReporter and "yes" or "no", c.reporter and "yes" or "no", tostring(c.peers or 0), tostring(c.reports or 0),
 		tostring(c.bad or 0), tostring(c.partial or 0))
+end
+
+-- (1.5.9, two /oly bug reports of 2026-11-12: no census piece came by the relay, and nothing showed
+-- why.) On a relay, what decides whether its registrants get the census, no name: quiet presence (no
+-- snapshot of its own then: Data.SendGlobalCensus), the drip's transfers waiting and the longest any of
+-- them, and any census one, has waited (Relay.DripStats), and its own last tree round's age. (1.5.9's
+-- review) And the transfer in flight, which holds every other one while its batch waits (census or other,
+-- its batch of how many, and for how long): a begun transfer stuck between batches showed as nothing.
+-- In the status (StatusText, below the channel line), not the debug section: a report sent in game stops
+-- at Workshop.BUG_MAX bytes, past which a relay's debug section fell. (Round 1's re-review) And the drip's
+-- whispers handed to the send queue since login (Relay.Stats): its census transfers', the others', and
+-- how many of those went past its pace (Relay.DRIP_PER_MIN) while nothing else waited: census starved
+-- behind other words, or a pace that never lets census go, shows there. (Round 2 of the review) Written as
+-- a part of the two ("1234 census + 56 other (78 of them past the pace)"): three counts side by side read
+-- as a sum too high by the third.
+local function RelayHereLine()
+	local R = ns.Relay
+	if type(R) ~= "table" or type(R.IsRelay) ~= "function" or Try(R.IsRelay, ns.me) ~= true then return nil end
+	local quiet = type(ns.QuietPresence) == "function" and Try(ns.QuietPresence) == true
+	local d = type(R.DripStats) == "function" and Try(R.DripStats) or nil
+	local drip = "?"
+	if type(d) == "table" then
+		local f = type(d.flight) == "table" and d.flight or nil
+		drip = ("%d waiting (%d census), the oldest for %s, the oldest census one for %s, in flight: %s"):format(tonumber(d.waiting) or 0,
+			tonumber(d.census) or 0, d.oldest and Span(d.oldest) or "-", d.oldestCensus and Span(d.oldestCensus) or "-",
+			f and ("%s, batch %d/%d, for %s"):format(f.census and "census" or "other", tonumber(f.batch) or 0, tonumber(f.of) or 0,
+				Span(f.since)) or "none")
+	end
+	local s = type(R.Stats) == "function" and Try(R.Stats) or nil
+	local sent = type(s) == "table" and ("%d census + %d other (%d of them past the pace)"):format(tonumber(s.dripCensus) or 0,
+		tonumber(s.dripOther) or 0, tonumber(s.dripFree) or 0) or "?"
+	local T = ns.RelayTree
+	local tree = type(T) == "table" and not T.missing and type(T.Stats) == "function" and Try(T.Stats) or nil
+	local round = type(tree) == "table" and type(tree.round) == "table" and tonumber(tree.round.age) or nil
+	return ("relay here: quiet presence %s  |  drip %s  |  drip sent %s  |  own tree round %s"):format(quiet and "on" or "off",
+		drip, sent, round and (Span(round) .. " ago") or "none")
 end
 
 -- The fallback's election and queue counts only. Its detailed stats contain peer names.
@@ -794,9 +840,19 @@ function ns.StatusText()
 	end
 	local c = ns.Comm and ns.Comm.Stats()
 	if c then
-		-- (1.2.1: the sealed channel's name never: see Scrub.)
-		add("channel %s = #%s  sealed=%s  |  peers in guild=%d  |  reporter=%s (me: %s)", c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"),
-			tostring(c.channel), tostring(c.sealed), c.peers, tostring(c.reporter), tostring(c.isReporter))
+		-- (1.2.1: the sealed channel's name never: see Scrub.) (1.5.9) The guild's registrant beside its
+		-- reporter (the one that registers it with its relay, so the census reaches it), each with the
+		-- version its hello named. (Round 1's re-review) And the words taken on Olympus's leftover channels
+		-- on Forever (Comm.Leftover: an older key's sealed channel or a later lane, still joined from an
+		-- earlier session, where older clients broadcast their census), their names never.
+		local function Version(v) return v and (" v" .. tostring(v)) or "" end
+		add("channel %s = #%s  sealed=%s  leftover taken=%d  |  peers in guild=%d  |  reporter=%s%s (me: %s)  |  registrant=%s%s (me: %s)",
+			c.sealed and "(sealed channel)" or ("'" .. tostring(c.channelName) .. "'"), tostring(c.channel), tostring(c.sealed),
+			tonumber(c.leftover) or 0, c.peers,
+			tostring(c.reporter), Version(c.reporterVersion), tostring(c.isReporter), tostring(c.registrant), Version(c.registrantVersion),
+			tostring(c.isRegistrant))
+		local here = Try(RelayHereLine) -- (1.5.9: a relay's own client alone)
+		if here then add("%s", here) end
 		add("sent=%d recv=%d reports=%d sendFails=%d badMsgs=%d queue=%d lastFail=%s lane=%d laneRefused=%d laneMoves=%d", c.sent, c.recv, c.reports, c.fails, c.bad, c.queue, tostring(c.lastFail), tonumber(c.lane) or 0, tonumber(c.laneRefused) or 0, tonumber(c.laneMoves) or 0)
 		local types = {}
 		for k, v in pairs(c.byType or {}) do types[#types + 1] = k .. "=" .. v end
@@ -858,9 +914,13 @@ function ns.StatusText()
 			-- (1.1) The pinned line this client holds: whose, of what rank, and how long it has left.
 			if ns.Channels.PinStatus then add("pinned line: %s", ns.Channels.PinStatus()) end
 		end
-		-- What leaves this client about where the player is, and who reads the channel (0.9.1).
+		-- What leaves this client about where the player is, and who reads the channel (0.9.1). (1.5.9: by
+		-- the key, as the privacy questions say it, Comm.Audience: on Forever the channel joined is the
+		-- public one whatever the key, and a key holder's chat lines go by the relay alone, ChatHall.On.)
+		-- (1.5.9's review: on Forever, with a key, the public channel, the key's one effect said beside it.)
 		add("privacy: zone and layer %s  |  channel %s  |  chat warning accepted: %s",
-			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", c.sealed and "sealed (key holders)" or "public (anyone)",
+			ns.Layers and ns.Layers.SharingState and ns.Layers.SharingState() or "?", c.sealed and "sealed (key holders)"
+				or (c.keyHeld and "public (anyone), key held: typed chat lines by the relay alone" or "public (anyone)"),
 			ch and ch.warned and #ch.warned > 0 and table.concat(ch.warned, ",") or "none")
 		if ns.Treasury and ns.Treasury.RealKeeper and ns.Treasury.RealKeeper() then
 			local v = ns.Treasury.Consent()

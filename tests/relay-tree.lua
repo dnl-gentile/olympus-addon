@@ -367,6 +367,152 @@ test("relay tree (1.5.5): a crossed census set and the relay's own, waiting for 
 	end)
 end)
 
+-- A relay and its peer, both signed and trusted by the 1.5.5 census, `count` tree-capable registrants of
+-- the relay registered 2 x REGISTER_EVERY before the snapshot, and one registrant on 1.5.4 (no tree).
+local function PeerWorld(w, count)
+	w.relays = { "Tree Relay", "Tree Peer" }
+	local R = w.Node("Tree Relay-Realm", "Olympus Relay")
+	local P = w.Node("Tree Peer-Realm", "Olympus Peer")
+	local both = { ["Tree Relay"] = true, ["Tree Peer"] = true }
+	w.Trust(R, both, both)
+	local regs = {}
+	for i = 1, count do regs[i] = w.Registrant(("Reg Number%02d-Realm"):format(i), ("Olympus Tree %02d"):format(i), R) end
+	local O = w.Registrant("Old Registrant-Realm", "Olympus Old", R, { old = true, relayFile = extra.fixtures .. "relay-1.5.4.lua" })
+	w.Advance(400, nil, 20)
+	for _, m in ipairs(regs) do w.Register(m, R) end -- (renewed within REPORTER_FOR)
+	w.Register(O, R)
+	return R, P, regs, O
+end
+-- Whispers other than the tree's (RN, RF) node n sent registrants named "Reg Number..." after `from`.
+local function NotTree(n, from)
+	local k = 0
+	for i = from + 1, #n.sent do
+		local p = n.sent[i]
+		if p.dist == "WHISPER" and Short(p.target):match("^Reg Number") and not (p.msg:match("^RN~") or p.msg:match("^RF~")) then k = k + 1 end
+	end
+	return k
+end
+
+-- 1.5.9 (an /oly bug of 2026-11-12: a sealed guild's member counted his own guild and one old report,
+-- about 1,100 of the army, and no census piece came by the relay in that session). While the tree was
+-- active on a relay, a tree-capable registrant was handed a census snapshot by the tree alone, and only
+-- the relay's own snapshot started a round. A relay whose own snapshot never goes (quiet presence:
+-- Data.SendGlobalCensus says nothing) handed its tree-capable registrants no census at all, another
+-- relay's crossing to it included. Another origin's snapshot is the tree's now only while the relay's
+-- own rounds run (RelayTree.Decide); else the drip hands it on, as before the tree. Fails before (0 of 30).
+test("relay tree (1.5.9): a relay with no round of its own and 30 tree-capable registrants: another relay's census snapshot crossing to it reaches each of them once, by the drip, and each hands it to its guild", function()
+	World(function(w)
+		local R, P, regs, O = PeerWorld(w, 30)
+		local word = Snapshot(140, w.now, "Peer")
+		local mark = #R.sent
+		w.Cross(R, P, word)
+		w.Advance(900, nil, 5)
+		eq(Count(R, "RN~", mark), 0, "no round: the relay made no snapshot of its own")
+		eq(w.Tree(R).Stats().rounds, 0)
+		for i, m in ipairs(regs) do
+			eq(Got(m, word, P.c.me), 1, "registrant " .. i .. " takes the crossed snapshot once")
+			eq(#m.got, 1, "registrant " .. i .. " takes no other word")
+			eq(HandedToGuild(m, P.c.me, word), true, "registrant " .. i .. " hands it to its guild")
+		end
+		eq(Got(O, word, P.c.me), 1, "the 1.5.4 registrant takes it too, as before")
+	end)
+end)
+
+-- The rule's other half: while the relay's own rounds run (its last one within TREE_HOLD), another
+-- relay's snapshot stays the tree's (the relay's own carries the trusted rows it took): no RM batch of
+-- it to a tree-capable registrant, while the 1.5.4 one still gets its snapshot by the drip.
+test("relay tree (1.5.9): while the relay's own rounds run, another relay's census snapshot crossing to it still goes by the tree: nothing of it as RM to a tree-capable registrant", function()
+	World(function(w)
+		local R, P, regs, O = PeerWorld(w, 30)
+		local own = Snapshot(140, w.now, "Relay")
+		w.Own(R, own)
+		w.Advance(300, nil, 5)
+		eq(w.Tree(R).Stats().rounds, 1, "the relay's own snapshot made a round")
+		for i, m in ipairs(regs) do eq(Got(m, own, R.c.me), 1, "registrant " .. i .. " took the relay's own snapshot") end
+		local crossed = Snapshot(140, w.now, "Peer")
+		local mark = #R.sent
+		w.Cross(R, P, crossed)
+		w.Advance(300, nil, 5)
+		eq(NotTree(R, mark), 0, "no RM batch of the crossed snapshot to a tree-capable registrant")
+		for i, m in ipairs(regs) do eq(Got(m, crossed), 0, "registrant " .. i .. " is not sent the crossed snapshot") end
+		eq(Got(O, crossed, P.c.me), 1, "the 1.5.4 registrant gets the newest set its census trusts by the drip")
+	end)
+end)
+
+-- 1.5.9's review (T4): the rule's TREE_HOLD half. The relay's own rounds ran and then stopped (its own
+-- snapshot no longer goes); past TREE_HOLD after its last round another relay's snapshot is the drip's
+-- again. Fails on a rule keyed on "any round ever" (0 of 30).
+test("relay tree (1.5.9's review): the relay's own rounds stopped past TREE_HOLD: another relay's census snapshot crossing to it reaches each tree-capable registrant once, by the drip, and each hands it to its guild", function()
+	World(function(w)
+		local R, P, regs, O = PeerWorld(w, 30)
+		local own = Snapshot(140, w.now, "Relay")
+		w.Own(R, own)
+		w.Advance(300, nil, 5)
+		eq(w.Tree(R).Stats().rounds, 1, "the relay's own snapshot made a round")
+		-- No own snapshot since: the last round grows older than TREE_HOLD (registrations renewed meanwhile).
+		w.Advance(w.Tree(R).TREE_HOLD - 300 + 60, nil, 30)
+		for _, m in ipairs(regs) do w.Register(m, R) end
+		w.Register(O, R)
+		local crossed = Snapshot(140, w.now, "Peer")
+		w.Cross(R, P, crossed)
+		w.Advance(900, nil, 5)
+		eq(w.Tree(R).Stats().rounds, 1, "no round since")
+		for i, m in ipairs(regs) do
+			eq(Got(m, crossed, P.c.me), 1, "registrant " .. i .. " takes the crossed snapshot once")
+			eq(HandedToGuild(m, P.c.me, crossed), true, "registrant " .. i .. " hands it to its guild")
+		end
+	end)
+end)
+
+-- 1.5.9's review (R5): quiet presence turned on after a round. The relay's own snapshot no longer goes
+-- (Data.SendGlobalCensus says nothing), so no round can follow, yet another relay's snapshot stayed the
+-- tree's for the rest of TREE_HOLD and reached no tree-capable registrant. Fails before (0 of 30 for each
+-- snapshot crossing within TREE_HOLD of the round).
+test("relay tree (1.5.9's review): quiet presence turned on after a round: another relay's census snapshot crossing within TREE_HOLD of that round reaches every tree-capable registrant by the drip", function()
+	World(function(w)
+		local R, P, regs, O = PeerWorld(w, 30)
+		local own = Snapshot(140, w.now, "Relay")
+		w.Own(R, own)
+		w.Advance(300, nil, 5)
+		eq(w.Tree(R).Stats().rounds, 1, "the relay's own snapshot made a round")
+		R.c.QuietPresence = function() return true end
+		for k = 1, 2 do
+			for _, m in ipairs(regs) do w.Register(m, R) end
+			w.Register(O, R)
+			local crossed = Snapshot(140, w.now, "Peer" .. k)
+			w.Cross(R, P, crossed)
+			w.Advance(240, nil, 5)
+			for i, m in ipairs(regs) do eq(Got(m, crossed, P.c.me), 1, ("crossing %d: registrant %d takes it"):format(k, i)) end
+		end
+		eq(w.Tree(R).Stats().rounds, 1, "no round under quiet presence")
+	end)
+end)
+
+-- 1.5.9's review (R3): a peer's snapshot crossed while the relay had no round yet (the star: a "census
+-- snapshot" transfer for every registrant), and the relay's own snapshot started a round right after. The
+-- tree served every tree-capable registrant, and their star transfers still waiting went too, stale, on top
+-- of it, the 1.5.4 registrant's waiting behind them. A registrant the tree takes a set for loses the one
+-- still waiting for it. Fails before (all 30 took the crossed snapshot as well).
+test("relay tree (1.5.9's review): a peer's snapshot crosses just before the relay's first round: the tree-capable registrants take the round's snapshot, and the crossed one only where its transfer had already begun; the 1.5.4 registrant takes the newest by the drip", function()
+	World(function(w)
+		local R, P, regs, O = PeerWorld(w, 30)
+		local crossed = Snapshot(140, w.now - 30, "Peer") -- (made before the relay's own: the older of the two)
+		w.Cross(R, P, crossed) -- (no round yet: the star, a transfer for each registrant)
+		local own = Snapshot(140, w.now, "Relay")
+		w.Own(R, own)          -- (a round starts: the tree serves every tree-capable registrant)
+		w.Advance(900, nil, 5)
+		eq(w.Tree(R).Stats().rounds, 1, "one round")
+		local stale, tree = 0, 0
+		for _, m in ipairs(regs) do
+			stale = stale + Got(m, crossed, P.c.me)
+			tree = tree + Got(m, own, R.c.me)
+		end
+		eq(tree, 30, "every tree-capable registrant took the round's snapshot")
+		assert(stale <= 1, ("%d tree-capable registrants also took the crossed snapshot, stale (at most the one in flight)"):format(stale))
+		eq(Got(O, own, R.c.me), 1, "the 1.5.4 registrant takes the newest set its census trusts, the relay's own")
+	end)
+end)
+
 -- Fails before: no registrant is ever tree-capable, and no snapshot ever goes as a tree.
 test("relay tree (1.5.5): 30 tree-capable registrants and a 7-piece snapshot stay on the star (RM, no RN); a 28-piece snapshot takes the tree", function()
 	World(function(w)
