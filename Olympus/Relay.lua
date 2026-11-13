@@ -1302,11 +1302,20 @@ end
 --     lane kept some 110 a minute, under its own CHAT_PER_MIN of 160);
 --   * (round 1's re-review) a transfer not begun waits while the chat lane's oldest whisper has waited
 --     DRIP_CHAT_AGE (Relay.ChatOldest): with some 110 a minute, at a line every 40 s or faster the chat
---     lane fell behind until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 never let happen (the
+--     lane fell behind until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 did not at those rates (the
 --     same harness, 30 minutes: 132 chat whispers lost at a line every 40 s, 613 every 35 s, 1.5.8 none).
---     With the wait none is lost, the slowest line 187 s; the census is slower instead, 5 of the 90
---     registrants without one in 30 minutes at a line every 35 s, 4 at 40 s, none at 45 (the author's call:
---     chat no worse than in 1.5.8);
+--     With the wait none is lost down to a line every 35 s, the slowest line 187 s; the census is slower
+--     instead. (Round 2 of the review) It is the chat's turn, not a share: with 90 registrants, at a line
+--     every 35 s a registrant takes one or two snapshots in 30 minutes, the longest wait 27 minutes, past
+--     Data.FRESH (the load harness; round 2's probe, with the King's presence and peers' crossings: 0.9 a
+--     registrant, 7 of 90 without one, against 3.8 and none without the wait). Past a line every 33 s or
+--     so the chat lane is over its own CHAT_PER_MIN and loses lines in 1.5.8 too, and chat is no longer
+--     "no worse than in 1.5.8": the census sent before the wait began costs some 200 chat whispers more,
+--     and the wait then holds the census for the rest of the peak (the probe, 30 minutes: a line every
+--     30 s, 217 lost against 1.5.8's 11, 13 of the 90 registrants without a census; every 25 s, 1,069
+--     against 898, 34 without). Without the wait those were 1,245 and 2,156 lost, every registrant served.
+--     Chat first at a peak is the default until the author decides otherwise; the lasting cure is the chat
+--     lane's own (several lines in one whisper: the chat lane's comment, below);
 --   * past that pace, without paying, while nothing else waits (no chat whisper in the lane, no ordinary
 --     whisper in the queue, room for the batch): a relay with nothing else to send sends the census as
 --     fast as before. Such a first batch goes as an ordinary job, so a burst of ordinary whispers still

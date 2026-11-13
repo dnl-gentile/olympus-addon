@@ -703,11 +703,16 @@ end)
 -- 1.5.9's review (round 1's re-review): the chat lane at its peak. With the drip at its pace (Relay.DRIP_PER_MIN)
 -- and the tree's digests, the acks and the King's words beside it, the chat lane kept some 110 of the
 -- relay's 200 whispers a minute, under its own CHAT_PER_MIN of 160: a line every 40 s or faster waited
--- behind the census until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 never let happen. Now the
+-- behind the census until its whispers aged out (CHAT_LANE_TTL), which 1.5.8 did not at this rate. Now the
 -- drip starts no transfer while the chat lane's oldest whisper has waited Relay.DRIP_CHAT_AGE; at such a
--- peak the census is slower instead (the author's call: chat no worse than in 1.5.8). The relay is its own
--- guild's registrant, as the author's relay is. Fails before: 118 chat whispers lost, the slowest line 304 s.
-test("relay tree under load (1.5.9's review): the relay's own rounds, 90 registrants (ten on 1.5.4), the relay its own guild's registrant, a chat line every 35 s (about 150 chat whispers a minute) for 30 minutes: no chat whisper lost, every line reaches every registrant, and every registrant still takes a census", function()
+-- peak the census is slower instead: chat first is the default until the author decides (Relay.lua, above
+-- DRIP_PER_MIN, has the trade, and where chat is lost all the same, past a line every 33 s or so). The relay
+-- is its own guild's registrant, as the author's relay is. Fails before: 118 chat whispers lost, the slowest
+-- line 304 s. (Round 2 of the review) What the census keeps at this rate is pinned too, so a further slip
+-- shows: each registrant takes one or two snapshots in the 30 minutes (1.88 on average), and the longest
+-- any goes without a new one is some 27 minutes (1,600 to 1,614 s from run to run), past Data.FRESH; without
+-- the wait, 11 minutes.
+test("relay tree under load (1.5.9's review): the relay's own rounds, 90 registrants (ten on 1.5.4), the relay its own guild's registrant, a chat line every 35 s (about 150 chat whispers a minute) for 30 minutes: no chat whisper lost, every line reaches every registrant, and every registrant still takes a census, 1.8 on average, none waiting past 27.5 minutes", function()
 	local r = Run({ registrants = 90, guilds = 140, minutes = 30, chat = 35, mix = { new = 90, ["1.5.4"] = 10 }, ownGuild = true })
 	Sound(r)
 	assert(r.chat.lines >= 40, ("%d chat lines measured"):format(r.chat.lines))
@@ -715,6 +720,9 @@ test("relay tree under load (1.5.9's review): the relay's own rounds, 90 registr
 	eq(r.chat.missed, 0, "every line reached every registrant")
 	eq(r.never, 0, "every registrant took a snapshot")
 	assert(r.by["1.5.4"] and r.by["1.5.4"].never == 0, "the 1.5.4 registrants too")
+	local each = r.snapshots / r.measured
+	assert(each >= 1.8, ("%.2f snapshots a registrant in 30 minutes"):format(each))
+	assert(r.longest <= 1650, ("a registrant went %s minutes without a new snapshot"):format(Minutes(r.longest)))
 end)
 
 -- 1.5.9's review (round 1's re-review): a relay that is its own guild's registrant hands each piece of a
