@@ -1935,6 +1935,24 @@ local function CensusFor(r, e, now)
 	return best or e
 end
 
+-- (1.5.9's review) The census snapshot still waiting in the drip for registrant `name`, dropped: the tree
+-- serves him now (RelayTree.Offer). Sent anyway, it went with the set it held when queued, stale, on top
+-- of the tree's word, and the 1.5.4 registrants' snapshots waited behind it (the offline harness, a peer's
+-- snapshot crossing just before the relay's first own round: all 30 tree-capable registrants took it by
+-- the star as well). He is no longer counted as sent it, so a later turn back to the star sends him the
+-- newest set again.
+local function DropWaitingCensus(name)
+	for i, d in ipairs(drip) do
+		if d.name == name and d.word == "census snapshot" and not d.started then
+			table.remove(drip, i)
+			local who = Lower(name)
+			if census.sent[who] ~= nil then census.sent[who], census.sentN = nil, math.max(0, census.sentN - 1) end
+			return true
+		end
+	end
+	return false
+end
+
 local function ToReporters(flag, origin, body, sender)
 	local now = Now()
 	if Crown(origin, body) then
@@ -2014,6 +2032,7 @@ local function ToReporters(flag, origin, body, sender)
 		elseif set and type(ns.RelayTree) == "table" and not ns.RelayTree.missing and type(ns.RelayTree.Offer) == "function"
 			and ns.RelayTree.Offer(r, origin, set, flag, own) == true then
 			-- (1.5.5) The tree took this set for this reporter (RelayTree.Offer).
+			DropWaitingCensus(r.name)
 		elseif set and snap then
 			-- (1.5.5) One census snapshot a registrant, the origin's its census trusts (CensusFor), keyed
 			-- "census snapshot" whatever its origin: a newer one takes a waiting one's place. Never the set

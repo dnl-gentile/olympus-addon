@@ -463,8 +463,17 @@ end
 -- army.) Another origin's set was the tree's whether or not the relay made rounds of its own, and only its
 -- own snapshot starts one: a relay whose own snapshot never goes (quiet presence: Data.SendGlobalCensus
 -- says nothing) handed its tree-capable registrants no census at all. Another origin's set is the tree's
--- now only while the relay's last round is within TREE_HOLD; else the drip hands each registrant the set
--- its census trusts (Relay.lua's CensusFor), as before the tree.
+-- now only while the relay's own rounds run (RoundsRun, above: its last round within TREE_HOLD, and its own
+-- snapshot still made); else the drip hands each registrant the set its census trusts (Relay.lua's
+-- CensusFor), as before the tree.
+-- (1.5.9's review) Whether this relay's own rounds run: its last one within TREE_HOLD, and its own snapshot
+-- still made (quiet presence holds it: Data.SendGlobalCensus says nothing, so no round can follow). With
+-- quiet presence turned on after a round, another origin's set was the tree's for the rest of TREE_HOLD
+-- and reached no tree-capable registrant (the offline harness: 0 of 30 for 15 minutes).
+local function RoundsRun(now)
+	if ns.QuietPresence and ns.QuietPresence() then return false end
+	return lastRound ~= nil and now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_HOLD
+end
 local function Decide(d, set, own)
 	local word = CensusWord(set)
 	if not word or not Trusted() then return end
@@ -474,7 +483,7 @@ local function Decide(d, set, own)
 	local now = Now()
 	local regs = TreeRegistrants(now)
 	if #regs * (ownPieces or n) <= RelayTree.TREE_STAR_MAX then return end
-	if not own and not (lastRound and now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_HOLD) then return end
+	if not own and not RoundsRun(now) then return end
 	d.active = true
 	if own then Round(word, n, regs, now) end
 end
