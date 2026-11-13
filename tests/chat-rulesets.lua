@@ -456,6 +456,38 @@ test("chat rulesets (1.5.9): in the Chat tab's box under the character's own rul
 	end)
 end)
 
+-- Review of the 1.5.9 release (F2): a player's first [Olympus] line waits for the privacy warning's Send
+-- (Channels.Confirm), the line riding in the warning's data. Written under his own ruleset, that line must
+-- still go for that ruleset alone once he clicks Send, as the box said; nothing pinned it, and with `to`
+-- left out of the warning's data it went to every ruleset with every filter passing.
+test("chat rulesets (1.5.9): the first [Olympus] line, held by the privacy warning, written under the character's own ruleset still goes for that ruleset alone once Send is clicked", function()
+	Writing(function(sent, _, Field)
+		local saved = { warned = ns.db.chatWarned, show = ns.ShowDialog, name = ns.Comm.ChannelName }
+		local shown
+		local ok, err = pcall(function()
+			ns.Comm.ChannelName = function() return "OlympusNet" end
+			ns.db.chatWarned = {}
+			ns.ShowDialog = function(which, _, _, data) shown = { which = which, data = data } end
+			eq(C.SetGroupView("rppvp"), true)
+			eq(C.SendTo(), "rppvp", "the box: for RP-PvP alone")
+			local before = #sent
+			local r, why = C.Send("A", "my very first line", 9000, true, C.SendTo())
+			eq(r, false); eq(why, "confirm", "held by the warning")
+			eq(#sent, before, "nothing left before Send")
+			assert(shown and shown.which == "OLYMPUS_CHAT_PRIVACY", "the privacy warning")
+			eq(shown.data.to, "rppvp", "the warning holds the box's ruleset with the line")
+			eq(C.Confirm(shown.data, true), true, "Send")
+			eq(#sent, before + 1, "the line left")
+			local field = Field(sent[#sent], "my very first line")
+			assert(field and field:match("^04%d%d$"), "for RP-PvP alone, as the box said: " .. tostring(sent[#sent]))
+			eq(ns.Codec.DecodeChat(sent[#sent]).to, "rppvp")
+		end)
+		ns.db.chatWarned, ns.ShowDialog, ns.Comm.ChannelName = saved.warned, saved.show, saved.name
+		C.SetGroupView("all")
+		if not ok then error(err, 0) end
+	end)
+end)
+
 -- 1.5.9 with the one-channel work on Forever (Comm.ChannelSpec, ChatHall.On): a member of a guild holding a
 -- realm key types no line as text into the public channel, so a line written under All or another ruleset
 -- goes the hidden way alone, by the relay, which keeps to his own ruleset (his guild's lines stay out of
