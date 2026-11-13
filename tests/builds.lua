@@ -897,8 +897,8 @@ test("1.5.9 outdated clients: the author's relay client gives each client it ser
 		if not ok then error(err, 0) end
 	end)
 	-- Any other client, a relay's among them, asks nobody.
-	WithBuilds("Hildryn Payne-Realm", function(w)
-		w.relays, w.relayOn = { ["Hildryn Payne"] = true }, true
+	WithBuilds("Other Relay-Realm", function(w)
+		w.relays, w.relayOn = { ["Other Relay"] = true }, true
 		rawget(ns, "Relay").Presentations = function() return { { name = "Old Four", v = "1.5.4", t = w.clock } } end
 		eq(ns.Workshop.AskServedOutdated(), 0); eq(#w.whispered, 0)
 	end)
