@@ -2565,15 +2565,16 @@ addon is online (give it a few minutes). There is no demo mode.
 **One member per guild is enough** for that guild to appear for everyone. The more guilds
 have at least one install, the more complete the census gets.
 
-### For officers: seal the channel (recommended)
+### For officers: the realm key
 Type once, with a secret the Olympus officers agree on:
 ```
 /oly key <secret>
 ```
-Your guildmates with the addon receive it automatically through guild chat. From then on
-the Olympus channel has a name and password derived from the secret, and outsiders can't
-find or join it. Share the same secret with the officers of the other Olympus guilds
-(for example in the officers' Discord), so all guilds meet on the same sealed channel.
+Your guildmates with the addon receive it automatically through guild chat. Off WoW: Forever the
+key seals the channel (recommended there): the Olympus channel then has a name and password derived
+from the secret, and outsiders can't find or join it. Share the same secret with the officers of the
+other Olympus guilds (for example in the officers' Discord), so all guilds meet on the same sealed
+channel.
 The King (or his Steward, for him) can also rotate the army's key from the Throne: his new key reaches the
 Lords and Captains online of the guilds he picks whom his own /who saw in them by whisper, and
 their guilds over guild chat, never on the Olympus channel. The addon's author rotates
@@ -2582,8 +2583,8 @@ Steward; a preview of another role starts none. Since 1.4.0 the key travels in a
 and newer read, wherever it goes (the whisper, guild chat, a guildmate's ask, `/oly key`): a version
 before 1.4.0 gets no key and stays off the sealed channel until it is updated.
 
-If a guild was accidentally given a different private key and lost the shared census and
-Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
+If a guild off WoW: Forever was accidentally given a different private key and lost the shared
+census and Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
 inside Blizzard's guild channel, returns updated guildmates to the public Olympus channel, and
 retires the old private key so a delayed message cannot split them again.
 
@@ -2591,7 +2592,8 @@ retires the old private key so a delayed message cannot split them again.
 (the Horde's "OlympusNetH"), whatever key or lane it holds, so all guilds meet on one channel and the
 census older clients still broadcast there reaches everyone. A key is still kept, handed out and
 rotated, but there it seals nothing: it only keeps your guild's typed chat lines out of the public
-channel as text, and they reach the other guilds by the relays, which carry the census too.
+channel as text, and they reach the other guilds by the relays, which carry the census too. The relays
+keep to your own ruleset, so those lines reach your ruleset alone, under **All** too.
 
 ## How it works
 
@@ -2605,12 +2607,13 @@ channel as text, and they reach the other guilds by the relays, which carry the 
 3. The reporter sends a compact summary of its guild about every 3 minutes on the hidden Olympus channel.
 4. Every client adds up all the summaries: that is the census.
 
-On WoW: Forever the hidden channel delivered nothing at launch (two players' reports of 2026-11-12
-showed older clients' census arriving on the public channel since, not yet confirmed in game, and since
-1.5.9 every Forever client sits on that channel), so since 1.4.3 these words travel by whisper
-through the relays (the signed High Council's characters, the King's, the Treasurer's and the
+On WoW: Forever the hidden channel delivered nothing at launch, so since 1.4.3 these words travel by
+whisper through the relays (the signed High Council's characters, the King's, the Treasurer's and the
 author's): each guild's reporter registers with a relay, the relay passes every guild's words to
-every reporter, and each reporter hands them to its guild. Since 1.5.4 a client identifies itself
+every reporter, and each reporter hands them to its guild; since 1.5.5 a client there sends none of
+them on the channel itself. Since 1.5.9 every Forever client also sits on its faction's public first
+lane, whatever its realm key, and takes the census older clients still broadcast there (two players'
+reports of 2026-11-12 showed it arriving; not yet confirmed in game). Since 1.5.4 a client identifies itself
 with its version to each relay that answers it. Until the date in the release notes a relay serves
 every client as before; from then on it registers and serves only the clients that presented
 themselves with a published version, and an older client still receives the census through a
