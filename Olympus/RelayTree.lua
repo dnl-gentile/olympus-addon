@@ -457,7 +457,14 @@ end
 -- Whether a set goes as a tree to this registrant (true: nothing else goes to it). Decided once for each
 -- set: a census snapshot, this relay trusted by the 1.5.5 census, and the star (tree-capable registrants x
 -- pieces) costing more than TREE_STAR_MAX. Then the relay's own snapshot makes a round, and another
--- origin's needs nothing: the relay's own snapshot carries the trusted rows it took. Else false: as before.
+-- origin's needs nothing while those rounds run: the relay's own snapshot carries the trusted rows it
+-- took. Else false: as before.
+-- (1.5.9, an /oly bug of 2026-11-12: a member saw his own guild and one old report, about 1,100 of the
+-- army.) Another origin's set was the tree's whether or not the relay made rounds of its own, and only its
+-- own snapshot starts one: a relay whose own snapshot never goes (quiet presence: Data.SendGlobalCensus
+-- says nothing) handed its tree-capable registrants no census at all. Another origin's set is the tree's
+-- now only while the relay's last round is within TREE_HOLD; else the drip hands each registrant the set
+-- its census trusts (Relay.lua's CensusFor), as before the tree.
 local function Decide(d, set, own)
 	local word = CensusWord(set)
 	if not word or not Trusted() then return end
@@ -467,6 +474,7 @@ local function Decide(d, set, own)
 	local now = Now()
 	local regs = TreeRegistrants(now)
 	if #regs * (ownPieces or n) <= RelayTree.TREE_STAR_MAX then return end
+	if not own and not (lastRound and now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_HOLD) then return end
 	d.active = true
 	if own then Round(word, n, regs, now) end
 end
