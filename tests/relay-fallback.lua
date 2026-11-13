@@ -519,6 +519,53 @@ test("1.5.5 fallback: a provisional relay keeps 40 registrations at most, and se
 	end)
 end)
 
+-- 1.5.9's review (P5, and the 1.5.9 builder's open item): a provisional relay's own drip waited for free
+-- room for each whole batch and sent it as an ordinary job, the way the signed relay's drip did before
+-- 1.5.9: under a queue kept busy by ordinary whispers its census never started. It makes room now and
+-- sends urgent. Fails before (no whisper to a registrant in 300 s at three ordinary whispers a pump, one
+-- more than it sends, nor at six).
+test("1.5.9's review fallback: a provisional relay whose queue ordinary whispers keep full still hands its own census snapshot to each of its 10 registrants whole", function()
+	for _, pressure in ipairs({ 3, 6 }) do
+		World(function(W)
+			local p = W.Node("Prov Busy", "Olympus Busy")
+			W.As(p, p.deliver, "WHISPER", "Some Elector-Realm", "RE~1~P")
+			eq(p.c.RelayFallback.Serving(), true, "serving once it said yes")
+			for i = 1, 10 do W.As(p, p.deliver, "WHISPER", ("Rep%02d Near-Realm"):format(i), "RL~P~RR~Olympus Near " .. i) end
+			local STEP, busy = p.c.Comm.SEND_INTERVAL, 0
+			-- One pump a step, the timers due first; `k` ordinary whispers to nobody here each step, half before
+			-- the pump and half after (they come whenever the guild speaks). No wire: what it sends is counted.
+			local function Step(k)
+				W.now = W.now + STEP
+				p.c.clock = W.now
+				local due = W.timers
+				W.timers = {}
+				for _, t in ipairs(due) do if t.at <= W.now then W.As(t.n, t.f) else W.timers[#W.timers + 1] = t end end
+				local function Press(m)
+					W.As(p, function() for _ = 1, m do busy = busy + 1; p.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. busy, nil, false, false) end end)
+				end
+				Press(math.floor(k / 2)); W.As(p, p.c.Comm.Pump); Press(k - math.floor(k / 2))
+			end
+			for _ = 1, 50 do Step(pressure) end -- (a minute: the queue is full when the snapshot comes)
+			local made = math.floor(W.now)
+			local rows = {}
+			for i = 1, 140 do rows[i] = ("OLYMPUS GUILD %03d,%d,%d,%d,%d"):format(i, 100 + i, 10, 300, made - i) end
+			local word = ("CG~1~S~%d~"):format(made) .. table.concat(rows, ";")
+			local pieces = p.c.Codec.Chunk(word, "77")
+			local mark = #p.sent
+			W.As(p, function() for _, piece in ipairs(pieces) do p.c.RelayFallback.HandleIn("WHISPER", p.c.me, "RL~P~" .. piece) end end)
+			for _ = 1, 250 do Step(pressure) end -- (five minutes)
+			local to = {}
+			for k = mark + 1, #p.sent do
+				local x = p.sent[k]
+				if x.dist == "WHISPER" and tostring(x.target):match("^Rep%d+ Near") then to[x.target] = (to[x.target] or 0) + 1 end
+			end
+			local whole = 0
+			for _, n in pairs(to) do if n >= #pieces then whole = whole + 1 end end
+			eq(whole, 10, ("pressure %d: every registrant was sent the whole snapshot"):format(pressure))
+		end)
+	end
+end)
+
 test("1.5.5 fallback: Pick prefers the pinned relay, then an answered signed relay that named the preferred release, then any answered signed one, then an unsigned code pin", function()
 	World(function(W)
 		local m = W.Node("Picky Member", "Olympus Pick")

@@ -440,6 +440,14 @@ end
 
 -- Its own sender: one whole transfer at a time, as the queue has room (Relay's drip serves its
 -- registered reporters alone). A newer copy of a word takes a waiting one's place.
+-- (1.5.9's review) Every transfer here is census (its own CG and CX, its peers' CG, the author's QA:
+-- Spread), and it waited for free room for its whole batch and went as an ordinary job: under a queue kept
+-- busy by ordinary whispers none ever started (the offline harness, 10 registrants, three ordinary whispers
+-- a pump, one more than it sends: no whisper to a registrant in 300 s), as the signed relay's drip did
+-- before 1.5.9 (Relay.lua). Now it starts once Comm can make room for its batch by dropping the ordinary
+-- whispers still waiting, and goes urgent, which nothing pushes out. No pace like the signed relay's: a
+-- provisional relay carries no chat lane, its own words are a member's few, and while a batch goes three
+-- of Comm's eight sends stay for the single ones (BATCH_SLOTS).
 local function Wanted(name, now)
 	return Serves(name) or F.IsElected(name, now)
 end
@@ -452,14 +460,14 @@ Pump = function()
 			table.remove(drip, 1)
 		else
 			local batch = d.batches[d.index]
-			if ns.Comm.QueueRoom() < #batch then
+			if ns.Comm.QueueRoom(true) < #batch then
 				dripBusy = true
 				ns.After(1, "relay provisional drip", function() dripBusy = false; Pump() end)
 				return
 			end
 			d.started, dripBusy = true, true
 			ns.Relay.Quiet(d.name)
-			ns.Comm.SendBatch("WHISPER", batch, nil, Short(d.name), false, function(sent)
+			ns.Comm.SendBatch("WHISPER", batch, nil, Short(d.name), true, function(sent)
 				if sent and d.index < #d.batches then
 					d.index = d.index + 1
 				else
