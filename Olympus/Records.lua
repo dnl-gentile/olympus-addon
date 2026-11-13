@@ -1615,6 +1615,9 @@ end
 -- different relay pockets. Ask at most two current signed peers for one exact record.
 -- A reply uses only first-hand RK and RV and never enters the mesh or guild fan-out.
 local CROSS_GAP, CROSS_REPLY_GAP, CROSS_WAIT = 600, 30, 120
+-- (1.5.9) The first release that answers the direct ask (RA x): the published 1.5.8 drops a whispered
+-- RA as a wrong lane, so a peer of 1.5.8 or older is neither asked nor answered.
+local CROSS_SINCE = "1.5.9"
 local function CrossScope()
 	local relay, arena = ns.Relay, A()
 	if not relay or type(relay.On) ~= "function" or not relay.On()
@@ -1627,7 +1630,7 @@ local function CrossScope()
 end
 
 local function CrossPeer(name)
-	if not name or not ns.Relay.MeshPeer(name) or not ns.Relay.AtLeast(ns.Relay.RelayVersion(name), "1.5.8") then return nil end
+	if not name or not ns.Relay.MeshPeer(name) or not ns.Relay.AtLeast(ns.Relay.RelayVersion(name), CROSS_SINCE) then return nil end
 	local realm = ns.RealmOf(ns.FullName(name))
 	if ns.ForeverFamily(realm) ~= ns.group or realm:sub(1, 8) ~= ns.realm:sub(1, 8) then return nil end
 	local moderation = ns.Moderation

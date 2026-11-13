@@ -854,8 +854,13 @@ test("records: signed cross-relay recovery needs two independent holders on each
 	w:Logout(b)
 	local left = w:Player(N.bettor1, { realm = "CAMWOWUS1Realm2PvE" })
 	local right = w:Player(N.bank, { realm = "CAMWOWUS2Realm5PvE" })
-	local versions = { [first.name] = "1.5.8", [second.name] = "1.5.8", [old.name] = "1.5.7",
-		[left.name] = "1.5.8", [right.name] = "1.5.8", [pvp.name] = "1.5.8" }
+	-- (Changed on purpose for 1.5.9, the release that ships the direct ask, RA x: the relay that is
+	-- asked runs it, and "old" is a signed relay still on the published 1.5.8, whose Records.lua drops
+	-- a whispered RA as a wrong lane and never answers. The comparison is Relay.AtLeast's, a version at
+	-- or past the floor (here by the addon's own Workshop.Newer, Relay.lua being no part of this world):
+	-- this test compared versions for equality, so a peer newer than the floor was never asked.)
+	local versions = { [first.name] = "1.5.9", [second.name] = "1.5.9", [old.name] = "1.5.8",
+		[left.name] = "1.5.9", [right.name] = "1.5.9", [pvp.name] = "1.5.9" }
 	local secondFresh = false
 	for _, c in ipairs({ first, second, old, pvp, left, right }) do
 		Small(c)
@@ -866,7 +871,7 @@ test("records: signed cross-relay recovery needs two independent holders on each
 			IsSignedRelay = function(name) return versions[name] ~= nil end,
 			Names = function() return { old.name, pvp.name, first.name, second.name } end,
 			RelayVersion = function(name) return versions[name] end,
-			AtLeast = function(v, required) return v == required end,
+			AtLeast = function(v, floor) return type(v) == "string" and (v == floor or H.ns.Workshop.Newer(v, floor)) end,
 			MeshPeer = function(name) return versions[name] ~= nil and (name ~= second.name or secondFresh) end,
 		}
 	end
