@@ -4631,6 +4631,12 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 	local function Line(R, id)
 		for _, line in ipairs(R.WhisperLines()) do if line.id == id then return line end end
 	end
+	-- A line of the page showing `wanted` (a switch's hint has no id).
+	local function Text(U, wanted)
+		for _, line in ipairs(U.SelfTestView().lines) do
+			if line.text and line.text:find(wanted, 1, true) then return line end
+		end
+	end
 	-- The window closed and opened again, on the Census (the offer shows there).
 	local function Reopen(U)
 		if U.IsShown() then U.Toggle() end
@@ -4707,6 +4713,10 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 		Reopen(U2)
 		eq(Offered(U2), true)
 		assert(Row(U2, "ads").line.text:find("ReadyCheck-NotReady", 1, true), "the ads show off while recruiting is")
+		-- (Review of the 1.5.9 release: nothing showed the hint naming a kept interval.) The ads switch would
+		-- bring back his 30 minutes, and its hint says so, not the first offer's 5.
+		assert(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(30)), "the ads hint names the 30 minutes he kept")
+		eq(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(ns2.Views.RECRUIT_AD_MINUTES)), nil, "not the first offer's 5")
 		C2.Click(assert(Row(U2, "join")))
 		eq(R2.IsWhisperRecruiting(), true)
 		eq(R2.Handoff.AutoOn(), false, "the offer's JOIN: his waiting players still not offered, as he left it")
