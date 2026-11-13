@@ -559,8 +559,9 @@ end
 
 -- version (1.1.2, the right-click menu: Versions.lua): the one to name, never newer than his build
 -- (the one he marked as out, /oly released); none: Latest. done(sent): once it left, or was dropped
--- (dropped, the player may be asked again at once).
-function Workshop.AskUpdate(name, version, done)
+-- (dropped, the player may be asked again at once). urgent (1.5.9's review): queued as an urgent job,
+-- which nothing pushes out of Comm's queue (AskServedOutdated's few a tick).
+function Workshop.AskUpdate(name, version, done, urgent)
 	if not Workshop.Visible() or type(name) ~= "string" then return false end
 	local now = ns.Now()
 	local key = ns.FullName(name)
@@ -571,7 +572,7 @@ function Workshop.AskUpdate(name, version, done)
 	asked[key] = now
 	-- (1.1.2's version to name, never newer than his build; 1.2's: none he has not marked as out)
 	if type(version) ~= "string" or not Parts(version) or Workshop.Newer(version, ns.VERSION) then version = latest end
-	ns.Comm.Whisper(key, "V3~" .. version, "askupdate:" .. key, nil, nil, function(sent) -- one queued per player
+	ns.Comm.Whisper(key, "V3~" .. version, "askupdate:" .. key, urgent == true or nil, nil, function(sent) -- one queued per player
 		if not sent and asked[key] == now then asked[key] = nil end
 		if done then done(sent) end
 	end)
@@ -626,6 +627,14 @@ StaticPopupDialogs["OLYMPUS_AUTHOR_UPDATE"] = {
 -- never in quiet presence. On the other side the window shows once each UPDATE_GAP at most, and never
 -- to a player who said No to his roll calls and notices (Workshop.Notices). The modified builds' ask
 -- (Builds.Prompt) goes the same way.
+-- (1.5.9's review) A notice is an urgent whisper, and the places it leaves free are counted with the
+-- ordinary whispers it may push out (Comm.QueueRoom(true)). As an ordinary one, a busy relay's drip pushed
+-- it out of the queue before it left (census and look batches make room so), and at a peak the queue never
+-- had OUTDATED_ROOM places free (the offline harness, 90 registrants and a chat line every 45 s: free room 0
+-- to 5 at every tick of 30 minutes, no notice; every 60 s, 10 queued and none left). Five whispers every five
+-- minutes at most cost the chat lane nothing it would notice. And a player is marked asked only while his
+-- notice stands: one that never left (pushed out, refused) is unmarked, so the next tick asks him again
+-- (it marked him for a day as soon as it was queued).
 Workshop.OUTDATED_EVERY = 24 * 60 * 60
 Workshop.OUTDATED_TICK = 5 * 60
 Workshop.OUTDATED_PER_TICK = 5
@@ -655,17 +664,22 @@ function Workshop.AskServedOutdated(now)
 		return a.name < b.name
 	end)
 	local C = ns.Comm
-	local room = C and type(C.QueueRoom) == "function" and C.QueueRoom() or (Workshop.OUTDATED_ROOM + Workshop.OUTDATED_PER_TICK)
+	local room = C and type(C.QueueRoom) == "function" and C.QueueRoom(true) or (Workshop.OUTDATED_ROOM + Workshop.OUTDATED_PER_TICK)
 	local budget = math.min(Workshop.OUTDATED_PER_TICK, room - Workshop.OUTDATED_ROOM, Workshop.OUTDATED_KEPT - kept)
 	local n = 0
 	for _, p in ipairs(due) do
 		if n >= budget then break end
 		-- (Gone offline since: the server's "No player named" kept out of his chat, as the relay's.)
 		if type(R.Quiet) == "function" then R.Quiet(p.name) end
-		if Workshop.AskUpdate(p.name, released) then
-			asked[p.name:lower()] = now
-			n = n + 1
-		end
+		-- (Marked before it is queued: a refusal can come back at once, and then unmarks him.)
+		local key = p.name:lower()
+		asked[key] = now
+		local queued = Workshop.AskUpdate(p.name, released, function(sent)
+			local marks = type(ns.db) == "table" and ns.db.outdatedAsked
+			if not sent and type(marks) == "table" and marks[key] == now then marks[key] = nil end
+		end, true)
+		if queued then n = n + 1
+		elseif asked[key] == now then asked[key] = nil end
 	end
 	if n > 0 then
 		lastOutdated = now

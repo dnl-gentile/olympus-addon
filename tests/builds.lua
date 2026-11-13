@@ -904,6 +904,77 @@ test("1.5.9 outdated clients: the author's relay client gives each client it ser
 	end)
 end)
 
+-- 1.5.9's review (N3). On a busy relay the notice was an ordinary whisper: the drip's census and look batches
+-- push such whispers out of Comm's queue before they leave, yet AskServedOutdated had marked the player asked
+-- for a day as soon as it was queued; and at a peak the queue never had OUTDATED_ROOM places free (the
+-- offline harness: none at any tick of 30 minutes at a chat line every 45 s). Now the notice goes urgent,
+-- the room counted with the ordinary whispers it may push out (Comm.QueueRoom(true)), and a player whose
+-- notice never left is asked again at the next tick. Fails before: no notice at all in the busy queue, and
+-- with room, the player whose notice was pushed out not asked again that day.
+test("1.5.9 outdated clients: the author's update notice goes urgent past a busy relay's ordinary whispers; a notice pushed out of the queue or refused leaves its player to be asked at the next tick, one that left holds for a day", function()
+	AsAuthorRelay(function(w)
+		local W = ns.Workshop
+		local saved = { asked = ns.db.outdatedAsked, released = ns.db.releasedVersion, quiet = ns.QuietPresence }
+		local ok, err = pcall(function()
+			ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = nil, ns.VERSION, function() return false end
+			rawget(ns, "Relay").Presentations = function() return w.presented end
+			w.presented = { { name = "Old Four", v = "1.5.4", t = w.clock - 60 }, { name = "Old Six", v = "1.5.6", t = w.clock - 120 } }
+			-- His queue: `free` places free, `pushable` more held by ordinary whispers an urgent one pushes out.
+			local free, pushable = 0, 45
+			ns.Comm.QueueRoom = function(evicting) return evicting and free + pushable or free end
+			-- Each whisper's fate comes later, as Comm tells it: left (true) or pushed out (false, "dropped").
+			local waiting = {}
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent }
+				waiting[#waiting + 1] = { to = to, done = done }
+				return true
+			end
+			local function Settle(fates)
+				for _, x in ipairs(waiting) do
+					local left = fates[x.to] ~= false
+					if x.done then x.done(left, not left and "dropped" or nil) end
+				end
+				waiting = {}
+			end
+			eq(W.AskServedOutdated(), 2, "both asked though no place is free: the ordinary whispers make room")
+			for _, x in ipairs(w.whispered) do eq(x.urgent, true, x.to .. ": an urgent whisper") end
+			Settle({})
+			-- Room again, both asked and both notices left: not again that day.
+			free, w.whispered = 60, {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "both notices left: not again the same day")
+			-- The next day, Old Four's notice is pushed out before it leaves, Old Six's leaves.
+			w.clock = w.clock + W.OUTDATED_EVERY
+			W.Reset() -- (a new session: Workshop.UPDATE_GAP's own marks gone with it)
+			eq(W.AskServedOutdated(), 2)
+			Settle({ [ns.FullName("Old Four")] = false })
+			eq(ns.db.outdatedAsked["old four"], nil, "Old Four's notice never left: not marked asked")
+			assert(ns.db.outdatedAsked["old six"], "Old Six's left: marked")
+			w.whispered = {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 1, "the next tick asks again the one whose notice never left")
+			eq(AskedTo(w)[ns.FullName("Old Four")], 1, "Old Four")
+			Settle({})
+			w.whispered = {}
+			w.clock = w.clock + W.OUTDATED_TICK
+			eq(W.AskServedOutdated(), 0, "both asked now: nobody more that day")
+			-- A refusal at once (Comm tells it before AskUpdate returns): unmarked, asked again at the next tick.
+			w.clock = w.clock + W.OUTDATED_EVERY
+			W.Reset()
+			ns.Comm.Whisper = function(to, msg, key, urgent, logged, done)
+				w.whispered[#w.whispered + 1] = { to = to, msg = msg, key = key, urgent = urgent }
+				if done then done(false, "left") end
+				return false
+			end
+			W.AskServedOutdated()
+			eq(#w.whispered, 2, "both tried")
+			eq(next(ns.db.outdatedAsked), nil, "refused at once: nobody marked")
+		end)
+		ns.db.outdatedAsked, ns.db.releasedVersion, ns.QuietPresence = saved.asked, saved.released, saved.quiet
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("1.5.4 modified builds prompt: Comm's door counts a locked client as online while its words reach it (its refused registration among them), and no longer after five minutes", function()
 	RelaySetup(function()
 		local R, Deliver = Relayed(RELAY)
