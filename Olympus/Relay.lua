@@ -77,7 +77,11 @@ Relay.MAX_REPORTERS = 400   -- (1.5.4) guilds a relay keeps a reporter for
 -- PRESENT_REQUIRED_AT is set at release to the publish time plus seven days (this one, 1.5.5's:
 -- 2026-11-17 21:00 UTC, seven days after its publish on 2026-11-10 21:00 UTC). Each release names
 -- itself in PUBLISHED below (tests/relay-admit.lua checks it): a relay that holds no word of rules
--- goes by that list, and from the deadline on would refuse a release left off it.
+-- goes by that list, and from the deadline on would refuse a release left off it. (Review of the 1.5.9
+-- release: the list and the deadline of the release that relay runs, not of the newest. Relays of 1.5.5
+-- to 1.5.8 holding no newer rules refuse 1.5.9 from 2026-11-17 21:00 UTC, 1.5.4's from 11-16 00:00 UTC,
+-- and still answer pings, so clients keep picking them. A new release needs a signed word of rules
+-- naming it, in each family and faction with a signed relay, before the earliest deadline still to come.)
 Relay.PRESENT_REQUIRED_AT = 1794949200
 Relay.PRESENT_FOR = 1800     -- a presentation is kept this long past its last word (a client pings its relay every DEAD_FOR)
 Relay.PRESENT_GAP = 60       -- a client presents itself to one relay once this long at most
