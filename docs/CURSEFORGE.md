@@ -78,8 +78,8 @@ contact** (`/oly nocontact on`) is never offered, however many recruits ask him,
 question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
 officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**, with the invite pop-up opening by itself.
-Members on versions before 1.1 just get the whisper, as before.
+recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
+chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
 
 ## What it does
 
@@ -111,8 +111,8 @@ Members on versions before 1.1 just get the whisper, as before.
   guild while the King's gates are open, else naming your guild alone: never a guild the census
   lists for its room, which two made-up characters could report), one click each; anyone else
   can point them to an officer online. **Dismiss** sends nothing. While you recruit by whisper
-  (1.5.9), a request goes to **Church → Invites** instead and opens the same invite pop-up as a
-  **JOIN**; turning recruiting off brings it back here. In the Realm's Recruiting, one
+  (1.5.9), a request goes to **Church → Invites** instead and is taken as a **JOIN**: the same
+  invite pop-up, unless you chose **Queue only**; turning recruiting off brings it back here. In the Realm's Recruiting, one
   click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census**: a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers

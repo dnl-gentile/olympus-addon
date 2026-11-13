@@ -98,7 +98,8 @@ The guild stays on the verifiers' list, marked overdue; and its guild master's o
 powers in Olympus wait for his verification (others take him as an officer: his public card, his
 Legates and correspondents, his guild decrees and his guild bank grant wait too). Nothing is taken
 from the members and nobody is removed. The King's guild needs none. Verified guilds carry a mark
-in the Census (an overdue one, for the verifiers). Being verified grants no role or council
+in the Census (an overdue one, for the verifiers); the King's guild carries the verified mark too
+(1.5.9), whoever its guild master is. Being verified grants no role or council
 status. Switches in `Core.lua`: `ns.VERIFY_HOLD` (the guild master's hold, on) and
 `ns.VERIFY_GATE` (whole-guild features through `ns.GuildSanctioned`, off: no feature is gated); the
 exemptions are one predicate, `Verify.Exempt`.
@@ -146,8 +147,8 @@ contact** (`/oly nocontact on`) is never offered, however many recruits ask him,
 question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
 officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**, with the invite pop-up opening by itself.
-Members on versions before 1.1 just get the whisper, as before.
+recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
+chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
 
 **A guild's public charter.** On the Realm, **Your guild's public charter** lets its current
 guild master publish a short purpose (48 bytes), client language, raid nights (24 bytes), and
@@ -256,8 +257,8 @@ channels; the same charter and Join controls work for each side.
   guild while the King's gates are open, else naming your guild alone: never a guild the census
   lists for its room, which two made-up characters could report), one click each; anyone else
   can point them to an officer online. **Dismiss** sends nothing. While you recruit by whisper
-  (1.5.9), a request goes to **Church → Invites** instead and opens the same invite pop-up as a
-  **JOIN**; turning recruiting off brings it back here. In the Realm's Recruiting, one
+  (1.5.9), a request goes to **Church → Invites** instead and is taken as a **JOIN**: the same
+  invite pop-up, unless you chose **Queue only**; turning recruiting off brings it back here. In the Realm's Recruiting, one
   click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census**: a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
@@ -2368,7 +2369,9 @@ are its own, and its own documentation says what it does and what it sends.
   from players who whisper `JOIN`. Choose **Leave it off for now** to return to the Census until
   you reopen the window, or **Don't ask again** to dismiss the offer for your account. Review
   requests or change recruiting in **Church → Invites**; turning recruiting off there brings the
-  offer back until you choose **Done** or **Don't ask again**.
+  offer back until you choose **Done** or **Don't ask again**. While recruiting is on (1.5.9), a
+  line under the Census search says so (**Your recruiting is on. Click here for settings.**), and
+  a click on it opens **Church → Invites**.
 - **Search**: a box on top of the Census (guilds, Lords, Captains, players, zones, recruiting),
   the Realm (guilds, Lords, Captains, members seen online), Crafters (crafter, guild or profession), the
   Tabards in The Watch (inspected and untabarded players, by name or guild), the Treasury (donors in the
@@ -3420,8 +3423,8 @@ players who declined a guild invite of yours, however you sent it, read from the
 (or its automatic decline, for a player who blocks guild invites), kept 7 days (200 at most) in
 the realm group's saved variables as a hash of each name, never the name. Such a player does not
 pop up again, is left out of the scan and of whispers, and is not passed to other members; a
-sighting of him another member passes is not taken. His own **JOIN**, whispered to you or passed
-on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
+sighting of him another member passes is not taken. His own **JOIN**, whispered to you, sent from
+his **Join Olympus** screen or passed on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft. A **Join Olympus** request goes back to the
