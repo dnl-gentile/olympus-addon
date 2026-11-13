@@ -430,12 +430,18 @@ end
 -- (its addon users counted), and only where a Church person was heard over GUILD lately or (1.5.5)
 -- its own roster holds one (PersonHere). (Before 1.5.5 an Apostle whose client held an older list
 -- said nothing, so neither his guildmates' clients nor the author's read their log: nothing counted.)
+-- (1.5.9, the author: "O ranking para todo mundo": the recruiting ranking for everyone counts any
+-- member's recruit, RecruitRanking.lua, so every Olympus guild's log is read, drawn the same way; and
+-- the client of a member another member passed a player to reads as a Church person's does, until
+-- that player's invite and join, to name who passed him on.)
 function Count.MaybeRead(now)
 	if now - lastReadTick < Count.READ_EVERY then return false end
 	lastReadTick = now
 	local keeper = Church.IsKeeper(ns.me) and not Church.IsKing(ns.me)
-	if not keeper and not Church.IsPerson(ns.me) then
-		if not AnyClaim() and not Count.PersonHere() then return false end
+	local RR = ns.RecruitRanking
+	local wanted = RR and RR.ReadWanted and RR.ReadWanted() or nil
+	if not keeper and not Church.IsPerson(ns.me) and wanted ~= "own" then
+		if not AnyClaim() and not Count.PersonHere() and wanted ~= "drawn" then return false end
 		local peers = math.max(1, (ns.Comm.PeerCount and ns.Comm.PeerCount()) or 1)
 		if Count.chance() > math.min(1, 2 / peers) then return false end
 	end
@@ -509,7 +515,12 @@ function Count.Process(events)
 				FillOf(guild, day).j = FillOf(guild, day).j + 1
 				local i = inv[Key(e.p1)]
 				if i and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS then
-					if Count.Pair(i.by, e.p1, guild, i.h, math.max(e.hour, i.h)) then found = found + 1 end
+					local tj = math.max(e.hour, i.h)
+					if Count.Pair(i.by, e.p1, guild, i.h, tj) then found = found + 1 end
+					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
+					-- records of its own type (RecruitRanking.lua), never this ledger's.
+					local RR = ns.RecruitRanking
+					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then
 				FillOf(guild, day).l = FillOf(guild, day).l + 1
@@ -773,6 +784,15 @@ local function SeenHere(invitee, guild, tj)
 	local ev = Ev()
 	if ev and type(ev.k) == "table" and SeenEvent(ev, "join:" .. xk .. ":", tj) then return true end
 	return false, "roster"
+end
+
+-- (Review of 1.5.9) Whether this client's own read of our guild's log saw `inviter` invite `invitee` at
+-- hour `ti` (an hour off either way, as Count.Events reads them): the recruiting ranking for everyone
+-- takes a guildmate's word on who invited as strong only then (RecruitRanking.TakeEvidence).
+function Count.SawInvite(inviter, invitee, ti)
+	local ik, xk, ev = Key(inviter), Key(invitee), Ev()
+	if not ik or not xk or not tonumber(ti) or not ev or type(ev.k) ~= "table" then return false end
+	return SeenEvent(ev, "invite:" .. ik .. ":" .. xk, tonumber(ti)) ~= nil
 end
 
 -- (1.2.1) A witness this client can vouch for in the pair's guild, as the desk's seen-checks keep their
@@ -3029,6 +3049,9 @@ function Count.Tick(now)
 	end
 	-- (1.3.4) The King's and the High Council's: the top 3 said again (a keeper of the Council's too).
 	Count.RelayTop(now)
+	-- (1.5.9) The recruiting ranking for everyone: its reports, stays, and a keeper's ledger work.
+	local RR = ns.RecruitRanking
+	if RR and RR.Tick then ns.SafeCall("recruit ranking", RR.Tick, now) end
 	if ns.ChurchView and ns.ChurchView.PollRanking then ns.ChurchView.PollRanking() end
 end
 

@@ -325,6 +325,63 @@ test("recruit handoff: a claimed request opens the copy command at once, after a
 	end)
 end)
 
+-- 1.5.9 (the author, 11-12: the member who passed a JOIN or a scanned player on gets a share of that
+-- recruit's points once he joins, "tipo os pontos da rede"): the name that arrives keeps who passed it,
+-- on the request and for the recruiting ranking (RecruitRanking.HandedIn, its own file's tests).
+test("1.5.9 recruit handoff: the name a member passed on keeps who passed it, for the recruiting ranking for everyone", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local saved, handed = rawget(ns, "RecruitRanking"), {}
+		ns.RecruitRanking = { HandedIn = function(name, by) handed[#handed + 1] = { name = name, by = by } return true end }
+		local ok, err = pcall(function()
+			eq(H.Toggle(), true)
+			H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+			local claim = assert(D.Find(CLAIM))
+			claim.def.OnAccept(claim, claim.data)
+			claim:Hide()
+			eq(#handed, 0, "nothing before the name")
+			H.Receive("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+			local req = assert(R.requests[1])
+			eq(req.handedBy, officer)
+			eq(#handed, 1)
+			eq(handed[1].name, applicant); eq(handed[1].by, officer)
+			-- The same name again is no second handoff.
+			H.Receive("WHISPER", officer, Packet(scene, "N", sister, own, applicant))
+			eq(#handed, 1)
+		end)
+		ns.RecruitRanking = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- Review of 1.5.9: the inviter's own report alone named who passed him a player (an alt or a friend took
+-- 25% of his recruits). The member who passed the name says so himself, once its member took it ("A"):
+-- RecruitRanking.HandedOut, whose word the keepers match with the inviter's (its own file's tests).
+test("1.5.9 recruit handoff: the member who passed a name on tells the recruiting ranking once its member took it, once", function()
+	WithHandoff(function(scene)
+		local saved, out = rawget(ns, "RecruitRanking"), {}
+		ns.RecruitRanking = { HandedOut = function(name, to) out[#out + 1] = { name = name, to = to } return true end }
+		local ok, err = pcall(function()
+			R.OnWhisper("JOIN OLYMPUS", applicant)
+			local req = R.requests[1]
+			eq(H.Offer(req, officer, sister), true)
+			local offered = scene.packets[1]
+			local claim = offered.word:gsub("^J4~O~", "J4~C~")
+			eq(H.Receive("WHISPER", officer, claim), true)
+			assert(scene.packets[2].word:match("^J4~N~"), "the name went")
+			eq(#out, 0, "nothing while the name is only on its way")
+			eq(H.Receive("WHISPER", officer, (offered.word:gsub("^J4~O~", "J4~A~"))), true)
+			eq(#out, 1)
+			eq(out[1].name, applicant); eq(out[1].to, officer)
+			eq(H.Receive("WHISPER", officer, (offered.word:gsub("^J4~O~", "J4~A~"))), false, "a repeated ack")
+			eq(#out, 1, "said once")
+		end)
+		ns.RecruitRanking = saved
+		if not ok then error(err, 0) end
+	end)
+end)
+
 -- 1.5.8 (the author, 11-12: "ele mostrar tantas pessoas na fila depois dessa. E aí você clica no
 -- botão e fala tipo, é repassar os negócios pra outros offices").
 test("recruit handoff: the JOIN popup counts the requests behind it and passes them to opted-in officers", function()
@@ -817,8 +874,12 @@ test("recruit log (1.5.8): a JOIN, its popup and command, and a handoff each way
 				assert(LogHas("JOIN " .. tag), "the JOIN whisper")
 				local draft = assert(D.Find(DRAFT))
 				assert(LogHas("POPUP " .. tag .. " auto"), "its popup, shown on its own")
+				eq(R.LastInviteAt(), nil)
 				draft.def.extra.onClick(draft, draft.data)
 				assert(LogHas("TOCHAT " .. tag .. " 1/10"), "the command taken to chat")
+				-- (Review of 1.5.9) When: the recruiting ranking for everyone reads the guild's log a while after
+				-- it, for his own report of the join (RecruitRanking.ReadWanted).
+				eq(R.LastInviteAt(), scene.now)
 				-- (Since the 1.5.8 merge the popup stays until the command is pasted into chat, which
 				-- closes it: the player pastes.)
 				draft:Hide()

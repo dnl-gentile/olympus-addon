@@ -1784,7 +1784,12 @@ function Recruit.TakeHandoff(name, officer, sighting)
 	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
 	if not accepted then return false end
-	req.handedIn = true
+	req.handedIn, req.handedBy = true, officer
+	-- (1.5.9, the author: the member who passed a JOIN or a scanned player on gets a share of that
+	-- recruit's points once he joins, "tipo os pontos da rede": this client's own read of the log names
+	-- him in its report of the invite and the join, RecruitRanking.lua.)
+	local ranking = ns.RecruitRanking
+	if ranking and ranking.HandedIn then ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer) end
 	PromptReply()
 	return true
 end
@@ -1810,6 +1815,10 @@ end
 -- otherwise its popup says the limit is reached and offers Pass.
 Recruit.INVITES_PER_MINUTE = 10
 local invitesTaken = {}
+-- (Review of 1.5.9) When this player last took an invite command to chat: the recruiting ranking for
+-- everyone reads the guild's log a while after it, for his own report of the join (RecruitRanking.ReadWanted).
+local lastInviteAt
+function Recruit.LastInviteAt() return lastInviteAt end
 function Recruit.AtInviteLimit()
 	local now = ns.Now()
 	for i = #invitesTaken, 1, -1 do
@@ -2003,6 +2012,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 		if not data.taken then
 			data.taken = true
 			invitesTaken[#invitesTaken + 1] = ns.Now()
+			lastInviteAt = ns.Now()
 			local H = Recruit.Handoff
 			if H and H.LogItem then
 				-- (The minute's own count: a popup can stay open past it.)
@@ -2306,7 +2316,7 @@ function Recruit.ResetForTests()
 	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere)
 	declinePatterns = nil
-	lastRoute = -math.huge
+	lastRoute, lastInviteAt = -math.huge, nil
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
 	Recruit.found, Recruit.asked, Recruit.replied, Recruit.requests = {}, {}, {}, {}
 	if ns.GuildCharter then ns.GuildCharter.ResetForTests() end

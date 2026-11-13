@@ -63906,7 +63906,7 @@ assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",
 		"church", "church-count", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
-		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl" }
+		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl", "recruit-ranking" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
@@ -63934,7 +63934,7 @@ for _, name in ipairs(focused) do
 		or name == "quiet-presence" and { FreshComm = FreshComm, WithHop = WithHop, Fire = CoreFire } -- (1.2.5.1)
 		or name == "role-briefings" and { ROOT = ROOT, WithUI = WithUI, LoadUI = LoadUI, WithGamepadUI = WithGamepadUI }
 		or name == "selftest" and { WithUI = WithUI, LoadUI = LoadUI, WithGamepadUI = WithGamepadUI, FreshComm = FreshComm } -- (/oly selftest)
-		or name:match("^church") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
+		or (name:match("^church") or name == "recruit-ranking") and { WithGamepadUI = WithGamepadUI, WithUI = WithUI }
 		or (name == "court-calls" and { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier,
 			WithGamepadUI = WithGamepadUI, WithUI = WithUI }) or (name == "hop-sightings" and WithHop or nil)
 	-- (1.4.0: the groups' tests run on the Board's harness.)

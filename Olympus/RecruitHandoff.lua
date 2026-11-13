@@ -574,6 +574,11 @@ function H.Receive(dist, sender, word)
 			if ref.state ~= "assigning" then return false end
 			ref.state = "assigned"
 			H.LogItem("HANDED", ref.request, "> " .. (ns.ShortName(sender) or "?"))
+			-- (Review of 1.5.9) The member who passed a player on says so himself to the Church's keepers:
+			-- his share in the recruiting ranking for everyone counts only when the inviter's own report
+			-- names him too (RecruitRanking.HandedOut).
+			local ranking = ns.RecruitRanking
+			if ranking and ranking.HandedOut then ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender) end
 		end
 	end
 	Changed()
