@@ -1084,3 +1084,75 @@ test("census author (1.5.9): only a Forever family's row lasts: an invented serv
 		eq(A.db.groupAttest["Alliance|Fakeville"], nil, "dropped")
 	end)
 end)
+
+-- 1.5.9 (the author, 11-12: "o que eu visualizar tem que ficar circulando lá" and "ele deveria redistribuir
+-- esses dados enquanto não tivessem dados novos na rede"; the review of the census lane). The relay serves
+-- one member of each guild; the rest hear the census in his hand-over (RG), which proves no origin. Fails
+-- before: the author's key signed his own looks alone, so a councillor's row his client counted reached
+-- them counting two days and left after seven; and a member holding its hand-over kept that over the
+-- proven copy of the same look (another source).
+test("census author (1.5.9): the author's key signs the trusted rows his client holds, a councillor's among them; a member who hears them in a hand-over counts them as his and keeps them", function()
+	World(function(Node, Frames)
+		local Ed = ns.Ed25519
+		local seed = string.rep("\31", 32)
+		local PK = Ed.ToB64(Ed.PublicKey(seed))
+		local DAY = 86400
+		local T = 30 * DAY
+		local A = Node(AUTHOR, { pk = PK })
+		A.db.arenaKey = { seed = Ed.ToB64(seed), pk = PK, at = 1, claims = {} }
+		A.Debts = { Sign = function(msg) return Ed.Sign(seed, msg, Ed.PublicKey(seed)) end }
+		A.clock = T
+		-- Held already: a hand-over of an RP row, a witnessed RP-PvP row, and a Hardcore row signed as is.
+		local function Held(group, src, at, extra)
+			local e = { group = group, faction = "Alliance", characters = 900, people = 880, guilds = 6, observed = at,
+				src = src, by = "Some One-" .. PVE, w = src == "witnessed" and 2 or 1 }
+			for k, v in pairs(extra or {}) do e[k] = v end
+			return e
+		end
+		A.db.groupCensus = { ["Alliance|ForeverRP"] = Held("ForeverRP", "relay", T - 300, { rg = true }),
+			["Alliance|ForeverRPPvP"] = Held("ForeverRPPvP", "witnessed", T - 200),
+			["Alliance|ForeverHardcore"] = Held("ForeverHardcore", "author", T - 900) }
+		A.db.groupAttest = { ["Alliance|ForeverHardcore"] = { group = "ForeverHardcore", faction = "Alliance", observed = T - 900,
+			wire = "x", text = "QA~1~" .. string.rep("A", 86) .. "~x" } }
+		-- His PvE client takes a councillor's PvP row on a relay's hop.
+		local pvp = ("CX~1~S~%d~ForeverPvP,Alliance,5551,5400,29,%d"):format(T, T - 600)
+		A.Relay.TakeVia("M", "Sage Ledger", "Sage Warden-" .. PVE, pvp)
+		local said = {}
+		A.Comm.SendChunked = function(payload) said[#said + 1] = payload return true end
+		eq(A.Data.SayGroupCensus(), true)
+		local wire = ("CX~3~S~Sage Warden-%s~ForeverPvP~Alliance~5551,5400,29,%d~"):format(PVE, T - 600)
+		local qa = assert(A.db.groupAttest["Alliance|ForeverPvP"], "signed").text
+		eq(qa:match("^QA~1~[%w%-_]+~(.*)$"), wire, "the councillor's row, signed, named after him")
+		eq(Ed.Verify(Ed.PublicKey(seed), "OLYQA1|" .. wire, Ed.FromB64(qa:match("^QA~1~([%w%-_]+)~"))), true, "a valid signature")
+		-- Said in turn with the others signed; nothing else is signed: neither the hand-over nor the
+		-- witnessed row, nor the row signed as is.
+		A.clock = T + 120
+		A.Data.SayGroupCensus()
+		eq(said[1] == qa or said[2] == qa, true, "said")
+		eq(A.Data.CensusStats().qa.signed, 1, "one signature")
+		for key in pairs(A.db.groupAttest) do assert(key == "Alliance|ForeverPvP" or key == "Alliance|ForeverHardcore", key) end
+		-- A member hears the councillor's own row in a hand-over first (counted two days alone), then the
+		-- signed copy, which takes its place and lasts.
+		local M = Node(LISTENER, { pk = PK })
+		M.clock = T + 300
+		M.Relay.TakeVia("G", "Guild Mate-" .. PVE, "Sage Warden-" .. PVE, pvp)
+		eq(assert(PvP(M.Data.Groups())).src, "relay")
+		Carry(M, "G", "Guild Mate-" .. PVE, "Plain Member-" .. PVE, qa, "53")
+		Frames()
+		eq(M.Data.CensusStats().qa.verified, 1)
+		local row = assert(PvP(M.Data.Groups()))
+		eq(row.src, "author", "the signed copy took the hand-over's place"); eq(row.observed, T - 600)
+		M.clock = T + 10 * DAY
+		row = assert(PvP(M.Data.Groups()), "kept past GROUP_KEEP")
+		eq(row.counted, true); eq(row.characters, 5551); eq(row.observed, T - 600, "dated as observed")
+		-- A member who heard only the signed copy says it on in turn (AttestPayload: every client carries it).
+		eq(M.Data.AttestPayload(M.clock), qa)
+		-- A member still on 1.5.8 (its published Data.lua) takes the signed copy as the author's too.
+		local O = Node("Old Member-" .. PVE, { pk = PK, file = ROOT .. "tests/fixtures/data-1.5.8.lua" })
+		O.clock = T + 300
+		Carry(O, "G", "Guild Mate-" .. PVE, "Plain Member-" .. PVE, qa, "54")
+		Frames()
+		row = assert(PvP(O.Data.Groups()), "a 1.5.8 member takes it")
+		eq(row.src, "author"); eq(row.counted, true); eq(row.characters, 5551); eq(row.observed, T - 600)
+	end)
+end)

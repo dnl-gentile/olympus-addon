@@ -2616,6 +2616,7 @@ end
 -- An empty constant signs nothing and takes nothing. Every client keeps the newest checked look of
 -- each origin (ns.db.groupAttest, account-wide: a player carries it to the other family) and says it
 -- once each GROUP_SAY_EVERY there, unless it heard one of that origin as new within the window.
+-- (1.5.9) His client signs the trusted rows it holds of each family too, not only his looks (SignHeld).
 local function AttestKey()
 	local pk, Ed = ns.AUTHOR_ATTEST_PK, ns.Ed25519
 	if type(pk) ~= "string" or pk == "" or type(Ed) ~= "table" or type(Ed.FromB64) ~= "function" then return nil end
@@ -2654,6 +2655,37 @@ local function SignLook(row, wire)
 	local old = AttestStore()[GroupKey(row.faction, row.group)]
 	if type(old) == "table" and old.own and old.wire == wire then return false end
 	return SignWire(row, wire)
+end
+-- (1.5.9, the author, 11-12: "o que eu visualizar tem que ficar circulando lá"; the review of the census
+-- lane) Most members hear the census in a guildmate's hand-over (RG: the relay serves one member of each
+-- guild), which proves no origin (any guildmate can name any), so a trusted row reached them counting
+-- GROUP_COUNT alone and left after GROUP_KEEP: of all the author sees, only his own signed looks lasted
+-- there. The client holding his key now signs, besides his own looks, the newest trusted row of each
+-- family it holds (Lasting: a councillor's or a relay's look, one of his characters' on another account),
+-- unless a look of that origin at least as new is signed already: one look naming whoever gave it (by),
+-- its numbers and observed time as held, no guild rows. Signed, it proves itself whoever carries it, so
+-- it counts as his and lasts on every client until a newer one replaces it. One signature a call.
+local signTried = {} -- [origin] = observed: a signature that failed, not tried again this session
+local function SignHeld(now)
+	if not KeyHere() then return false end
+	SettleGroups(now)
+	local store, attest, here, keys = GroupStore(), AttestStore(), GroupField(ns.group), {}
+	for key in pairs(store) do keys[#keys + 1] = key end
+	table.sort(keys)
+	for _, key in ipairs(keys) do
+		local e, old = store[key], attest[key]
+		local by = Lasting(e) and e.src ~= "own" and type(e.by) == "string" and ns.FullName(e.by) or nil
+		if by and #by <= 100 and not by:find("[~|;,%c]") and e.faction == OurFaction() and e.group ~= here and Listed(e.group)
+			and signTried[key] ~= e.observed and not (type(old) == "table" and (tonumber(old.observed) or 0) >= e.observed) then
+			signTried[key] = e.observed
+			local row = GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed, true)
+			if row then
+				return SignWire(row, ("CX~3~S~%s~%s~%s~%d,%d,%d,%d~"):format(by, row.group, row.faction,
+					row.characters, row.people, row.guilds, row.observed))
+			end
+		end
+	end
+	return false
 end
 function Data.CapturePortable(row)
 	if not ScopedGroup(row.group) then return false end
@@ -2733,6 +2765,7 @@ end
 function Data.AttestPayload(now, sending)
 	now = now or ns.Now()
 	if not AttestKey() then return nil end
+	if sending then SignHeld(now) end -- (1.5.9: the key's client signs the trusted rows it holds too)
 	local store, keys = AttestStore(), {}
 	-- (1.5.9) A checked look lasts: it is said, however old, until a newer one of its origin replaces it
 	-- (AttestKeep). It was dropped GROUP_KEEP after it was taken, and the origin with it everywhere. A
