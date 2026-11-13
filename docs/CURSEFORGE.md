@@ -562,6 +562,16 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   read [Olympus] alone, and the lines take that room. A channel muted in chat (`/oly mute`) still
   shows here, and a line you write here keeps it muted in chat. The pinned line shows over the
   lines, as on the Realm tab, and takes no room while nothing is pinned.
+- On Forever, [Olympus] has a ruleset dropdown on that row (1.5.5): **All** (the default), **PvP**,
+  **PvE**, **Roleplay** or **RP-PvP**. Since 1.5.9 each line names its writer's ruleset and is shown
+  under it. A line from an older version is placed by the server ID in the writer's GUID (the game
+  gives Forever names without their realm), else by what Olympus knows of the writer (the relay's
+  copy, a guildmate, his guild in one ruleset's census); one nobody can place shows under **All**
+  alone. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
+  says so): its players see it, under **All** too, and others only by choosing it. Under **All** or
+  another ruleset, and from the game's own chat box, a line goes to every ruleset. Versions before
+  1.5.9 show every line to everyone. `/oly bug` has a `chat rulesets:` line that counts how the lines
+  were filed.
 - Every line whole, in a bubble that wraps: never cut, nothing to hover to read it. Other
   players' lines on the left, yours on the right in the channel's colour (a line another of your
   characters wrote shows under that character's name, on the left); the writer's name, guild and

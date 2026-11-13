@@ -420,6 +420,55 @@ test("watch: chat moderation: a long line's parts go together, another sender's 
 	end)
 end)
 
+-- 1.5.9: on Forever an [Olympus] line's id names its ruleset and keeps two digits of the writer's count
+-- ("0899": an RP-PvP player's line for everyone, "0499" one for RP-PvP alone; Codec.EncodeChat). The
+-- review of 1.5.9's first build: a long line whose count crossed a hundred went as 499 then 400, which
+-- no client reads as one line's parts (WatchChat.RefsFor), so a moderator's delete left its first part
+-- on every client. A line's parts stay within one hundred.
+test("watch: chat moderation (1.5.9): a long [Olympus] line of a Forever writer, its count at the end of a hundred: its parts' ids stay consecutive, and a moderator's delete from its last part takes both, for everyone and for his own ruleset alone", function()
+	World(function(w)
+		local G, A, B, D, Y1 = Standard(w)
+		-- B plays on an RP-PvP sub-realm of Forever, his picker on his own ruleset.
+		B.ns.realm, B.ns.splitNames = "CAMWOWUS2Realm1RPPvP", true
+		B.ns.Data.RULES_KIND = ns.Data.RULES_KIND
+		B.ns.db.chatGroups = { [B.name] = "rppvp" }
+		eq(w.As(B, B.C.MyKind), "rppvp")
+		local function Send(text, to)
+			w.epoch = w.epoch + 7 -- (spaced: no flood guard on the readers)
+			local before = #w.wire
+			assert(w.As(B, B.C.Send, "A", text, nil, nil, to), "sent: " .. text)
+			local ids = {}
+			for i = before + 1, #w.wire do ids[#ids + 1] = tonumber(w.wire[i].msg:match("^M1~A~[^~]*~(%d+)~")) end
+			w.Run()
+			return ids
+		end
+		local long = string.rep("word ", 60) .. "end"
+		for _, case in ipairs({ { to = "rppvp", digit = 4 }, { to = nil, digit = 8 } }) do
+			-- Short lines until his count's last two digits are 98: the long line's parts would be 99 and 00.
+			local n = 0
+			repeat
+				n = n + 1
+				local ids = Send("tick " .. n, case.to)
+				assert(n < 150, "his count never came to 98")
+			until ids[1] % 100 == 98
+			local ids = Send(long, case.to)
+			eq(#ids, 2, "two parts")
+			eq(ids[2], ids[1] + 1, "consecutive ids, within one hundred: " .. ids[1] .. ", " .. ids[2])
+			eq(math.floor(ids[1] / 100), case.digit, "the ruleset's digit: " .. ids[1])
+			local parts = {}
+			for _, e in ipairs(w.Lines(A, "A", B.name)) do if e.id == ids[1] or e.id == ids[2] then parts[#parts + 1] = e end end
+			eq(#parts, 2, "both parts kept on A")
+			local refs = w.As(A, A.WC.RefsFor, "A", parts[2])
+			eq(#refs, 2, "from its last part: both parts")
+			assert(w.As(A, A.WC.Delete, "A", parts[2], ""))
+			w.Run()
+			for _, e in ipairs(w.Lines(D, "A", B.name)) do
+				if e.id == ids[1] or e.id == ids[2] then eq(e.del, true, "deleted on D: part " .. e.id) end
+			end
+		end
+	end)
+end)
+
 test("watch: chat moderation: his recent lines go on every surface (the three chats; the guild room is the game's own guild chat since 1.2.0); one heard later never takes a newer line", function()
 	World(function(w)
 		local G, A, B, D, Y1 = Standard(w)

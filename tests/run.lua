@@ -55821,6 +55821,9 @@ do
 	-- (1.5.4: a line's links on the wire and in the Chat tab, tests/chat-item-links.lua.)
 	assert(loadfile(ROOT .. "tests/chat-item-links.lua"))(ns, test, eq, { WithWindow = WithWindow, WithGamepadUI = WithGamepadUI,
 		RelayWorld = Harness.RelayWorld, Line = Line, BubbleWith = BubbleWith, T0 = T0, KeepSendGap = KeepSendGap })
+	-- (1.5.9: each [Olympus] line filed under its writer's ruleset as it comes, and a line for one ruleset.)
+	assert(loadfile(ROOT .. "tests/chat-rulesets.lua"))(ns, test, eq, { WithWindow = WithWindow, ADDON_DIR = ADDON_DIR, FreshComm = FreshComm,
+		ROOT = ROOT, KeepSendGap = KeepSendGap })
 
 	-- (1.1.5, the author's call: the borders' three tiers. Lords and Captains were silver, Raiders and
 	-- Veterans of our guild bronze until then; now a guild master is bronze, and they the star.)

@@ -51,14 +51,206 @@ local found = {}     -- chosen window name (lower case) -> true once found this 
 
 -- The ruleset picker is a local view. Every admitted line stays in history for later views.
 Channels.GROUP_ORDER = { "all", "pvp", "pve", "rp", "rppvp" }
-function Channels.GroupKind(sender)
-	if ns.IsSecret(sender) or type(sender) ~= "string" then return nil end
-	local realm = ns.RealmOf(ns.FullName(sender))
-	local family = ns.ForeverFamily(realm)
-	if not family then return nil end
-	local rules = family:match("^Forever(%a+)$")
+local ROOMS = { pvp = true, pve = true, rp = true, rppvp = true } -- (the picker's rulesets, "all" aside)
+local RULESETS = { pvp = true, pve = true, rp = true, rppvp = true, hardcore = true } -- (every family's, Data.RULES_KIND)
+
+---------------------------------------------------------------------------
+-- (1.5.9) The ruleset a line is filed under: its writer's. 1.5.5 read it from his name, and on Forever
+-- the channel's text names him bare ("First Surname"): ns.FullName gave him OUR sub-realm, so every
+-- other ruleset's line went under ours (the dev on RP-PvP, 2026-11-12: a PvE player's line showed
+-- under RP-PvP, and nothing under PvP or PvE but in All). Each line is now filed as it comes, and kept
+-- so (its history entry's kind, Channels.LineKind):
+--   said     its own word: a 1.5.9 line's id names its writer's ruleset, or the one it is for, which
+--            1.5.9 writes only for its writer's own (Codec.EncodeChat, Channels.SendTo);
+--   guid     a line before 1.5.9 in the channel's text: its sender's GUID (ChatHall.Taking) carries
+--            his sub-realm's server id, and the ids this client knows name their ruleset;
+--   known    what Olympus knows of him: the relay's copy names his family (a relay client's stamp:
+--            whispers and guild words reach their own family alone), a sub-realm the server named,
+--            a guildmate (the roster), his hello's realm (Comm.PeerRealm), or his line's guild in one
+--            family's census alone (Data.GuildFamily);
+--   unknown  none of these: the line shows in All alone, never under a ruleset that may not be his.
+-- A server id names a ruleset only from what no writer chooses, this character's GUID and its guild
+-- roster's (a guild is one family's), or once two writers' own word named it and none another: the
+-- guild a line names is its writer's word too, so the census files that line alone, never its server.
+-- A known id is checked against every line's word and census: another ruleset is a conflict, and that
+-- line goes by its word or census; once two writers did so the id names no ruleset again this session
+-- (and lines filed by it alone are unknown again). That is also how ids shared by two rulesets'
+-- sub-realms would show, which nothing has confirmed or ruled out (/oly bug's "conflict" and "mixed").
+-- GetPlayerInfoByGUID tells no sub-realm on Forever (it gives the surname where the realm goes:
+-- Debts.InfoName), so the server id is the GUID's one word of it. Counted for /oly bug
+-- (Channels.RulesetStatus).
+---------------------------------------------------------------------------
+local function FamilyKind(family)
+	local rules = type(family) == "string" and family:match("^Forever(%a+)$")
 	return rules and ns.Data.RULES_KIND[rules:lower()] or nil
 end
+local function RealmKind(realm)
+	return type(realm) == "string" and FamilyKind(ns.ForeverFamily(realm)) or nil
+end
+-- This character's ruleset ("rppvp"), from its own sub-realm; nil off Forever.
+local myKindOf, myKind = false, nil -- (worked out once per realm: the Chat tab asks at every redraw)
+function Channels.MyKind()
+	if myKindOf ~= ns.realm then myKindOf, myKind = ns.realm, RealmKind(ns.realm) end
+	return myKind
+end
+
+Channels.SID_MAX = 256 -- server ids kept, and ids waiting for a second writer's word (Forever's sub-realms are a few dozen)
+local sids, sidCount = {}, 0 -- [server id] = the ruleset its characters play, or false (none: named for two)
+local sidVotes, voteCount = {}, 0 -- [server id] = { [ruleset] = { [writer] = true } }: lines' own word, not yet two
+local sidConflicts = {}      -- [known server id] = { [writer] = true }: lines whose word or census named another ruleset
+local sidsRead               -- the roster generation last read into sids
+local filed = { said = 0, guid = 0, known = 0, unknown = 0, to = 0, conflict = 0 } -- the lines that came, by how each was filed
+
+local function SidOf(guid)
+	return type(guid) == "string" and guid:match("^Player%-(%d+)%-%x+$") or nil
+end
+local function Count(set)
+	local n = 0
+	for _ in pairs(set) do n = n + 1 end
+	return n
+end
+-- `sid` plays `kind` (false: no one ruleset). Named for another before: none again.
+local function Learn(sid, kind)
+	if type(sid) ~= "string" or (kind ~= false and not RULESETS[kind]) then return end
+	local was = sids[sid]
+	if was == nil then
+		if sidCount >= Channels.SID_MAX then return end
+		sids[sid], sidCount = kind, sidCount + 1
+	elseif was ~= false and was ~= kind then
+		sids[sid] = false
+	end
+	if sidVotes[sid] then sidVotes[sid], voteCount = nil, voteCount - 1 end
+	if sids[sid] == false then sidConflicts[sid] = nil end
+end
+-- Our own server ids: this character's GUID and its guild roster's (each roster read once).
+local function OwnSids()
+	local R = ns.Roster
+	local generation = R and R.generation or 0
+	if sidsRead == generation then return end
+	local mine = Channels.MyKind()
+	if not mine then return end
+	sidsRead = generation
+	if type(UnitGUID) == "function" then
+		local ok, guid = pcall(UnitGUID, "player")
+		if ok and not ns.IsSecret(guid) then Learn(SidOf(guid), mine) end
+	end
+	for sid in pairs(R and type(R.servers) == "table" and R.servers or {}) do
+		if type(sid) == "string" and sid:find("^%d+$") then Learn(sid, mine) end
+	end
+end
+-- A writer's own word (his line's id) that unknown `sid` plays `kind`: learned once two writers said
+-- so and none said another ruleset; another ruleset said there, and the id names none.
+local function Vote(sid, kind, writer)
+	if sids[sid] ~= nil then return end
+	local votes = sidVotes[sid]
+	if not votes then
+		if voteCount >= Channels.SID_MAX then return end
+		votes, voteCount = {}, voteCount + 1
+		sidVotes[sid] = votes
+	end
+	for k in pairs(votes) do
+		if k ~= kind then return Learn(sid, false) end
+	end
+	local list = votes[kind] or {}
+	votes[kind] = list
+	list[writer] = true
+	if Count(list) >= 2 then Learn(sid, kind) end
+end
+-- A line from known `sid` whose own word or census named another ruleset than the id's: counted, and
+-- once two writers did so, the id names none.
+local function Conflict(sid, writer)
+	filed.conflict = filed.conflict + 1
+	if not sids[sid] then return end
+	local list = sidConflicts[sid] or {}
+	sidConflicts[sid] = list
+	list[writer] = true
+	if Count(list) >= 2 then Learn(sid, false) end
+end
+local function Writer(sender)
+	return type(sender) == "string" and ns.Fold(ns.FullName(sender)) or "?"
+end
+
+-- How a line from `sender` (as Channels.Receive names him) speaking for `guild`, whose id said ruleset
+-- `said` (1.5.9: nil before), is filed: its writer's ruleset (false: unknown), how ("said", "guid",
+-- "known", "unknown"), and the server id of his GUID when the channel's text gave one and the line's
+-- ruleset hangs on it (unknown, or by that id alone: Channels.LineKind reads it again).
+function Channels.SenderKind(sender, guild, said)
+	local H = ns.ChatHall
+	local hall, guid = false, nil
+	if type(H) == "table" and type(H.Taking) == "function" then hall, guid = H.Taking() end
+	local sid = hall and SidOf(guid) or nil
+	if sid then OwnSids() end
+	local known = sid and sids[sid] or nil -- (an id named for none, false, is never used: nil here)
+	local D = ns.Data
+	local census = type(D.GuildFamily) == "function" and FamilyKind(D.GuildFamily(guild)) or nil
+	if RULESETS[said] then
+		-- Its own word. (A writer whose word and guild disagree teaches no server.)
+		if known and known ~= said then
+			Conflict(sid, Writer(sender))
+		elseif sid and known == nil and (census == nil or census == said) then
+			Vote(sid, said, Writer(sender))
+		end
+		return said, "said", nil
+	end
+	if known then
+		if census and census ~= known then
+			Conflict(sid, Writer(sender))
+			return census, "known", nil
+		end
+		return known, "guid", census == nil and sid or nil
+	end
+	local realm = ns.RealmOf(sender)
+	-- By the relay (no channel's text): its stamp is a client of his family's. In the channel's text a
+	-- name with our own sub-realm may be a bare one (ns.FullName's): only another sub-realm counts.
+	local kind = (not hall or realm ~= ns.realm) and RealmKind(realm) or nil
+	if not kind and ns.Roster.RankOf(sender) ~= nil then kind = Channels.MyKind() end
+	local C = ns.Comm
+	if not kind and type(C.PeerRealm) == "function" then kind = RealmKind((C.PeerRealm(sender))) end
+	kind = kind or census
+	if kind then return kind, "known", nil end
+	return false, "unknown", sid
+end
+
+-- A line kept before 1.5.9 (no kind): ours, or another family's sub-realm in its stamp (no bare name
+-- ever got one), or a guildmate; nil (unknown) for anyone else, whose stamp may be ns.FullName's.
+local function KeptKind(e)
+	if e.mine == true then return Channels.MyKind() end
+	if type(e.sender) ~= "string" then return nil end
+	local kind = RealmKind(ns.RealmOf(e.sender))
+	if kind and kind ~= Channels.MyKind() then return kind end
+	if ns.Roster.RankOf(e.sender) ~= nil then return Channels.MyKind() end
+	return nil
+end
+
+-- The ruleset of a kept line's writer (a history entry, or CHAT_LINE's), nil when unknown: as it was
+-- filed, or as its server id says now when it hung on one (an unknown line's id learned since; a line
+-- filed by its id alone, that id since named for two rulesets: unknown).
+function Channels.LineKind(e)
+	if type(e) ~= "table" then return nil end
+	local kind = e.kind
+	if type(e.sid) == "string" and sids[e.sid] ~= nil then kind = sids[e.sid] end
+	if kind == nil then kind = KeptKind(e) end
+	return RULESETS[kind] and kind or nil -- (a saved file may hold anything: a ruleset of ours or none)
+end
+
+-- The ruleset whose [Olympus] a kept line is in, and the one its writer sent it to (nil: everyone).
+-- Unknown: nil.
+function Channels.LineRoom(e)
+	if type(e) ~= "table" then return nil, nil end
+	if ROOMS[e.to] then return e.to, e.to end
+	return Channels.LineKind(e), nil
+end
+
+-- The ruleset the Chat tab's box writes to (Channels.Send's `to`): the one its picker shows, when that
+-- is this character's own (the dev's "só lá"); nil, everyone, under All or another ruleset, and off
+-- Forever (no picker). A line for another family's ruleset would reach none of its players with the
+-- gamepad UI: only the channel's text crosses families, the relay keeps to its own.
+function Channels.SendTo()
+	if not ns.splitNames then return nil end
+	local view = Channels.GroupView()
+	return ROOMS[view] and view == Channels.MyKind() and view or nil
+end
+
 function Channels.OtherFamily(sender)
 	if ns.IsSecret(sender) then return nil end
 	if not ns.splitNames or type(sender) ~= "string" then return false end
@@ -81,14 +273,47 @@ function Channels.SetGroupView(kind)
 	ns.Fire("CHAT_CHANGED")
 	return true
 end
-function Channels.GroupVisible(tier, sender, mine)
-	return tier ~= "A" or not ns.splitNames or mine == true or Channels.GroupView() == "all"
-		or Channels.GroupKind(sender) == Channels.GroupView()
+-- Whether line `line` (a history entry or CHAT_LINE's: Channels.LineRoom) shows in [Olympus] under the
+-- picker's choice. All: every line but one sent to another ruleset (1.5.9: a line for one ruleset is
+-- that ruleset's alone, the dev's "só lá"); one ruleset: its lines alone, and a line whose ruleset is
+-- unknown in none. Our own always; the rank rooms (C, L), and anywhere names do not split, every line.
+function Channels.GroupVisible(tier, line, mine)
+	if tier ~= "A" or not ns.splitNames or mine == true then return true end
+	local view = Channels.GroupView()
+	if view == "all" then
+		local to = type(line) == "table" and ROOMS[line.to] and line.to or nil
+		return to == nil or to == Channels.MyKind()
+	end
+	local room = Channels.LineRoom(line)
+	return room ~= nil and room == view
 end
-function Channels.GroupTag(tier, sender)
-	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" or not Channels.OtherFamily(sender) then return "" end
-	local kind = Channels.GroupKind(sender)
-	return kind and ("[" .. L["CHATWIN_GROUP_" .. kind:upper()] .. "] ") or ""
+-- The lines of `list` (history entries) that show under the picker's choice (GroupVisible), own(e)
+-- telling ours: the list itself when all of them do (the Chat tab redraws often: nothing made then).
+-- Under All only a line sent to one ruleset is asked about.
+function Channels.GroupFilter(tier, list, own)
+	if tier ~= "A" or not ns.splitNames then return list end
+	local all = Channels.GroupView() == "all"
+	local out
+	for i, e in ipairs(list) do
+		local show = (all and not ROOMS[e.to]) or Channels.GroupVisible(tier, e, own ~= nil and own(e) or false)
+		if not show and not out then
+			out = {}
+			for j = 1, i - 1 do out[j] = list[j] end
+		elseif show and out then
+			out[#out + 1] = e
+		end
+	end
+	return out or list
+end
+-- Under All, another ruleset's line has its writer's ruleset before his name ("[PvE] "), whomever it
+-- was sent to (the picker's tooltip: All labels other rulesets' lines); ours, and a line whose writer's
+-- ruleset is unknown, none.
+function Channels.GroupTag(tier, line)
+	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" then return "" end
+	local kind = Channels.LineKind(line)
+	if not kind or kind == Channels.MyKind() then return "" end
+	local label = L["CHATWIN_GROUP_" .. kind:upper()]
+	return type(label) == "string" and ("[" .. label .. "] ") or ""
 end
 
 local function Label(tier)
@@ -258,7 +483,8 @@ function Channels.SetGuildNamesShown(shown)
 	return true
 end
 
-function Channels.FormatLine(tier, sender, guild, class, text, bare)
+-- line (1.5.9): the history entry the line is (its ruleset's tag under All, Channels.GroupTag), if any.
+function Channels.FormatLine(tier, sender, guild, class, text, bare, line)
 	-- A moderator's cover name (Cover.lua): that name, plain, without the marks below.
 	local covered = ns.IsCovered(sender)
 	local name = ns.CoverSwap(ns.DisplayName(sender)) or "?"
@@ -283,7 +509,7 @@ function Channels.FormatLine(tier, sender, guild, class, text, bare)
 	-- mark, ChatMarks.lua), inside the link's brackets like the Treasurer's coin.
 	if not covered then name = Channels.Decorations(sender) .. name end
 	local guildLabel = Channels.ShowGuildNames() and (" <" .. tostring(guild or "?"):gsub("|", "||") .. ">") or ""
-	return (bare and "" or Channels.Tag(tier) .. " ") .. Channels.GroupTag(tier, sender) .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h"
+	return (bare and "" or Channels.Tag(tier) .. " ") .. Channels.GroupTag(tier, line) .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h"
 		.. guildLabel .. ": " .. Codec.SanitizeChat(text)
 end
 
@@ -897,30 +1123,36 @@ end
 -- the tab's first line gave the legend.
 -- 1.1.6: a deleted line as the game's chat window shows it in its place (WatchChat.ReplacePrinted):
 -- the name greyed (still a player link), "[deleted by a moderator]", no mark and no words.
-function Channels.FormatDeleted(tier, sender, guild, bare)
+function Channels.FormatDeleted(tier, sender, guild, bare, line)
 	local name = "|cff9d9d9d" .. (ns.DisplayName(sender) or "?") .. "|r"
-	return (bare and "" or Channels.Tag(tier) .. " ") .. Channels.GroupTag(tier, sender) .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
+	return (bare and "" or Channels.Tag(tier) .. " ") .. Channels.GroupTag(tier, line) .. "|Hplayer:" .. (ns.TellName(sender) or "?") .. "|h[" .. name .. "]|h <"
 		.. tostring(guild or "?"):gsub("|", "||") .. ">: |cff9d9d9d" .. L.WATCHCHAT_DELETED .. "|r"
 end
 
-local function Show(tier, sender, guild, class, text, id)
+-- (1.5.9: tagged, the gamepad pass's ledger saw this print untagged: a line in a chat window, chat-output.)
+local function Show(tier, sender, guild, class, text, id, e) -- gp:chat-output
 	local f, wname = Channels.Frame(tier)
 	if not f then return end
 	local c = TIERS[tier].color
 	local bare = f ~= DEFAULT_CHAT_FRAME and Channels.IsTabName(wname)
-	local line = Channels.FormatLine(tier, sender, guild, class, text, bare)
+	local line = Channels.FormatLine(tier, sender, guild, class, text, bare, e)
 	f:AddMessage(line, c[1], c[2], c[3])
 	-- 1.1.6: what was printed where, so a moderator's deletion can replace it (WatchChat.lua).
 	local WC = ns.WatchChat
-	if WC and WC.NotePrinted then WC.NotePrinted(tier, sender, guild, id, text, f, line, Channels.FormatDeleted(tier, sender, guild, bare)) end
+	if WC and WC.NotePrinted then WC.NotePrinted(tier, sender, guild, id, text, f, line, Channels.FormatDeleted(tier, sender, guild, bare, e)) end
 end
 
 -- 1.1.6: each line keeps its id (M1's, or ours for our echo), so a moderator's deletion names it
 -- (WatchChat.lua); lines kept before 1.1.6 have none and are found by their words alone.
+-- 1.5.9: an [Olympus] line where names split keeps its ruleset as it came (Channels.LineRoom): kind,
+-- its writer's (false: unknown), to, the one it was sent to, and sid, an unknown writer's server id.
 local function AddHistory(tier, e)
 	local list = Store(tier)
-	list[#list + 1] = { t = ns.Now(), sender = e.sender, guild = e.guild, class = e.class, text = e.text, mine = e.mine, id = e.id }
+	local entry = { t = ns.Now(), sender = e.sender, guild = e.guild, class = e.class, text = e.text, mine = e.mine, id = e.id,
+		kind = e.kind, to = e.to, sid = e.sid }
+	list[#list + 1] = entry
 	while #list > HISTORY do table.remove(list, 1) end
+	return entry
 end
 
 -- 1.1.6: the kept lines themselves, for WatchChat's deletions (none of the checks History makes).
@@ -945,7 +1177,9 @@ function Channels.SpokeFor(name)
 	return spoke[ns.Fold(ns.FullName(name))]
 end
 
-local function Keep(tier, sender, guild, class, text, mine, id)
+-- room (1.5.9): the line's ruleset as filed (Channels.Receive's File, or our own as sent), or nil. The
+-- entry kept rides in CHAT_LINE, so a view counts it under its ruleset (ChatWindow's unread counts).
+local function Keep(tier, sender, guild, class, text, mine, id, room)
 	if not mine and type(sender) == "string" and type(guild) == "string" then
 		local key = ns.Fold(ns.FullName(sender))
 		if spoke[key] == nil then
@@ -954,18 +1188,20 @@ local function Keep(tier, sender, guild, class, text, mine, id)
 		end
 		spoke[key] = guild
 	end
-	AddHistory(tier, { sender = sender, guild = guild, class = class, text = text, mine = mine or nil, id = tonumber(id) })
+	local e = AddHistory(tier, { sender = sender, guild = guild, class = class, text = text, mine = mine or nil, id = tonumber(id),
+		kind = room and room.kind, to = room and room.to, sid = room and room.sid })
 	ns.Fire("CHAT_CHANGED", tier)
-	if not mine then ns.Fire("CHAT_LINE", tier, sender, text) end
+	if not mine then ns.Fire("CHAT_LINE", tier, sender, text, e) end
 	-- Every line kept, ours too (our echo, a part that left): the Companion's chat record (Bridge.lua).
 	if ns.RecordChat then ns.RecordChat(tier, sender, text, mine == true) end
+	return e
 end
 
-local function Accept(tier, sender, guild, class, text, mine, id)
-	Keep(tier, sender, guild, class, text, mine, id)
-	if not Channels.GroupVisible(tier, sender, mine) then return false, "group" end
+local function Accept(tier, sender, guild, class, text, mine, id, room)
+	local e = Keep(tier, sender, guild, class, text, mine, id, room)
+	if not Channels.GroupVisible(tier, e, mine) then return false, "group" end
 	if Muted()[tier] then return false, "muted" end
-	Show(tier, sender, guild, class, text, id)
+	Show(tier, sender, guild, class, text, id, e)
 	stats.shown = stats.shown + 1
 	return true, "ok"
 end
@@ -1004,7 +1240,9 @@ end
 -- Returns ok, reason. Every refusal tells the player why. A line sent unmutes its channel in the
 -- chat frame (/ol typed in chat), unless keepMute: the chat window (1.1.1) shows a channel muted
 -- in chat and writes in it without bringing it back there.
-function Channels.Send(tier, text, now, keepMute)
+-- to (1.5.9): the ruleset an [Olympus] line is for, the Chat tab's box's alone (Channels.SendTo):
+-- /ol typed in the game's chat goes to everyone whatever the picker shows.
+function Channels.Send(tier, text, now, keepMute, to)
 	local t = TIERS[tier]
 	if not t then return false, "tier" end
 	if not ns.IsMember() then
@@ -1070,7 +1308,8 @@ function Channels.Send(tier, text, now, keepMute)
 	-- they are told so before anything leaves (Channels.Confirm sends it). The warning holds the
 	-- channel it named too (GitHub #34).
 	if not Warned()[tier] then
-		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName(), keepMute = keepMute or nil })
+		ns.ShowDialog("OLYMPUS_CHAT_PRIVACY", Label(tier), ns.Comm.Audience(), { tier = tier, text = text, channel = ns.Comm.ChannelName(), keepMute = keepMute or nil,
+			to = to })
 		return false, "confirm"
 	end
 	local guild = GetGuildInfo("player")
@@ -1091,6 +1330,16 @@ function Channels.Send(tier, text, now, keepMute)
 	lastSend = now
 	local failed, sentParts = false, 0
 	local line = {} -- (its parts in the lane, for Comm.DropLine)
+	-- (1.5.9) Where names split, an [Olympus] line says its ruleset in its id (Codec.EncodeChat): for
+	-- this character's own alone when the Chat tab's box asked so (`to`: its picker shows it, the box
+	-- says so), else for everyone, by a writer of ours (`from`). Our echo is kept as ours.
+	local own = tier == "A" and ns.splitNames and Channels.MyKind() or nil
+	to = own and ROOMS[to] and to == own and to or nil
+	local from = not to and own or nil
+	local room = tier == "A" and ns.splitNames and { kind = own or false, to = to } or nil
+	-- Its id keeps two digits then: a long line's parts within one hundred, so they read as consecutive
+	-- ids everywhere (WatchChat.RefsFor takes a line's parts so: 299 then 200 would be two lines).
+	if (to or from) and nextId % 100 + #parts > 99 then nextId = nextId + 99 - nextId % 100 end
 	-- A queued line can wait several seconds. Recheck the actual server roster, consent and
 	-- moderation immediately before every part leaves; a demoted/offline writer sends no tail.
 	local function SendGuard()
@@ -1106,7 +1355,7 @@ function Channels.Send(tier, text, now, keepMute)
 		-- order, and those after the first not sent are dropped from the lane then (1.1.1: the
 		-- others would read the line without its start, and sentParts would not be the count of
 		-- what left).
-		local id = NextId()
+		local id = Codec.ChatWireId(NextId(), tier, to, from) -- (the id the others read back, ours too)
 		local function done(sent, why)
 			if not sent then
 				if failed then return end
@@ -1129,12 +1378,12 @@ function Channels.Send(tier, text, now, keepMute)
 			end
 			sentParts = sentParts + 1
 			stats.sent = stats.sent + 1
-			Accept(tier, ns.me, guild, class ~= "" and class or nil, part, true, id) -- our echo: exactly what the others see
+			Accept(tier, ns.me, guild, class ~= "" and class or nil, part, true, id, room) -- our echo: exactly what the others see
 		end
 		-- Kept a while: when this line comes back from the channel it is ours, whatever form
 		-- the server gave our name in (a line shown twice to its author otherwise).
 		mine[id .. "#" .. Codec.SanitizeChat(part)] = now
-		local msg = Codec.EncodeChat(tier, guild, id, class, part)
+		local msg = Codec.EncodeChat(tier, guild, id, class, part, to, from)
 		if not msg or ns.Comm.SendChat(msg, done, line, SendGuard) == false then
 			done(false)
 			break -- (the parts before it left the lane with it)
@@ -1159,7 +1408,7 @@ function Channels.Confirm(data, send)
 		return
 	end
 	local channel = ns.Comm.ChannelName()
-	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text, nil, data.keepMute) end
+	if not ns.IsMember() or channel == nil then return Channels.Send(data.tier, data.text, nil, data.keepMute, data.to) end
 	if data.channel ~= channel then
 		stats.moved = stats.moved + 1
 		ns.Print(L.CHAN_MOVED:format(Label(data.tier)))
@@ -1167,7 +1416,7 @@ function Channels.Confirm(data, send)
 		return false, "moved"
 	end
 	Warned()[data.tier] = true
-	return Channels.Send(data.tier, data.text, nil, data.keepMute)
+	return Channels.Send(data.tier, data.text, nil, data.keepMute, data.to)
 end
 
 StaticPopupDialogs["OLYMPUS_CHAT_PRIVACY"] = {
@@ -1413,6 +1662,17 @@ function Channels.Admit(sender, guild, text, now, o)
 	return true, "ok"
 end
 
+-- (1.5.9) An [Olympus] line's ruleset where names split, as it comes (Channels.SenderKind), counted for
+-- /oly bug by how its writer's was found, and "to" for a line sent to one ruleset. (1.5.9 writes a line
+-- for one ruleset only for its writer's own: that id says his ruleset too.)
+local function File(sender, m)
+	if m.tier ~= "A" or not ns.splitNames then return nil end
+	local kind, how, sid = Channels.SenderKind(sender, m.guild, m.from or m.to)
+	filed[how] = filed[how] + 1
+	if m.to then filed.to = filed.to + 1 end
+	return { kind = kind, to = m.to, sid = sid }
+end
+
 -- Returns shown, reason.
 function Channels.Receive(dist, sender, text, now)
 	if dist ~= "CHANNEL" then return false, "dist" end
@@ -1435,19 +1695,20 @@ function Channels.Receive(dist, sender, text, now)
 	local ok, reason = Channels.Admit(sender, m.guild, m.text, now, { tier = m.tier, id = m.id, chat = m.tier, line = m.id, evidence = true })
 	if not ok then
 		-- (A line the block terms hide is kept, see Admit.)
-		if reason == "filtered" then Keep(m.tier, sender, m.guild, m.class, m.text, false, m.id) end
+		if reason == "filtered" then Keep(m.tier, sender, m.guild, m.class, m.text, false, m.id, File(sender, m)) end
 		return false, reason
 	end
+	local room = File(sender, m)
 	-- A muted channel only goes to history, so it takes nothing from the flood guard. A line
 	-- the guard keeps off the chat frame still goes to the history (the Chat tab's lines stay
 	-- whole for everyone, and a companion hears it), and the player is told (Channels.FloodNotice).
 	if not Muted()[m.tier] and Flooded(m.tier, sender, now) then
 		stats.flood = stats.flood + 1
-		Keep(m.tier, sender, m.guild, m.class, m.text, false, m.id)
+		Keep(m.tier, sender, m.guild, m.class, m.text, false, m.id, room)
 		Held(m.tier, now)
 		return false, "flood"
 	end
-	return Accept(m.tier, sender, m.guild, m.class, m.text, false, m.id)
+	return Accept(m.tier, sender, m.guild, m.class, m.text, false, m.id, room)
 end
 
 -- Our name however the server writes it: lower case, our realm left out (a namesake on a
@@ -2169,6 +2430,41 @@ function Channels.Stats()
 	end
 	out.muted, out.warned = muted, warned
 	return out
+end
+
+-- (1.5.9) /oly bug's line on the picker's rulesets: this character's ruleset and its GUID's server id
+-- (the same id on characters of two rulesets: their sub-realms share ids, which the GUID filing cannot
+-- tell apart), the picker's choice and where the Chat tab's box writes ("box to"); how the lines that
+-- came were filed (Channels.SenderKind:
+-- by their own word, their GUID's server, what Olympus knows, or unknown), how many were for one
+-- ruleset, and how many contradicted their server's known ruleset (conflict); the channel's text
+-- heard, and how much of it came with its sender's GUID (ChatHall); the server ids known, by ruleset,
+-- and those named for none (mixed: two rulesets, or two writers' conflicts).
+function Channels.RulesetStatus()
+	local per, mixed = {}, 0
+	for _, kind in pairs(sids) do
+		if kind then per[kind] = (per[kind] or 0) + 1 else mixed = mixed + 1 end
+	end
+	local ids = {}
+	for _, kind in ipairs({ "pvp", "pve", "rp", "rppvp", "hardcore" }) do
+		if per[kind] then ids[#ids + 1] = kind .. "=" .. per[kind] end
+	end
+	local H = ns.ChatHall
+	local hall = type(H) == "table" and type(H.Stats) == "function" and H.Stats() or {}
+	local server
+	if type(UnitGUID) == "function" then
+		local ok, guid = pcall(UnitGUID, "player")
+		server = ok and not ns.IsSecret(guid) and SidOf(guid) or nil
+	end
+	return ("here=%s server %s view=%s box to %s | filed said=%d guid=%d known=%d unknown=%d to=%d conflict=%d | channel text %d, with GUID %d | ids %s, mixed %d"):format(
+		tostring(Channels.MyKind() or "-"), server or "-", Channels.GroupView(), Channels.SendTo() or "all", filed.said, filed.guid, filed.known,
+		filed.unknown, filed.to, filed.conflict, tonumber(hall.heard) or 0, tonumber(hall.guid) or 0,
+		#ids > 0 and table.concat(ids, " ") or "none", mixed)
+end
+function Channels.ResetRulesets() -- (tests)
+	wipe(sids); wipe(sidVotes); wipe(sidConflicts)
+	sidCount, voteCount, sidsRead = 0, 0, nil
+	for k in pairs(filed) do filed[k] = 0 end
 end
 
 ns.On("INIT", function()

@@ -16,8 +16,15 @@ local ADDON, ns = ...
 local Hall = {}
 ns.ChatHall = Hall
 local pending = {} -- msg -> when: sent as text, its echo counted
-local stats = { sent = 0, echoed = 0, heard = 0 }
-function Hall.Stats() return { sent = stats.sent, echoed = stats.echoed, heard = stats.heard, on = Hall.On() } end
+local stats = { sent = 0, echoed = 0, heard = 0, guid = 0 }
+function Hall.Stats() return { sent = stats.sent, echoed = stats.echoed, heard = stats.heard, guid = stats.guid, on = Hall.On() } end
+
+-- (1.5.9) The line being taken from the channel's text now (Hall.OnChannel, while Comm.Inject hands
+-- it to Channels.Receive), with its sender's GUID: on Forever the channel names its sender bare
+-- ("First Surname"), and his GUID's server id is what tells his sub-realm (Channels.lua, the picker's
+-- rulesets). Nothing is kept past the line.
+local taking, takingGuid = false, nil -- while a line of the channel's text is taken: true, its sender's GUID
+function Hall.Taking() return taking, taking and takingGuid or nil end
 
 function Hall.On() -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return false end
@@ -54,7 +61,8 @@ end
 -- never delivered a piece, and pcall counted every blocked call as sent. Report pieces typed into
 -- the channel are not taken either: anyone in it could write one, without the addon.
 
-function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName)
+-- (1.5.9) guid: CHAT_MSG_CHANNEL's twelfth value, the sender's GUID ("Player-<server id>-<hex>").
+function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName, _, _, guid)
 	-- (1.5.5) In a chat lockdown the line, its sender and the channel's name may be secret: none is
 	-- read (ChatHall.lua:72 on 1.5.3 and :60 on 1.5.4 in the players' /oly bug).
 	if ns.Secret("chat hall", text, sender, baseName) then return false end
@@ -66,7 +74,14 @@ function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName)
 		stats.echoed = stats.echoed + 1
 	end
 	stats.heard = stats.heard + 1
-	if type(ns.Comm.Inject) == "function" then ns.SafeCall("chat hall line", ns.Comm.Inject, "CHANNEL", sender, text, true) end
+	-- (A secret GUID is none: passed on as nothing, never read.)
+	if ns.IsSecret(guid) or type(guid) ~= "string" or not guid:find("^Player%-%d+%-%x+$") then guid = false end
+	if guid then stats.guid = stats.guid + 1 end
+	if type(ns.Comm.Inject) == "function" then
+		taking, takingGuid = true, guid or nil
+		ns.SafeCall("chat hall line", ns.Comm.Inject, "CHANNEL", sender, text, true)
+		taking, takingGuid = false, nil
+	end
 	return true
 end
 
@@ -75,4 +90,4 @@ ns.On("LOGIN", function()
 	pcall(ns.RegisterEvent, "CHAT_MSG_CHANNEL", function(...) ns.SafeCall("chat hall", Hall.OnChannel, ...) end)
 end)
 
-function Hall.Reset() wipe(pending); for k in pairs(stats) do stats[k] = 0 end end
+function Hall.Reset() wipe(pending); taking, takingGuid = false, nil; for k in pairs(stats) do stats[k] = 0 end end

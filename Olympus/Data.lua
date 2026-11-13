@@ -2518,6 +2518,30 @@ function Data.GroupGuilds(group, faction)
 	table.sort(out, function(a, b) if a.characters ~= b.characters then return a.characters > b.characters end return a.name < b.name end)
 	return out
 end
+-- (1.5.9) The Forever family ("ForeverPvE") whose census lists guild `name`, for the [Olympus] picker's
+-- rulesets (Channels.lua): our own census (ns.rdb.guilds, our family's reports) and the other families'
+-- rows kept within KEEP (the group details, Data.GroupGuilds), our side's alone, by name in any case.
+-- nil when none lists it, or two families do: one name in two families says nothing about the speaker.
+function Data.GuildFamily(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	local found
+	local function Seen(family)
+		if family == nil then return true end
+		if found ~= nil and found ~= family then return false end
+		found = family
+		return true
+	end
+	local ours = ScopedGroup(GroupField(ns.group) or "")
+	if ours and LocalReport(Data.Guild(name)) then Seen(ours) end
+	local now, lower, side = ns.Now(), name:lower(), OurFaction()
+	for _, e in pairs(DetailStore()) do
+		local row = type(e) == "table" and e.faction == side and not e.unscoped and type(e.rows) == "table" and e.rows[lower]
+		if type(row) == "table" and now - (tonumber(row.observed) or 0) <= Data.KEEP then
+			if not Seen(ScopedGroup(GroupField(e.group) or "")) then return nil end
+		end
+	end
+	return found
+end
 function Data.SayGroupDetails()
 	if not GlobalMember() then return false end
 	PruneDetails(ns.Now())
