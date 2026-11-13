@@ -5388,6 +5388,53 @@ test("gamepad a Join screen request (J3) at a recruiting member opens the JOIN's
 	GP.Covers("popup-focus")
 end)
 
+-- Review of the 1.5.9 release (G1): the recruiting ranking for everyone reads the inviter's own guild log
+-- for 3 hours after he takes an invite command to chat (Recruit.LastInviteAt), for his own report of the
+-- join. Only Open game chat and its Ctrl+C started it, and with the gamepad UI no chat box opens there: a
+-- gamepad player's invites never started that read, and his report waited on the guild's draw. Where no
+-- chat box can open, the invite popup itself starts it; with mouse and keyboard, Open game chat as before.
+test("gamepad recruiting ranking (1.5.9): a JOIN's invite popup starts the inviter's own log read with the gamepad UI, Open game chat with mouse and keyboard; both logins and a switch each way", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end, surname = "Recruiter" })
+		local R, RR = ns.Recruit, ns.RecruitRanking
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local function Join(name, pad)
+			local mark = C.Mark()
+			C.Fire("CHAT_MSG_WHISPER", "JOIN", name .. "-CAMWOWUS2Realm1PvE")
+			local draft = assert(Draft(), "the JOIN's popup")
+			if pad then
+				eq(R.LastInviteAt(), ns.Now(), "with the gamepad UI the popup starts it")
+				eq(RR.ReadWanted(), "own", "his client reads its log for his own report")
+			else
+				eq(R.LastInviteAt() == ns.Now(), false, "with mouse and keyboard, not before Open game chat")
+				eq(RR.ReadWanted(), "drawn")
+				C.Click(draft.extraButton)
+				eq(R.LastInviteAt(), ns.Now(), "Open game chat starts it")
+				eq(RR.ReadWanted(), "own")
+				eq(R.InvitesTaken(), 1, "his command went to chat")
+			end
+			Check(C.Since(mark), "a JOIN's popup")
+			draft:Hide()
+			R.Dismiss(R.requests[1])
+		end
+		-- (The model's game time and its wall clock go on together.)
+		local function Later(seconds) C.now = C.now + seconds; C.Advance(seconds) end
+		Join("Firstone", initialPad)
+		-- A switch each way, past the read's 3 hours.
+		Later(RR.OWN_READ_HOURS * 3600 + 61)
+		eq(RR.ReadWanted(), "drawn", "after its hours, drawn again")
+		C.Switch(not initialPad); Later(1)
+		Join("Secondone", not initialPad)
+		Later(RR.OWN_READ_HOURS * 3600 + 61)
+		C.Switch(initialPad); Later(1)
+		Join("Thirdone", initialPad)
+		Check(C.ledger, "the ranking's own read")
+		NoErrors(C, "the ranking's own read")
+	end
+	GP.Covers("chat-box")
+end)
+
 test("gamepad public recruiting announcement: reminder dropdown, independent channels and explicit Post or Enter", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad)

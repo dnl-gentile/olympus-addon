@@ -19,12 +19,13 @@ local L = ns.L
 --   on their own name and the pair's, the same on every client: the census names officers, so a keeper
 --   in another guild can vouch for them), and always a keeper, a High Councillor or the guild's Church
 --   correspondent. (Review of the 1.5.9 release: a member drawn reports only where a keeper is among his
---   guildmates; no other keeper can vouch for him.) The inviter's own client reports every pair of his (review of 1.5.9: it reads its log
---   as a Church person's does for OWN_READ_HOURS after it took an invite command to chat, and while a
---   name another member passed it waits); his report names the member who passed him that player, if
---   one did. The member who passed it says so himself when the name was taken (NE h, RecruitHandoff.lua).
---   Each report goes to the Church's keepers online (the Head, the Apostles, the author), whispered, and
---   waits in an outbox OUTBOX_DAYS while none takes it.
+--   guildmates; no other keeper can vouch for him.) The inviter's own client reports every pair of his
+--   (review of 1.5.9: it reads its log as a Church person's does for OWN_READ_HOURS after it took an
+--   invite command to chat, or with the gamepad UI after an invite popup showed, and while a name another
+--   member passed it waits); his report names the member who passed him that player, if one did. The
+--   member who passed it says so himself when the name was taken (NE h, RecruitHandoff.lua). Each report
+--   goes to the Church's keepers online (the Head, the Apostles, the author), whispered, and waits in an
+--   outbox OUTBOX_DAYS while none takes it.
 -- - Pending or confirmed (review of 1.5.9: one officer's or a correspondent's word made up recruits for
 --   any name, and a guildmate's took a real recruit from his inviter). A keeper weighs each witness's
 --   word (ChurchCount.VerifiedWitness first): strong from a keeper, the King or a High Councillor, or from
@@ -532,8 +533,8 @@ end
 
 -- (1.5.9) Whether this client should read its guild's log for these records (ChurchCount.MaybeRead):
 -- "own" while a member's handoff waits for its invite and join (this client names him), and (review of
--- 1.5.9) OWN_READ_HOURS after this player took an invite command to chat (Recruit.LastInviteAt): his own
--- report of the join; "drawn" in any Olympus guild (the Church's draw: about two readers a guild), nil
+-- 1.5.9) OWN_READ_HOURS after this player took an invite command to chat, or with the gamepad UI saw an
+-- invite popup (Recruit.LastInviteAt): his own report of the join; "drawn" in any Olympus guild (the Church's draw: about two readers a guild), nil
 -- otherwise.
 function RR.ReadWanted()
 	if Off() or not ns.IsMember() or Church.IsKing(ns.me) then return nil end

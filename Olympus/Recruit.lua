@@ -1829,6 +1829,7 @@ Recruit.INVITES_PER_MINUTE = 10
 local invitesTaken = {}
 -- (Review of 1.5.9) When this player last took an invite command to chat: the recruiting ranking for
 -- everyone reads the guild's log a while after it, for his own report of the join (RecruitRanking.ReadWanted).
+-- (Review of the 1.5.9 release) With the gamepad UI, where no chat box opens, when an invite popup showed.
 local lastInviteAt
 function Recruit.LastInviteAt() return lastInviteAt end
 function Recruit.AtInviteLimit()
@@ -2077,6 +2078,11 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		local req = type(data) == "table" and data.req or nil
 		local name = candidate and candidate.name or req and NameForCommand(req.name)
 		if not name then box:SetText("") return end
+		-- (Review of the 1.5.9 release) Where no chat box opens (the gamepad UI: Open game chat and its
+		-- Ctrl+C do nothing there), the popup itself starts the ranking's own read of the log for him
+		-- (Recruit.LastInviteAt): he invites from the game's own menu, and his report of the join came only
+		-- when his client won the guild's draw.
+		if not ns.Gate.Allowed("chat-box") then lastInviteAt = ns.Now() end
 		box:SetText("/ginvite " .. name)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
 		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
