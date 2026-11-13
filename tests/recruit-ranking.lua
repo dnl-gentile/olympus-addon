@@ -1094,6 +1094,103 @@ test("1.5.9 recruiting ranking: one account's characters share the outbox: the i
 	eq(#w:Sent(c.ivo, "NE", "WHISPER", "w"), 0, "his own pairs once")
 end)
 
+-- The "w" reports `from` whispered that name `inviter` as the inviter (of `recruit`, when given).
+local function Naming(w, from, inviter, recruit)
+	local n = 0
+	for _, e in ipairs(w:Sent(from, "NE", "WHISPER", "w")) do
+		local i, x = e.msg:match("^NE~1~w~([^~]+)~([^~]+)~")
+		if i and Key(i) == Key(inviter) and (not recruit or Key(x) == Key(recruit)) then n = n + 1 end
+	end
+	return n
+end
+
+-- Review of the 1.5.9 release, after B2: a join this account had read before went to the ranking again as
+-- the reader's own whenever he had invited that player at all, though another member invited him later and
+-- the join followed that later invite (the log's first read paired it with the later one). His next read
+-- sent each keeper an own report of a recruit not his, held 14 days as his pending one.
+test("1.5.9 recruiting ranking: a join that followed another member's later invite is never the earlier inviter's own, however often his client reads the log", function()
+	local w, c = Cast()
+	-- Ivo invites Two Hats 5 hours ago, who does not accept; Sid invites him 2 hours ago, and he joins then.
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Two Hats", 5)
+	Recruit(w, World.GUILD, "Sid Pass", "Two Hats", 2)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(w:ReadLog(c.ivo), true, "read again: every event seen")
+	w:Run(10)
+	eq(Naming(w, c.ivo, "Ivo Plain"), 0, "no report of Ivo's own")
+	eq(Naming(w, c.ivo, "Sid Pass", "Two Hats"), 2, "Ivo's word as a witness names Sid, to each keeper")
+	for _, k in ipairs({ c.a1, c.a2 }) do
+		eq(w:As(k, k.RR.Led).own[Id("Two Hats", "Ivo Plain")], nil, k.name .. ": no own report of Ivo's")
+	end
+	eq(Row(w, c.a1, "Ivo Plain"), nil, "nothing of Ivo's, pending or counted")
+	-- Sid's own read: his own report, and the recruit is his.
+	eq(w:ReadLog(c.sid), true)
+	w:Run(10)
+	eq(Naming(w, c.sid, "Sid Pass", "Two Hats"), 2, "Sid's own report, to each keeper")
+	eq(State(w, c.a1, "Two Hats", "Sid Pass"), "credited")
+	eq(Score(w, c.a1, "Sid Pass"), 10)
+	eq(State(w, c.a1, "Two Hats", "Ivo Plain"), nil)
+end)
+
+-- The same across reads, when another character of the inviter's account read the log first (shared ns.rdb,
+-- the Church's record of the events read with it): a join read before is his own only when the invite the
+-- first read of that join paired it with was his: of that player's invites read before, the latest one ahead
+-- of the join. An invite first read later is no pair of it, even in the join's own hour (the log gives hours,
+-- and a read puts an hour's invites before its joins).
+test("1.5.9 recruiting ranking: across reads and an alt's read first, a join read before is the inviter's own only when the latest invite read before it is his", function()
+	local shared = {}
+	local w = World.New({ apostles = { A1, A2 } })
+	local c = { a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }), ivo = w:Client("Ivo Plain", { rdb = shared }),
+		ivy = w:Client("Ivy Plain", { rdb = shared }), sid = w:Client("Sid Pass"), wes = w:Client("Wes Brook") }
+	for _, cl in pairs(c) do Loud(cl) end
+	w:Run(3600)
+	w:Presence()
+	-- Ivo's invite, read in an earlier read; then Sid's and the join after it, read by Ivy first, then Ivo twice.
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Long Wait", 3)
+	eq(w:ReadLog(c.ivo), true)
+	Recruit(w, World.GUILD, "Sid Pass", "Long Wait", 0)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivy), true)
+	eq(w:ReadLog(c.ivo), true)
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Long Wait"), 0, "the join followed Sid's later invite")
+	eq(w:As(c.a1, c.a1.RR.Led).own[Id("Long Wait", "Ivo Plain")], nil)
+	-- The reverse: Sid's invite read in an earlier read; then Ivo's and the join after it, Ivy's read first.
+	w:Presence()
+	w:LogEvent(World.GUILD, "invite", "Sid Pass", "Next Door", 3)
+	eq(w:ReadLog(c.ivy), true)
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Next Door", 0)
+	w:LogEvent(World.GUILD, "join", "Next Door", nil, 0)
+	Join(w, World.GUILD, "Next Door")
+	w:ClearSent()
+	eq(w:ReadLog(c.ivy), true)
+	eq(w:ReadLog(c.ivo), true)
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Next Door"), 2, "his own report, to each keeper, once")
+	assert(w:As(c.a1, c.a1.RR.Led).own[Id("Next Door", "Ivo Plain")], "Aldric holds it as Ivo's own report")
+	-- Sid's invite and the join after it, read; the player leaves, and Ivo invites him in that same hour.
+	w:Presence()
+	Recruit(w, World.GUILD, "Sid Pass", "Quick Leave", 0)
+	eq(w:ReadLog(c.ivy), true)
+	w:LogEvent(World.GUILD, "quit", "Quick Leave", nil, 0)
+	Leave(w, World.GUILD, "Quick Leave")
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Quick Leave", 0)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "his invite came after the join was read")
+	eq(w:As(c.a1, c.a1.RR.Led).own[Id("Quick Leave", "Ivo Plain")], nil)
+	-- And the other way: Ivo's recruit, read by Ivy; he leaves, and Sid invites him in that same hour.
+	w:Presence()
+	Recruit(w, World.GUILD, "Ivo Plain", "Back Again", 0)
+	eq(w:ReadLog(c.ivy), true)
+	w:LogEvent(World.GUILD, "quit", "Back Again", nil, 0)
+	Leave(w, World.GUILD, "Back Again")
+	w:LogEvent(World.GUILD, "invite", "Sid Pass", "Back Again", 0)
+	w:ClearSent()
+	eq(w:ReadLog(c.ivo), true)
+	eq(Naming(w, c.ivo, "Ivo Plain", "Back Again"), 2, "the join followed his invite: his own report, to each keeper")
+end)
+
 -- Review of the 1.5.9 release (B3): a plain member drawn in a guild no keeper is in (most guilds) reported
 -- every pair to keepers that cannot vouch for him: each refused it, and it waited 7 days while his client
 -- whispered a signed Apostle every 2 minutes to find a keeper. Only a keeper of his own guild weighs his

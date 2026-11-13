@@ -500,18 +500,24 @@ function Count.Process(events)
 	local person = Church.IsPerson(ns.me)
 	local found = 0
 	local RR = ns.RecruitRanking
-	-- (Review of the 1.5.9 release) This player's own invites in this read, seen before or not: one
-	-- account's characters of a realm group share these tables (ns.rdb), so another character of his that
-	-- read the log first left his own read nothing new, and the recruiting ranking for everyone no report
-	-- of his own (RecruitRanking.Pair takes each once a character).
-	local ownInvites = {}
+	-- (Review of the 1.5.9 release) One account's characters of a realm group share these tables (ns.rdb),
+	-- so another character of his that read the log first left his own read nothing new, and the recruiting
+	-- ranking for everyone no report of his own (RecruitRanking.Pair takes each once a character). A join read
+	-- before goes to it again, as his, only when the invite its first read paired it with was his: of that
+	-- player's invites read before, the latest one ahead of the join (inv[] is overwritten), never an earlier
+	-- one of his that another member's later invite followed. An invite first read now was not in the log when
+	-- that join was read: no pair of it, even where the log's hours put it ahead.
+	local seenInvite = {}
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
-		if e.kind == "invite" and e.p2 and Key(e.p1) == meKey then ownInvites[Key(e.p2)] = { by = e.p1, h = e.hour } end
 		if SeenEvent(ev, sig, e.hour) then
-			local own = e.kind == "join" and ownInvites[Key(e.p1)]
-			if own and e.hour >= own.h - 1 and e.hour <= own.h + Count.PAIR_HOURS and RR and RR.Pair then
-				ns.SafeCall("recruit ranking pair", RR.Pair, own.by, e.p1, guild, own.h, math.max(e.hour, own.h), true)
+			if e.kind == "invite" and e.p2 then
+				seenInvite[Key(e.p2)] = { by = e.p1, h = e.hour }
+			elseif e.kind == "join" then
+				local i = seenInvite[Key(e.p1)]
+				if i and Key(i.by) == meKey and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS and RR and RR.Pair then
+					ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, math.max(e.hour, i.h), true)
+				end
 			end
 		else
 			ev.k[sig .. ":" .. e.hour], ev.n = today, ev.n + 1
