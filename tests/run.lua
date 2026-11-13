@@ -8444,6 +8444,38 @@ test("1.1.5 census: an impossible breakdown off the channel is a bad report, nev
 	if not ok then error(err, 0) end
 end)
 
+-- 1.5.9's review (C6, T5): on Forever the runner-up pick ignores the channel a hello names (Comm.lua: the
+-- relay carries every report there, and a 1.5.8 guildmate holding the key still says "s" where a 1.5.9 one
+-- says "p"). A sealed guild mid-rollout: its 1.5.8 reporter says "s", a 1.5.9 guildmate before us by name
+-- says "p": that guildmate backs the reporter, not us. Off Forever the same hellos keep the old rule (a peer
+-- on another channel can't back this reporter: we do). Fails with the Forever term removed (we back it too).
+test("runner-up (1.5.9): on Forever a 1.5.9 guildmate saying p backs a 1.5.8 reporter saying s; off Forever it can't, and we do", function()
+	local saved = { channel = GetChannelName, guild = GetGuildInfo }
+	local ok, err = pcall(function()
+		GetChannelName = function() return 5 end
+		for _, forever in ipairs({ true, false }) do
+			GetGuildInfo = function() return MY_GUILD, "Member", 3 end
+			local ours = { guild = MY_GUILD, total = 900, online = 200, zones = {} }
+			local cns, Deliver, Report = FreshComm()
+			cns.OnForever = function() return forever end
+			cns.rdb = { realmKey = "fixture-key" }
+			local C = cns.Comm
+			C.loginAt = cns.clock - 1000
+			C.JoinChannel()
+			Deliver("GUILD", "Aaa Sealed-Realm", "H1~1.5.8~Realm~s~~~~R")
+			Deliver("GUILD", "Bbb Public-Realm", "H1~1.5.9~Realm~p~~~~R")
+			assert("Bbb Public-Realm" < cns.me, "the 1.5.9 guildmate comes before this client by name")
+			Report("Aaa Sealed-Realm", ours)
+			C.MaybeBroadcast(ours)
+			eq(C.reporterName, ns.DisplayName("Aaa Sealed-Realm"), "the 1.5.8 guildmate first by name reports")
+			eq(C.isRunnerUp, not forever, forever and "on Forever the 1.5.9 guildmate backs it, not us"
+				or "off Forever a peer on the other channel can't back it: we do")
+		end
+	end)
+	GetChannelName, GetGuildInfo, C_ChatInfo = saved.channel, saved.guild, nil
+	if not ok then error(err, 0) end
+end)
+
 test("runner-up backs an active reporter; census on request, bounded", function()
 	local savedChannel = GetChannelName
 	local ok, err = pcall(function()

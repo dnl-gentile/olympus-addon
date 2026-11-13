@@ -106,8 +106,11 @@ test("1.5.9 one channel on Forever: a client without a key on lane 7 sits on the
 		w.Guild("Lord Officer-Realm", "H1~1.4.1~Realm~p~~~L9~R")
 		eq(w.C.ChannelSpec(), "OlympusNet", "an officer's hello naming lane 9 moves nobody")
 		-- Five guildmates on lane 3 would be a clear crowd off Forever: here none to follow, none to show.
+		-- (1.5.9's review: their hellos recent, a minute old, within Comm.CROWD_RECENT. An hour old, as this
+		-- test had them, no crowd counted with or without the guards, and nothing here tested them.)
 		for i = 1, 5 do w.Guild(("Crowd Peer%d-Realm"):format(i), "H1~1.5.8~Realm~p~~~L3~R~N") end
-		w.cns.clock = w.cns.clock + 3600
+		w.cns.clock = w.cns.clock + 60
+		assert(w.cns.clock - 60 + w.C.CROWD_RECENT > w.cns.clock, "the hellos are within CROWD_RECENT")
 		eq(w.C.FollowCrowd(), false, "no crowd move")
 		local lanes = w.C.LaneStats()
 		eq(lanes.lane, 0); eq(lanes.dominant, nil); eq(lanes.mismatch, false, "no lane mismatch shown")
