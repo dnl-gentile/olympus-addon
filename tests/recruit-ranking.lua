@@ -1291,3 +1291,50 @@ test("1.5.9 recruiting ranking: a word every keeper weighs alike makes no pushes
 	assert(Rec(w, keepers[1], "Late Kid", "Ivo Plain"), "Aldric took Wes's word")
 	eq(#w:Sent(keepers[1], "NE", "WHISPER", "r"), 0, "the Church's sends first")
 end)
+
+-- Review of the 1.5.9 release (S4): the people's all-time totals had no bound but the one on other keepers'
+-- lines: a keeper whose own folds passed PEOPLE_MAX refused anyone new from another keeper, so the keepers'
+-- All time lists drifted apart. Every keeper keeps the PEOPLE_MAX with the most points, by the same rule.
+test("1.5.9 recruiting ranking: past PEOPLE_MAX each keeper keeps the people with the most points, the same rule on every keeper, and takes another keeper's line for someone new", function()
+	local w, c = Cast()
+	local K, K2 = c.a1, c.a2
+	K.RR.PEOPLE_MAX, K2.RR.PEOPLE_MAX = 3, 3
+	local function Give(k, recruit, by)
+		w:As(k, k.RR.MergeIn, Id(recruit, by), { n = recruit, bn = by, g = World.GUILD, tc = w.clock - 7200, tj = w.clock - 3600,
+			ws = { "wes brook" } }, false)
+	end
+	-- Aldric: five inviters with 1 to 5 confirmed recruits; Bera: one with 6. Folded into all time.
+	for i = 1, 5 do for j = 1, i do Give(K, "Kid " .. Two(i) .. Two(j), "Inviter " .. Two(i)) end end
+	for j = 1, 6 do Give(K2, "Kid " .. Two(6) .. Two(j), "Inviter " .. Two(6)) end
+	c.a1.online, c.a2.online = false, false
+	w:Run((K.RR.RECORDS_DAYS + 1) * DAY)
+	w:As(K, K.RR.Prune)
+	w:As(K2, K2.RR.Prune)
+	local l, l2 = w:As(K, K.RR.Led), w:As(K2, K2.RR.Led)
+	eq(Count(l.p), 3, "PEOPLE_MAX people")
+	for i = 3, 5 do assert(l.p[Key("Inviter " .. Two(i))], "kept: " .. Two(i)) end
+	eq(l.p[Key("Inviter aa")], nil, "the fewest points went first")
+	-- Another keeper's line for someone new, while full: taken.
+	eq(w:As(K, K.RR.TakeLine, A2, "NE~1~p~Inviter zz~9~0~0~0~" .. B36(w.clock)), true)
+	eq(Score(w, K, "Inviter zz", "a"), 90)
+	w:As(K, K.RR.Prune)
+	eq(Count(l.p), 3)
+	eq(l.p[Key("Inviter ac")], nil)
+	-- Both keepers catch up from each other: the same people on both.
+	c.a1.online, c.a2.online = true, true
+	w:Presence()
+	w:As(K2, K2.RR.CatchUp, true)
+	w:Run(30)
+	w:As(K, K.RR.CatchUp, true)
+	w:Run(30)
+	w:As(K, K.RR.Prune)
+	w:As(K2, K2.RR.Prune)
+	local function People(t)
+		local out = {}
+		for key in pairs(t) do out[#out + 1] = key end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	eq(People(l.p), People(l2.p), "the same people on both")
+	eq(People(l.p), table.concat({ Key("Inviter ae"), Key("Inviter af"), Key("Inviter zz") }, ","))
+end)

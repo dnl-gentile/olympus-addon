@@ -59,8 +59,8 @@ local L = ns.L
 -- that leaves the Church's room first; a member's asks start at a keeper his name picks.)
 --
 -- Kept on the keepers' computers (ns.rdb.recruits.led): each record RECORDS_DAYS after its join, then its
--- points fold into its people's all-time totals; RECORDS_MAX records at most. A recruit whose claim was
--- folded is not counted again for GONE_DAYS.
+-- points fold into its people's all-time totals; RECORDS_MAX records at most, and PEOPLE_MAX people, those
+-- with the most points. A recruit whose claim was folded is not counted again for GONE_DAYS.
 --
 -- The wire (NE, whole messages, version 1, whispers only; clients before 1.5.9 drop them unread):
 --   NE~1~w~<inviter>~<invitee>~<guild>~<invite hour36>~<join hour36>~<source|->   a log pair -> keepers
@@ -745,6 +745,22 @@ local function Totals(p)
 	return Of("j"), Of("y"), Of("h"), Of("hy")
 end
 RR.Totals = Totals
+-- (Review of the 1.5.9 release) A person's all-time points, by which PEOPLE_MAX of them are kept.
+local function Worth(p)
+	local j, y, h, hy = Totals(p)
+	return j * RR.POINTS_JOIN + y * RR.POINTS_STAY + (h * RR.POINTS_JOIN + hy * RR.POINTS_STAY) * RR.SHARE
+end
+-- The people past PEOPLE_MAX go, the same rule on every keeper: the fewest all-time points first, then by
+-- key. (Only another keeper's lines were bounded: a keeper whose own folds passed PEOPLE_MAX refused anyone
+-- new from the others, and the keepers' All time lists drifted apart.) True when any went.
+local function TrimPeople(l)
+	local people = {}
+	for key, p in pairs(l.p) do people[#people + 1] = { k = key, w = Worth(p) } end
+	if #people <= RR.PEOPLE_MAX then return false end
+	table.sort(people, function(a, b) if a.w ~= b.w then return a.w < b.w end return a.k < b.k end)
+	for i = 1, #people - RR.PEOPLE_MAX do l.p[people[i].k] = nil end
+	return true
+end
 
 -- A credited claim into its people's totals (it ages out, or makes room), its recruit marked: no other
 -- claim on him counts again for GONE_DAYS.
@@ -1119,10 +1135,12 @@ local function TakeLine(sender, text)
 		if not name or not j or y > j or hy > h or j > 100000 or h > 100000 then return Drop("shape") end
 		local l = Led()
 		local key = Key(name)
+		-- (Review of the 1.5.9 release: someone new is taken whatever this ledger holds; past PEOPLE_MAX and
+		-- a fiftieth, the people with the fewest points go at once, as at each upkeep, RR.Prune.)
 		if not l.p[key] then
 			local count = 0
 			for _ in pairs(l.p) do count = count + 1 end
-			if count >= RR.PEOPLE_MAX then return Drop("full") end
+			if count >= RR.PEOPLE_MAX + max(1, floor(RR.PEOPLE_MAX / 50)) and TrimPeople(l) then Changed() end
 		end
 		local p = Person(l, key, Short(name))
 		local changed = false
@@ -1648,7 +1666,7 @@ end
 ns.Comm.Handle("NE", function(dist, sender, text) RR.Receive(dist, sender, text) end)
 
 -- Records past RECORDS_DAYS fold into their people's totals; marks past GONE_DAYS (GONE_MAX at most,
--- the oldest first) go. True when anything went.
+-- the oldest first) go; and the people past PEOPLE_MAX (TrimPeople). True when anything went.
 function RR.Prune()
 	local l, now = Led(), Clock()
 	local C = RR.Credits()
@@ -1677,6 +1695,7 @@ function RR.Prune()
 		for i = 1, #marks - RR.GONE_MAX do l.gone[marks[i].k] = nil end
 		changed = true
 	end
+	if TrimPeople(l) then changed = true end
 	if changed then Changed() end
 	return changed
 end
