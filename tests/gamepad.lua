@@ -4692,6 +4692,24 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 		eq(PromptsOn(R2, ns2.L), false, "its pop-ups off as he left them")
 		eq(R2.Handoff.Accepting(), true, "handoffs taken as he left them")
 		eq(R2.Handoff.AutoOn(), false, "his waiting players not offered, as he left it")
+		-- (Review of the 1.5.9 release: the returning offer's switches applied 1.5.8's first choices over the
+		-- kept ones: his waiting players offered to other members, saved so for every login, and his ads
+		-- every 5 minutes; README: "the offer turns nothing on by itself".) His ads every 30 minutes, set in
+		-- Church > Invites; off there again, the offer's JOIN switch brings recruiting back with every
+		-- switch as he left it.
+		local ads = assert(Line(R2, "recruit-announcement-reminder"), "the ads reminder").filters[1].options
+		InClick(C2, ads[#ads].onClick)
+		eq(R2.AnnounceReminderMinutes(), 30)
+		ChurchSwitch(C2, R2, false)
+		Reopen(U2)
+		eq(Offered(U2), true)
+		assert(Row(U2, "ads").line.text:find("ReadyCheck-NotReady", 1, true), "the ads show off while recruiting is")
+		C2.Click(assert(Row(U2, "join")))
+		eq(R2.IsWhisperRecruiting(), true)
+		eq(R2.Handoff.AutoOn(), false, "the offer's JOIN: his waiting players still not offered, as he left it")
+		eq(ns2.rdb.recruitmentPreference[ns2.me].offerOverflow, nil, "nor saved on")
+		eq(R2.Handoff.Accepting(), true, "handoffs taken, as he left them")
+		eq(R2.AnnounceReminderMinutes(), 30, "his ads every 30 minutes, as he left them")
 		-- Off in Church again: the offer comes back; Turn on all brings recruiting back with the scan
 		-- he kept (on, not toggled off by the button), and Done ends the offer.
 		ChurchSwitch(C2, R2, false)
@@ -4700,6 +4718,9 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 		C2.Click(assert(Row(U2, "all"), "Turn on all").primary)
 		eq(R2.IsWhisperRecruiting(), true)
 		eq(R2.Candidates.Enabled(), true, "Turn on all leaves the kept scan on")
+		eq(R2.Handoff.AutoOn(), false, "Turn on all: his waiting players still not offered")
+		eq(ns2.rdb.recruitmentPreference[ns2.me].offerOverflow, nil, "nor saved on")
+		eq(R2.AnnounceReminderMinutes(), 30, "Turn on all: his ads as he left them")
 		C2.Click(assert(Row(U2, "done")).primary)
 		eq(ns2.rdb.recruitmentPreference[ns2.me].offerAgain, nil, "Done ends the offer's return")
 		Reopen(U2)

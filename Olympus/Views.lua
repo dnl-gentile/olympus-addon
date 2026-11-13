@@ -1814,6 +1814,13 @@ local RECRUIT_SWITCHES = {
 }
 Views.RECRUIT_AD_MINUTES = 5
 
+-- (Review of the 1.5.9 release) The ads interval the offer's switch turns on: the one the player kept
+-- (Church > Invites keeps it while recruiting is off), else RECRUIT_AD_MINUTES.
+function Views.RecruitAdMinutes()
+	local kept = ns.Recruit.AnnounceReminderMinutes()
+	return kept > 0 and kept or Views.RECRUIT_AD_MINUTES
+end
+
 function Views.RecruitOfferState()
 	local R = ns.Recruit
 	local on = R.IsWhisperRecruiting() == true
@@ -1834,13 +1841,21 @@ function Views.RecruitOfferSwitch(key)
 		return
 	end
 	if not state.join and not R.EnableWhisperRecruiting() then return end
+	-- (Review of the 1.5.9 release) The offer that came back after recruiting was turned off in Church >
+	-- Invites (the choice kept, offerAgain, until Done or Don't ask again) brings every switch back as the
+	-- player left it (Recruit.ToggleWhisperRecruiting): 1.5.8's first choices below are for a first offer
+	-- only. Applied over the kept ones, they turned on and saved the automatic offers he had left off, the
+	-- author's "Ele tem que ficar desativado se ele estava desativado", and a kept ads interval became 5.
+	local saved = R.Preference and R.Preference()
+	local kept = type(saved) == "table" and saved.offerAgain == true
 	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
-	if H and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
+	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
 	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
 	-- recruiting.)
-	if H and H.SetAuto and not state.join then H.SetAuto(true) end
+	if H and H.SetAuto and not kept and not state.join then H.SetAuto(true) end
 	if key == "ads" then
-		R.SetAnnounceReminder(state.ads and 0 or Views.RECRUIT_AD_MINUTES)
+		if state.ads then R.SetAnnounceReminder(0)
+		elseif R.AnnounceReminderMinutes() == 0 then R.SetAnnounceReminder(Views.RECRUIT_AD_MINUTES) end
 	elseif key == "scan" and Q then
 		Q.SetEnabled(not state.scan)
 	end
@@ -1950,7 +1965,7 @@ local function CensusLines(s, q, recruitment)
 				text = on and Green(RECRUIT_MARK_ON .. L[switch.label]) or Red(RECRUIT_MARK_OFF .. L[switch.label]),
 				onClick = function() recruitment.switch(switch.key) end }
 			local hint = L[switch.hint]
-			if switch.key == "ads" then hint = hint:format(Views.RECRUIT_AD_MINUTES) end
+			if switch.key == "ads" then hint = hint:format(Views.RecruitAdMinutes()) end
 			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
 		end
 		-- (1.5.8, the author's ask: the handoffs marked experimental; one short line of its own, as a
