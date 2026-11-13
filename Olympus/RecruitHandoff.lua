@@ -11,8 +11,10 @@ local incoming, outgoing = {}, {}
 local handed = {} -- [folded name] = true: a player this client gave to another member
 local acceptingGuild, choosing, serial
 local autoGuild, autoTimer, autoProbe
--- (1.5.9) The guild whose players this member passed by hand (Pass) while his automatic offers are
--- off: they go through the same probes, and the switch stays as he left it.
+-- (1.5.9) The guild whose players this member passed by hand (Pass), whatever the automatic offers'
+-- switch: they go through the same probes, and the switch stays as he left it. (Review of the 1.5.9
+-- release: a Pass made with the switch on set none, and the switch then turned off left what he passed
+-- with no probe until it expired.)
 local passGuild
 -- The probes' rotation (NextPeer): per tier, the roster index asked last, and how many of its
 -- members were asked since one below it was.
@@ -421,7 +423,7 @@ local function Want(item, limit)
 	-- the automatic offers off, what he passed goes through their probes all the same, and the switch
 	-- stays as he left it: 1.5.8 turned it on here for the session, and the next login turned it off.
 	local own = LocalGuild()
-	if own and autoGuild ~= own then
+	if own and not limit then
 		passGuild = own
 		Ticking()
 	end

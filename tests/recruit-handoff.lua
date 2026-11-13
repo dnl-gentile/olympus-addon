@@ -2046,6 +2046,38 @@ test("recruit handoff (1.5.9): Pass sends the passed JOIN on and leaves the auto
 	end)
 end)
 
+-- Review of the 1.5.9 release (A-2): a Pass made while the automatic offers were on kept no timer of its
+-- own, so once he turned the offers off before any member answered, what he passed got no probe and no
+-- popup until it expired an hour later. What he passed by hand goes whatever the switch.
+test("recruit handoff (1.5.9): a Pass made with the automatic offers on still goes after he turns them off", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		scene.locked = true
+		for i = 1, 4 do R.OnWhisper("JOIN", ("Waiting %d-%s"):format(i, home)) end
+		scene.locked = false
+		assert(Id(R.WhisperLines(), "recruit-handoff-overflow"), "the automatic offers switch").onClick()
+		eq(H.AutoOn(), true)
+		local first = R.requests[1]
+		eq(H.Pass(first), true)
+		scene.tick = nil
+		-- Off again, in Church > Invites, before any member answered.
+		assert(Id(R.WhisperLines(), "recruit-handoff-overflow")).onClick()
+		eq(H.AutoOn(), false)
+		assert(scene.tick, "the probes go on for what he passed")
+		scene.now = scene.now + 21
+		scene.tick()
+		local probe = assert(scene.packets[#scene.packets], "a probe")
+		assert(probe.word:match("^J4~P~"), probe.word)
+		eq(H.Receive("WHISPER", mate, (probe.word:gsub("^J4~P~", "J4~V~"))), true)
+		scene.tick()
+		assert(scene.packets[#scene.packets].word:match("^J4~O~"), "the offer")
+		eq(H.State(first), "offered", "the JOIN he passed goes")
+		eq(H.AutoOn(), false, "the switch stays as he set it")
+		eq(R.Preference().offerOverflow, nil, "and is saved so")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- 1.5.9: Church > Invites in sections, and the handoffs' network fixes from the 1.5.8 reviews.
 ---------------------------------------------------------------------------
