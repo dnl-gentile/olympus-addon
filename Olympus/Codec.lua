@@ -22,8 +22,8 @@ local ADDON, ns = ...
 --                                    older versions send no realm)
 --          ~<p|s>[~z]              (the channel, public or sealed; z: it shares its zone, 0.9.1)
 -- Chat:    M1~tier~guild~id~class~text   (tier A|C|L, id 0-9999 per part, class 2 letters or empty;
---                                         1.5.9: an [Olympus] line for one ruleset alone has the id
---                                         "0<ruleset><two digits>", Codec.EncodeChat)
+--                                         1.5.9 on Forever: an [Olympus] line's id "0<digit><two
+--                                         digits>" names its ruleset, Codec.EncodeChat)
 
 local Codec = {}
 ns.Codec = Codec
@@ -660,34 +660,50 @@ function Codec.UnpackLinks(s)
 end
 
 ---------------------------------------------------------------------------
--- (1.5.9) An [Olympus] line for one ruleset alone (the dev on RP-PvP, 2026-11-12: "não tá mandando
--- uma mensagem só lá ... tá mandando em todos"). Where names split (Forever) the Chat tab's picker
--- shows one ruleset's [Olympus], and a line written there is for that ruleset: its id goes as four
--- digits with a leading zero, "0" .. the ruleset's digit (CHAT_TO) .. two digits of the id, so
--- "0207" is a PvE line. No version writes such an id otherwise (EncodeChat has always written the
--- number plainly), and every version reads it as the number it is, 207 (DecodeChat has taken one to
--- four digits since 0.7.10): a client before 1.5.9 shows the line where it always did, in every
--- ruleset, nothing in it changed; the relay, the channel's text and the dedupe carry it byte for
--- byte. Only the [Olympus] tier (A) has rulesets (the rank rooms are their family's): a C or L line
--- never carries one. Any other leading-zero id ("0012", "0912": no ruleset's digit) is a line for
--- everyone, as a client before 1.5.9 reads it.
+-- (1.5.9) An [Olympus] line's ruleset, in its id. Where names split (Forever) the channel's text names
+-- a line's writer bare, and nothing in a line before 1.5.9 tells his ruleset (the dev on RP-PvP,
+-- 2026-11-12: a PvE player's line showed under RP-PvP; and "não tá mandando uma mensagem só lá ... tá
+-- mandando em todos"). A 1.5.9 line there says it: its id goes as four digits with a leading zero,
+-- "0" .. a digit .. two digits of the id:
+--   1-4 (CHAT_TO)    a line for that ruleset alone (pvp, pve, rp, rppvp), written in the Chat tab while
+--                    its picker shows the writer's own ruleset (Channels.SendTo): "0407" is an RP-PvP
+--                    player's line for RP-PvP;
+--   5-9 (CHAT_FROM)  a line for everyone, by a writer of that ruleset (pvp, pve, rp, rppvp, hardcore):
+--                    "0607" is a PvE player's.
+-- No version writes such an id otherwise (EncodeChat has always written the number plainly), and every
+-- version reads it as the number it is, 407 (DecodeChat has taken one to four digits since 0.7.10): a
+-- client before 1.5.9 shows the line where it always did, in every ruleset, nothing in it changed; the
+-- relay, the channel's text and the dedupe carry it byte for byte. A line's parts keep their two
+-- digits within one hundred (Channels.Send), so they still read as consecutive ids (WatchChat.RefsFor
+-- takes a long line's parts so). Only the [Olympus] tier (A) has rulesets (the rank rooms are their
+-- family's): a C or L line never carries one. "0012" (no ruleset's digit) is a plain id.
 ---------------------------------------------------------------------------
 Codec.CHAT_TO = { pvp = 1, pve = 2, rp = 3, rppvp = 4 }
-local CHAT_TO_KIND = {}
+Codec.CHAT_FROM = { pvp = 5, pve = 6, rp = 7, rppvp = 8, hardcore = 9 }
+local CHAT_TO_KIND, CHAT_FROM_KIND = {}, {}
 for kind, digit in pairs(Codec.CHAT_TO) do CHAT_TO_KIND[digit] = kind end
+for kind, digit in pairs(Codec.CHAT_FROM) do CHAT_FROM_KIND[digit] = kind end
 
--- The id a line's part carries as every client reads it back (DecodeChat's id): its own id, or for a
--- line to ruleset `to`, that ruleset's digit and the id's last two digits.
-function Codec.ChatWireId(id, tier, to)
-	local digit = tier == "A" and to ~= nil and Codec.CHAT_TO[to] or nil
+-- The digit of an [Olympus] line for ruleset `to`, else of one by a writer of ruleset `from`; nil (a
+-- plain id) with neither, and on the rank rooms.
+local function ChatDigit(tier, to, from)
+	if tier ~= "A" then return nil end
+	return to ~= nil and Codec.CHAT_TO[to] or from ~= nil and Codec.CHAT_FROM[from] or nil
+end
+
+-- The id a line's part carries as every client reads it back (DecodeChat's id): its own id, or with a
+-- ruleset (to, from), that ruleset's digit and the id's last two digits.
+function Codec.ChatWireId(id, tier, to, from)
+	local digit = ChatDigit(tier, to, from)
 	if digit then return digit * 100 + id % 100 end
 	return id % 10000
 end
 
 -- `text` must already be sanitized and split to fit (Channels.Send does both): its links go as tokens.
--- to (1.5.9): the ruleset an [Olympus] line is for ("pve"...), nil for everyone.
-function Codec.EncodeChat(tier, guild, id, class, text, to)
-	local digit = tier == "A" and to ~= nil and Codec.CHAT_TO[to] or nil
+-- to, from (1.5.9): the ruleset an [Olympus] line is for ("pve"...), else its writer's; nil, nil: a
+-- plain id.
+function Codec.EncodeChat(tier, guild, id, class, text, to, from)
+	local digit = ChatDigit(tier, to, from)
 	local field = digit and ("0%d%02d"):format(digit, id % 100) or ("%d"):format(id % 10000)
 	local msg = ("M1~%s~%s~%s~%s~"):format(tier, clean(guild), field, clean(class or "")) .. Codec.PackLinks(text)
 	if #msg > 255 then return nil end
@@ -700,8 +716,9 @@ function Codec.DecodeChat(s)
 	if not tier or not Codec.CHAT_TIERS[tier] or LongGuild(guild) or guild:find("%c") then return nil end
 	text = Codec.UnpackLinks(Codec.SanitizeChat(text))
 	if text == "" then return nil end
-	local to = tier == "A" and #id == 4 and id:sub(1, 1) == "0" and CHAT_TO_KIND[tonumber(id:sub(2, 2))] or nil
-	return { tier = tier, guild = guild, id = tonumber(id), class = class ~= "" and class or nil, text = text, to = to }
+	local digit = tier == "A" and #id == 4 and id:sub(1, 1) == "0" and tonumber(id:sub(2, 2)) or nil
+	return { tier = tier, guild = guild, id = tonumber(id), class = class ~= "" and class or nil, text = text,
+		to = digit and CHAT_TO_KIND[digit] or nil, from = digit and CHAT_FROM_KIND[digit] or nil }
 end
 
 -- A global census snapshot, packed for the relay's tree (RelayTree.lua: what a tree costs is the

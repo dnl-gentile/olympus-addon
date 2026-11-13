@@ -2764,9 +2764,15 @@ local function DrawInput()
 		local logical = ChatWindow.Logical(tier)
 		local public = logical and logical.scope == "topic"
 			or not room and not logical and ns.Comm and type(ns.Comm.IsPublic) == "function" and ns.Comm.IsPublic()
-		-- (1.5.9) [Olympus] under one ruleset of the picker: the line goes to that ruleset alone (Channels.Send).
-		local to = tier == "A" and not room and not logical and ns.Channels.SendTo() or nil
-		hint = (to and L.CHATWIN_PLACEHOLDER_TO:format(Label(tier), L["CHATWIN_GROUP_" .. to:upper()])
+		-- (1.5.9) [Olympus] where the picker shows a ruleset: under this character's own a line goes to
+		-- that ruleset alone (Channels.SendTo), under another to every ruleset; the box says which, in
+		-- few words (its label already says [Olympus]; they fit beside it: tests/chat-rulesets.lua).
+		local C = ns.Channels
+		local plain = tier ~= "A" or room or logical
+		local to = not plain and C.SendTo() or nil
+		local every = not plain and not to and ns.splitNames and C.GroupView() ~= "all"
+		hint = (to and L.CHATWIN_PLACEHOLDER_TO:format(L["CHATWIN_GROUP_" .. to:upper()])
+			or every and L.CHATWIN_PLACEHOLDER_EVERY
 			or L.CHATWIN_PLACEHOLDER:format(Label(tier))) .. (public and L.CHATWIN_PUBLIC or "")
 	end
 	eb.hint:SetText(hint)
@@ -3280,7 +3286,8 @@ local function Submit()
 			if type(R) == "table" and type(R.Send) == "function" then ok, why, left = R.Send(tier, outgoing) else ok, why = false, "room" end
 			if not ok and why ~= "severe" and type(R) == "table" and type(R.Own) == "function" and R.Own(tier) then ChatWindow.Refused(tier, why) end
 		else
-			ok, why = ns.Channels.Send(tier, outgoing, nil, true)
+			-- (1.5.9: the picker's own ruleset, the box's alone; /ol in the game's chat goes to everyone.)
+			ok, why = ns.Channels.Send(tier, outgoing, nil, true, tier == "A" and ns.Channels.SendTo() or nil)
 		end
 		-- Sent, or held by the privacy warning (it sends the line on the player's OK): the box
 		-- empties. Refused: the text stays (Send said why).

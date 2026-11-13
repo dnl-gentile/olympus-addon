@@ -3418,10 +3418,12 @@ end)
 -- 1.5.9 (the dev on RP-PvP, 2026-11-12: a PvE line under RP-PvP, and "não tá mandando uma mensagem só
 -- lá"): the [Olympus] picker on Forever. A line of the channel's text is filed by its sender's GUID,
 -- CHAT_MSG_CHANNEL's twelfth value (read: nothing of the game's touched); a line written in the Chat tab
--- under PvE goes as PvE's: with mouse and keyboard as the player's own text in the channel too
--- (SendChatMessage from his Enter, the gate's chat-box), with the gamepad UI the hidden way alone, the
--- same line. Both logins, and a switch each way.
-test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed by their GUID's server, a line written under PvE sent as PvE's, as text in the channel with mouse and keyboard alone; both logins and both switches", function()
+-- under the character's own ruleset (RP-PvP) goes as RP-PvP's alone, under another (PvE) to everyone
+-- naming RP-PvP as its writer's (the review of 1.5.9's first build: with the gamepad UI a line for PvE
+-- went the hidden way alone, which keeps to its own family, and reached no PvE player); with mouse and
+-- keyboard as the player's own text in the channel too (SendChatMessage from his Enter, the gate's
+-- chat-box), with the gamepad UI the hidden way alone, the same line. Both logins, and a switch each way.
+test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed by their GUID's server, a line written under our own ruleset sent as its alone and under another for everyone, as text in the channel with mouse and keyboard alone; both logins and both switches", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad, { realmFrom = function() return "CAMWOWUS2Realm1RPPvP" end, surname = "Thornwood" })
 		local Chan = ns.Channels
@@ -3454,27 +3456,37 @@ test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed
 		eq(Kept("from our own server").kind, "rppvp", "by its GUID's server")
 		eq(Kept("from a server nobody named").kind, false, "unknown: All alone")
 		local status = Chan.RulesetStatus()
-		assert(status:find("filed to=0 guid=1 known=0 unknown=1", 1, true) and status:find("with GUID 2", 1, true), status)
-		-- Written under PvE in the Chat tab, with each input style in turn. (Each line as Channels.Send hands
-		-- it to the chat lane, observed on its way: on Forever our echo waits for a relay, which the model
-		-- has none of; tests/chat-rulesets.lua checks the echo.)
-		eq(Chan.SetGroupView("pve"), true)
+		assert(status:find("filed said=0 guid=1 known=0 unknown=1", 1, true) and status:find("with GUID 2", 1, true), status)
+		-- Written in the Chat tab, with each input style in turn: under RP-PvP for RP-PvP alone (its id
+		-- "04nn"), under PvE for everyone by an RP-PvP player ("08nn"). (Each line as Channels.Send hands it
+		-- to the chat lane, observed on its way: on Forever our echo waits for a relay, which the model has
+		-- none of; tests/chat-rulesets.lua checks the echo.)
 		local f = assert(ns.ChatWindow.Open("A"), "the Chat tab")
 		C.Advance(1)
 		local handed, lane = {}, ns.Comm.SendChat
 		ns.Comm.SendChat = function(msg, ...) handed[#handed + 1] = msg; return lane(msg, ...) end
-		local function Write(text)
+		local function Write(text, view)
+			eq(Chan.SetGroupView(view), true)
+			ns.ChatWindow.Render() -- (the picker's own click draws the tab again at once)
+			C.Advance(1)
+			local hint = f.input.hint:GetText() or ""
+			if view == "rppvp" then
+				eq(hint:find(ns.L.CHATWIN_PLACEHOLDER_TO:format(ns.L.CHATWIN_GROUP_RPPVP), 1, true), 1, "the box: for RP-PvP alone: " .. hint)
+			else
+				eq(hint:find(ns.L.CHATWIN_PLACEHOLDER_EVERY, 1, true), 1, "the box: for every ruleset: " .. hint)
+			end
 			local said, before = #(C.said or {}), #handed
 			f.input:SetText(text)
 			local m = C.Mark()
 			InClick(C, function() C.RunScript(f.input, "OnEnterPressed") end)
 			C.Advance(2)
 			eq(#handed, before + 1, "one line to the lane: " .. text)
-			assert(handed[#handed]:find("^M1~A~Olympus II~02%d%d~WA~" .. text .. "$"), "a PvE line: " .. handed[#handed])
+			local digit = view == "rppvp" and "4" or "8"
+			assert(handed[#handed]:find("^M1~A~Olympus II~0" .. digit .. "%d%d~WA~" .. text:gsub("%p", "%%%0") .. "$"), "under " .. view .. ": " .. handed[#handed])
 			return #(C.said or {}) - said, C.Since(m)
 		end
-		local function AsText(text, pad)
-			local said, ledger = Write(text)
+		local function AsText(text, pad, view)
+			local said, ledger = Write(text, view)
 			if pad then
 				eq(said, 0, "with the gamepad UI: the hidden way alone")
 			else
@@ -3485,11 +3497,12 @@ test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed
 			end
 			Check(ledger, text)
 		end
-		AsText("first for PvE", initialPad)
+		AsText("first for RP-PvP", initialPad, "rppvp")
 		C.Switch(not initialPad); C.Advance(1)
-		AsText("second for PvE", not initialPad)
+		AsText("second under PvE", not initialPad, "pve")
+		AsText("third for RP-PvP", not initialPad, "rppvp")
 		C.Switch(initialPad); C.Advance(1)
-		AsText("third for PvE", initialPad)
+		AsText("fourth under PvE", initialPad, "pve")
 		Check(C.ledger, "the rulesets' session")
 		NoErrors(C, "the rulesets' session")
 	end
