@@ -436,15 +436,27 @@ local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true }
 
 -- A link's data as the game writes it for these types (0.9.2): an id from 1, then at most 31
 -- more fields, each empty or a whole number ("19019::::::::60::" or "5:-1"), 120 bytes at
--- most. Anything else (letters, an empty or zero id, a field the size of a novel) could be a
--- malformed link made to break the client's tooltip, and is shown as plain text.
-local function LinkData(data)
+-- most. An item alone may also carry one player GUID for its crafter (1.5.8), in the client's
+-- canonical Player-<server id>-<8 hex digit player id> form. The decimal component is capped
+-- conservatively at 10 digits; neither component may be zero. Anything else (letters, an
+-- empty or zero id, a field the size of a novel) could be a malformed link made to break the
+-- client's tooltip, and is shown as plain text.
+local function CrafterGUID(field)
+	local realm, player = field:match("^Player%-([1-9]%d*)%-([0-9A-F]+)$")
+	return realm ~= nil and #realm <= 10 and #player == 8 and player ~= "00000000"
+end
+
+local function LinkData(kind, data)
 	if #data > 120 then return false end
-	local n = 0
+	local n, crafter = 0, false
 	for field in (data .. ":"):gmatch("([^:]*):") do
 		n = n + 1
 		if n == 1 and not field:find("^[1-9]%d?%d?%d?%d?%d?%d?%d?%d?$") then return false end
-		if n > 32 or #field > 11 or not (field == "" or field:find("^%-?%d+$")) then return false end
+		if n > 32 then return false end
+		if n > 1 and not (field == "" or (#field <= 11 and field:find("^%-?%d+$"))) then
+			if kind ~= "item" or crafter or not CrafterGUID(field) then return false end
+			crafter = true
+		end
 	end
 	return true
 end
@@ -462,7 +474,7 @@ local function LinkAt(s, i)
 		j = j + #color
 	end
 	local kind, data, text = s:match("^|H(%a+):([^|]*)|h%[([^|%[%]%c]*)%]|h", j)
-	if not kind or not LINK_TYPES[kind] or not LinkData(data) or text == "" or #text > 100 then return nil end
+	if not kind or not LINK_TYPES[kind] or not LinkData(kind, data) or text == "" or #text > 100 then return nil end
 	j = j + #kind + #data + #text + 9 -- "|H" ":" "|h[" "]|h"
 	if color then
 		if s:sub(j, j + 1) ~= "|r" then return nil end
@@ -644,7 +656,7 @@ function Codec.PackLinks(s)
 end
 
 local function Untoken(name, kind, data, colour)
-	if not LINK_TYPES[kind] or not LinkData(data) or name == "" or #name > 100 then return nil end
+	if not LINK_TYPES[kind] or not LinkData(kind, data) or name == "" or #name > 100 then return nil end
 	if colour ~= "" and not (colour:find("^%x%x%x%x%x%x%x%x$") or (#colour <= 38 and colour:find("^n[%w_]+:$"))) then return nil end
 	local link = "|H" .. kind .. ":" .. data .. "|h[" .. name .. "]|h"
 	if colour ~= "" then link = "|c" .. colour .. link .. "|r" end
@@ -656,7 +668,10 @@ end
 function Codec.UnpackLinks(s)
 	s = tostring(s or "")
 	if not s:find("](", 1, true) then return s end
-	return (s:gsub("%[([^%[%]|%c]+)%]%((%a+):([%d:%-]*)/([^%)]*)%)", Untoken))
+	-- The capture admits only the old numeric punctuation plus the letters a canonical Player
+	-- GUID needs. DecodeChat bounds the whole input at 255 bytes; LinkData then applies its exact
+	-- kind, 120-byte, field-count and crafter-GUID validation before Untoken reconstructs anything.
+	return (s:gsub("%[([^%[%]|%c]+)%]%((%a+):([0-9A-FPalyer:%-]*)/([^%)]*)%)", Untoken))
 end
 
 ---------------------------------------------------------------------------

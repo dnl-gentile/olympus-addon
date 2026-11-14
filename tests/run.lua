@@ -5753,6 +5753,72 @@ test("chat sanitizer keeps item and spell links and neutralises every other esca
 	end
 end)
 
+test("1.5.8 item links admit one bounded canonical crafter GUID and no other link data does", function()
+	local prefix = "5765::::::::22:1490::::::::"
+	local guid = "Player-6794-01137728"
+	local function Link(kind, data)
+		return "|cnIQ1:|H" .. kind .. ":" .. data .. "|h[Black Silk Pack]|h|r"
+	end
+	local function Rejected(kind, data, why)
+		local link = Link(kind, data)
+		eq(Codec.LinkAt(link, 1), nil, why)
+		assert(Codec.SanitizeChat(link) ~= link, why .. ": sanitizer")
+	end
+
+	for _, bad in ipairs({
+		{ prefix .. "Player--01137728:", "empty realm id" },
+		{ prefix .. "Player-6794-:", "empty player id" },
+		{ prefix .. "Player-0-01137728:", "zero realm id" },
+		{ prefix .. "Player-06794-01137728:", "non-canonical realm id" },
+		{ prefix .. "Player-6794-00000000:", "zero player id" },
+		{ prefix .. "Player-6794-01137G28:", "non-hex player id" },
+		{ prefix .. "Crafter-6794-01137728:", "arbitrary letters" },
+		{ prefix .. "Player-6794-01137728-more:", "extra hyphen" },
+		{ prefix .. "Player-6794-0113\n7728:", "control byte" },
+		{ prefix .. "Player-12345678901-01137728:", "overlong realm id" },
+		{ prefix .. "Player-6794-001137728:", "overlong player id" },
+		{ prefix .. guid .. ":" .. guid .. ":", "second crafter GUID" },
+		{ "5765:" .. ("12345678901:"):rep(8) .. guid, "link data over 120 bytes" },
+		{ "5765" .. (":1"):rep(31) .. ":" .. guid, "more than 32 link-data fields" },
+	}) do
+		Rejected("item", bad[1], bad[2])
+	end
+	for _, kind in ipairs({ "spell", "enchant", "quest" }) do
+		Rejected(kind, prefix .. guid .. ":", "crafter GUID on " .. kind)
+	end
+
+	local item = Link("item", prefix .. guid .. ":")
+	eq(Codec.LinkAt(item, 1), #item, "the production Black Silk Pack payload")
+	eq(Codec.SanitizeChat(item), item, "the production link stays live")
+end)
+
+test("1.5.8 packed chat tokens capture crafter GUID letters only for exact semantic validation", function()
+	local prefix = "5765::::::::22:1490::::::::"
+	local guid = "Player-6794-01137728"
+	local data = prefix .. guid .. ":"
+	local named = "|cnIQ1:|Hitem:" .. data .. "|h[Black Silk Pack]|h|r"
+	local function Token(kind, payload)
+		return "[Black Silk Pack](" .. kind .. ":" .. payload .. "/nIQ1:)"
+	end
+
+	for _, bad in ipairs({
+		Token("item", prefix .. "Player-6794-BADFACE:"),
+		Token("item", data .. guid .. ":"),
+		Token("spell", data),
+		Token("enchant", data),
+		Token("quest", data),
+		Token("item", "5765:" .. ("12345678901:"):rep(8) .. guid),
+	}) do
+		eq(Codec.UnpackLinks(bad), bad, "an invalid captured token remains text")
+	end
+
+	local token = Token("item", data)
+	eq(Codec.PackLinks(named), token, "the live production link packs without pipes")
+	eq(Codec.UnpackLinks(token), named, "the exact validated token reconstructs the link")
+	local message = assert(Codec.EncodeChat("A", "Olympus II", 500, "PA", named))
+	eq(assert(Codec.DecodeChat(message)).text, named, "encode/decode keeps the exact link")
+end)
+
 test("long chat splits at safe points and every part fits one message", function()
 	local guild = "Olympus Poseidon Real"
 	eq(#guild, 21)
@@ -61149,6 +61215,106 @@ end)()
 		assert(bare:find("^|Hplayer:Bob%-Other|h%["), bare)
 		assert(bare:find(" <Olympus II>: hi ||Tx||t " .. ITEM, 1, true), "guild and sanitized text: " .. bare)
 		eq(Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x", false), Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x"))
+	end)
+
+	test("1.5.8 native chat renders the received Black Silk Pack named item colour as hex", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function(w)
+				eq(Recv("A", "Member500", named), true)
+				local delivered = assert(w[1].lines[1], "the line delivered to the native chat frame")
+				eq(delivered:match(": (.*)$"), expected, "native AddMessage item text")
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.8 native local echo presents the exact Black Silk Pack as hex without changing transport or history", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function(w)
+				ns.rdb.chat = nil
+				WithLane(function(sent)
+					eq(Chan.Send("A", named, 4e12), true)
+					eq(#sent, 1)
+					assert(not sent[1]:find("|", 1, true), "the packed transport has no pipe")
+					eq(assert(Codec.DecodeChat(sent[1])).text, named, "the receiver reconstructs the exact link")
+				end)
+				local delivered = assert(w[1].lines[1], "the sender's local echo")
+				eq(delivered:match(": (.*)$"), expected, "native AddMessage local echo")
+				local history = Chan.History("A")
+				eq(history[#history].text, named, "history retains the original named-colour link")
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.8 Chattynator presents the received Black Silk Pack with client RGB", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function()
+				ns.db.chatWindows = { ["Tester-Realm"] = { A = "GENERAL" } }
+				WithChattynatorAPI({ { "GENERAL" } }, function(c)
+					eq(Recv("A", "Member500", named), true)
+					eq(#c.calls, 1)
+					eq(c.calls[1][3]:match(": (.*)$"), expected, "Chattynator API text")
+					eq(Chan.History("A")[#Chan.History("A")].text, named, "history stays named-colour")
+				end)
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.8 native item presentation has a clickable uncoloured fallback and leaves traditional hex links unchanged", function()
+		local named = "|cnIQ2:|Hitem:11287::::::::36:103::::1:28:1418::::Player-3299-0050F7FB:|h[Lesser Magic Wand]|h|r"
+		local fallback = "|Hitem:11287::::::::36:103::::1:28:1418::::Player-3299-0050F7FB:|h[Lesser Magic Wand]|h"
+		local hex = "|cff0070dd|Hitem:19019::::::::60:::::::::|h[Thunderfury]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 11287 then return "Lesser Magic Wand", named, 2 end
+				if tonumber(id) == 19019 then return "Thunderfury", hex, 4 end
+			end }
+			ITEM_QUALITY_COLORS = {}
+			WithTabs(function(w)
+				eq(Recv("A", "Member500", named), true)
+				eq(Recv("A", "Member501", hex), true)
+				local first = assert(w[1].lines[1]):match(": (.*)$")
+				local second = assert(w[1].lines[2]):match(": (.*)$")
+				eq(first, fallback, "no unsupported named colour without usable client RGB")
+				eq(Codec.LinkAt(first, 1), #first, "the fallback remains clickable")
+				eq(second, hex, "a traditional hex item link is byte-for-byte unchanged")
+				local history = Chan.History("A")
+				eq(history[#history - 1].text, named); eq(history[#history].text, hex)
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
 	end)
 
 	test("1.1.1 Olympus tab: lines in a chat window named Olympus come without the channel's name, in its colour; another window and the main one keep it", function()
