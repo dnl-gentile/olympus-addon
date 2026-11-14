@@ -1365,21 +1365,25 @@ local function SendableRows()
 	return rows
 end
 
--- What this client holds, for its asks: the guilds it could count (within TOTAL_KEEP) and its
--- newest observation of any of them.
-function Data.GlobalDigest()
+-- The count and newest observation in one of the bounded global row sets. SendableRows already
+-- combines retained and valid direct rows by guild; GlobalRows is the retained view an ask needs
+-- healed. Keeping those inputs separate stops a fresh direct report from disguising an old save.
+local function GlobalRowsDigest(rows)
 	local seen, n, newest, now = {}, 0, 0, ns.Now()
-	local function Add(name, observed)
-		if type(name) ~= "string" or now - observed > Data.TOTAL_KEEP then return end
-		local key = name:lower()
-		if not seen[key] then seen[key], n = true, n + 1 end
-		if observed > newest then newest = observed end
-	end
-	for _, e in ipairs(GlobalRows()) do Add(e.name, e.observed) end
-	for name, g in pairs(ns.rdb.guilds or {}) do
-		if LocalReport(g) then Add(name, ObservationTime(g)) end
+	for _, e in ipairs(rows) do
+		local name, observed = e.name, tonumber(e.observed)
+		if type(name) == "string" and observed and now - observed <= Data.TOTAL_KEEP then
+			local key = name:lower()
+			if not seen[key] then seen[key], n = true, n + 1 end
+			if observed > newest then newest = observed end
+		end
 	end
 	return n, newest
+end
+
+-- What this client retains globally, for its asks: the view that another holder can heal.
+function Data.GlobalDigest()
+	return GlobalRowsDigest(GlobalRows())
 end
 
 local function GlobalWireRow(e)
@@ -1499,7 +1503,7 @@ end
 -- by more than FRESH. An ask of 1.3.3 says nothing of what it holds: answered as before.
 local function Behind(n, newest)
 	if not n then return true end
-	local mine, mineNewest = Data.GlobalDigest()
+	local mine, mineNewest = GlobalRowsDigest(SendableRows())
 	return mine > n or mineNewest > (newest or 0) + Data.FRESH
 end
 local function AnswerAsk(body, now)
@@ -1590,7 +1594,8 @@ function Data.ReceiveGlobalCensus(dist, sender, text)
 	return true
 end
 
--- The ask, with what this client holds (Data.GlobalDigest): a holder with nothing newer stays quiet.
+-- The ask, with the retained global view this client needs healed (Data.GlobalDigest): a holder
+-- with no newer sendable view stays quiet.
 function Data.AskGlobalCensus()
 	local n, newest = Data.GlobalDigest()
 	return ns.Comm.Send("CHANNEL", ("CG~%d~Q~%d~%d~%d"):format(Data.GLOBAL_PROTOCOL, math.floor(ns.Now()), n, newest), "census-global-ask")
