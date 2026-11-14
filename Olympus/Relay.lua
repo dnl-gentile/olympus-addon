@@ -1000,7 +1000,7 @@ ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
 	local pieces = Envelope("RG", "RG~" .. flag .. "~" .. origin .. "~" .. text)
 	if census == true then return GuildLane(pieces) end
-	local urgent = flag == "L"
+	local urgent = flag == "L" or Relay.ApprovalResendGuild(text) ~= nil
 	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false) ~= false end
 	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent) ~= false
 end
@@ -2232,7 +2232,10 @@ local function ToReporters(flag, origin, body, sender)
 	end
 	local own = ns.FullName(origin) == ns.me
 	local approvalGuild = Relay.ApprovalResendGuild(body)
-	if approvalGuild then approvalGuild = Lower(approvalGuild) end
+	if approvalGuild then
+		if not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return end
+		approvalGuild = Lower(approvalGuild)
+	end
 	local fresh = 0
 	for _, r in pairs(reporters) do
 		if now - r.t <= Relay.REPORTER_FOR then fresh = fresh + 1 end
@@ -2363,7 +2366,7 @@ local function ToReporters(flag, origin, body, sender)
 				-- (1.5.5) A chat line: by the chat lane (above), never pushed out of the queue.
 				stats.forwarded = stats.forwarded + 1
 				ChatTo(r.name, pieces, body, wire, g)
-			elseif own or snapshot or presence or KingLayer(origin, body, r.name, now) or Afford(r.name, #pieces, now, need, wordKey, first) then
+			elseif own or snapshot or presence or approvalGuild or KingLayer(origin, body, r.name, now) or Afford(r.name, #pieces, now, need, wordKey, first) then
 				stats.forwarded = stats.forwarded + 1
 				Quiet(r.name) -- (a reporter gone offline since: the server's line out of the chat)
 				-- A word that is not a chat line is keyed by its origin, kind and reporter: a newer
@@ -2372,8 +2375,9 @@ local function ToReporters(flag, origin, body, sender)
 				-- piece by its kind (ListKind), so two kinds' lists never take each other's place.
 				local word = presence and "T1~o" or ListKind(body) or QueueWord(body)
 				local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " " .. word) or nil
-				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, presence, false)
-				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, presence) end
+				local urgent = presence or approvalGuild ~= nil
+				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, urgent, false)
+				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, urgent) end
 			else
 				stats.trickled = (stats.trickled or 0) + 1
 			end
@@ -2817,6 +2821,9 @@ function Relay.HandleRelayed(dist, sender, text)
 	verified[ns.ShortName(sender):lower()] = Now()
 	-- (1.5.4) A word of a client marked as a modified build (Builds.lua): not heard, not handed on.
 	if Quarantined(origin) then stats.dropped = stats.dropped + 1 return true end
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval and (Lower(approval) ~= Lower(GetGuildInfo("player") or "")
+		or not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin))) then return false end
 	if not Remembered(origin, body) then ns.Log("relay: %s's word (%s) by %s", tostring(origin), body:sub(1, 2), tostring(sender)) end
 	if Relay.TakeVia("M", sender, origin, body, flag == "L") then ToGuild(flag, origin, body) end
 	return true
