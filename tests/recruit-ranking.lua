@@ -977,7 +977,8 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 			-- mark kept him from counting twice "never"; the keepers catch a move only where their own addon saw
 			-- the player, for 120 days. And the inviter's own report, the passer's word, the top 10.)
 			"a move no keeper's addon saw is not caught", "so he does not count again in that time",
-			"when his addon and yours both say so", "each inviter's own report and each passer's word",
+			"when both addons confirm the handoff", "Passing on a player found by a scan does not earn that share.",
+			"each inviter's own report and each passer's word",
 			"the top 10 and his own place", "your own invites whose player joined, always",
 			-- (Review of the 1.5.9 release: the pages put the keeper's guildmate whose invite the keeper's own
 			-- log saw among the witnesses that need your own report, left out a High Councillor, who confirms
