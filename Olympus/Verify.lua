@@ -1468,15 +1468,18 @@ function Verify.OpenCouncil()
 end
 
 -- The Census's mark before a guild's name: verified, for everyone; overdue, for the verifiers.
+-- (1.5.9, the author's: "a Olympus Prime aparece como não validada... Ela é a guilda principal, não
+-- precisa de validação para ela, mas bota o checkzinho para ela e pronto") The King's guild, which
+-- needs no verification (Verify.Exempt), wears the same mark, whoever its guild master is today.
 function Verify.Mark(guild)
 	local status = Verify.Status(guild)
-	if status == "verified" then return Verify.MARK_OK end
+	if status == "verified" or status == "exempt" then return Verify.MARK_OK end
 	if status == "overdue" and Verify.Trusted(ns.me) then return Verify.MARK_LATE end
 	return ""
 end
 function Verify.Tooltip(tt, guild)
 	local status = Verify.Status(guild)
-	if status == "verified" then
+	if status == "verified" or status == "exempt" then
 		tt:AddLine(L.VERIFY_MARK_VERIFIED, 0.25, 1, 0.25)
 	elseif status == "overdue" and Verify.Trusted(ns.me) then
 		tt:AddLine(L.VERIFY_MARK_LATE, 1, 0.4, 0.4)

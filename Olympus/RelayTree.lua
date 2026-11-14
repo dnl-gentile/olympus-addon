@@ -313,6 +313,18 @@ local function SeedsWaiting()
 	return false
 end
 
+-- (1.5.9's review) Whether the next round waits for the star: a registrant that does not take the tree (1.5.4)
+-- has waited TREE_ROUND_EVERY for its census snapshot in the relay's drip (Relay.StarWaiting), which every
+-- round's seeds go ahead of, and the last round is less than twice TREE_ROUND_EVERY old. With the drip at
+-- its pace (Relay.DRIP_PER_MIN) the rounds took all of it under a busy chat lane, and the 1.5.4 registrants
+-- got no census (the offline harness, 90 registrants, 10 of them on 1.5.4, a chat line every 45 s: 5 of
+-- the 10 none in 20 minutes; with this, every one within 8 minutes, the others within 11).
+local function StarFirst(now)
+	local R = ns.Relay
+	if not lastRound or type(R.StarWaiting) ~= "function" or now - lastRoundAt >= 2 * RelayTree.TREE_ROUND_EVERY then return false end
+	return R.StarWaiting(now) >= RelayTree.TREE_ROUND_EVERY
+end
+
 -- One form of the word as a tree among the registrants that read it: its pieces, k seeds, each seed's
 -- list, the registrants no seed can serve (left), and the digest for every one (the seeds' first).
 -- done: the transfers of the last round, for the registrants that completed theirs.
@@ -385,11 +397,12 @@ end
 
 -- A round: the word to the seeds whole (the front of the relay's drip), to the registrants no seed can
 -- serve (after the drip's other transfers), and a digest to every one. At most each TREE_ROUND_EVERY,
--- never while the last round's seeds wait for theirs. Where some registrants read the packed form
--- (RelayTree.Reads), two trees: the packed word among them, the word as written among the others, the
--- round's seeds shared between the two by their work (SEEDS_MIN each at least), the packed tree's first.
+-- never while the last round's seeds wait for theirs (nor, 1.5.9's review, while the star waits too long:
+-- StarFirst). Where some registrants read the packed form (RelayTree.Reads), two trees: the packed word
+-- among them, the word as written among the others, the round's seeds shared between the two by their
+-- work (SEEDS_MIN each at least), the packed tree's first.
 local function Round(word, n, regs, now)
-	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() then
+	if (now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_ROUND_EVERY) or SeedsWaiting() or StarFirst(now) then
 		stats.deferred = stats.deferred + 1
 		return
 	end
@@ -421,7 +434,7 @@ local function Round(word, n, regs, now)
 		local share = #forms == 1 and k or math.max(RelayTree.SEEDS_MIN, math.floor(k * f.work / work + 0.5))
 		local round, seeds, left, firstRN, otherRN = Plan(f.word, f.regs, share, now, done)
 		for _, s in ipairs(seeds) do
-			Relay.DripTo(s.name, "tree word", { round.pieces }, { front = true })
+			Relay.DripTo(s.name, "tree word", { round.pieces }, { front = true, census = true })
 			all.seeds[s.key] = s.name
 		end
 		for _, r in ipairs(left) do leftAll[#leftAll + 1] = { name = r.name, pieces = round.pieces } end
@@ -435,7 +448,7 @@ local function Round(word, n, regs, now)
 			f.packed and " (packed)" or "", round.rt, round.k, round.left, round.n)
 	end
 	if not all.tid then all.tid, all.n = all.packed.tid, all.packed.n end
-	for _, x in ipairs(leftAll) do Relay.DripTo(x.name, "tree word", { x.pieces }) end
+	for _, x in ipairs(leftAll) do Relay.DripTo(x.name, "tree word", { x.pieces }, { census = true }) end
 	for _, job in ipairs(others) do first[#first + 1] = job end
 	rnWaiting = first
 	lastRound, lastRoundAt = all, now
@@ -457,7 +470,23 @@ end
 -- Whether a set goes as a tree to this registrant (true: nothing else goes to it). Decided once for each
 -- set: a census snapshot, this relay trusted by the 1.5.5 census, and the star (tree-capable registrants x
 -- pieces) costing more than TREE_STAR_MAX. Then the relay's own snapshot makes a round, and another
--- origin's needs nothing: the relay's own snapshot carries the trusted rows it took. Else false: as before.
+-- origin's needs nothing while those rounds run: the relay's own snapshot carries the trusted rows it
+-- took. Else false: as before.
+-- (1.5.9, an /oly bug of 2026-11-12: a member saw his own guild and one old report, about 1,100 of the
+-- army.) Another origin's set was the tree's whether or not the relay made rounds of its own, and only its
+-- own snapshot starts one: a relay whose own snapshot never goes (quiet presence: Data.SendGlobalCensus
+-- says nothing) handed its tree-capable registrants no census at all. Another origin's set is the tree's
+-- now only while the relay's own rounds run (RoundsRun, above: its last round within TREE_HOLD, and its own
+-- snapshot still made); else the drip hands each registrant the set its census trusts (Relay.lua's
+-- CensusFor), as before the tree.
+-- (1.5.9's review) Whether this relay's own rounds run: its last one within TREE_HOLD, and its own snapshot
+-- still made (quiet presence holds it: Data.SendGlobalCensus says nothing, so no round can follow). With
+-- quiet presence turned on after a round, another origin's set was the tree's for the rest of TREE_HOLD
+-- and reached no tree-capable registrant (the offline harness: 0 of 30 for 15 minutes).
+local function RoundsRun(now)
+	if ns.QuietPresence and ns.QuietPresence() then return false end
+	return lastRound ~= nil and now >= lastRoundAt and now - lastRoundAt < RelayTree.TREE_HOLD
+end
 local function Decide(d, set, own)
 	local word = CensusWord(set)
 	if not word or not Trusted() then return end
@@ -467,6 +496,7 @@ local function Decide(d, set, own)
 	local now = Now()
 	local regs = TreeRegistrants(now)
 	if #regs * (ownPieces or n) <= RelayTree.TREE_STAR_MAX then return end
+	if not own and not RoundsRun(now) then return end
 	d.active = true
 	if own then Round(word, n, regs, now) end
 end
@@ -501,7 +531,7 @@ local function RelayRepair(round, sender, mask, now)
 	if #batch == 0 then return false end
 	round.repaired[key] = true
 	stats.rqAnswered = stats.rqAnswered + 1
-	return ns.Relay.DripTo(reg.name, "tree rq " .. round.tid, { batch }, { front = true })
+	return ns.Relay.DripTo(reg.name, "tree rq " .. round.tid, { batch }, { front = true, census = true })
 end
 
 ---------------------------------------------------------------------------

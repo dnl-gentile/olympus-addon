@@ -628,10 +628,18 @@ test("1.1.6 Church: reading the log: never in combat, at most every minute, draw
 	eq(LogRegistrations(c.m1), 1, "log event registered exactly once, independently of chat's event")
 	eq(c.m1.queries, 2)
 	eq(select(2, w:As(c.king, c.king.Count.Read)), "king")
-	-- A plain member reads only where a Church person was heard over GUILD, and then with a chance
-	-- of 2 / his guild's addon users.
+	-- A plain member reads with a chance of 2 / his guild's addon users. (Before 1.5.9 only where a Church
+	-- person was heard over GUILD. 1.5.9, the author: "O ranking para todo mundo": any member's recruit
+	-- counts in the recruiting ranking for everyone, RecruitRanking.lua, so every Olympus guild's log is
+	-- read, drawn the same way. A 1.5.8 client still reads only where the Church is.)
 	local lone = w:Client("Lone Wolf", { guild = "Olympus Lone" })
-	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 400), false, "no Church person heard in his guild")
+	lone.peers = 20
+	lone.Count.chance = function() return 0.5 end
+	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 400), false, "no Church person heard in his guild: 0.5 > 2/20, not drawn")
+	lone.Count.chance = function() return 0.05 end
+	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 800), true, "drawn: every Olympus guild is read for the ranking for everyone")
+	local older = w:Client("Older Wolf", { guild = "Olympus Lone", release158 = true })
+	eq(w:As(older, older.Count.MaybeRead, w.clock + 400), false, "a 1.5.8 client: no Church person heard in his guild")
 	c.wes.peers = 20
 	c.wes.Count.chance = function() return 0.5 end
 	eq(w:As(c.wes, c.wes.Count.MaybeRead, w.clock + 400), false, "0.5 > 2/20: not drawn")
@@ -3480,14 +3488,17 @@ test("1.5.5 Church (regression): a keeper's client reads its own guild's log, as
 	AnHour(w)
 	eq(w:As(c.a1, c.a1.Church.Role, A1), nil, "the Apostle's own client does not know he is one")
 	eq(#w:Sent(c.a1, "NK"), 0, "so it says nothing over GUILD")
-	eq(c.a1.queries, 0, "nor reads the log")
+	-- (1.5.9, the author: "O ranking para todo mundo": every member's client in an Olympus guild may read
+	-- its log now, for the recruiting ranking for everyone; his still reports no Church pair.)
+	eq(#w:Sent(c.a1, "NV", "WHISPER", "w"), 0, "nor reports his own invite to the Church")
 	-- (Failed before: the author is a keeper, W, but no Church person, and no Church person was heard in his
 	-- guild: his client never read its log, and his ledger stayed empty.)
 	eq(c.author.queries > 0, true, "the author's client read its guild's log on its own")
 	eq(StateOf(w, c.author, "New Guy", A1), "credited", "his own read of the log: a keeper is a witness he vouches for")
 	eq(Records(w, c.author), 1)
 	eq(ApostleRow(w, c.author).score, c.author.Count.POINTS_JOIN, "his Church tab: the Apostle's ten points")
-	eq(c.wes.queries, 0, "a member whose list names no Church person, and who heard none, still does not read")
+	-- (1.5.9: he may read for the ranking for everyone, as any member; never for the Church here.)
+	eq(#w:Sent(c.wes, "NV", "WHISPER", "w"), 0, "a member whose list names no Church person, and who heard none, reports no Church pair")
 end)
 
 test("1.5.5 Church (regression): a member whose own list names a Church person of his guild reads its log (drawn) though that person's client never said so; his report waits for a keeper", function()
@@ -3500,7 +3511,9 @@ test("1.5.5 Church (regression): a member whose own list names a Church person o
 	-- (Failed before: no presence heard, no read.)
 	eq(c.wes.queries > 0, true, "Wes's client read the log: its roster holds an Apostle of its own list")
 	eq(w:As(c.wes, c.wes.Count.Stats).pairs, 1, "the Apostle's invite and the join: one pair")
-	eq(c.a1.queries, 0, "the Apostle's own client still reads nothing: its list names nobody")
+	-- (1.5.9, the author: "O ranking para todo mundo": the Apostle's client may read for the ranking for
+	-- everyone now; for the Church it still reports nothing, its list naming nobody.)
+	eq(#w:Sent(c.a1, "NV", "WHISPER", "w"), 0, "the Apostle's own client still reports nothing to the Church: its list names nobody")
 	-- The game keeps the newest events only: they are gone from the log when the author logs in. Wes's report,
 	-- kept in his outbox, reaches him; his roster saw the recruit join, so he vouches for his guildmate.
 	w.log[World.GUILD] = {}
@@ -3509,10 +3522,15 @@ test("1.5.5 Church (regression): a member whose own list names a Church person o
 	Settle(w, 30)
 	eq(StateOf(w, c.author, "New Guy", A1), "credited", "Wes's read, vouched for in the author's own guild")
 	eq(ApostleRow(w, c.author).score, c.author.Count.POINTS_JOIN)
-	-- A member of a guild where his list names nobody and nobody was heard: no read, as before.
-	local lone = w:Client("Lone Wolf", { guild = "Olympus Lone" })
+	-- A member of a guild where his list names nobody and nobody was heard: no read on a 1.5.8 client, as
+	-- before. (1.5.9, the author: "O ranking para todo mundo": a 1.5.9 client reads there too, drawn, for the
+	-- ranking for everyone, and reports no Church pair.)
+	local lone = w:Client("Lone Wolf", { guild = "Olympus Lone", release158 = true })
 	eq(w:As(lone, lone.Count.MaybeRead, w.clock + 400), false, "no Church person in his guild")
 	eq(lone.queries, 0)
+	local now = w:Client("Lone Now", { guild = "Olympus Lone" })
+	eq(w:As(now, now.Count.MaybeRead, w.clock + 400), true, "1.5.9: every Olympus guild is read for the ranking for everyone")
+	eq(#w:Sent(now, "NV"), 0)
 end)
 
 -- 1.5.8 (regression): the recruiters ranking showed only the pairs the author's own client had

@@ -65,7 +65,8 @@ World.Copy = Copy
 
 -- A client. opts: guild (World.GUILD by default; false: none), rank (0: guild master), old (a client
 -- before 1.1.6: none of the Church files), view (ChurchView.lua too), real (no stand-ins for the
--- council: the harness's own signed lists), rdb (saved data to start from).
+-- council: the harness's own signed lists), rdb (saved data to start from), release158 (1.5.9: a client
+-- of 1.5.4 to 1.5.8, the Church's files without RecruitRanking.lua: no handler for its NE words).
 function World:Client(name, opts)
 	opts = opts or {}
 	local w = self
@@ -186,10 +187,13 @@ function World:Client(name, opts)
 			assert(loadfile(ROOT .. "Olympus/Church.lua"))("Olympus", c)
 			assert(loadfile(ROOT .. "Olympus/ChurchCount.lua"))("Olympus", c)
 			assert(loadfile(ROOT .. "Olympus/ChurchFullness.lua"))("Olympus", c)
+			if not opts.release158 then assert(loadfile(ROOT .. "Olympus/RecruitRanking.lua"))("Olympus", c) end
 			if opts.view then assert(loadfile(ROOT .. "Olympus/ChurchView.lua"))("Olympus", c) end
 		end)
 		c.Church.after = function(seconds, _, fn) w:Later(cl, seconds, fn) end
 		c.ChurchCount.after = c.Church.after
+		if c.RecruitRanking then c.RecruitRanking.after = c.Church.after end
+		cl.RR = c.RecruitRanking
 		c.Church.random = function(a) return a end
 		c.ChurchCount.random = function(a) return a end
 		c.Church.chance = function() return 0 end
@@ -234,7 +238,9 @@ function World:As(cl, fn, ...)
 	QueryGuildEventLog = function() cl.queries, cl.queried = cl.queries + 1, true end
 	GetNumGuildEvents = function() return #(w.log[cl.guild or ""] or {}) end
 	GetGuildEventInfo = function(i)
-		local e = (w.log[cl.guild or ""] or {})[i]
+		-- (w.newestFirst: the log listed newest first, the other way the game may list it.)
+		local list = w.log[cl.guild or ""] or {}
+		local e = list[w.newestFirst and (#list + 1 - i) or i]
 		if not e then return nil end
 		local ago = math.max(0, math.floor((w.clock - e.t) / 3600))
 		local days, hours = math.floor(ago / 24), ago % 24
@@ -332,7 +338,8 @@ end
 function World:ClearSent() self.sent = {} end
 
 -- A guild log event: kind invite (p1 invited p2), join (p1), quit (p1), remove (p1 removed p2), t
--- hours ago (the world's clock).
+-- hours ago (the world's clock). The log lists them as they come, oldest first (GetGuildEventInfo), or newest
+-- first with w.newestFirst.
 function World:LogEvent(guild, kind, p1, p2, hoursAgo)
 	self.log = self.log or {}
 	self.log[guild] = self.log[guild] or {}

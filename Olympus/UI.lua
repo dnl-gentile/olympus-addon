@@ -1496,11 +1496,10 @@ local function CreateMain(style)
 		-- (1.2.4: and the person page shown, for what it held: ProfileLeft.)
 		if self == main then
 			if not self:IsShown() then
-				-- (1.5.8) The Census offer closed with every switch off asks again, as its Leave it off
-				-- for now does (a switch turned on and off again made a choice).
-				if self.recruitmentOffer == "open" and ns.Recruit and ns.Recruit.ForgetUnusedChoice then
-					ns.SafeCall("recruitment offer", ns.Recruit.ForgetUnusedChoice)
-				end
+				-- (1.5.9, the author's report: "As configurações não devem mudar entre login") Closing
+				-- the window keeps what the switches were left at: an off the player chose stays off.
+				-- Only Leave it off for now asks again, and recruiting turned off in Church > Invites
+				-- (until Done or Don't ask again, Recruit.ShouldOfferWhisperRecruiting).
 				self.recruitmentOffer, self.recruitmentNotice = nil, nil
 			end
 			ProfileLeft(playerProfile)
@@ -2433,7 +2432,9 @@ end
 -- 1.5.8 (the author's ask): the offer's three switches (Views.RecruitOfferSwitch) keep it open
 -- while they are set ("open": a switch turned on makes a choice, which no longer offers it), until
 -- Done, Leave it off for now or Don't ask again. Don't ask again leaves a line at the top of the
--- Census, until clicked or the window closes, that opens Church > Invites.
+-- Census, until clicked or the window closes, that opens Church > Invites. (1.5.9) Recruiting turned
+-- off in Church > Invites brings the offer back at each opening until Done or Don't ask again
+-- (Recruit.OfferAnswered).
 local function CensusRecruitment(previewing)
 	if previewing or main.tab ~= "census" or not ns.db then return end
 	local R = ns.Recruit
@@ -2463,6 +2464,7 @@ local function CensusRecruitment(previewing)
 			UI.Refresh()
 		end,
 		done = function()
+			if R.OfferAnswered then R.OfferAnswered() end
 			Close()
 			R.ActivatedNotice()
 		end,
@@ -2472,6 +2474,7 @@ local function CensusRecruitment(previewing)
 		end,
 		never = function()
 			ns.db.hideRecruitmentOffer = true
+			if R.OfferAnswered then R.OfferAnswered() end
 			main.recruitmentNotice = true
 			ns.Print(L.RECRUIT_CENSUS_ELSEWHERE)
 			Close()

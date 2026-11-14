@@ -74,7 +74,7 @@ end
 
 local function Remember(unit)
 	local name, guid, _, full = R.ReadCandidateUnit(unit)
-	if not name or Hidden(full) then return end
+	if not name or Hidden(full) or R.Declined(full) then return end
 	local now = GetTime()
 	local prior = byGUID[guid]
 	if prior and prior.full ~= full then return end
@@ -115,7 +115,7 @@ function Q.ObserveWho(name, rawGuild, race)
 	local realm = full:match("%-([^%-]+)$")
 	local command = R.CandidateCommandName(full)
 	if not realm or not ns.InGroup(realm) or WhoFaction(race) ~= ns.faction or not command
-		or key == ns.Fold(ns.me) or Hidden(full) then return end
+		or key == ns.Fold(ns.me) or Hidden(full) or R.Declined(full) then return end
 	local now = GetTime()
 	local row = Add(full, command, now)
 	local first = not row.who
@@ -133,7 +133,8 @@ end
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
 function Q.Check(row, live)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full) then return end
+	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full)
+		or R.Declined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
 		if row.target and UnitMatches(row, "target") then return "target" end
@@ -156,6 +157,17 @@ function Q.Overflow(skip)
 		if row.passWanted and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
 			and not (skip and skip(row)) then return row end
 	end
+end
+
+-- (1.5.9, the author's ask) A player who declined this client's invite (Recruit.Declined) leaves
+-- the list, and the scan (nameplates, target, mouseover, /who) does not take him in again while the
+-- decline is kept.
+function Q.DropDeclined()
+	local before = #rows
+	for i = #rows, 1, -1 do
+		if R.Declined(rows[i].full) then done[rows[i].key] = true; Drop(i) end
+	end
+	if #rows ~= before then Change() end
 end
 
 -- Each scanned player, for the invite limit's release (Recruit.ReleaseLimited).
@@ -231,8 +243,12 @@ end
 
 local function Toggle()
 	if guild then Q.Reset(); Save("scan", nil); Change(); return end
-	if Start() then
-		Save("scan", true); Save("scanListOnly", nil)
+	-- (1.5.9, the author's report, 11-12: "Ele tem que ficar desativado se ele estava desativado") The
+	-- popups as the player left them: on unless he chose the list alone. Turning the scan on again put
+	-- them back on, after a login too.
+	local saved = R.Preference and R.Preference()
+	if Start(type(saved) == "table" and saved.scanListOnly == true) then
+		Save("scan", true)
 		Q.SearchMore() -- (1.5.8: the switch's click sends the first /who)
 	end
 end
@@ -242,11 +258,13 @@ function Q.Restore(saved)
 	Start(saved.scanListOnly == true)
 end
 
-function Q.Lines(lines, V)
+-- `hint` (1.5.9): the section's grey line, under its switch as every section of Church > Invites has it.
+function Q.Lines(lines, V, hint)
 	if not LocalGuild() then return end
 	local on = Q.Enabled()
 	lines[#lines + 1] = { id = "recruit-candidate-toggle", text = (on and V.Green or V.Grey)(on and L.RECRUIT_CANDIDATES_ON or L.RECRUIT_CANDIDATES_OFF),
 		onClick = Toggle }
+	if hint then lines[#lines + 1] = { indent = 1, text = V.Grey(hint) } end
 	if not on then return end
 	lines[#lines + 1] = { id = "recruit-candidate-prompts", indent = 1,
 		text = (prompts and V.Green or V.Grey)(prompts and L.RECRUIT_CANDIDATE_PROMPTS_ON or L.RECRUIT_CANDIDATE_PROMPTS_OFF),
@@ -262,10 +280,11 @@ function Q.Lines(lines, V)
 		local label = row.guid and L.RECRUIT_CANDIDATE_SEEN or L.RECRUIT_CANDIDATE_WHO
 		local state = R.Handoff and R.Handoff.State(row)
 		if state then
+			-- (Review of 1.5.9: rows do not wrap.) Who has him on a row of its own, as a JOIN's.
 			local ref = row.handoff
-			label = (state == "assigned" and L.RECRUIT_HANDOFF_DONE or L.RECRUIT_HANDOFF_PENDING)
-				:format(ns.DisplayName(ref.peer) or ref.peer, ref.to)
-			lines[#lines + 1] = { indent = 1, text = V.Grey(display .. " - " .. label) }
+			lines[#lines + 1] = { indent = 1, text = V.Grey(display) }
+			lines[#lines + 1] = { indent = 2, text = V.Grey((state == "assigned" and L.RECRUIT_HANDOFF_DONE
+				or L.RECRUIT_HANDOFF_PENDING):format(R.Handoff.Who(ref.peer, ref.to))) }
 		elseif row.passWanted then
 			lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_PASSING:format(display)),
 				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
@@ -291,7 +310,7 @@ end)
 local function ObserveMouseover()
 	if not Q.Enabled() or Quiet() then return end
 	local name, guid, _, full = R.ReadCandidateUnit("mouseover")
-	if not name or Hidden(full) or byGUID[guid] then return end
+	if not name or Hidden(full) or R.Declined(full) or byGUID[guid] then return end
 	local now = GetTime()
 	local row = Add(full, name, now)
 	if row.guid then return end

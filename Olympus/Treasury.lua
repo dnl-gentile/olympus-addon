@@ -3606,7 +3606,9 @@ function Treasury.DonationsLogout()
 	-- (Quiet presence: nothing at logout either; the others' line had lapsed or lapses.)
 	if ns.QuietPresence and ns.QuietPresence() then return end
 	-- (1.5.5) On WoW: Forever the native addon channel
-	-- delivers nothing, and the relay's whispers wait in the send queue, which no longer runs at logout:
+	-- delivered nothing at launch (1.5.9: older clients' census seen arriving on the public channel since,
+	-- not yet confirmed in game; 1.5.5 and later send nothing there), and the relay's whispers wait in the
+	-- send queue, which no longer runs at logout:
 	-- the off goes to his own guild alone, over GUILD, as the relay's hand-over from himself (RG,
 	-- Relay.lua's OwnGuild), which every guildmate takes as this word. The other guilds' line lapses
 	-- (DONATIONS_FRESH). Nothing goes on the channel.

@@ -1730,6 +1730,18 @@ local portableCursor, portableSent, legacySent = 0, {}, -math.huge
 local attestCursor, attestSent, attestHeard = 0, {}, {}
 local groupTicker = false
 local groupWitness = {} -- [key] = { [person] = row }: the witnesses heard this session
+-- (1.5.8) The rows a trusted source gave (our own look, a trusted origin's, the author's): counted until
+-- a newer one replaces them (Data.Groups). A witnessed row or a guildmate's hand-over (rg) counts GROUP_COUNT.
+local LASTING_SRC = { own = true, relay = true, author = true }
+-- (1.5.9, the author, 11-12: "o que eu visualizar tem que ficar circulando lá" and "ele deveria redistribuir
+-- esses dados enquanto não tivessem dados novos na rede") Such a held row lasts past GROUP_KEEP too: kept,
+-- counted and said again until a newer look of its origin replaces it. A look nobody refreshed left every
+-- client seven days after it was taken. A heard, witnessed or handed-over row still goes after GROUP_KEEP.
+-- (The review of the 1.5.9 census lane) A Forever family's row alone: any other group name is free text,
+-- and two members' agreeing rows of an invented server, said again by a trusted client, lasted for good.
+local function Lasting(e)
+	return type(e) == "table" and LASTING_SRC[e.src] == true and not e.rg and not e.unscoped and ScopedGroup(e.group) ~= nil
+end
 
 local function GroupStore(which)
 	local db = ns.db
@@ -1821,7 +1833,8 @@ function Data.GroupInfo(group)
 end
 
 -- A row as it is kept and sent, checked: { group, faction, characters, people, guilds, observed }.
-local function GroupRow(group, faction, characters, people, guilds, observed)
+-- lasting (1.5.9): a trusted look (Lasting), taken however old it is.
+local function GroupRow(group, faction, characters, people, guilds, observed, lasting)
 	group = GroupField(group)
 	if faction ~= "Alliance" and faction ~= "Horde" then return nil end
 	characters = GlobalNumber(characters, 1, Data.MAX_GUILDS * ns.Codec.GUILD_CAP)
@@ -1830,7 +1843,7 @@ local function GroupRow(group, faction, characters, people, guilds, observed)
 	observed = GlobalNumber(observed, 1, 4102444800)
 	if not (group and characters and people and guilds and observed) then return nil end
 	local now = ns.Now()
-	if observed > now + 5 * 60 or now - observed > Data.GROUP_KEEP then return nil end
+	if observed > now + 5 * 60 or (not lasting and now - observed > Data.GROUP_KEEP) then return nil end
 	return { group = group, faction = faction, characters = characters, people = people, guilds = guilds, observed = observed }
 end
 -- Whether a group's numbers belong on this client's page: never the beta's on a launch realm.
@@ -1838,12 +1851,32 @@ local function Listed(group)
 	return not Data.IsBetaGroup(group) or Data.IsBetaGroup(ns.group)
 end
 
+-- (1.5.9, the review of the census lane) A row that counts GROUP_COUNT alone (a witnessed row, a
+-- guildmate's hand-over: rg) put over a lasting one keeps it beneath (under, TakeGroup's Keep): once that
+-- row no longer counts, the lasting one is back, dated as it was observed. A hand-over (most members hear
+-- the census in one) or two members' looks went over a trusted look, and it left with them.
+local function SettleGroups(now)
+	local store = GroupStore()
+	for key, e in pairs(store) do
+		local under = type(e) == "table" and e.under
+		if under ~= nil and under ~= false then
+			if Lasting(e) or not Lasting(under) then e.under = nil
+			elseif now - (tonumber(e.observed) or 0) > Data.GROUP_COUNT then
+				under.under = nil
+				store[key] = under
+			end
+		end
+	end
+end
+
 local function PruneGroups(now)
+	SettleGroups(now)
 	for _, which in ipairs({ "counted", "heard" }) do
 		local store = GroupStore(which)
 		local per = {}
 		for key, e in pairs(store) do
-			local row = type(e) == "table" and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
+			local row = type(e) == "table" and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed,
+				which == "counted" and Lasting(e))
 			if not row then
 				store[key] = nil
 			else
@@ -1881,9 +1914,11 @@ local function PruneGroups(now)
 		return a.key < b.key
 	end)
 	for i = Data.GROUP_MAX * 2 + 1, #keys do groupWitness[keys[i].key] = nil end
+	-- (1.5.9) A hint of a lasting row held here stays past GROUP_KEEP with it: heard said, it is not said again.
 	for _, heard in ipairs({ groupHeard, groupHeardLedger }) do
 		for key, observed in pairs(heard) do
-			if now - observed > Data.GROUP_KEEP or (not groupWitness[key] and not GroupStore()[key]) then heard[key] = nil end
+			local held = GroupStore()[key]
+			if (now - observed > Data.GROUP_KEEP and not Lasting(held)) or (not groupWitness[key] and not held) then heard[key] = nil end
 		end
 	end
 end
@@ -1918,6 +1953,8 @@ function Data.ApplyGroupSnapshot(s, now)
 	if not (ns.Comm and ns.Comm.loginAt) then return end
 	local group = GroupField(ns.group)
 	local held
+	-- (1.5.9) GROUP_KEEP still bounds our own origin's saved view (a lasting row past it stays kept for
+	-- when this account is elsewhere): here the guild reports count it live.
 	for _, e in pairs(GroupStore()) do
 		if type(e) == "table" and GroupField(e.group) == group and e.faction == OurFaction()
 			and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
@@ -1969,6 +2006,7 @@ end
 local function TakeGroup(row, sender, trusted, now, src)
 	local key = GroupKey(row.faction, row.group)
 	if row.group == GroupField(ns.group) and row.faction == OurFaction() then return false end -- our own: we see it live
+	SettleGroups(now)
 	local store = GroupStore()
 	local held = store[key]
 	-- Legacy CX rows have no original observer. Two forwarding clients are not
@@ -1983,13 +2021,32 @@ local function TakeGroup(row, sender, trusted, now, src)
 		return false, "unproven"
 	end
 	local function Keep(r, src, w)
-		if type(held) == "table" and (tonumber(held.observed) or 0) >= r.observed then
-			-- (1.5.5) The same look again on a stamped hop: no longer a hand-over alone.
-			if held.rg and not r.rg and tonumber(held.observed) == r.observed and held.src == src then held.rg = nil end
-			return false
-		end
-		store[key] = { group = r.group, faction = r.faction, characters = r.characters, people = r.people, guilds = r.guilds,
+		local entry = { group = r.group, faction = r.faction, characters = r.characters, people = r.people, guilds = r.guilds,
 			observed = r.observed, src = src, by = ns.FullName(sender), w = w, rg = r.rg or nil }
+		local lasting, over = Lasting(entry), store[key] -- (over: the row held, even when set aside for a wider look)
+		if type(held) == "table" and (tonumber(held.observed) or 0) >= r.observed then
+			-- (1.5.9) A lasting look and a row held that counts GROUP_COUNT alone (SettleGroups): the same
+			-- observation proven (the author's signed copy of a hand-over, a relay's) takes its place; an older
+			-- one waits beneath it until it no longer counts.
+			if not (lasting and not Lasting(held)) then
+				-- (1.5.5) The same look again on a stamped hop: no longer a hand-over alone.
+				if held.rg and not r.rg and tonumber(held.observed) == r.observed and held.src == src then held.rg = nil end
+				return false
+			end
+			if (tonumber(held.observed) or 0) > r.observed then
+				if not (Lasting(held.under) and (tonumber(held.under.observed) or 0) >= r.observed) then held.under = entry end
+				return now - (tonumber(held.observed) or 0) > Data.GROUP_COUNT -- (counting no more: back at once, SettleGroups)
+			end
+		end
+		-- (1.5.9) A row that counts GROUP_COUNT alone keeps the lasting one it goes over beneath it, and one
+		-- past GROUP_COUNT goes over none (it would not count, and the lasting one would be back at once).
+		if not lasting and type(over) == "table" then
+			local under = Lasting(over) and over or (Lasting(over.under) and over.under) or nil
+			if under and now - r.observed > Data.GROUP_COUNT then return false end
+			if under then under.under = nil end
+			entry.under = under
+		end
+		store[key] = entry
 		local h = GroupStore("heard")[key]
 		if type(h) == "table" and (tonumber(h.observed) or 0) <= r.observed then GroupStore("heard")[key] = nil end
 		return true
@@ -2074,21 +2131,21 @@ end
 -- from the author keeps it quiet no more, only what it heard from a ledger relay (groupHeardLedger),
 -- which those clients counted. No trusted client says a row it took over a guildmate's hand-over (rg).
 local AUTHOR_SAYS = { own = true, relay = true, witnessed = true, author = true }
--- (1.5.8) The rows a trusted source gave (our own look, a trusted origin's, the author's): counted until
--- a newer one replaces them (Data.Groups). A witnessed row or a guildmate's hand-over (rg) counts GROUP_COUNT.
-local LASTING_SRC = { own = true, relay = true, author = true }
+-- (LASTING_SRC and Lasting, above GroupRow: the rows a trusted source gave count, and last, until replaced.)
 function Data.GroupCensusPayload(now)
 	now = now or ns.Now()
+	SettleGroups(now)
 	local trusted = GlobalTrusted(ns.me)
 	local author = trusted and AuthorIdentity(ns.me)
 	local rows, byOrigin = {}, {}
 	local side = OurFaction()
 	for _, e in pairs(GroupStore()) do
-		local row = type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed)
+		local row = type(e) == "table" and e.faction == side
+			and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed, Lasting(e))
 		local key = row and GroupKey(row.faction, row.group)
 		local say, heard = row and not ScopedGroup(row.group), groupHeard
-		-- (1.5.8) The newest trusted look held is said however old it is (GROUP_KEEP at most, GroupRow): it
-		-- counts until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
+		-- (1.5.8) The newest trusted look held is said however old it is (1.5.9: past GROUP_KEEP too, Lasting):
+		-- it counts until a newer one replaces it (Data.Groups), so a holder keeps carrying it to late clients.
 		-- A witnessed row (two untrusted looks agreeing) is said only while it counts, GROUP_COUNT.
 		if row and not say and trusted and e.group == row.group and not e.rg then
 			if author then say = AUTHOR_SAYS[e.src] == true and (LASTING_SRC[e.src] == true or now - row.observed <= Data.GROUP_COUNT)
@@ -2166,7 +2223,9 @@ function Data.ReceiveGroupCensus(dist, sender, text)
 		if count >= Data.GROUP_SAY_MAX then break end
 		count = count + 1
 		local g, f, c, p, n, o = part:match("^([^|,]+)[|,](%a+)[|,](%d+)[|,](%d+)[|,](%d+)[|,](%d+)$")
-		local row = g and GroupRow(g, f, c, p, n, o)
+		-- (1.5.9) A trusted sender's row (not a hand-over) of a Forever family is taken however old: it lasts
+		-- (Lasting). Any other group's keeps GROUP_KEEP, as before.
+		local row = g and GroupRow(g, f, c, p, n, o, trusted and not rg and ScopedGroup(GroupField(g) or "") ~= nil)
 		if row then
 			-- A Forever family's row without an original observer: a trusted sender's word alone,
 			-- anyone else's reported only (1.5.2: forwarders are not independent witnesses).
@@ -2189,8 +2248,10 @@ end
 -- people, guilds, observed, src, w, kind, region, counted, ours } }, characters, people, kinds =
 -- { [kind or "?"] = { characters, people } }, regions = { [region or "?"] = {...} }, factions = {...} }.
 -- Ours is the census held now (Data.Summary); the others as kept; a lone witness listed, not counted.
+-- (1.5.9) oldestOther: the oldest look of another origin the totals count (the census page's "As of").
 function Data.Groups(s, now)
 	now = now or ns.Now()
+	SettleGroups(now)
 	s = s or Data.Summary()
 	local out = { rows = {}, characters = 0, people = 0, kinds = {}, regions = {}, factions = {} }
 	local seen = {}
@@ -2218,6 +2279,7 @@ function Data.Groups(s, now)
 		out.characters, out.people = out.characters + e.characters, out.people + e.people
 		out.oldest = out.oldest and math.min(out.oldest, e.observed) or e.observed
 		out.newest = math.max(out.newest or 0, e.observed)
+		if not ours then out.oldestOther = math.min(out.oldestOther or e.observed, e.observed) end
 		for _, pair in ipairs({ { out.kinds, kind or "?" }, { out.regions, region or "?" }, { out.factions, e.faction } }) do
 			local t = pair[1][pair[2]] or { characters = 0, people = 0 }
 			t.characters, t.people = t.characters + e.characters, t.people + e.people
@@ -2242,7 +2304,11 @@ function Data.Groups(s, now)
 	local side = OurFaction()
 	local kept = {}
 	for _, e in pairs(GroupStore()) do
-		if type(e) == "table" and e.faction == side and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed) and Listed(e.group) then kept[#kept + 1] = e end
+		-- (1.5.9) Another origin's lasting row however old (Lasting); our own origin's saved row GROUP_KEEP.
+		if type(e) == "table" and e.faction == side and Listed(e.group)
+			and GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed, Lasting(e) and GroupField(e.group) ~= group) then
+			kept[#kept + 1] = e
+		end
 	end
 	table.sort(kept, GroupLater)
 	-- (1.5.8, the author, 11-12: "ele deveria redistribuir esses dados enquanto não tivessem dados novos
@@ -2254,7 +2320,7 @@ function Data.Groups(s, now)
 	-- report (TOTAL_KEEP).
 	for _, e in ipairs(kept) do
 		local ours = GroupField(e.group) == group
-		local lasting = not ours and LASTING_SRC[e.src] == true and not e.rg
+		local lasting = not ours and Lasting(e)
 		Add(e, not e.unscoped and (lasting or now - e.observed <= (ours and Data.TOTAL_KEEP or Data.GROUP_COUNT)), ours)
 	end
 	local heard = {}
@@ -2452,6 +2518,30 @@ function Data.GroupGuilds(group, faction)
 	table.sort(out, function(a, b) if a.characters ~= b.characters then return a.characters > b.characters end return a.name < b.name end)
 	return out
 end
+-- (1.5.9) The Forever family ("ForeverPvE") whose census lists guild `name`, for the [Olympus] picker's
+-- rulesets (Channels.lua): our own census (ns.rdb.guilds, our family's reports) and the other families'
+-- rows kept within KEEP (the group details, Data.GroupGuilds), our side's alone, by name in any case.
+-- nil when none lists it, or two families do: one name in two families says nothing about the speaker.
+function Data.GuildFamily(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	local found
+	local function Seen(family)
+		if family == nil then return true end
+		if found ~= nil and found ~= family then return false end
+		found = family
+		return true
+	end
+	local ours = ScopedGroup(GroupField(ns.group) or "")
+	if ours and LocalReport(Data.Guild(name)) then Seen(ours) end
+	local now, lower, side = ns.Now(), name:lower(), OurFaction()
+	for _, e in pairs(DetailStore()) do
+		local row = type(e) == "table" and e.faction == side and not e.unscoped and type(e.rows) == "table" and e.rows[lower]
+		if type(row) == "table" and now - (tonumber(row.observed) or 0) <= Data.KEEP then
+			if not Seen(ScopedGroup(GroupField(e.group) or "")) then return nil end
+		end
+	end
+	return found
+end
 function Data.SayGroupDetails()
 	if not GlobalMember() then return false end
 	PruneDetails(ns.Now())
@@ -2499,11 +2589,13 @@ local function PortableStore()
 	ns.db.groupPortable = type(ns.db.groupPortable) == "table" and ns.db.groupPortable or {}
 	return ns.db.groupPortable
 end
+-- (1.5.9) This account's own looks last past GROUP_KEEP, until a newer own look of the same character
+-- replaces it (Lasting, above); the looks it heard go after GROUP_KEEP, as before.
 local function PortableTrim(now)
 	local store, order = PortableStore(), {}
 	for key, e in pairs(store) do
-		if type(e) ~= "table" or type(e.wire) ~= "string" or #e.wire > Data.PORTABLE_MAX_BYTES
-			or now - (tonumber(e.observed) or 0) > Data.GROUP_KEEP then store[key] = nil
+		if type(e) ~= "table" or type(e.wire) ~= "string" or #e.wire > Data.PORTABLE_MAX_BYTES or not tonumber(e.observed)
+			or (now - e.observed > Data.GROUP_KEEP and e.own ~= true) then store[key] = nil
 		else order[#order + 1] = { key = key, at = e.observed, own = e.own == true } end
 	end
 	table.sort(order, function(a, b)
@@ -2516,14 +2608,25 @@ local function PortableTrim(now)
 	for _, e in pairs(store) do present[GroupKey(e.faction, e.group)] = true end
 	for origin in pairs(portableSent) do if not present[origin] then portableSent[origin] = nil end end
 end
-local function PortableKeep(observer, row, wire, own)
+-- (1.5.9) Whether a look naming `observer` would come out as a trusted one if this client said it again:
+-- one naming this very character (a receiver takes it as that character's own, direct), or, on the
+-- author's client, one naming any of his characters (AuthorLook). Since 1.5.5 the author's client, holding
+-- no own look of an origin, said again a member's forged look naming one of his characters, and it counted
+-- as his everywhere. Such a look is kept and said only when this account took it (own) or it is signed (QA).
+local function NamesUs(observer)
+	return OwnWord(observer) or (AuthorIdentity(ns.me) and AuthorIdentity(observer))
+end
+-- signed (1.5.9): a look checked by the author's signature (QA, TakeAttest).
+local function PortableKeep(observer, row, wire, own, signed)
+	if not own and not signed and NamesUs(observer) then return end
 	local key = GroupKey(row.faction, row.group) .. "|" .. (PersonKey(observer) or observer:lower())
 	local store = PortableStore()
 	local old = store[key]
 	if old and old.own and not own then return end
-	if not old or old.observed < row.observed or (own and old.observed == row.observed and old.wire ~= wire) then
+	if not old or old.observed < row.observed or (own and old.observed == row.observed and old.wire ~= wire)
+		or (signed and not old.signed and old.observed == row.observed) then
 		store[key] = { observer = observer, group = row.group, faction = row.faction,
-			observed = row.observed, wire = wire, own = own == true }
+			observed = row.observed, wire = wire, own = own == true, signed = signed == true or nil }
 	end
 	PortableTrim(ns.Now())
 end
@@ -2537,6 +2640,7 @@ end
 -- An empty constant signs nothing and takes nothing. Every client keeps the newest checked look of
 -- each origin (ns.db.groupAttest, account-wide: a player carries it to the other family) and says it
 -- once each GROUP_SAY_EVERY there, unless it heard one of that origin as new within the window.
+-- (1.5.9) His client signs the trusted rows it holds of each family too, not only his looks (SignHeld).
 local function AttestKey()
 	local pk, Ed = ns.AUTHOR_ATTEST_PK, ns.Ed25519
 	if type(pk) ~= "string" or pk == "" or type(Ed) ~= "table" or type(Ed.FromB64) ~= "function" then return nil end
@@ -2555,19 +2659,57 @@ local function AttestKeep(row, wire, text, own)
 	if at > row.observed or (at == row.observed and old.own and not own) then return end
 	store[origin] = { group = row.group, faction = row.faction, observed = row.observed, wire = wire, text = text, own = own == true or nil }
 end
--- Our own look signed, when this client holds the author's account key, and not signed already.
-local function SignLook(row, wire)
+-- Whether this client holds the author's account key (and can sign with it).
+local function KeyHere()
 	local k = type(ns.db) == "table" and ns.db.arenaKey
-	if not AttestKey() or type(k) ~= "table" or k.pk ~= ns.AUTHOR_ATTEST_PK then return false end
-	local old = AttestStore()[GroupKey(row.faction, row.group)]
-	if type(old) == "table" and old.own and old.wire == wire then return false end
 	local D = ns.Debts
-	if type(D) ~= "table" or type(D.Sign) ~= "function" then return false end
-	local ok, sig = pcall(D.Sign, "OLYQA1|" .. wire)
+	return AttestKey() ~= nil and type(k) == "table" and k.pk == ns.AUTHOR_ATTEST_PK and type(D) == "table" and type(D.Sign) == "function"
+end
+-- A look signed with it, kept to say as signed here (AttestKeep's own).
+local function SignWire(row, wire)
+	local ok, sig = pcall(ns.Debts.Sign, "OLYQA1|" .. wire)
 	if not ok or type(sig) ~= "string" or #sig ~= 64 then return false end
 	AttestKeep(row, wire, "QA~1~" .. ns.Ed25519.ToB64(sig) .. "~" .. wire, true)
 	Tally("qa", "signed")
 	return true
+end
+-- Our own look signed, when this client holds the author's account key, and not signed already.
+local function SignLook(row, wire)
+	if not KeyHere() then return false end
+	local old = AttestStore()[GroupKey(row.faction, row.group)]
+	if type(old) == "table" and old.own and old.wire == wire then return false end
+	return SignWire(row, wire)
+end
+-- (1.5.9, the author, 11-12: "o que eu visualizar tem que ficar circulando lá"; the review of the census
+-- lane) Most members hear the census in a guildmate's hand-over (RG: the relay serves one member of each
+-- guild), which proves no origin (any guildmate can name any), so a trusted row reached them counting
+-- GROUP_COUNT alone and left after GROUP_KEEP: of all the author sees, only his own signed looks lasted
+-- there. The client holding his key now signs, besides his own looks, the newest trusted row of each
+-- family it holds (Lasting: a councillor's or a relay's look, one of his characters' on another account),
+-- unless a look of that origin at least as new is signed already: one look naming whoever gave it (by),
+-- its numbers and observed time as held, no guild rows. Signed, it proves itself whoever carries it, so
+-- it counts as his and lasts on every client until a newer one replaces it. One signature a call.
+local signTried = {} -- [origin] = observed: a signature that failed, not tried again this session
+local function SignHeld(now)
+	if not KeyHere() then return false end
+	SettleGroups(now)
+	local store, attest, here, keys = GroupStore(), AttestStore(), GroupField(ns.group), {}
+	for key in pairs(store) do keys[#keys + 1] = key end
+	table.sort(keys)
+	for _, key in ipairs(keys) do
+		local e, old = store[key], attest[key]
+		local by = Lasting(e) and e.src ~= "own" and type(e.by) == "string" and ns.FullName(e.by) or nil
+		if by and #by <= 100 and not by:find("[~|;,%c]") and e.faction == OurFaction() and e.group ~= here and Listed(e.group)
+			and signTried[key] ~= e.observed and not (type(old) == "table" and (tonumber(old.observed) or 0) >= e.observed) then
+			signTried[key] = e.observed
+			local row = GroupRow(e.group, e.faction, e.characters, e.people, e.guilds, e.observed, true)
+			if row then
+				return SignWire(row, ("CX~3~S~%s~%s~%s~%d,%d,%d,%d~"):format(by, row.group, row.faction,
+					row.characters, row.people, row.guilds, row.observed))
+			end
+		end
+	end
+	return false
 end
 function Data.CapturePortable(row)
 	if not ScopedGroup(row.group) then return false end
@@ -2596,21 +2738,35 @@ end
 local function PortableGuilds(e)
 	return tonumber(tostring(e.wire):match("^CX~3~S~[^~]+~[^~]+~%a+~%d+,%d+,(%d+),%d+~")) or 0
 end
-local function PortableBetter(a, b)
+local function PortableBetter(a, b, now)
 	if (a.own == true) ~= (b.own == true) then return a.own == true end
+	-- (1.5.9) Own looks last now (PortableTrim): once either is past GROUP_COUNT the newer one is carried,
+	-- however few guilds it covers, as a held look gives way (TakeGroup). Else of two of his characters'
+	-- looks the older, covering more guilds, would take every turn for good (the review of the census lane:
+	-- once both were past GROUP_COUNT it did, two days after the newer one was taken).
+	local aOld, bOld = now - a.observed > Data.GROUP_COUNT, now - b.observed > Data.GROUP_COUNT
+	if (aOld or bOld) and a.observed ~= b.observed then return a.observed > b.observed end
 	local ga, gb = PortableGuilds(a), PortableGuilds(b)
 	if ga ~= gb then return ga > gb end
 	if a.observed ~= b.observed then return a.observed > b.observed end
 	return a.wire < b.wire
 end
+-- (1.5.9) What this client carries of the looks it holds: never one naming us (NamesUs) that this account
+-- did not take or the author did not sign; one past GROUP_KEEP (an own look, PortableTrim) on the author's
+-- client alone, whose characters' looks count on a trusted hop (AuthorLook): anyone else's would be refused.
+local function Carried(e, now, author)
+	if not e.own and not e.signed and NamesUs(e.observer) then return false end
+	return now - e.observed <= Data.GROUP_KEEP or author
+end
 function Data.PortablePayload(now, sending)
 	now = now or ns.Now()
 	PortableTrim(now)
 	local store, best, keys = PortableStore(), {}, {}
+	local author = AuthorIdentity(ns.me)
 	for key, e in pairs(store) do
-		if Listed(e.group) then
+		if Listed(e.group) and Carried(e, now, author) then
 			local origin = GroupKey(e.faction, e.group)
-			if not best[origin] or PortableBetter(e, store[best[origin]]) then best[origin] = key end
+			if not best[origin] or PortableBetter(e, store[best[origin]], now) then best[origin] = key end
 		end
 	end
 	for _, key in pairs(best) do keys[#keys + 1] = key end
@@ -2633,9 +2789,14 @@ end
 function Data.AttestPayload(now, sending)
 	now = now or ns.Now()
 	if not AttestKey() then return nil end
+	if sending then SignHeld(now) end -- (1.5.9: the key's client signs the trusted rows it holds too)
 	local store, keys = AttestStore(), {}
+	-- (1.5.9) A checked look lasts: it is said, however old, until a newer one of its origin replaces it
+	-- (AttestKeep). It was dropped GROUP_KEEP after it was taken, and the origin with it everywhere. A
+	-- Forever family's alone (Lasting): any other group's still goes after GROUP_KEEP.
 	for origin, e in pairs(store) do
-		if type(e) ~= "table" or type(e.text) ~= "string" or now - (tonumber(e.observed) or 0) > Data.GROUP_KEEP then
+		if type(e) ~= "table" or type(e.text) ~= "string" or not tonumber(e.observed)
+			or (ScopedGroup(e.group) == nil and now - e.observed > Data.GROUP_KEEP) then
 			store[origin] = nil
 		elseif e.faction == OurFaction() and Listed(e.group) and e.group ~= GroupField(ns.group) then
 			keys[#keys + 1] = origin
@@ -2654,21 +2815,24 @@ function Data.AttestPayload(now, sending)
 		if due and not covered then return e.text, origin, index, e.observed end
 	end
 end
--- A look as the wire carries it, checked: { observer, row, rows (its guilds, or nil), faction, wire }.
+-- A look as the wire carries it, checked: { observer, row, rows (its guilds, or nil), faction, wire, stale }.
+-- (1.5.9) stale: older than GROUP_KEEP, taken only on a trusted word or the author's signature (it lasts:
+-- Lasting); its guild rows, past Data.KEEP then, are left out and its numbers taken.
 local function ParseLook(text)
 	if type(text) ~= "string" or #text > Data.PORTABLE_MAX_BYTES then return nil end
 	local observer, origin, faction, c, p, n, o, body = text:match("^CX~3~S~([^~]+)~([^~]+)~(%a+)~(%d+),(%d+),(%d+),(%d+)~(.*)$")
 	if not observer or #observer > 100 or observer:find("[|;,%c]") then return nil end
-	local row = GroupRow(origin, faction, c, p, n, o)
+	local row = GroupRow(origin, faction, c, p, n, o, true)
 	if not row or not Listed(row.group) then return nil end
+	local stale = ns.Now() - row.observed > Data.GROUP_KEEP
 	local rows = body ~= "" and DetailRows(body) or nil
-	if body ~= "" and not rows then return nil end
-	return { observer = observer, row = row, rows = rows, faction = faction, wire = text }
+	if body ~= "" and not rows and not stale then return nil end
+	return { observer = observer, row = row, rows = rows, faction = faction, wire = text, stale = stale }
 end
 -- A look taken: kept to carry on, and counted as its proof allows (TakeGroup). src: a checked look's.
 local function TakeLook(look, direct, trusted, src)
 	local row, rows, observer, faction = look.row, look.rows, look.observer, look.faction
-	PortableKeep(observer, row, look.wire)
+	PortableKeep(observer, row, look.wire, nil, src == "author")
 	if row.group == GroupField(ns.group) and faction == OurFaction() then return true end
 	row.unproven = not direct
 	row.rg = (trusted and src == nil and Hop() == "G") or nil -- (a guildmate's hand-over: never said again)
@@ -2690,6 +2854,12 @@ local function TakeLook(look, direct, trusted, src)
 	Data.ChangedSoon() -- reported-only origins and details are visible too
 	return true
 end
+-- Whether the look's observer plays on the look's own family (a look of no family: always).
+local function ObserverOfFamily(look)
+	local family = ScopedGroup(look.row.group)
+	if family == nil then return true end
+	return type(ns.ForeverFamily) == "function" and ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
+end
 -- (1.5.5) A look is direct when its observer sends it, or when the author's client carries a look its
 -- own family's author character made (both his, on the observer's own family: Relay.IsLaunchAuthor or
 -- the signed list), on a trusted hop. The author's client carrying anyone else's look would launder it:
@@ -2703,15 +2873,24 @@ end
 -- whoever carries them (QA below), and they cross the relay mesh (Relay.lua's Across).
 local function AuthorLook(sender, look)
 	if not (AuthorIdentity(look.observer) and AuthorIdentity(sender) and GlobalTrusted(sender)) then return false end
-	local family = ScopedGroup(look.row.group)
-	return family == nil or ns.ForeverFamily(ns.RealmOf(ns.FullName(look.observer)) or "") == family
+	return ObserverOfFamily(look)
 end
+-- (1.5.9) Direct, too, only from a character of the look's own family: a character says no look of its own
+-- origin (PortablePayload), so a "direct" look of another family named its very sender and was forged,
+-- and a trusted client saying such a member's word again made it count as that client's own.
 function Data.ReceivePortable(sender, text)
 	local look = ParseLook(text)
 	if not look then return Refused("cx", "look", sender) end
-	local direct = ns.FullName(sender):lower() == ns.FullName(look.observer):lower()
+	local direct = ns.FullName(sender):lower() == ns.FullName(look.observer):lower() and ObserverOfFamily(look)
 	local trusted, how = direct and GlobalTrusted(sender), direct and "direct" or "unproven"
 	if not direct and AuthorLook(sender, look) then direct, trusted, how = true, true, "author" end
+	-- (1.5.9) Past GROUP_KEEP only a trusted look of a Forever family is taken (it lasts), and never in a
+	-- guildmate's hand-over (RG: its origin is his word, so it counts GROUP_COUNT alone; it went over a
+	-- lasting row and left at once, the family's row with it). A look naming us (NamesUs) that this
+	-- account did not take is our own look carried back, or a forgery: no news, never kept, counted or
+	-- shown here (as our own word back, OwnWord), and no refusal either (members carry our looks on).
+	if look.stale and (not trusted or Hop() == "G" or ScopedGroup(look.row.group) == nil) then return Refused("cx", "look", sender) end
+	if not trusted and NamesUs(look.observer) then return true end
 	Tally("cx3", how)
 	return TakeLook(look, direct, trusted)
 end

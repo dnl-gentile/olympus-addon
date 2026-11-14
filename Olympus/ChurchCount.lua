@@ -213,7 +213,7 @@ local function Sub(key, make)
 	return c[key]
 end
 local function Mem() return Sub("mem", function() return { g = {}, n = {}, count = 0 } end) end
-local function Ev() return Sub("ev", function() return { k = {}, n = 0 } end) end
+local function Ev() return Sub("ev", function() return { k = {}, n = 0, p = {} } end) end
 local function Inv() return Sub("inv", function() return {} end) end
 local function Att() return Sub("att", function() return {} end) end
 local function Out() return Sub("out", function() return {} end) end
@@ -430,12 +430,18 @@ end
 -- (its addon users counted), and only where a Church person was heard over GUILD lately or (1.5.5)
 -- its own roster holds one (PersonHere). (Before 1.5.5 an Apostle whose client held an older list
 -- said nothing, so neither his guildmates' clients nor the author's read their log: nothing counted.)
+-- (1.5.9, the author: "O ranking para todo mundo": the recruiting ranking for everyone counts any
+-- member's recruit, RecruitRanking.lua, so every Olympus guild's log is read, drawn the same way; and
+-- the client of a member another member passed a player to reads as a Church person's does, until
+-- that player's invite and join, to name who passed him on.)
 function Count.MaybeRead(now)
 	if now - lastReadTick < Count.READ_EVERY then return false end
 	lastReadTick = now
 	local keeper = Church.IsKeeper(ns.me) and not Church.IsKing(ns.me)
-	if not keeper and not Church.IsPerson(ns.me) then
-		if not AnyClaim() and not Count.PersonHere() then return false end
+	local RR = ns.RecruitRanking
+	local wanted = RR and RR.ReadWanted and RR.ReadWanted() or nil
+	if not keeper and not Church.IsPerson(ns.me) and wanted ~= "own" then
+		if not AnyClaim() and not Count.PersonHere() and wanted ~= "drawn" then return false end
 		local peers = math.max(1, (ns.Comm.PeerCount and ns.Comm.PeerCount()) or 1)
 		if Count.chance() > math.min(1, 2 / peers) then return false end
 	end
@@ -449,6 +455,16 @@ end
 
 -- The log's events, oldest first, with the hour each happened (by the server's clock; the log
 -- gives how long ago, so the same event read twice can differ by one hour).
+-- (Review of the 1.5.9 release) Within one hour, in the order the log lists them. A read put an hour's
+-- invites before its joins, so a join was paired with an invite logged after it in its hour: a player who
+-- joined after one member's invite, left, and was invited by another member in that same hour went to the
+-- second member's account as his own recruit whenever its first read of that join came after his invite
+-- (an own report held 14 days as his pending recruit; in a guild with no keeper the recruit credited to
+-- him, the first inviter's left pending), and again once that account's record of the events expired while
+-- they were still in the log. The log's own order is time order; which way it runs is read from its first
+-- and last events' hours, so it holds whichever way the game lists them. A log whose events all fall in
+-- one hour tells no direction: there an hour's invites still go before its joins (the invite and join of
+-- one recruit, the common case, stay paired).
 function Count.Events()
 	local n = tonumber(GetNumGuildEvents()) or 0
 	local hourNow = math.floor(Clock() / 3600)
@@ -458,19 +474,33 @@ function Count.Events()
 		local a = EventName(p1)
 		if type(kind) == "string" and a then
 			local ago = ((tonumber(y) or 0) * 365 + (tonumber(mo) or 0) * 30 + (tonumber(d) or 0)) * 24 + (tonumber(h) or 0)
-			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago }
+			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
 		end
 	end
+	-- 1: the log lists the oldest first; -1: the newest first; 0: no way to tell (one hour).
+	local way = 0
+	if out[1] and out[#out].hour ~= out[1].hour then way = out[#out].hour > out[1].hour and 1 or -1 end
 	local order = { invite = 1, join = 2 }
 	table.sort(out, function(x, z)
 		if x.hour ~= z.hour then return x.hour < z.hour end
-		return (order[x.kind] or 3) < (order[z.kind] or 3)
+		if way ~= 0 then return (x.i - z.i) * way < 0 end
+		local kx, kz = order[x.kind] or 3, order[z.kind] or 3
+		if kx ~= kz then return kx < kz end
+		return x.i < z.i
 	end)
 	return out
 end
 
+-- The key of the record an earlier read left of this event, or nil (the log gives how long ago, so the
+-- same event read again can be an hour off).
 local function SeenEvent(ev, sig, hour)
-	return ev.k[sig .. ":" .. hour] or ev.k[sig .. ":" .. (hour - 1)] or ev.k[sig .. ":" .. (hour + 1)]
+	local k = sig .. ":" .. hour
+	if ev.k[k] then return k end
+	k = sig .. ":" .. (hour - 1)
+	if ev.k[k] then return k end
+	k = sig .. ":" .. (hour + 1)
+	if ev.k[k] then return k end
+	return nil
 end
 
 local function FillOf(guild, day)
@@ -493,10 +523,33 @@ function Count.Process(events)
 	local meKey = Key(ns.me)
 	local person = Church.IsPerson(ns.me)
 	local found = 0
+	local RR = ns.RecruitRanking
+	-- (Review of the 1.5.9 release) One account's characters of a realm group share these tables (ns.rdb),
+	-- so another character of his that read the log first left his own read nothing new, and the recruiting
+	-- ranking for everyone no report of his own (RecruitRanking.Pair takes each once a character). So a join
+	-- read before goes to it again with the pair the first read of that join made, kept beside the join's
+	-- record (ev.p: "inviter~invite hour36~join hour36", gone with that record): his own only when that pair's
+	-- inviter is he. (Worked out again from each read, the pair could name another inviter: the log gives
+	-- hours, and a read put an hour's invites before its joins, in no set order among themselves, so an invite
+	-- logged after the join in its hour came ahead of it, and two invites of one hour could swap from one read
+	-- to the next. Count.Events now keeps the log's own order within an hour, so the first read pairs right
+	-- too, but where all the log falls in one hour it cannot tell that order.)
+	if type(ev.p) ~= "table" then ev.p = {} end
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
-		if not SeenEvent(ev, sig, e.hour) then
-			ev.k[sig .. ":" .. e.hour], ev.n = today, ev.n + 1
+		local seen = SeenEvent(ev, sig, e.hour)
+		if seen then
+			local p = e.kind == "join" and ev.p[seen]
+			if type(p) == "string" and RR and RR.Pair then
+				local by, ti, tj = p:match("^([^~]+)~([0-9a-z]+)~([0-9a-z]+)$")
+				ti, tj = UnB36(ti), UnB36(tj)
+				if by and ti and tj and Key(by) == meKey then
+					ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
+				end
+			end
+		else
+			local key = sig .. ":" .. e.hour
+			ev.k[key], ev.n = today, ev.n + 1
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
@@ -509,7 +562,13 @@ function Count.Process(events)
 				FillOf(guild, day).j = FillOf(guild, day).j + 1
 				local i = inv[Key(e.p1)]
 				if i and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS then
-					if Count.Pair(i.by, e.p1, guild, i.h, math.max(e.hour, i.h)) then found = found + 1 end
+					local tj = math.max(e.hour, i.h)
+					local h36, j36 = B36(i.h), B36(tj)
+					if type(i.by) == "string" and h36 and j36 then ev.p[key] = i.by .. "~" .. h36 .. "~" .. j36 end
+					if Count.Pair(i.by, e.p1, guild, i.h, tj) then found = found + 1 end
+					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
+					-- records of its own type (RecruitRanking.lua), never this ledger's.
+					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then
 				FillOf(guild, day).l = FillOf(guild, day).l + 1
@@ -522,6 +581,8 @@ function Count.Process(events)
 		for k, d in pairs(ev.k) do if today - d > Count.EV_DAYS then ev.k[k] = nil else n = n + 1 end end
 		ev.n = n
 		if n > Count.EV_MAX then wipe(ev.k); ev.n = 0 end
+		-- (Review of the 1.5.9 release) A join's pair goes with its record.
+		for k in pairs(ev.p) do if not ev.k[k] then ev.p[k] = nil end end
 	end
 	local hourNow = math.floor(Clock() / 3600)
 	local kept = {}
@@ -773,6 +834,15 @@ local function SeenHere(invitee, guild, tj)
 	local ev = Ev()
 	if ev and type(ev.k) == "table" and SeenEvent(ev, "join:" .. xk .. ":", tj) then return true end
 	return false, "roster"
+end
+
+-- (Review of 1.5.9) Whether this client's own read of our guild's log saw `inviter` invite `invitee` at
+-- hour `ti` (an hour off either way, as Count.Events reads them): the recruiting ranking for everyone
+-- takes a guildmate's word on who invited as strong only then (RecruitRanking.TakeEvidence).
+function Count.SawInvite(inviter, invitee, ti)
+	local ik, xk, ev = Key(inviter), Key(invitee), Ev()
+	if not ik or not xk or not tonumber(ti) or not ev or type(ev.k) ~= "table" then return false end
+	return SeenEvent(ev, "invite:" .. ik .. ":" .. xk, tonumber(ti)) ~= nil
 end
 
 -- (1.2.1) A witness this client can vouch for in the pair's guild, as the desk's seen-checks keep their
@@ -3029,6 +3099,9 @@ function Count.Tick(now)
 	end
 	-- (1.3.4) The King's and the High Council's: the top 3 said again (a keeper of the Council's too).
 	Count.RelayTop(now)
+	-- (1.5.9) The recruiting ranking for everyone: its reports, stays, and a keeper's ledger work.
+	local RR = ns.RecruitRanking
+	if RR and RR.Tick then ns.SafeCall("recruit ranking", RR.Tick, now) end
 	if ns.ChurchView and ns.ChurchView.PollRanking then ns.ChurchView.PollRanking() end
 end
 

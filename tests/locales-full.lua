@@ -190,3 +190,69 @@ test("languages: the privacy page says in every language that Olympus Discord me
 	eq(english.L.ACCORD_DATE, "21 October 2026", "the Olympus Accord's letter as accepted")
 	eq(ns.ACCORD_VERSION, 1, "no new version: nobody is asked to accept again")
 end)
+
+-- Characters of a UTF-8 line as the game draws them (a letter, accented or Cyrillic, is one).
+local function Chars(s)
+	local n = 0
+	for _ in tostring(s):gmatch("[%z\1-\127\194-\244][\128-\191]*") do n = n + 1 end
+	return n
+end
+
+-- 1.5.9 (the author, 11-12: "Eu pedi uma reestruturação de visual e de interface... para as pessoas
+-- lerem e ser muito claro"): Church > Invites' headings and rows in every language, in its own words
+-- for what the page says new, and short enough not to be cut: the window's rows do not wrap (about 55
+-- characters of English at the narrow window's width, an indented row a little less: 54 at most here,
+-- a heading's larger font 40).
+local INVITES_HEADINGS = { "RECRUIT_SECTION_RECRUITING", "RECRUIT_ANNOUNCE_OPEN", "RECRUIT_CENSUS_SCAN", "CHARTER_HELP_SECTION" }
+local INVITES_ROWS = { "RECRUIT_WHISPER_ON", "RECRUIT_WHISPER_OFF", "RECRUIT_WHISPER_HINT", "RECRUIT_WHISPER_OFF_HINT",
+	"RECRUIT_NO_INVITE_SHORT", "RECRUIT_WHISPER_POPUP_ON", "RECRUIT_WHISPER_QUEUE_ONLY", "RECRUIT_ADS_HINT",
+	"RECRUIT_ANNOUNCE_NO_CHANNELS", "RECRUIT_ANNOUNCE_REMINDER_PREVIEW",
+	"RECRUIT_ANNOUNCE_REMINDER_SELECTED", "RECRUIT_ANNOUNCE_REMINDER_ROTATE", "RECRUIT_SCAN_HINT", "RECRUIT_SECTION_NEEDS_ON",
+	"RECRUIT_CANDIDATES_ON", "RECRUIT_CANDIDATES_OFF", "RECRUIT_CANDIDATE_PROMPTS_ON", "RECRUIT_CANDIDATE_PROMPTS_OFF",
+	"RECRUIT_CANDIDATE_SEARCH_MORE", "RECRUIT_HANDOFFS_HINT", "RECRUIT_HANDOFF_ON", "RECRUIT_HANDOFF_OFF",
+	"RECRUIT_OVERFLOW_ON", "RECRUIT_OVERFLOW_OFF", "RECRUIT_HANDOFF_PICK", "RECRUIT_HANDOFF_BLOCKED",
+	"CHARTER_HELP_REQUEST", "CHARTER_HELP_WITHDRAW" }
+-- New in 1.5.9, or changed: each language's own words.
+local INVITES_NEW = { "RECRUIT_SECTION_RECRUITING", "RECRUIT_SECTION_HANDOFFS", "RECRUIT_SECTION_NEEDS_ON", "RECRUIT_WHISPER_OFF_HINT",
+	"RECRUIT_WHISPER_SWITCH_TIP", "RECRUIT_NO_INVITE_SHORT", "RECRUIT_ADS_HINT", "RECRUIT_SCAN_HINT", "RECRUIT_HANDOFFS_HINT",
+	"CHARTER_HELP_SECTION", "RECRUIT_ANNOUNCE_OPEN", "RECRUIT_WHISPER_HINT",
+	"RECRUIT_ANNOUNCE_REMINDER_TITLE", "RECRUIT_ANNOUNCE_REMINDER_PREVIEW", "RECRUIT_ANNOUNCE_REMINDER_SELECTED",
+	"RECRUIT_ANNOUNCE_REMINDER_ROTATE" }
+test("languages (1.5.9): Church > Invites' headings and rows in every language, short enough not to be cut", function()
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Load(code).L
+		local headings = { L.RECRUIT_SECTION_HANDOFFS .. " " .. L.RECRUIT_EXPERIMENTAL }
+		for _, k in ipairs(INVITES_HEADINGS) do headings[#headings + 1] = L[k] end
+		for _, text in ipairs(headings) do
+			assert(Chars(text) <= 40, code .. ": a heading of " .. Chars(text) .. " characters: " .. text)
+		end
+		for _, k in ipairs(INVITES_ROWS) do
+			local text = L[k]:gsub("%%d", "30")
+			assert(Chars(text) <= 54, ("%s %s: %d characters: %s"):format(code, k, Chars(text), text))
+		end
+		if code ~= "enUS" then
+			for _, k in ipairs(INVITES_NEW) do
+				assert(L[k] ~= english.L[k], code .. " " .. k .. ": its own words")
+				eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), code .. " " .. k .. " codes")
+			end
+		end
+	end
+	eq(english.L.RECRUIT_ANNOUNCE_REMINDER_TITLE, "Ad reminder", "the ads' word for it, as the section's")
+end)
+
+-- 1.5.9, the review of 1.5.8: the handoffs' chat lines, Claim question, popup count and switches stayed
+-- English in the five language files. Each in its own words now, its codes the English line's.
+local HANDOFF_LINES = { "RECRUIT_OVERFLOW_ON", "RECRUIT_OVERFLOW_OFF", "RECRUIT_HANDOFF_MORE", "RECRUIT_HANDOFF_PASSING",
+	"RECRUIT_HANDOFF_BLOCKED", "RECRUIT_HANDOFF_ARRIVED", "RECRUIT_HANDOFF_CLAIM_PROMPT", "RECRUIT_HANDOFF_TAKE", "RECRUIT_HANDOFF_SKIP" }
+test("languages (1.5.9, regression): the recruiting handoffs' lines in every language", function()
+	for code, file in pairs(LANGS) do
+		local L = Load(code).L
+		for _, k in ipairs(HANDOFF_LINES) do
+			assert(type(english.L[k]) == "string", "English " .. k)
+			assert(L[k] ~= english.L[k], file .. " " .. k .. ": its own words")
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), file .. " " .. k .. " codes")
+		end
+		-- Where the lines send the player, in the words of that language's tabs.
+		assert(L.RECRUIT_HANDOFF_PASSING:find(L.CHURCH_NAV_INVITES, 1, true), file .. ": Church > Invites named as its tab is")
+	end
+end)

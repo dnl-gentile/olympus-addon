@@ -111,6 +111,53 @@ test("census continuity: server and ruleset hovers retain the original date and 
 	end
 end)
 
+-- 1.5.9 (the census items left from 1.5.8). Fails before: the all-server totals had no date, though a
+-- server's last count now stays in them until a newer one arrives (Data.lua's Lasting): days old, maybe.
+test("census servers (1.5.9): the all-server totals carry the date of the oldest other server's count in them, in every language; none while they hold none", function()
+	local w = World()
+	local old = T0 - 9 * 86400
+	local rows = {
+		{ group = "ForeverPvE", faction = "Alliance", kind = "pve", characters = 700, people = 700, guilds = 2,
+			observed = T0 - 60, src = "live", counted = true, ours = true },
+		{ group = "ForeverPvP", faction = "Alliance", kind = "pvp", characters = 500, people = 500, guilds = 1,
+			observed = old, src = "author", counted = true },
+	}
+	w.ns.Data.Groups = function() return { characters = 1200, people = 1200, rows = rows, kinds = {}, regions = {}, factions = {},
+		oldestOther = old } end
+	local lines = {}
+	w.CS.ServerLines(lines, w.census, T0)
+	local want = L.CENSUS_STATS_SERVERS_AS_OF:format(os.date("%Y-%m-%d %H:%M", old))
+	local at
+	for i, line in ipairs(lines) do if Bare(line.text) == want then at = i end end
+	assert(at, "the date line: " .. want)
+	eq(Bare(lines[at - 1].text), L.CENSUS_STATS_ALL_PEOPLE, "right under the totals")
+	local tip = {}
+	lines[at].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end, AddDoubleLine = function() end })
+	assert(table.concat(tip, " "):find(L.CENSUS_STATS_SERVERS_AS_OF_TIP, 1, true), "its tooltip says what it is")
+	w.ns.Data.Groups = function() return { characters = 700, people = 700, rows = { rows[1] }, kinds = {}, regions = {}, factions = {} } end
+	lines = {}
+	w.CS.ServerLines(lines, w.census, T0)
+	local prefix = L.CENSUS_STATS_SERVERS_AS_OF:match("^(.-)%%s")
+	for _, line in ipairs(lines) do assert(not Bare(line.text):find(prefix, 1, true), "no date while no other server counts") end
+	-- Every language the addon speaks, each as the game loads it: both lines, translated.
+	local english = L.CENSUS_STATS_SERVERS_AS_OF
+	for _, code in ipairs({ "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", lns)
+			assert(loadfile(ROOT .. "Olympus/Locales/CensusStatsText.lua"))("Olympus", lns)
+			if code ~= "ptBR" then assert(loadfile(ROOT .. "Olympus/Locales/" .. code .. ".lua"))("Olympus", lns) end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		local text, tipText = lns.L.CENSUS_STATS_SERVERS_AS_OF, lns.L.CENSUS_STATS_SERVERS_AS_OF_TIP
+		assert(text ~= english and text:find("%s", 1, true), code .. " translates the line, its date kept")
+		assert(tipText ~= L.CENSUS_STATS_SERVERS_AS_OF_TIP, code .. " translates its tooltip")
+		assert(#text:format("2026-11-05 14:30") <= 55 * (code == "ruRU" and 2 or 1.2), code .. ": a short line")
+	end
+end)
+
 test("census origin labels: a known ruleset shows unavailable region without a ruleset warning", function()
 	local w = World()
 	local row = { group = "ForeverPvE", faction = "Alliance", kind = "pve", characters = 700, people = 700,

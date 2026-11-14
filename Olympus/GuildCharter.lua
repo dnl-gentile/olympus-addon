@@ -457,7 +457,9 @@ function Charter.HelpLines()
 	local lines = {}
 	if master then
 		local own = OwnHelp()
-		lines[#lines + 1] = { text = own and own.active and L.CHARTER_HELP_WITHDRAW or L.CHARTER_HELP_REQUEST,
+		-- (1.5.9, Church > Invites: under a heading of the same weight as the page's sections.)
+		lines[#lines + 1] = { id = "charter-help-section", header = true, text = L.CHARTER_HELP_SECTION }
+		lines[#lines + 1] = { indent = 1, text = own and own.active and L.CHARTER_HELP_WITHDRAW or L.CHARTER_HELP_REQUEST,
 			onClick = function() Charter.ToggleHelp(guild) end }
 	end
 	if role ~= "A" and role ~= "H" and role ~= "W" then return lines end
@@ -471,6 +473,7 @@ function Charter.HelpLines()
 	end
 	if #requests == 0 then return lines end
 	table.sort(requests, function(a, b) return a.guild < b.guild end)
+	if #lines > 0 then lines[#lines].gapAfter = true end
 	lines[#lines + 1] = { header = true, text = L.CHARTER_HELP_TITLE }
 	for _, request in ipairs(requests) do
 		local row = request

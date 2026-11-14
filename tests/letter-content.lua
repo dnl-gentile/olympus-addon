@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 18),
-			"1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+		eq(table.concat(versions, " ", 1, 19),
+			"1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[3], "1.5.6")
+		eq(cns.Letters.Versions()[4], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -365,8 +365,8 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 		local cns = Language(code, file)
 		local raw = assert(cns.L.LETTER_1_5_7)
 		local title, body = cns.Letters.Text("1.5.7")
-		eq(cns.Letters.Versions()[2], "1.5.7", code)
-		eq(cns.Letters.Versions()[3], "1.5.6", code)
+		eq(cns.Letters.Versions()[3], "1.5.7", code)
+		eq(cns.Letters.Versions()[4], "1.5.6", code)
 		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
 		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
@@ -412,8 +412,8 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 		local L = cns.L
 		local raw = assert(L.LETTER_1_5_8)
 		local title, body = cns.Letters.Text("1.5.8")
-		eq(cns.Letters.Versions()[1], "1.5.8", code)
-		eq(cns.Letters.Versions()[2], "1.5.7", code)
+		eq(cns.Letters.Versions()[2], "1.5.8", code)
+		eq(cns.Letters.Versions()[3], "1.5.7", code)
 		eq(title, L.LETTER_1_5_8_HEAD, code)
 		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
@@ -460,4 +460,110 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 	assert(english:find("A reminder can open one every 2 to 30 minutes, taking your public channels in turn; each channel keeps its own wait after a post.", 1, true))
 	assert(not english:find("timed separately", 1, true), "no reminder interval per channel is promised")
 	assert(english:find("The Watch can resend a guild approval", 1, true))
+end)
+
+-- 1.5.9 (the author, 11-12: "Você pode, por favor, finalizar 1.5.9?"): the rest the 1.5.8 letter
+-- promised, in every shipped language: the ranking for everyone (its numbers are checked against the
+-- ranking's own in tests/recruit-ranking.lua, where the Church's files load), Church > Invites in its
+-- four sections, a declined invite kept for Recruit.DECLINE_DAYS, the switches kept, the Join page's
+-- request taken as a JOIN, the census for the guilds that saw too few of us, the chat by ruleset and
+-- the King's guild's mark. Each page is named as that language's player sees it: every language file
+-- loads as the TOC loads them. Plain text in the game's fonts: no typeset dash (Russian's fonts lack
+-- it), no escape or format code.
+local DECLINED_1_5_9 = { enUS = "is not offered to you again for %d days", ptBR = "não é oferecido a você de novo por %d dias",
+	deDE = "wird dir %d Tage lang nicht mehr angeboten", esES = "no se te vuelve a ofrecer durante %d días",
+	esMX = "no se te vuelve a ofrecer durante %d días", frFR = "ne t'est plus proposé pendant %d jours",
+	itIT = "non ti viene riproposto per %d giorni", ruRU = "не предлагается вам снова %d дней" }
+-- (1.5.9, with the one-channel work merged) On WoW: Forever nothing is sealed: the guilds holding a realm key
+-- join the public channel too, and the key only keeps their typed chat lines out of it (Comm.ChannelSpec,
+-- ChatHall.On). Each letter names the key as that language's own texts do (KEY_SET_FOREVER), and no
+-- sealed guilds.
+local KEYED_1_5_9 = { enUS = { "guilds with a realm key too", "sealed" }, ptBR = { "chave de reino", "seladas" },
+	deDE = { "Reichsschlüssel", "versiegelt" }, esES = { "clave de reino", "selladas" }, esMX = { "clave de reino", "selladas" },
+	frFR = { "clé de royaume", "scellées" }, itIT = { "chiave del reame", "sigillate" }, ruRU = { "ключом мира", "закрытые" } }
+
+test("1.5.9 letter content: each locale tells the ranking for everyone, Church > Invites in its sections, the declined invite, the census for every guild, the chat by ruleset and the King's guild's mark, each page named as shown", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local Recruit = assert(ns.Recruit)
+	local en = Client("enUS").L
+	local english = en.LETTER_1_5_9
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local cns = Client(code)
+		local L = cns.L
+		local raw = assert(rawget(L, "LETTER_1_5_9"), code)
+		local title, body = cns.Letters.Text("1.5.9")
+		eq(cns.Letters.Versions()[1], "1.5.9", code .. ": the newest letter first")
+		eq(cns.Letters.Versions()[2], "1.5.8", code)
+		eq(title, rawget(L, "LETTER_1_5_9_HEAD"), code .. ": its window names it by its title")
+		assert(title ~= rawget(L, "LETTER_1_5_8_HEAD"), code .. ": distinct release title")
+		eq(rawget(L, "LETTER_1_5_9_SIGNED"), rawget(L, "LETTER_1_5_8_SIGNED"), code .. ": the dev's signature in this language, as 1.5.8's")
+		eq(rawget(L, "LETTER_1_5_9_LINK"), rawget(L, "LETTER_1_5_8_LINK"), code .. ": the site's link, as 1.5.8's")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "church,church,church,guild,guild,guild,news,crown", code .. ": release topics")
+		for _, text in ipairs({ raw, title }) do
+			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
+				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
+			end
+			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
+		end
+		-- The pages and buttons as this language's player sees them named. (Changed on purpose, review of the
+		-- 1.5.9 release: the letter sent readers to Church > Ranking > Everyone, and a member outside the
+		-- Church's audience, most readers, has no Who filter there: his page is that list alone.)
+		local ranking = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_RANKING
+		assert(raw:find(ranking .. ".", 1, true), code .. ": the ranking as shown: " .. ranking)
+		eq(raw:find(ranking .. " > ", 1, true), nil, code .. ": no list a plain member never sees")
+		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
+		local at = raw:find(invites, 1, true)
+		assert(at, code .. ": Church > Invites as shown: " .. invites)
+		for _, key in ipairs({ "RECRUIT_SECTION_RECRUITING", "RECRUIT_ANNOUNCE_OPEN", "RECRUIT_CENSUS_SCAN", "RECRUIT_SECTION_HANDOFFS" }) do
+			local found = raw:find(L[key], at + 1, true)
+			assert(found, code .. ": the Invites section as shown, in its order: " .. L[key])
+			at = found
+		end
+		for _, key in ipairs({ "RECRUIT_HANDOFF_PICK", "RECRUIT_JOIN_TITLE" }) do
+			assert(raw:find(L[key], 1, true), code .. ": " .. key .. " as shown: " .. L[key])
+		end
+		for _, word in ipairs({ "JOIN", "/reload", "WoW: Forever", "/oly bug" }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		assert(raw:find(DECLINED_1_5_9[code]:format(Recruit.DECLINE_DAYS), 1, true), code .. ": a declined invite's days, as Recruit.lua keeps him")
+		local keyed, sealed = KEYED_1_5_9[code][1], KEYED_1_5_9[code][2]
+		assert(raw:find(keyed, 1, true), code .. ": the guilds with a realm key join the same channel: " .. keyed)
+		eq(raw:find(sealed, 1, true), nil, code .. ": no sealed guilds on Forever")
+		previous = raw
+	end
+	-- What a recruit needs before it counts, in the page's own words (CHURCH_EVERYONE_PENDING_TIP).
+	-- (Changed on purpose, review of the 1.5.9 release: both said any other member's addon confirms a
+	-- recruit, and the keepers refuse a plain member of another guild, RecruitRanking.TakeEvidence.)
+	assert(en.CHURCH_EVERYONE_PENDING_TIP:find("once an officer's addon in your guild, your Church correspondent's or a Church keeper's sees it too", 1, true))
+	assert(english:find("A recruit counts once an officer's addon, your guild's Church correspondent's or a Church keeper's sees him join too.", 1, true))
+	-- (Review of the 1.5.9 release: the letter said a line written under one's own ruleset goes to it
+	-- alone; it goes on the shared channel, another ruleset's 1.5.9 player sees it by choosing that ruleset,
+	-- and an older client shows it to everyone.)
+	assert(english:find("what you write there shows under your ruleset alone; versions before 1.5.9 still show every line to everyone.", 1, true))
+	assert(english:find("As promised, here is the rest.", 1, true), "the rest the 1.5.8 letter promised")
+	-- The census for the guilds that saw too few of us: one channel a faction, the guilds with a realm key too.
+	-- (Changed on purpose, with the one-channel work merged: on Forever a key seals no channel, it keeps the
+	-- guild's typed chat lines out of the public one, Comm.ChannelSpec and ChatHall.On.)
+	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, guilds with a realm key too (the key now only keeps their typed chat lines out of it), and the relays pass the whole census on again", 1, true))
+	assert(english:find("The King's guild wears the verified check mark in the Census.", 1, true))
 end)

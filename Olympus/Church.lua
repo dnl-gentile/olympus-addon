@@ -1882,6 +1882,10 @@ function Church.StatusLines()
 	if ns.ChurchCount and ns.ChurchCount.StatusLines then
 		for _, line in ipairs(ns.ChurchCount.StatusLines()) do lines[#lines + 1] = line end
 	end
+	-- (1.5.9) The recruiting ranking for everyone (RecruitRanking.lua).
+	if ns.RecruitRanking and ns.RecruitRanking.StatusLines then
+		for _, line in ipairs(ns.RecruitRanking.StatusLines()) do lines[#lines + 1] = line end
+	end
 	return lines
 end
 

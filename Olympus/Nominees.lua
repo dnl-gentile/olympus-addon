@@ -540,8 +540,9 @@ end
 -- 1.5.5 (a member's report: the Legate's and the Federal Treasury's shields showed in the guilds he
 -- leads, never in the guild he is a member of). A list shows only where it was heard from its master,
 -- or on his own client. On Forever the channel's copy (below) reaches the master's own guild only if a
--- relay's trickle passes it to that guild's reporter, which it may never do (the channel itself is
--- dead there: Relay.lua's head), so the guild the list is for heard nothing of it. Now its parts go to
+-- relay's trickle passes it to that guild's reporter, which it may never do (the channel itself was
+-- dead there at launch: Relay.lua's head; 1.5.9: older clients' census seen arriving on the public one
+-- since, not yet confirmed in game), so the guild the list is for heard nothing of it. Now its parts go to
 -- his own guild over GUILD too, as he sends them, before the channel's copy; every guildmate takes
 -- them from the master our roster proves (Nominees.Handle), and a part heard both ways counts once.
 -- The King's guild's list the same way when its editor is in that guild.

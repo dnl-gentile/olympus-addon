@@ -29,9 +29,9 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
+- **1.5.9**: The recruiting ranking for everyone, and the census for every guild. Church > Ranking is open to every member, with an Everyone list: 10 points for each confirmed recruit who joins after a member's invite, 5 more if he is still in the guild 7 days later, and 25% of those points to the member who passed that player on; a recruit counts once a Church keeper's addon, or the inviter's own and another member's a keeper can check, saw the join, and the keepers hold these records on a ledger of their own, so the Church's rankings count as before. Church > Invites is laid out in four sections (Recruiting, Recruiting ads, Find unguilded players, Handoffs); a client's guild hello says whether it takes handoffs, and those members are asked and listed first. A player who declined a guild invite is not offered again for 7 days (a hash of his name, kept on the recruiter's client); every recruiting switch stays as the player left it across reloads, logins and Forever sub-realms, and turning recruiting off in Church > Invites brings the Census offer back until Done or Don't ask again. A Join Olympus request reaches a recruiting member as a JOIN, with the same invite pop-up and handoffs; one from a player on the ignore list is dropped. While recruiting is on, a line at the top of the Census says so and opens its settings. On WoW: Forever every client joins its faction's public Olympus channel whatever its realm key, and keeps the older Olympus channels it is still in, off the chat windows, for the census older clients send there; a key there only keeps a guild's typed chat lines out of that channel, the relays carrying them to the writer's own ruleset alone, and the key's texts in game say so. A relay paces the census through a busy send queue, chat first at its peak, serves its own guild by a census lane of its own, and hands another relay's snapshot on while it runs no round of its own; /oly bug names the guild's registrant and shows a relay's census sends. Other rulesets' totals from a trusted source stay until a newer count replaces them, and the author's client signs the newest it holds for each ruleset; the census details date the other servers' totals, /oly bug carries a census line near its top, and the author's relay asks clients on an older version to update, once a day at most. Each [Olympus] chat line shows under its writer's ruleset, and a line written in the Chat tab with one's own ruleset chosen shows under that ruleset alone (older versions show every line). The King's guild wears the verified mark. A relay asks at most two signed 1.5.9 peers for a pending game record whose two confirmations reached different relays.
 - **1.5.8**: Recruiting and census. An officer who can invite turns recruiting on from the top of the Census or in Church > Invites, now the Church's first page (the choice is kept per character and guild). A player who whispers JOIN, with or without Olympus, opens a window with the /ginvite command, selected: the officer copies it (Ctrl+C), pastes it into the game's chat and presses Enter, because Forever blocks a /ginvite an addon fills in, so the invite is always the player's own; Queue only keeps requests in the list instead, and a request can be offered to another officer who accepts handoffs, or, opted in, to the guild's other officers while three or more wait. Public recruitment announcements name the recruiter's guild and post on a click or Enter; an optional reminder opens one every 2, 5, 10, 15 or 30 minutes, rotating through joined public channels, each channel with its own wait. Scan unguilded players (off by default) lists players without a guild seen nearby or in the player's own /who results (it starts no /who) for a copied invite, optional invite pop-ups or optional whisper drafts. Guild masters can ask the Apostles for recruiting help for 24 hours. A player without a guild gets the Join Olympus page at the first login: Request to join, a 45-second wait for the invite, Request again with another member and optional reminders. The Census shows its connection (lane, relay, the latest other guild's report) and tells linked alts from the staff sample; relays answer census asks during their own broadcast, pack snapshots, try recent reporters when saved fallbacks do not answer and keep clients on a healthy lane. Church keepers recover verified recent history. The Watch can resend a guild approval, check the current guild master, hide guilds and copy names. Layer hop asks sister-guild helpers when no guildmate answers. Olympus guild chat gives each speaker a colour of their own. The Workshop names the last release marked in game beside the running build, and warns the author while the signed relay rules leave a published version off (the running build or a release out since they were signed), with the command that admits them.
 - **1.5.7**: Census startup and relay recovery. The saved count keeps its observation date while the header shows how many guilds have reported since login. Census transfers rotate guild coverage and age reports from their original observation. Church scores, Records and guild verification retry incomplete delivery. The optional personal Discord verification panel reports local delivery, and Olympus Prime can export its own aggregate manually. A recruitment ranking for all guild members is planned for a future update.
-- **1.5.6**: Census delivery and guild tools. Signed relays actively discover peers and exchange complete census snapshots. Large transfers use verified forwarding through guild registrants, request missing pieces and fall back to the relay when a seed disappears. Clients prefer upgraded 1.5.6 bridges while retaining older bridges as a fallback. Enough newer guild reports replace the saved census even when an extra older row remains. The highest-average-level guild honour requires at least 950 members and uses the updated Census data. The package includes the author's signed lists. A signed author can see the private High Council, and verification notices move below the guilds on the King's Census screen. The King stays distinct from his guild master, with separate signed Treasurer and Quaestor roles. Verification holds await an appointed verifier where one is unavailable. Church history is consolidated across local characters and supported recruitment logs. Chat can be filtered by ruleset. Map naming, office shields and player-menu controls are revised. The first Bones lesson survives a roster update during gossip close, starts with the innkeeper and shows scoring groups gradually, pausing while the guide is open. Close and reopen WoW after updating to load the new network modules. Active relay clients need the update too.
 
 Every version's notes are in the [GitHub releases](https://github.com/dnl-gentile/olympus-addon/releases). This page is the short one for CurseForge: the [README](https://github.com/dnl-gentile/olympus-addon#olympus) has every section in full.
 
@@ -85,8 +85,9 @@ whether they take recruit whispers (again if it never answered). A member who se
 contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
 question closes before anything is sent. It stays **one whisper per click**, in your
 own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper. Members on
-versions before 1.1 just get the whisper, as before.
+officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
+recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
+chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
 
 ## What it does
 
@@ -117,7 +118,9 @@ versions before 1.1 just get the whisper, as before.
   **Invite** (the game's own guild invite) or **Decline** (one whisper pointing to the gates'
   guild while the King's gates are open, else naming your guild alone: never a guild the census
   lists for its room, which two made-up characters could report), one click each; anyone else
-  can point them to an officer online. **Dismiss** sends nothing. In the Realm's Recruiting, one
+  can point them to an officer online. **Dismiss** sends nothing. While you recruit by whisper
+  (1.5.9), a request goes to **Church → Invites** instead and is taken as a **JOIN**: the same
+  invite pop-up, unless you chose **Queue only**; turning recruiting off brings it back here. In the Realm's Recruiting, one
   click (or `/oly nocontact`) sets your **do not contact** flag.
 - **Search the census**: a guild, a Lord, a Captain, a player of a guild's top five or one
   seen online (the player shows under the guild's row), or a zone ("Stormwind": its soldiers
@@ -722,23 +725,31 @@ addon is online (give it a few minutes). There is no demo mode.
 **One member per guild is enough** for that guild to appear for everyone. The more guilds
 have at least one install, the more complete the census gets.
 
-### For officers: seal the channel (recommended)
+### For officers: the realm key
 Type once, with a secret the Olympus officers agree on:
 ```
 /oly key <secret>
 ```
-Your guildmates with the addon receive it automatically through guild chat. From then on
-the Olympus channel has a name and password derived from the secret, and outsiders can't
-find or join it. Share the same secret with the officers of the other Olympus guilds
-(for example in the officers' Discord), so all guilds meet on the same sealed channel.
+Your guildmates with the addon receive it automatically through guild chat. Off WoW: Forever the
+key seals the channel (recommended there): the Olympus channel then has a name and password derived
+from the secret, and outsiders can't find or join it. Share the same secret with the officers of the
+other Olympus guilds (for example in the officers' Discord), so all guilds meet on the same sealed
+channel.
 The King (or his Steward, for him) can also rotate the army's key from the Throne: his new key reaches the
 Lords and Captains online of the guilds he picks whom his own /who saw in them by whisper, and
 their guilds over guild chat, never on the Olympus channel.
 
-If a guild was accidentally given a different private key and lost the shared census and
-Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
+If a guild off WoW: Forever was accidentally given a different private key and lost the shared
+census and Olympus chat, one of its current officers can use `/oly key off`. The recovery instruction stays
 inside Blizzard's guild channel, returns updated guildmates to the public Olympus channel, and
 retires the old private key so a delayed message cannot split them again.
+
+**On WoW: Forever (since 1.5.9)** every client sits on its faction's public first lane, "OlympusNet"
+(the Horde's "OlympusNetH"), whatever key or lane it holds, so all guilds meet on one channel and the
+census older clients still broadcast there reaches everyone. A key is still kept, handed out and
+rotated, but there it seals nothing: it only keeps your guild's typed chat lines out of the public
+channel as text, and they reach the other guilds by the relays, which carry the census too. The relays
+keep to your own ruleset, so those lines reach your ruleset alone, under **All** too.
 
 ## How it works
 
@@ -753,7 +764,9 @@ retires the old private key so a delayed message cannot split them again.
 4. Every client adds up all the summaries: that is the census.
 
 On WoW: Forever these words travel by whisper through the relays (the signed High Council's, the
-King's, the Treasurer's and the author's characters). Since 1.5.4 a client identifies itself to them
+King's, the Treasurer's and the author's characters); since 1.5.9 every client there also sits on its
+faction's public first lane, whatever its realm key, and takes the census older clients still
+broadcast there. Since 1.5.4 a client identifies itself to them
 with its version; after the date in the release notes they serve only published versions (an older
 client still gets the census from an updated guildmate), under rules the author's client hands them
 in game.
