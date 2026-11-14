@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 19),
-			"1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+		eq(table.concat(versions, " ", 1, 20),
+			"1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[4], "1.5.6")
+		eq(cns.Letters.Versions()[5], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -365,8 +365,8 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 		local cns = Language(code, file)
 		local raw = assert(cns.L.LETTER_1_5_7)
 		local title, body = cns.Letters.Text("1.5.7")
-		eq(cns.Letters.Versions()[3], "1.5.7", code)
-		eq(cns.Letters.Versions()[4], "1.5.6", code)
+		eq(cns.Letters.Versions()[4], "1.5.7", code)
+		eq(cns.Letters.Versions()[5], "1.5.6", code)
 		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
 		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
@@ -413,7 +413,7 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 		local raw = assert(L.LETTER_1_5_8)
 		local title, body = cns.Letters.Text("1.5.8")
 		eq(cns.Letters.Versions()[3], "1.5.8", code)
-		eq(cns.Letters.Versions()[3], "1.5.7", code)
+		eq(cns.Letters.Versions()[4], "1.5.7", code)
 		eq(title, L.LETTER_1_5_8_HEAD, code)
 		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
