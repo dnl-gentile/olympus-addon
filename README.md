@@ -2112,6 +2112,12 @@ publish the request to the board.
 
 ### The Missionary Church of Olympus (1.1.6)
 
+**Recruiting on linked characters.** Confirm a character with [alt links](#alt-links-11-one-player-counted-once)
+and its confirmed recruits count as direct recruits of its Apostle or Missionary main. They must
+still join an Olympus guild and be confirmed independently. Each recruit counts once; linking
+does not give the alt the main's role or permissions. Earlier recruits can only be recovered
+where a client still has usable guild-log evidence.
+
 **Guild fullness (1.2.4).** The correspondents' ranking counts the current correspondent's own
 management of that guild, not invitation points. Every new appointment starts afresh, including
 the same person returning after another correspondent. Only completed server UTC days score:

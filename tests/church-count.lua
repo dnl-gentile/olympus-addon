@@ -94,6 +94,46 @@ test("1.1.6 Church: not a pair: a join without a Church person's invite, a join 
 	eq(next(w:As(c.a1, c.a1.Count.Led).r), nil)
 end)
 
+test("1.1.6 Church: linked invite attribution credits the Apostle or Missionary main once", function()
+	local w, c = Cast()
+	local a = w:Client("Aldric Alt", { guild = World.GUILD2 })
+	local m = w:Client("Mira Alt")
+	local groups = {}
+	for _, client in ipairs(w.clients) do client.ns.Alts.Group = function(n) return groups[Key(n)] end end
+	local function Link(main, alt)
+		local g = { main = main, members = { { name = main }, { name = alt } } }
+		groups[Key(main)], groups[Key(alt)] = g, g
+		w.alts[Key(main)], w.alts[Key(alt)] = { alt }, { main }
+	end
+	Link(A1, a.name)
+	w:Presence()
+	w:LogEvent(World.GUILD2, "invite", a.name, "Vale Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Vale Recruit", nil, 2)
+	Join(w, World.GUILD2, "Vale Recruit")
+	eq(w:ReadLog(a), true)
+	eq(StateOf(w, c.a2, "Vale Recruit", A1), "pending", "the inviter's own report cannot confirm the join")
+	w:ReadLog(c.vik)
+	eq(StateOf(w, c.a2, "Vale Recruit", A1), "credited")
+	eq(StateOf(w, c.a2, "Vale Recruit", a.name), nil, "there is no second Church row for the alt")
+	eq(w:As(c.a2, c.a2.Count.Own, Key(A1), "a").joins, 1)
+
+	-- Claims may arrive after a guildmate's first read of the log.
+	w:LogEvent(World.GUILD, "invite", m.name, "Ember Recruit", 3)
+	w:LogEvent(World.GUILD, "join", "Ember Recruit", nil, 2)
+	Join(w, World.GUILD, "Ember Recruit")
+	w:ReadLog(c.wes)
+	eq(StateOf(w, c.a1, "Ember Recruit", "Mira Wells"), nil, "without a confirmed link there is no attribution")
+	Link(c.m1.name, m.name)
+	w:ReadLog(c.m1)
+	eq(StateOf(w, c.a1, "Ember Recruit", "Mira Wells"), "pending", "the main is still the same account")
+	w:ReadLog(c.wes)
+	w:ReadLog(c.wes)
+	local mine = w:As(c.a1, c.a1.Count.Own, Key(c.m1.name), "a")
+	eq(mine.joins, 1, "reports and repeated reads combine under the Missionary")
+	eq(mine.points, 10, "the alt's recruit earns the ordinary direct points")
+	eq(w:As(c.a1, c.a1.Count.Own, Key(m.name), "a").joins, 0)
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

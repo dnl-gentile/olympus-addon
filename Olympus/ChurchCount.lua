@@ -13,7 +13,8 @@ local L = ns.L
 --   Blizzard_Communities/GuildInfo.lua reads them the same way). Never in combat, never on the
 --   King's screen, never while the game holds addon messages, at most every READ_GAP; no Blizzard
 --   frame is opened or touched. An invite by a Church person followed by the invitee's join within
---   PAIR_HOURS is whispered to every keeper heard online (an outbox keeps it otherwise).
+--   PAIR_HOURS is whispered to every keeper heard online (an outbox keeps it otherwise). If the
+--   inviter is a confirmed alt of an Apostle or Missionary, the keeper credits that main.
 -- - Pending or confirmed. The recruiter's own report leaves a record pending; it is confirmed once a
 --   client other than his, his linked alts' (Alts.Linked) and the recruit's reported the same pair
 --   from its own read of the log, and the keeper can vouch for that client in the pair's guild
@@ -409,6 +410,17 @@ function Count.Read()
 	return true
 end
 
+-- The existing two-sided alt link gives credit to an Apostle or Missionary main without giving
+-- the inviter any Church role or permissions.
+local function RecruitMain(name)
+	local A = ns.Alts
+	local group = A and A.Group and A.Group(name)
+	local main = group and group.main
+	if not main or Key(main) == Key(name) then return nil end
+	local role = Church.Role(main)
+	if role == "A" or role == "M" then return main end
+end
+
 -- (1.5.5) A Church person of our guild by this client's own book: one its roster holds now. His own
 -- client may never say so (one that holds a signed list older than the one naming him), and then no
 -- presence of his is heard (HeardPresence). Read from the book's own tables (Role per row is slower).
@@ -440,7 +452,7 @@ function Count.MaybeRead(now)
 	local keeper = Church.IsKeeper(ns.me) and not Church.IsKing(ns.me)
 	local RR = ns.RecruitRanking
 	local wanted = RR and RR.ReadWanted and RR.ReadWanted() or nil
-	if not keeper and not Church.IsPerson(ns.me) and wanted ~= "own" then
+	if not keeper and not Church.IsPerson(ns.me) and not RecruitMain(ns.me) and wanted ~= "own" then
 		if not AnyClaim() and not Count.PersonHere() and wanted ~= "drawn" then return false end
 		local peers = math.max(1, (ns.Comm.PeerCount and ns.Comm.PeerCount()) or 1)
 		if Count.chance() > math.min(1, 2 / peers) then return false end
@@ -558,7 +570,7 @@ end
 -- What one read brought: new events only (each kept EV_DAYS), invites remembered PAIR_HOURS for
 -- the join after them, this player's own invites and the guild's joins and leaves counted here.
 function Count.Process(events)
-	local guild = OwnGuild()
+	local guild = CleanGuild(OwnGuild())
 	if not guild or not ns.IsFederation(guild) then return 0 end
 	local ev, inv = Ev(), Inv()
 	local today = Day(Clock())
@@ -577,16 +589,21 @@ function Count.Process(events)
 	-- to the next. Count.Events now keeps the log's own order within an hour, so the first read pairs right
 	-- too. A one-hour log with no known direction leaves an ambiguous pair unset.)
 	if type(ev.p) ~= "table" then ev.p = {} end
+	if type(ev.g) ~= "table" then ev.g = {} end
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
 		local seen = SeenEvent(ev, sig, e.hour)
 		if seen then
 			local p = e.kind == "join" and ev.p[seen]
-			if type(p) == "string" and RR and RR.Pair then
+			if type(p) == "string" then
 				local by, ti, tj = p:match("^([^~]+)~([0-9a-z]+)~([0-9a-z]+)$")
 				ti, tj = UnB36(ti), UnB36(tj)
-				if by and ti and tj and Key(by) == meKey then
-					ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
+				if by and ti and tj and (not ev.g[seen] or ev.g[seen] == guild) then
+					if RR and RR.Pair and Key(by) == meKey then
+						ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
+					end
+					-- A link may be heard after the original read. Only retry pairs from this guild.
+					if ev.g[seen] and RecruitMain(by) and Count.Pair(by, e.p1, guild, ti, tj) then found = found + 1 end
 				end
 			end
 		else
@@ -595,7 +612,7 @@ function Count.Process(events)
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
-				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour } end
+				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild } end
 				if person and Key(e.p1) == meKey then
 					local m = Mine()
 					m.inv[day] = (m.inv[day] or 0) + 1
@@ -603,11 +620,13 @@ function Count.Process(events)
 			elseif e.kind == "join" then
 				FillOf(guild, day).j = FillOf(guild, day).j + 1
 				local i = inv[Key(e.p1)]
-				if i and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS then
+				if i and (not i.g or i.g == guild) and e.hour >= i.h - 1 and e.hour <= i.h + Count.PAIR_HOURS then
 					local tj = math.max(e.hour, i.h)
 					local h36, j36 = B36(i.h), B36(tj)
-					if type(i.by) == "string" and h36 and j36 then ev.p[key] = i.by .. "~" .. h36 .. "~" .. j36 end
-					if Count.Pair(i.by, e.p1, guild, i.h, tj) then found = found + 1 end
+					if type(i.by) == "string" and h36 and j36 then
+						ev.p[key], ev.g[key] = i.by .. "~" .. h36 .. "~" .. j36, i.g
+					end
+					if Count.Pair(i.by, e.p1, guild, i.h, tj, i.g == nil) then found = found + 1 end
 					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
 					-- records of its own type (RecruitRanking.lua), never this ledger's.
 					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
@@ -624,7 +643,7 @@ function Count.Process(events)
 		ev.n = n
 		if n > Count.EV_MAX then wipe(ev.k); ev.n = 0 end
 		-- (Review of the 1.5.9 release) A join's pair goes with its record.
-		for k in pairs(ev.p) do if not ev.k[k] then ev.p[k] = nil end end
+		for k in pairs(ev.p) do if not ev.k[k] then ev.p[k], ev.g[k] = nil, nil end end
 	end
 	local hourNow = math.floor(Clock() / 3600)
 	local kept = {}
@@ -644,10 +663,10 @@ function Count.OnLogUpdate()
 end
 
 -- A pair seen: reported once (Att), when its inviter is a Church person this client knows.
-function Count.Pair(inviter, invitee, guild, ti, tj)
+function Count.Pair(inviter, invitee, guild, ti, tj, unscoped)
 	local ik, xk = Key(inviter), Key(invitee)
 	if not ik or not xk or ik == xk then return false end
-	if not (Church.IsPerson(inviter) or Count.Claimed(inviter)) then return false end
+	if not (Church.IsPerson(inviter) or Count.Claimed(inviter) or (not unscoped and RecruitMain(inviter))) then return false end
 	local att = Att()
 	local id = xk .. ":" .. ik
 	if att[id] then return false end
@@ -1203,10 +1222,14 @@ function Count.TakeEvidence(sender, text)
 		if tj * 3600 > now + 3600 or tj * 3600 < now - Count.REG_DAYS * DAY then return Drop("times") end
 		local ik, xk = Key(inviter), Key(invitee)
 		if ik == xk then return Drop("self") end
-		if not PlacedBy(inviter, ti * 3600) then return Drop("recruiter") end
+		local main = RecruitMain(inviter)
+		local recruiter = main and PlacedBy(main, ti * 3600) and main or inviter
+		if not PlacedBy(recruiter, ti * 3600) then return Drop("recruiter") end
+		local rk = Key(recruiter)
+		if rk == xk then return Drop("self") end
 		if sk == xk or Linked(invitee, sender) then return Drop("recruit") end
 		local own = sk == ik
-		local alt = not own and Linked(inviter, sender)
+		local alt = not own and (sk == rk or Linked(inviter, sender) or (main and Linked(recruiter, sender)))
 		-- (1.2.1: only a witness this keeper can vouch for confirms, VerifiedWitness. Any other whisperer
 		-- counted as one: a single whisper credited a recruit, or took one from his real recruiter.)
 		local independent, how = false, nil
@@ -1218,10 +1241,10 @@ function Count.TakeEvidence(sender, text)
 		-- budget too. Two characters can make a census officer.)
 		if (alt or how == "census") and not Budget(sender, now, false) then return Drop("budget") end
 		stats.taken = stats.taken + 1
-		local id = xk .. ":" .. ik
+		local id = xk .. ":" .. rk
 		local held = Led().r[id]
 		local had = held ~= nil and held.ws ~= nil and #held.ws > 0
-		Count.MergeIn(id, { n = Short(invitee), bn = Short(inviter), g = guild, kind = "i", tc = ti * 3600, tj = tj * 3600,
+		Count.MergeIn(id, { n = Short(invitee), bn = Short(recruiter), g = guild, kind = "i", tc = ti * 3600, tj = tj * 3600,
 			s = own and 1 or nil, ws = independent and { sk } or nil, a = AltOf(invitee, inviter) and 1 or nil }, false)
 		-- (A keeper outside the pair's guild can't vouch for a guildmate there: the one that did tells the
 		-- keepers online at once, when the queue has room; the catch-up carries it otherwise. Our own
