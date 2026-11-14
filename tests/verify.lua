@@ -255,6 +255,51 @@ test("verify: the Watch sends the retained approval and cancels a queued resend 
 	end)
 end)
 
+test("verify: Watch resends wait for queue room, are paced and skip an approval replaced while waiting", function()
+	World(function(w)
+		local verifier = w.Client(HC, HEARTH, 3)
+		w.Census(GUILD, "Bram Hollow", 420)
+		w.Census(OTHER, "Corin Ash", 320)
+		w.Census(HEARTH, "Rowan Pine", 440)
+		eq(w.As(verifier, verifier.Verify.Approve, GUILD, GM), true)
+		eq(w.As(verifier, verifier.Verify.Approve, OTHER, GM2), true)
+		eq(w.As(verifier, verifier.Verify.Approve, HEARTH, "Rowan Pine-Realm"), true)
+
+		local room, attempts = 0, {}
+		verifier.Comm.QueueRoom = function() return room end
+		local Send = verifier.Comm.Send
+		verifier.Comm.Send = function(dist, text, key, urgent, logged, done, options)
+			if done then
+				assert(w.As(verifier, options.guard), "the queued approval still holds")
+				attempts[#attempts + 1] = text
+			end
+			local ok = Send(dist, text, key, urgent, logged)
+			if done then done(ok) end
+			return ok
+		end
+		eq(w.As(verifier, verifier.Verify.ResendApproval, GUILD), true)
+		eq(w.As(verifier, verifier.Verify.ResendApproval, OTHER), true)
+		eq(w.As(verifier, verifier.Verify.ResendApproval, HEARTH), true)
+		eq(w.As(verifier, verifier.Verify.ResendApproval, OTHER), false, "one waiting job per guild")
+		eq(#attempts, 0, "no resend enters the occupied send queue")
+
+		w.now = T0 + 10
+		eq(w.As(verifier, verifier.Verify.Revoke, OTHER), true)
+		room = 60
+		w.Run()
+		eq(#attempts, 1)
+		assert(attempts[1]:find(GUILD, 1, true))
+		w.Run()
+		eq(#attempts, 1, "even an immediate transport callback cannot release the whole queue")
+
+		w.now = w.now + verifier.Verify.RESEND_GAP
+		w.Run()
+		eq(#attempts, 2)
+		assert(attempts[2]:find(HEARTH, 1, true))
+		assert(Find(verifier.printed, verifier.L.VERIFY_RESEND_FAILED:format(OTHER)), "the revoked job failed visibly")
+	end)
+end)
+
 test("verify: hiding and restoring a guild affects the local Watch list and reminders only", function()
 	World(function(w)
 		local verifier = w.Client(HC, HEARTH, 3)

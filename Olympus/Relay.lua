@@ -2599,6 +2599,19 @@ local function ToRelays(flag, origin, body, staff)
 	if pieces then ns.Log("relay: %s's word (%s) across to %d relays", tostring(origin), body:sub(1, 6), n) end
 end
 
+-- A Watch resend on a relay's own client enters the remote queues synchronously. Reserve
+-- enough local send slots for its whole fan-out before Verify starts the resend.
+function Relay.ApprovalResendCost(body)
+	if not Relay.On() then return 1 end
+	if not Relay.IsRelay(ns.me) then return #body + 5 > 255 and 2 or 1 end
+	local now, targets = Now(), 1 -- allow one local reporter or guild handoff too
+	for _, name in ipairs(Relay.Names(false)) do
+		if (offline[name:lower()] or 0) <= now then targets = targets + 1 end
+	end
+	local size = #body + #(ns.me or "") + 6
+	return targets * (size > 255 and math.ceil(size / ns.Codec.CHUNK) or 1)
+end
+
 -- (1.5.4) A verifier's answer to the one client that asked, never to every reporter: a whole store
 -- (up to MAX_CHUNKS pieces) to each of 30-60 reporters never got through a relay's queue of
 -- MAX_QUEUE parts. A relay that asked takes it as RW; any other client as RM from its relay, and

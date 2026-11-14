@@ -87,6 +87,10 @@ Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays fi
 Verify.ANSWER_RETRIES, Verify.ANSWER_RETRY_EVERY = 6, 5 -- (1.5.4) a relay's answer its full queue refused, tried again
 Verify.REQUEST_GAP = 300         -- a guild master's queued request, kept across reloads
 Verify.RESEND_GAP = 15           -- a verifier can resend one existing decision at a time
+Verify.RESEND_QUEUE_MAX = 60
+Verify.RESEND_RETRY = 5
+Verify.RESEND_MAX_WAIT = 30 * 60
+Verify.RESEND_SPARE = 6           -- leave room for other urgent local traffic
 Verify.POLL_GAP = 30             -- at most one roster poll per client in this interval
 Verify.POLL_WAIT = 20            -- private replies only count for this long
 Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
@@ -856,28 +860,85 @@ function Verify.CanForwardResend(body, origin)
 	return not old or old.at < at or (status == "verified" and old.at == at and SamePerson(old.gm, gm) and SamePerson(old.by, by))
 end
 
-local resendPending, lastResend
+local resendQueue, resendTimer, resendPending, lastResend, lastResendKey = {}, false, nil, nil, nil
+local PumpResends
+local function ResendLater(delay)
+	if resendTimer then return end
+	resendTimer = true
+	ns.After(delay, "verify resend", function()
+		resendTimer = false
+		PumpResends()
+	end)
+end
+
+local function ResendPayload(entry, now)
+	return ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at,
+		entry.guild, Relative(entry.gm), Relative(entry.by))
+end
+
+local function ResendCurrent(item)
+	if not Verify.CouncilShown() or Quiet() or ns.rdb ~= item.store or ns.group ~= item.group or ns.faction ~= item.faction then
+		return false
+	end
+	local status, info = Verify.Status(item.guild)
+	return status == "verified" and info.entry == item.entry
+end
+
+local function SendResend(item, body, now)
+	resendPending = item
+	lastResend, lastResendKey = now, item.key
+	local function Current() return ResendCurrent(item) and Verify.CanForwardResend(body, ns.me) end
+	local function Done(sent)
+		resendPending = nil
+		if sent then lastResend = Verify.Clock() end
+		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(item.guild))
+		if resendQueue[1] then ResendLater(Verify.RESEND_GAP) end
+	end
+	ns.Comm.Send("CHANNEL", body, "verify resend#" .. item.key, true, false, Done, { owner = Verify, guard = Current })
+end
+
+PumpResends = function()
+	if resendPending or resendTimer then return end
+	while resendQueue[1] do
+		local item, now = resendQueue[1], Verify.Clock()
+		if now - item.at >= Verify.RESEND_MAX_WAIT or not ResendCurrent(item) then
+			table.remove(resendQueue, 1)
+			ns.Print(L.VERIFY_RESEND_FAILED:format(item.guild))
+		else
+			local remaining = lastResend and lastResend + Verify.RESEND_GAP - now or 0
+			if remaining > 0 then return ResendLater(remaining) end
+			local body, C, R = ResendPayload(item.entry, now), ns.Comm, ns.Relay
+			local cost = R and R.ApprovalResendCost and R.ApprovalResendCost(body) or 1
+			if C.MAX_QUEUE and cost > C.MAX_QUEUE then
+				table.remove(resendQueue, 1)
+				ns.Print(L.VERIFY_RESEND_FAILED:format(item.guild))
+			else
+				-- Wait for the entire fan-out without evicting scheduled census work.
+				local room = math.min(C.MAX_QUEUE or math.huge, cost + Verify.RESEND_SPARE)
+				if C.QueueRoom and C.QueueRoom() < room then return ResendLater(Verify.RESEND_RETRY) end
+				table.remove(resendQueue, 1)
+				return SendResend(item, body, now)
+			end
+		end
+	end
+end
+
 function Verify.ResendApproval(guild, expected)
 	if not Verify.CouncilShown() or Quiet() then return false, "trust" end
 	local status, info = Verify.Status(guild)
 	local entry = status == "verified" and info.entry
 	if not entry or (expected and expected ~= entry) then return false, "none" end
-	local now = Verify.Clock()
-	if resendPending or (lastResend and now - lastResend < Verify.RESEND_GAP) then return false, "busy" end
-	local body = ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at, entry.guild, Relative(entry.gm), Relative(entry.by))
-	if not Verify.CanForwardResend(body, ns.me) then return false, "none" end
-	local store, group, faction = ns.rdb, ns.group, ns.faction
-	local function StillCurrent()
-		if not Verify.CouncilShown() or Quiet() or ns.rdb ~= store or ns.group ~= group or ns.faction ~= faction then return false end
-		local current, details = Verify.Status(guild)
-		return current == "verified" and details.entry == entry and Verify.CanForwardResend(body, ns.me)
+	local now, key = Verify.Clock(), Key(guild)
+	if (resendPending and resendPending.key == key) or (lastResendKey == key and now - lastResend < Verify.RESEND_GAP) then
+		return false, "busy"
 	end
-	resendPending = true
-	return ns.Comm.Send("CHANNEL", body, "verify resend#" .. Key(guild), true, false, function(sent)
-		resendPending = false
-		if sent then lastResend = Verify.Clock() end
-		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(guild))
-	end, { owner = Verify, guard = StillCurrent }) == true
+	for _, item in ipairs(resendQueue) do if item.key == key then return false, "busy" end end
+	if #resendQueue >= Verify.RESEND_QUEUE_MAX then return false, "busy" end
+	if not Verify.CanForwardResend(ResendPayload(entry, now), ns.me) then return false, "none" end
+	resendQueue[#resendQueue + 1] = { guild = guild, key = key, entry = entry, at = now,
+		store = ns.rdb, group = ns.group, faction = ns.faction }
+	PumpResends()
+	return true
 end
 
 local function SayWhy(why, guild)
@@ -894,6 +955,11 @@ function Verify.ResendClick(data)
 	if why == "busy" then return ns.Print(L.VERIFY_RESEND_BUSY) end
 	if why == "none" then return ns.Print(L.VERIFY_RESEND_FAILED:format(data.guild)) end
 	if not ok and why then return SayWhy(why, data.guild) end
+	if ok then
+		for _, item in ipairs(resendQueue) do
+			if item.key == Key(data.guild) then ns.Print(L.VERIFY_RESEND_QUEUED:format(data.guild)); break end
+		end
+	end
 	return ok
 end
 
