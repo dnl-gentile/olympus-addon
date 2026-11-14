@@ -77,6 +77,8 @@
   late clients through the King and the High Council; duty letters from the King for every office; seven
   languages; the army's key in a form only 1.4.0 reads; the send queue holds through throttles and lockdowns.
 
+- v1.6.0 Confirmed recruits from linked alts count for their Apostle or Missionary main. Recruiting prompts respect focus and guild capacity, and only explicit requests are passed on automatically. Census recovery keeps the original observation time, guild approval resends are paced, and the guild master can see the retained approval. A confirmed channel echo settles chat without waiting for a relay.
+
 ## Next (after the base is proven in game)
 - **Compact reply cards after sending** - keep the existing reply composer, but render a sent reply in
   Olympus Chat with a short, visually separate quote card above the new message (WhatsApp-style)
