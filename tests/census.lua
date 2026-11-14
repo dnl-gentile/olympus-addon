@@ -488,6 +488,63 @@ local function Say(w, rows)
 	return ("CX~1~S~%d~%s"):format(w.clock, table.concat(out, ";"))
 end
 
+test("global census (#91): the debug report distinguishes scoped protocol drops, echoes and invalid rows", function()
+	local w = GroupWorld("Member-CAMWOWUS1Realm7PvE")
+	w.ns.group, w.ns.realm = "ForeverPvE", "CAMWOWUS1Realm7PvE"
+	local sender = "Council Relay-CAMWOWUS1Realm3PvE"
+	w.ns.Church.IsLedgerRelay = function(name) return name == sender end
+	local row = ("Olympus Dawn,640,40,300,%d"):format(w.clock)
+	local scoped = ("CG~2~S~%d~ForeverPvE~Alliance~"):format(w.clock)
+	eq(w.D.ReceiveGlobalCensus("CHANNEL", sender, Snapshot(w, { { "Olympus Dawn", 640 } })), false)
+	eq(w.D.ReceiveGlobalCensus("CHANNEL", sender, ("CG~1~C~%d"):format(w.clock)), false)
+	eq(w.D.ReceiveGlobalCensus("CHANNEL", "Member-CAMWOWUS1Realm2PvE", scoped .. row), true)
+	eq(w.D.ReceiveGlobalCensus("CHANNEL", sender, scoped .. row:gsub(",40,", ",900,")), true)
+	local s = w.D.CensusStats()
+	eq(s.cg.messages, 4)
+	eq(s.cg.refused, 2)
+	eq(s.cg.echo, 1)
+	eq(s.cg.invalid, 1)
+	eq(s.cg.trusted, 0)
+	eq(s.last[1].why, "protocol")
+	eq(s.last[2].why, "protocol")
+	assert(s.line:find("cg t0 w0 l0 r2 m4 e1 i1", 1, true), s.line)
+	eq(w.D.Summary().characters, 0)
+end)
+
+test("global census (#91): trust in a fresh relay snapshot is bounded by its timestamp and the individual observation", function()
+	local w = GroupWorld("Member-CAMWOWUS1Realm7PvE")
+	w.ns.group, w.ns.realm = "ForeverPvE", "CAMWOWUS1Realm7PvE"
+	local sender = "Council Relay-CAMWOWUS1Realm3PvE"
+	w.ns.Church.IsLedgerRelay = function(name) return name == sender end
+	local function Receive(from, made, rows)
+		local prefix = ("CG~2~S~%d~ForeverPvE~Alliance~"):format(made)
+		return w.D.ReceiveGlobalCensus("CHANNEL", from, prefix .. table.concat(rows, ";"))
+	end
+	local made = w.clock - 12 * 60
+	local observed = made - 5 * 60
+	local row = ("Olympus Dawn,640,40,300,%d"):format(observed)
+	local old = ("Olympus Old,300,20,300,%d"):format(made - 3 * 3600)
+	assert(Receive(sender, made, { row, old }))
+	local summary = w.D.Summary()
+	eq(summary.online, 40, "the trusted sender vouched for Dawn and only Dawn")
+	eq(w.ns.rdb.censusGlobal["olympus dawn"].observed, observed, "keep the actual roster read time")
+	eq(w.ns.rdb.censusGlobal["olympus dawn"].vouched, made)
+	eq(summary.newest, observed, "the summary does not claim it read the roster more recently")
+	w.clock = made + w.D.FRESH + 1
+	assert(Receive(sender, made, { row }))
+	eq(w.D.Summary().online, 0, "replaying the same snapshot does not refresh the observation")
+	assert(Receive(sender, w.clock, { row }))
+	eq(w.D.Summary().online, 0, "wrapping stale evidence in a new snapshot does not refresh it")
+	local witness = GroupWorld("Late-CAMWOWUS1Realm7PvE")
+	witness.ns.group, witness.ns.realm = w.ns.group, w.ns.realm
+	local word = ("CG~2~S~%d~ForeverPvE~Alliance~%s"):format(made, row)
+	witness.clock = made + 12 * 60
+	assert(witness.D.ReceiveGlobalCensus("CHANNEL", "First-CAMWOWUS1Realm3PvE", word))
+	assert(witness.D.ReceiveGlobalCensus("CHANNEL", "Second-CAMWOWUS1Realm3PvE", word))
+	eq(witness.D.Summary().characters, 640, "two witnesses still confirm the roster size")
+	eq(witness.D.Summary().online, 0, "two witnesses do not acquire the relay's freshness allowance")
+end)
+
 test("census saved variables: malformed and legacy rows cannot stop a valid saved census from loading", function()
 	local w = GroupWorld()
 	w.ns.group = "ForeverPvE"
