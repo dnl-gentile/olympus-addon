@@ -248,7 +248,7 @@ local function Led()
 	return l
 end
 Count.Led = Led
-ns.On("CHURCH_CHANGED", function() ledAt = nil end)
+ns.On("CHURCH_CHANGED", function() ledAt, credits = nil, nil end)
 ns.On("DATA_CHANGED", function() ledAt = nil end)
 -- This character's own: { pub, pubAt, regs = { [key] = { n, at } }, inv = { [day] = n } }.
 local function Mine()
@@ -1375,10 +1375,36 @@ end
 -- confirmed comes before one only its own recruiter stands behind, then the earliest: a made-up
 -- report dated earlier takes no recruit from the one the log and a witness show.
 local function Confirmed(r) return r.ws ~= nil and #r.ws > 0 end
--- The claim that comes first on one recruit: a confirmed one, then the earliest, then the smaller id.
-local function Before(id, r, bid, b)
+-- Legacy keepers may report the same invite under the alt's name. Compare those two claims under
+-- the main's id, then prefer the row already recorded against the main. Giving both rows the
+-- same tie key keeps the comparison consistent even if a third recruiter also claims the join.
+local function ClaimTie(id, r, recs, mains)
+	if r.kind ~= "i" or not r.tj or not r.g or not Confirmed(r) then return id end
+	local main = mains[r.bn]
+	if main == nil then
+		main = RecruitMain(r.bn) or false
+		mains[r.bn] = main
+	end
+	if not main or not PlacedBy(main, r.tc or 0) then return id end
+	local key = Key(r.n) .. ":" .. Key(main)
+	local candidate = recs[key]
+	if candidate and candidate.kind == "i" and Confirmed(candidate)
+		and not (candidate.x or candidate.t or candidate.a)
+		and r.tc == candidate.tc and r.tj == candidate.tj and r.g == candidate.g then
+		return key
+	end
+	return id
+end
+
+-- A confirmed claim wins, then the earliest. Equal times use the claim tie keys.
+local function Before(id, r, bid, b, ties)
 	local conf, bconf = Confirmed(r), Confirmed(b)
-	return (conf and not bconf) or (conf == bconf and ((r.tc or 0) < (b.tc or 0) or ((r.tc or 0) == (b.tc or 0) and id < bid)))
+	if conf ~= bconf then return conf end
+	local at, bat = r.tc or 0, b.tc or 0
+	if at ~= bat then return at < bat end
+	local tie, btie = ties[id] or id, ties[bid] or bid
+	if tie ~= btie then return tie < btie end
+	return id == tie and bid ~= btie
 end
 
 -- { states = id -> state, winners = "<recruit>:" -> the id his claim is, byPerson = person key -> the
@@ -1389,9 +1415,12 @@ end
 function Count.Credits()
 	local now = Clock()
 	local recs = Led().r
+	local A = ns.Alts
+	local altVersion = A and A.Version and A.Version()
 	local c = credits
-	if c and c.rev == ledRev and c.r == recs and now >= c.at and now <= c.til then return c end
+	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til then return c end
 	local states, byPerson, winners, G = {}, {}, {}, Gone()
+	local ties, mains = {}, {}
 	local til = now + Count.CREDITS_KEEP
 	for id, r in pairs(recs) do
 		local xc = id:match("^[^:]+:")
@@ -1415,9 +1444,13 @@ function Count.Credits()
 			if state == "valid" or state == "open" then
 				-- (1.2.1: a recruit the archive counts already, Gone, is no live claim's: he counts once.)
 				local bid = winners[xc]
+				if state == "valid" and not G[xc] and r.bn and r.n then
+					local tie = ClaimTie(id, r, recs, mains)
+					if tie ~= id then ties[id] = tie end
+				end
 				if G[xc] ~= nil then state = "taken"
 				elseif not bid then winners[xc] = id
-				elseif Before(id, r, bid, recs[bid]) then states[bid], winners[xc] = "taken", id
+				elseif Before(id, r, bid, recs[bid], ties) then states[bid], winners[xc] = "taken", id
 				else state = "taken" end
 			end
 			states[id] = state
@@ -1426,7 +1459,7 @@ function Count.Credits()
 	for _, id in pairs(winners) do
 		if states[id] == "valid" then states[id] = Confirmed(recs[id]) and "credited" or "pending" end
 	end
-	credits = { rev = ledRev, at = now, til = til, r = recs, states = states, winners = winners, byPerson = byPerson }
+	credits = { rev = ledRev, altVersion = altVersion, at = now, til = til, r = recs, states = states, winners = winners, byPerson = byPerson }
 	return credits
 end
 

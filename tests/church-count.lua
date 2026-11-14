@@ -158,6 +158,34 @@ test("1.1.6 Church: linked invite attribution preserves the witness across an ac
 	eq(StateOf(w, c.a1, "Quiet Recruit", c.m1.name), "pending")
 end)
 
+test("1.1.6 Church: linked invite attribution prefers the main over a duplicate confirmed by a legacy keeper", function()
+	local w, c = Cast()
+	Join(w, World.GUILD, "Shared Recruit")
+	local B36 = ns.Codec.Base36
+	local hour = math.floor(w.clock / 3600)
+	local report = ("NV~1~w~%s~Shared Recruit-Realm~%s~%s~%s"):format(
+		A1, World.GUILD, B36(hour - 1), B36(hour))
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, report), true)
+	eq(StateOf(w, c.a1, "Shared Recruit", A1), "credited", "a keeper without the link credits the inviter")
+
+	local linked, revision = true, 1
+	c.a1.ns.Alts.Group = function(name)
+		if linked and (Key(name) == Key(A1) or Key(name) == Key(c.m1.name)) then
+			return { main = c.m1.name }
+		end
+	end
+	c.a1.ns.Alts.Version = function() return revision end
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, report), true)
+	eq(StateOf(w, c.a1, "Shared Recruit", c.m1.name), "credited", "the same invite belongs to the linked main")
+	eq(w:As(c.a1, c.a1.Count.Own, Key(c.m1.name), "a").joins, 1)
+	eq(w:As(c.a1, c.a1.Count.Own, Key(A1), "a").joins, 0, "the legacy row cannot score again")
+
+	linked, revision = false, revision + 1
+	eq(StateOf(w, c.a1, "Shared Recruit", A1), "credited", "recompute after the link changes")
+	linked, revision = true, revision + 1
+	eq(StateOf(w, c.a1, "Shared Recruit", c.m1.name), "credited")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36
