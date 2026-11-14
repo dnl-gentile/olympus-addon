@@ -201,7 +201,7 @@ local function Tick()
 	if #rows ~= before then Change() end
 	-- (1.5.8, the author's ask) Only the invite popup comes on its own; a whisper is its
 	-- "Whisper them first" button's, or the list's.
-	if not prompts or quiet or R.PopupsWait() or not ns.Dialog or ns.Dialog.missing then return end
+	if not prompts or quiet or R.PopupsWait() or R.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
 	-- Scans stay in the local queue when automatic handoffs take over at the invite limit.
 	local H = R.Handoff
@@ -210,6 +210,7 @@ local function Tick()
 		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then
 			if R.CopyCandidateInvite(row, true) then
 				row.prompted = true
+				R.PopupShown()
 				return
 			end
 		end

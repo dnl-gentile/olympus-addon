@@ -3271,3 +3271,39 @@ test("recruit decline reports suppress cold scans only in the same guild and on 
 		end)
 	end)
 end)
+
+test("recruit popup interval: one automatic prompt, persisted per guild, with manual queue review", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local function Setting()
+			local line = assert(Id(R.WhisperLines(), "recruit-popup-gap"))
+			return line.filters[1]
+		end
+		local filter = Setting()
+		eq(filter.value, ns.L.RECRUIT_POPUP_GAP_DEFAULT)
+		local daily = filter.options[#filter.options]
+		eq(daily.text, ns.L.RECRUIT_POPUP_GAP_DAILY)
+		daily.onClick()
+		R.OnWhisper("JOIN", "First Applicant-" .. home)
+		local first = assert(D.Find(DRAFT), "first automatic prompt")
+		first:Hide()
+		scene.now = scene.now + 22
+		R.OnWhisper("JOIN", "Second Applicant-" .. home)
+		eq(D.Find(DRAFT), nil, "no automatic prompt inside the selected interval")
+		local second = assert(R.requests[2])
+		eq(R.Accept(second), true, "manual review of the queue is still available")
+		assert(D.Find(DRAFT)).Hide()
+
+		R.ResetForTests()
+		eq(R.ToggleWhisperRecruiting(), true)
+		eq(Setting().value, daily.text, "the preference survives reset")
+		R.OnWhisper("JOIN", "After Reload-" .. home)
+		eq(D.Find(DRAFT), nil, "the clock is kept across sessions")
+		-- A new request just after the interval still gets the normal popup.
+		scene.now = scene.now + 86400
+		R.OnWhisper("JOIN", "After A Day-" .. home)
+		local draft = assert(D.Find(DRAFT), "automatic prompt returns after the interval")
+		eq(draft.data.req.name, "After A Day-" .. home)
+	end)
+end)

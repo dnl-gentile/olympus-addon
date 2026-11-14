@@ -793,6 +793,54 @@ local function AdChoices(create)
 	return saved
 end
 
+-- One optional interval for automatic recruitment prompts. Manual actions keep their own rules.
+local POPUP_GAPS = { 0, 60, 300, 900, 3600, 14400, 86400 }
+local function PopupGap(saved)
+	local gap = saved and saved.popupGap
+	for _, seconds in ipairs(POPUP_GAPS) do
+		if gap == seconds then return gap end
+	end
+	return 0
+end
+
+function Recruit.PopupWait()
+	local saved = AdChoices()
+	local gap = PopupGap(saved)
+	local elapsed = saved and type(saved.popupAt) == "number" and ns.Now() - saved.popupAt
+	return gap > 0 and elapsed and elapsed >= 0 and math.max(0, gap - elapsed) or 0
+end
+
+function Recruit.PopupShown()
+	local saved = AdChoices(true)
+	if saved then saved.popupAt = ns.Now() end
+end
+
+local function SetPopupGap(seconds)
+	local saved = AdChoices(true)
+	if not saved then return end
+	saved.popupGap = seconds > 0 and seconds or nil
+	replyTimer = nil
+	if PromptReply then PromptReply() end
+	ns.Fire("DATA_CHANGED")
+end
+
+local function PopupGapLabel(seconds)
+	if seconds == 0 then return L.RECRUIT_POPUP_GAP_DEFAULT end
+	if seconds < 3600 then return L.RECRUIT_ANNOUNCE_REMINDER_ON:format(seconds / 60) end
+	if seconds < 86400 then return L.RECRUIT_POPUP_GAP_HOURS:format(seconds / 3600) end
+	return L.RECRUIT_POPUP_GAP_DAILY
+end
+
+local function PopupGapFilter()
+	local options, gap = {}, PopupGap(AdChoices())
+	for i, seconds in ipairs(POPUP_GAPS) do
+		options[i] = { text = PopupGapLabel(seconds), selected = seconds == gap,
+			onClick = function() SetPopupGap(seconds) end }
+	end
+	return { id = "recruit-popup-gap", spaceBefore = 6,
+		filters = { { label = L.RECRUIT_POPUP_GAP_TITLE, value = PopupGapLabel(gap), options = options, understated = true } } }
+end
+
 local function QueueOnly()
 	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
 	return saved ~= nil and saved.queueOnly == true
@@ -1336,7 +1384,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 }
 
 local function RemindAnnouncement()
-	if not ReminderAllowed() or Recruit.PopupsWait() or not ns.Dialog or ns.Dialog.missing then return end
+	if not ReminderAllowed() or Recruit.PopupsWait() or Recruit.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
 	if rotateReminder then
 		local channels = PublicChannels()
@@ -1348,13 +1396,14 @@ local function RemindAnnouncement()
 			local row = channels[(last + offset - 1) % #channels + 1]
 			if CopyAnnouncement(row, true) then
 				lastReminderChannel = row.name
+				Recruit.PopupShown()
 				return
 			end
 		end
 		return
 	end
 	if lastAnnouncement and lastAnnouncement.guild == recruitingGuild then
-		CopyAnnouncement(lastAnnouncement.public, true)
+		if CopyAnnouncement(lastAnnouncement.public, true) then Recruit.PopupShown() end
 	else
 		ns.Print(L.RECRUIT_ANNOUNCE_REMIND)
 	end
@@ -1501,6 +1550,7 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { id = "recruit-whisper-arrival", indent = 1,
 			text = V.Gold(QueueOnly() and L.RECRUIT_WHISPER_QUEUE_ONLY or L.RECRUIT_WHISPER_POPUP_ON),
 			onClick = ToggleQueueOnly }
+		lines[#lines + 1] = PopupGapFilter()
 		for _, line in ipairs(Recruit.RequestLines(true, true)) do lines[#lines + 1] = line end
 	end
 	AnnouncementLines(lines, V, on)
@@ -2320,29 +2370,33 @@ PromptReply = function()
 	local function Later()
 		if held then RetryReply(Recruit.AtInviteLimit() and InviteLimitWait() or 10) end
 	end
+	-- A player who explicitly claimed a handoff can review it during the optional interval.
+	local wait = Recruit.PopupWait()
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
 			and (not H or not (H.State(pending) or H.Taken(pending))) then
 			req = pending
-			break
+			if wait <= 0 or pending.handedIn then break end
 		end
 	end
 	if not req then return Later() end
-	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then
-		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
-	end
+	local gap = lastReplyPrompt and ASK_COOLDOWN - (now - lastReplyPrompt) or 0
+	if not req.handedIn then gap = math.max(gap, wait) end
+	if gap > 0 then return RetryReply(gap) end
 	if Recruit.PopupsWait() then return RetryReply(2) end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
 		if ns.Dialog.Find(id) then return RetryReply(2) end
 	end
 	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and not (H and H.Taken(pending)) and CurrentRequest(pending) then
+		if pending.viaWhisper and (wait <= 0 or pending.handedIn) and not pending.popupShown
+			and not pending.invitePrepared and not pending.passWanted and not (H and H.Taken(pending))
+			and CurrentRequest(pending) then
 			local shown
 			if pending.handoffIntent or pending.handedIn then shown = AcceptRequest(pending, nil, true)
 			else shown = ReviewReply(pending) end
 			if shown then
 				pending.popupShown, lastReplyPrompt = true, now
+				if not pending.handedIn then Recruit.PopupShown() end
 				return RetryReply(ASK_COOLDOWN)
 			end
 		end

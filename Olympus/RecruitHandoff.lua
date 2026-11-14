@@ -472,10 +472,10 @@ Notify = function(ref)
 	local scan = Sighting(ref.id)
 	ns.Print((scan and L.RECRUIT_HANDOFF_ARRIVED_SCAN or L.RECRUIT_HANDOFF_ARRIVED):format(who, ref.from))
 	local D = ns.Dialog
-	if not D or D.missing or not D.Show or R.PopupsWait() then return end
+	if not D or D.missing or not D.Show or R.PopupsWait() or R.PopupWait() > 0 then return end
 	for _, which in ipairs(busyDialogs) do if D.Find(which) then return end end
 	local prompt = scan and L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN or L.RECRUIT_HANDOFF_CLAIM_PROMPT
-	D.Show(CLAIM_DIALOG, prompt:format(who, ref.from), nil, ref)
+	if D.Show(CLAIM_DIALOG, prompt:format(who, ref.from), nil, ref) then R.PopupShown() end
 end
 
 function H.Receive(dist, sender, word)
