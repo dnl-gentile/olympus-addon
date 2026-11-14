@@ -3427,7 +3427,9 @@ you choose **Done** or **Don't ask again**; the offer turns nothing on by itself
 reminder's interval and channels are kept the same way, in a record of their own, while
 recruiting is off too (the page shows them only while it is on).
 **Incoming JOIN** defaults to a pop-up. Choose **Queue only** to keep the chat notice and
-the request in **Church → Invites**. Pending requests are cleared at login.
+the request in **Church → Invites**. The same page lets you set a minimum interval between
+automatic recruiting pop-ups, up to 24 hours. The interval stays with your guild preference
+after a reload. You can review the queue at any time. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
 pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
@@ -3446,16 +3448,20 @@ no Who searches and clears when turned off or when you leave your guild.
 
 
 An officer can review an independent JOIN or a response to their recent outreach. JOIN
-opens the `/ginvite` command directly. In popup mode, the next request waits for the previous
-draft and game chat to close, the cooldown to end, and combat to finish. Olympus saves
+opens the `/ginvite` command directly. Automatic pop-ups wait for the previous draft and
+game chat to close, the cooldown to end, and for you to leave combat or an instance. They also
+wait when your guild is full. Olympus saves
 no prospect list to disk. The one list about other players it saves (1.5.9) is the opposite:
 players who declined a guild invite of yours, however you sent it, read from the game's own line
 (or its automatic decline, for a player who blocks guild invites), kept 7 days (200 at most) in
 the realm group's saved variables as a hash of each name, never the name. Such a player does not
 pop up again, is left out of the scan and of whispers, and is not passed to other members; a
-sighting of him another member passes is not taken. His own **JOIN**, whispered to you, sent from
-his **Join Olympus** screen or passed on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
-copies the selected command and hands focus to empty game chat. You can also copy it and
+sighting of him another member passes is not taken. A current guildmate can share the decline
+hash with your client to suppress cold invitations from the scan for the same period. An incoming
+**JOIN** clears your local decline and goes through even if your guildmate heard a decline.
+**Prepare invite** in the queue opens the same command. With mouse and keyboard,
+click the command if an automatic pop-up opened it, then use Ctrl+C to copy it and hand focus
+to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft. A **Join Olympus** request goes back to the
 Census instead, unless its name went to another member in a handoff.
@@ -3472,7 +3478,8 @@ recruiter's native roster can show whether the player actually joined.
 
 The sender can also turn on **Offer my waiting players to members**. With at least three eligible
 requests waiting, or at the game's limit of ten invites a minute, it asks one member of the same
-guild at a time. From 1.5.9 a client's guild hello says whether it takes handoffs ("J") or takes
+guild at a time. A candidate found by a scan can be passed by hand and is marked as such when
+claimed. Only requests with JOIN intent are handed off automatically and qualify for referral points. From 1.5.9 a client's guild hello says whether it takes handoffs ("J") or takes
 none ("j"); older clients ignore the field. Members who take them are asked first; after each turn
 over them, one member known to run Olympus otherwise (a 1.5.8 hello has no such field), and after
 each turn over those, one never heard from. A member whose hello says it takes none, or names a

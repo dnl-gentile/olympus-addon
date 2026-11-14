@@ -26,6 +26,7 @@ L.RECRUIT_INVITE_LIMIT_PASS = "You took %d invites to chat in the last minute, t
 L.RECRUIT_CANDIDATE_PASSING = "%s - offered to other members"
 L.RECRUIT_DECLINED = "%s declined the guild invite: not offered again for 7 days."
 
+L.RECRUIT_INVITE_SELECT_COMMAND = "Click the command to select it."
 L.RECRUIT_HANDOFF_ARRIVED_SCAN = "%s <%s> is passing you a player found by a scan. Claim it to see the name."
 L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> found a player by scanning. Claim the player to review the invitation."
 L.RECRUIT_HANDOFF_CLAIM_SCAN = "Claim scanned player from %s"
@@ -33,6 +34,7 @@ L.RECRUIT_HANDOFF_WAITING_SCAN = "Waiting for scanned player from %s"
 L.RECRUIT_HANDOFF_RECEIVED_SCAN = "Player found by a scan and passed on by %s."
 
 if GetLocale and GetLocale() == "ptBR" then
+	L.RECRUIT_INVITE_SELECT_COMMAND = "Clique no comando para selecioná-lo."
 	L.RECRUIT_HANDOFF_ARRIVED_SCAN = "%s <%s> está repassando um jogador encontrado na busca. Assuma para ver o nome."
 	L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> encontrou um jogador na busca. Assuma para revisar o convite."
 	L.RECRUIT_HANDOFF_CLAIM_SCAN = "Assumir jogador encontrado por %s"
