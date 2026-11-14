@@ -994,7 +994,7 @@ local function OutreachQueue()
 		if seen[guid] then counts.duplicate = counts.duplicate + 1; return end
 		seen[guid] = true
 		-- (1.5.9) One who declined this client's invite counts as contacted: not whispered again.
-		if RecentlyContacted(name, now) or Recruit.Declined(full) then counts.contacted = counts.contacted + 1; return end
+		if RecentlyContacted(name, now) or Recruit.ScanDeclined(full) then counts.contacted = counts.contacted + 1; return end
 		queue[#queue + 1] = { name = name, guid = guid, unit = unit }
 	end
 	Add("target", "target")
@@ -1560,6 +1560,27 @@ end
 -- (whispered, sent by his Olympus, or passed on by another member) clears it (ClearDeclined).
 Recruit.DECLINE_DAYS, Recruit.DECLINE_MAX = 7, 200
 local declinedHere, declinePatterns = {}, nil
+local DECLINE_WIRE_WINDOW, DECLINE_WIRE_LIMIT = 120, 20
+local sentDeclines, declineSenders = {}, {}
+
+local function SharedDeclinedList(create)
+	if type(ns.rdb) ~= "table" or not ns.IsMember() then return end
+	local guild = WhisperGuild()
+	if ns.IsSecret(guild) or type(guild) ~= "string" or guild == "" then return end
+	local groups = ns.rdb.recruitDeclinedGuilds
+	if type(groups) ~= "table" then
+		if not create then return end
+		groups = {}
+		ns.rdb.recruitDeclinedGuilds = groups
+	end
+	local list = groups[guild]
+	if type(list) ~= "table" then
+		if not create then return end
+		list = {}
+		groups[guild] = list
+	end
+	return list, guild
+end
 
 -- A player's key in that list: a 32-bit hash (8 hex digits) of his folded name as the census knows
 -- him (on WoW: Forever his name alone, the same on every sub-realm of his family). A collision only
@@ -1614,6 +1635,19 @@ function Recruit.Declined(name)
 	return false
 end
 
+-- The guild's decline reports only suppress unsolicited recruitment.
+function Recruit.ScanDeclined(name)
+	if Recruit.Declined(name) then return true end
+	local list = SharedDeclinedList()
+	local key = list and DeclineKey(name)
+	local at = key and list[key]
+	if type(at) ~= "number" then return false end
+	local age = ns.Now() - at
+	if age >= 0 and age < Recruit.DECLINE_DAYS * 86400 then return true end
+	list[key] = nil
+	return false
+end
+
 -- His own JOIN (whispered, sent by his Olympus, or passed on by another member) after a decline is
 -- his choice to come back: it goes through, and the decline is forgotten.
 local function ClearDeclined(name)
@@ -1628,7 +1662,7 @@ end
 -- His popups still on screen (an invite command whose paste was not seen, his whisper review, his
 -- reply): closed, as nothing in them works for him any more and they hold the next ones back.
 local DECLINE_DIALOGS = { "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF" }
-local function CloseDeclinedPopups(key)
+local function CloseDeclinedPopups(key, scansOnly)
 	local D = ns.Dialog
 	if not D or D.missing or not D.Find then return end
 	for _, which in ipairs(DECLINE_DIALOGS) do
@@ -1636,9 +1670,70 @@ local function CloseDeclinedPopups(key)
 		local data = f and f.data
 		local item = type(data) == "table" and (data.candidate or data.req or (data.name and data)) or nil
 		local name = type(item) == "table" and (item.scanned and item.full or item.name) or nil
-		if name and DeclineKey(name) == key then f:Hide() end
+		if name and (not scansOnly or item.scanned or item.sighting) and DeclineKey(name) == key then
+			f:Hide()
+		end
 	end
 end
+
+local function ShareDecline(key, now)
+	local guild = WhisperGuild()
+	if ns.IsSecret(guild) or type(guild) ~= "string" or guild == "" then return end
+	local function CanSend()
+		local current = WhisperGuild()
+		return not ns.IsSecret(current) and current == guild and not ns.QuietPresence() and Recruit.CanInvite()
+	end
+	if not CanSend() then return end
+	for i = #sentDeclines, 1, -1 do
+		if now - sentDeclines[i] >= 60 then table.remove(sentDeclines, i) end
+	end
+	if #sentDeclines >= DECLINE_WIRE_LIMIT then return end
+	local word = ("JD~1~%s~%d~%s"):format(Field(guild), now, key)
+	if ns.Comm.Send("GUILD", word, nil, false, false, nil, { guard = CanSend }) then
+		sentDeclines[#sentDeclines + 1] = now
+	end
+end
+
+-- The game gives the actual refusal only to the inviter. Treat a guildmate's report as a hint to
+-- stop showing cold invites. It cannot discard a recruit's own request, or affect another guild.
+local function OnSharedDecline(dist, sender, word)
+	if dist ~= "GUILD" or not ns.IsMember() or type(sender) ~= "string" or type(word) ~= "string"
+		or ns.IsSecret(sender, word) then return false end
+	local peer = ns.Fold(Key(sender))
+	if peer == ns.Fold(ns.me) then return false end
+	local roster = ns.Roster.Fresh()
+	if not roster or ns.Roster.RankOf(sender) == nil then return false end
+	local guild, at, key = word:match("^JD~1~([^~]+)~(%d+)~([0-9a-f]+)$")
+	local own = WhisperGuild()
+	if ns.IsSecret(own) or type(own) ~= "string" or guild ~= Field(own) or not key or #key ~= 8 then return false end
+	local now = ns.Now()
+	at = tonumber(at)
+	if not at or at < now - DECLINE_WIRE_WINDOW or at > now then return false end
+	for peer, window in pairs(declineSenders) do
+		if now - window.at >= 60 then declineSenders[peer] = nil end
+	end
+	local window = declineSenders[peer]
+	if not window then window = { at = now, n = 0 }; declineSenders[peer] = window end
+	if window.n >= DECLINE_WIRE_LIMIT then return false end
+	window.n = window.n + 1
+
+	local list = SharedDeclinedList(true)
+	local previous = list and list[key]
+	if not list or (type(previous) == "number" and now - previous < Recruit.DECLINE_DAYS * 86400) then
+		return false
+	end
+	list[key] = at
+	KeepDeclined(list, now)
+	for i = #Recruit.requests, 1, -1 do
+		local req = Recruit.requests[i]
+		if req.sighting and DeclineKey(req.name) == key then table.remove(Recruit.requests, i) end
+	end
+	if Recruit.Candidates and Recruit.Candidates.DropDeclined then Recruit.Candidates.DropDeclined() end
+	CloseDeclinedPopups(key, true)
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+ns.Comm.Handle("JD", OnSharedDecline)
 
 -- The client's decline lines as patterns (each with its one %s, the player), built once.
 local function DeclinePatterns()
@@ -1691,6 +1786,7 @@ function Recruit.OnSystemLine(text)
 	if H and H.Log then H.Log("DECLINED", H.Tag(name)) end
 	-- (Said while recruiting: the line is about what Olympus offers him.)
 	if Recruiting() then ns.Print(L.RECRUIT_DECLINED:format(ns.DisplayName(name) or name)) end
+	ShareDecline(key, now)
 	ns.Fire("DATA_CHANGED")
 	return true
 end
@@ -1849,16 +1945,11 @@ end
 -- member's offer reads as a JOIN).
 function Recruit.TakeHandoff(name, officer, sighting)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
-	if Recruit.Declined(name) then
-		-- (1.5.9) A sighting of a player who declined this character's invite is not taken (the
-		-- recruiting log says why). (Review of 1.5.9) A JOIN is: it is his own ask, made to another
-		-- member, and clears his decline here as his JOIN whispered here would.
-		if sighting then
-			if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
-			return false
-		end
-		ClearDeclined(name)
+	if sighting and Recruit.ScanDeclined(name) then
+		if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
+		return false
 	end
+	if not sighting and Recruit.Declined(name) then ClearDeclined(name) end
 	local copy = sighting and L.RECRUIT_HANDOFF_RECEIVED_SCAN or L.RECRUIT_HANDOFF_RECEIVED
 	local shown = copy:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting)
@@ -2410,7 +2501,7 @@ function Recruit.ResetForTests()
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
 	wipe(routeAsked); wipe(routeAnswered); wipe(closedGuilds); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
-	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere)
+	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere); wipe(sentDeclines); wipe(declineSenders)
 	declinePatterns = nil
 	lastRoute, lastInviteAt = -math.huge, nil
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil

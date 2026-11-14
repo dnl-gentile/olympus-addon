@@ -3199,3 +3199,75 @@ test("recruit join routing skips a full guild and withholds gates without known 
 	R.OpenGuilds, ns.Acts.Gates, GetNumGuildMembers = saved.open, saved.gates, saved.count
 	if not ok then error(err, 0) end
 end)
+
+test("recruit decline reports suppress cold scans only in the same guild and on updated clients", function()
+	WithHandoff(function(scene)
+		WithDecline(function()
+			local chatInfo = C_ChatInfo
+			local ok, err = pcall(function()
+				local modern = FreshComm()
+				local legacy, deliverLegacy = FreshComm(true)
+				local guild, words = own, {}
+				local guildApi = GetGuildInfo
+				local function Test()
+					GetGuildInfo = function() return guild end
+					local function LoadRecruit(client, name)
+						client.me, client.db, client.rdb = name, { blocked = {} }, {}
+						client.Now = function() return scene.now end
+						client.Recruit = nil
+						local def = StaticPopupDialogs[DRAFT]
+						assert(loadfile(FIXTURES .. "../../Olympus/Recruit.lua"))("Olympus", client)
+						StaticPopupDialogs[DRAFT] = def
+					end
+					-- The older client has no JD handler. It can still receive the packet from the game.
+					LoadRecruit(modern, me)
+					modern.Comm.Send = function(dist, word, _, _, _, _, options)
+						eq(dist, "GUILD")
+						assert(options.guard())
+						words[#words + 1] = word
+						return true
+					end
+					local otherClient, deliverOther = FreshComm()
+					LoadRecruit(otherClient, mate)
+					eq(modern.Recruit.OnSystemLine(DECLINE:format("New Recruit")), true)
+					local word = assert(words[1], "a genuine game decline emitted a guild hint")
+					assert(not word:find("New Recruit", 1, true), "the hint carries no player name")
+					eq(modern.Recruit.Declined(applicant), true, "the inviter still keeps the native decline")
+					deliverLegacy("GUILD", me, word)
+					eq(legacy.Comm.Stats().byType.JD, nil, "the legacy client ignores the unknown hint")
+
+					local remote = otherClient.Recruit
+					deliverOther("WHISPER", me, word)
+					deliverOther("GUILD", officer, word)
+					eq(remote.ScanDeclined(applicant), false, "whispers and users outside this roster are ignored")
+					-- Have the second client's roster confirm both guild members.
+					ns.Roster.RankOf = function(name) return (name == me or name == mate) and 0 or nil end
+					scene.fresh = false
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), false, "a stale roster cannot vouch for a guildmate")
+					scene.fresh = true
+					otherClient.Dialog = Dialogs()
+					eq(remote.ToggleWhisperRecruiting(), true)
+					remote.OnWhisper("JOIN", applicant)
+					local req = assert(remote.requests[1])
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), true, "new client honors the same-guild report")
+					eq(remote.Declined(applicant), false, "peer hints do not become native declines")
+					eq(remote.requests[1], req, "a real JOIN is kept")
+					eq(remote.TakeHandoff(applicant, me, true), false, "the cold handoff is suppressed")
+					guild = sister
+					eq(remote.ScanDeclined(applicant), false, "another guild has independent scan choices")
+					guild = own
+					scene.now = scene.now + 7 * 86400
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), false, "expired hints cannot return from replay")
+				end
+				local ran, why = pcall(Test)
+				GetGuildInfo = guildApi
+				if not ran then error(why, 0) end
+			end)
+			C_ChatInfo = chatInfo
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
