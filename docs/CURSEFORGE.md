@@ -1494,6 +1494,12 @@ publish the request to the board.
 
 ### The Missionary Church of Olympus (1.1.6)
 
+**Recruiting on linked characters.** Confirm a character with [alt links](#alt-links-11-one-player-counted-once)
+and its confirmed recruits count as direct recruits of its Apostle or Missionary main. They must
+still join an Olympus guild and be confirmed independently. Each recruit counts once; linking
+does not give the alt the main's role or permissions. Earlier recruits can only be recovered
+where a client still has usable guild-log evidence.
+
 **Guild fullness (1.2.4).** The correspondents' ranking counts the current correspondent's own
 management of that guild, not invitation points. Every new appointment starts afresh, including
 the same person returning after another correspondent. Only completed server UTC days score:
@@ -1566,9 +1572,9 @@ master (or the Head, the King or the author), who keeps that guild full and answ
   invite the keeper's own log saw; or when your own addon and another one a keeper can check both did
   (an officer, the Church correspondent, or another guildmate of a keeper); until then it waits as
   yours. 10 points for each confirmed
-  recruit and 5 more if he is still in the guild 7 days later; the member who passed that player on (a
-  JOIN request or a scanned player, **Pass to other members**) gets 25% of those points when his addon
-  and yours both say so. An invite whose player never joins counts nothing, and one player counts once:
+  recruit and 5 more if he is still in the guild 7 days later. The member who passed on an explicit
+  request to join gets 25% of those points when both addons confirm the handoff. Passing on a player
+  found by a scan does not earn that share. An invite whose player never joins counts nothing, and one player counts once:
   never an alt, a return to his guild, or a move from another Olympus guild where a keeper's addon saw
   him in the last 90 days (a move no keeper's addon saw is not caught). Every member sees it on the
   **Ranking** page (**Everyone**): the top 10 and his own place, this week, the last 30 days or all

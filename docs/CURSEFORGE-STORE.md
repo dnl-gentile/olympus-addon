@@ -506,28 +506,11 @@ publish the request to the board.
 
 ### The Missionary Church of Olympus (1.1.6)
 
-**Guild fullness (1.2.4).** The correspondents' ranking counts the current correspondent's own
-management of that guild, not invitation points. Every new appointment starts afresh, including
-the same person returning after another correspondent. Only completed server UTC days score:
-all admitted native-roster observations must be **above 950**; any observed 950 or fewer breaks
-the streak. An unobserved or budget-capped day is **unknown**: no point and no erasure of the
-proved streak. Each qualifying day's observations are averaged first, then those daily means
-receive equal weight in the streak's tie-break. This is role-authenticated, client-observed
-evidence, **not server certification or proof of continuous 24-hour fullness**. Incomplete,
-filtered or stale rosters and census totals do not supply observations. The counter reuses
-the existing complete native roster cache and its captured server timestamp; it performs no
-second 1,000-member scan. Current verified
-correspondents send only live own-guild observations privately to a Church keeper; census-only
-appointments and retrospective correspondent claims cannot establish a day elsewhere.
-Authorized keepers privately relay only retained admitted observations, in requested batches
-of at most 150, rotating through the bounded cache. Contiguous same-count observations are
-coalesced without changing their count or mean. Seven days of relay evidence, 128 guilds and
-20,000 runs at most are retained; older days fold into a durable checkpoint on this computer for
-that exact person and appointment, with at most 32 management checkpoints per guild.
-Checkpoints are never accepted from another client: a fresh client without older evidence keeps
-that history unknown. A predecessor's proof, a person's former appointment and an old unscoped
-guild aggregate cannot score the new management. Ordinary presence with an unchanged appointment
-does not reset its own proven streak. No new honour, gold rule or public/general-channel feed is added.
+**Recruiting on linked characters.** Confirm a character with [alt links](#alt-links-11-one-player-counted-once)
+and its confirmed recruits count as direct recruits of its Apostle or Missionary main. They must
+still join an Olympus guild and be confirmed independently. Each recruit counts once; linking
+does not give the alt the main's role or permissions. Earlier recruits can only be recovered
+where a client still has usable guild-log evidence.
 
 *Continued in the README: [The Missionary Church of Olympus (1.1.6)](https://github.com/dnl-gentile/olympus-addon#the-missionary-church-of-olympus-116).*
 
