@@ -929,18 +929,16 @@ local function SendNow(dist, msg, logged, whisperTo)
 	-- (A whisper goes to the name the server finds: ns.TellName. Group distributions have no target.)
 	local target = dist == "CHANNEL" and channelIndex or (dist == "WHISPER" and ns.TellName(whisperTo) or nil)
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
+	-- The server can report an offline recipient during a rejected call. Mark the attempted
+	-- whisper before calling it, including whispers that waited in the queue.
+	if dist == "WHISPER" then
+		local A = ns.Accord
+		if type(A) == "table" and type(A.Quiet) == "function" then pcall(A.Quiet, whisperTo) end
+	end
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
 	if ok and IsSuccess(res) then
 		stats.sent = stats.sent + 1
 		refusedInRow = 0
-		-- (1.5.4, the dev's live report: "No player named <a reporter> is currently playing" kept
-		-- filling his chat.) The server's line answers the whisper that actually went, and a whisper
-		-- can wait in the queue (a relay's batch behind thirty reporters' turns) far longer than the
-		-- quiet window opened when it was handed in. The window opens again now, whoever sent it.
-		if dist == "WHISPER" then
-			local A = ns.Accord
-			if type(A) == "table" and type(A.Quiet) == "function" then pcall(A.Quiet, whisperTo) end
-		end
 		if dist == "CHANNEL" then laneRefused = 0 end -- (1.4.1: the channel takes our words)
 		return true
 	end

@@ -3112,29 +3112,12 @@ ns.Comm.Handle("RU", function(...) Relay.HandleRules(...) end) -- (1.5.4: the re
 ns.Comm.Handle("RJ", function(...) Relay.HandleMesh(...) end) -- (1.5.5: the mesh between the signed relays)
 ns.Comm.RelayPieces({ RL = true, RM = true, RG = true, RX = true, RW = true, RU = true })
 
--- (1.4.6, the dev's ask) The server's "No player named X is currently playing" for a relay or a
--- reporter the relay whispered: out of the chat for good, not for a window (Accord.Quiet's ten
--- seconds left the login's first sweep in sight). Read all the same (NotFound, the event).
-local function NotFoundName(text)
-	-- (1.5.5) A secret line (Forever's chat locked down) goes on unread: the chat frame calls this
-	-- filter itself, in the game's chat code, outside the event guard in Core.lua.
-	if type(text) ~= "string" or ns.Secret("relay quiet line", text) then return nil end
-	local T = ns.Treasury
-	local pattern = type(T) == "table" and type(T.NotFoundPattern) == "function" and T.NotFoundPattern()
-	local who = type(pattern) == "string" and type(text) == "string" and text:match(pattern)
-	if type(who) ~= "string" then return nil end
-	return (who:gsub("^'", ""):gsub("'$", ""))
-end
+-- Only shield errors correlated with a recent addon send, not all errors about a known relay
+-- or reporter. The relay still reads the event to manage its next delivery attempt.
 function Relay.QuietLine(_, _, text) -- gp:system-filters
 	if not ns.Gate.Allowed("system-filters") or not Relay.On() then return false end
-	local who = NotFoundName(text)
-	if not who then return false end
-	if Relay.IsRelay(who) then return true end
-	local key = ns.ShortName(who):lower()
-	for _, r in pairs(reporters) do
-		if ns.ShortName(r.name or ""):lower() == key then return true end
-	end
-	return false
+	local A = ns.Accord
+	return type(A) == "table" and type(A.QuietLine) == "function" and A.QuietLine(nil, nil, text) == true
 end
 local filtering
 local function QuietLines() -- gp:system-filters!hook

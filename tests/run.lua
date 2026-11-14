@@ -8077,7 +8077,7 @@ end)
 
 -- 1.4.6 (the dev's ask): the yellow "No player named X" for the relay's own whispers, out of the
 -- chat for good. Fails before: no filter of the relay's.
-test("1.4.6 the relay: the server's no-player line for a relay or a registered reporter is kept out of the chat, any other left alone; installed at login where the gate allows, once", function()
+test("relay offline whispers: only recent addon sends are filtered, including a refused send; installed once behind the gate", function()
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, err = ERR_CHAT_PLAYER_NOT_FOUND_S, add = rawget(_G, "ChatFrame_AddMessageEventFilter") }
 	local ok, err = pcall(function()
 		GetChannelName = function() return 0 end
@@ -8087,10 +8087,25 @@ test("1.4.6 the relay: the server's no-player line for a relay or a registered r
 		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
 		local O, odeliver = RelayWorld("Hildryn Payne-Realm", "Olympus II")
 		O.Treasury = ns.Treasury
-		eq(O.Relay.QuietLine(nil, nil, "No player named 'Max Ran' is currently playing."), true, "a relay")
+		local relayLine = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Max Ran")
+		eq(O.Relay.QuietLine(nil, nil, relayLine), false, "typing a whisper to a relay can still show an error")
 		eq(O.Relay.QuietLine(nil, nil, "No player named 'Some One' is currently playing."), false, "anyone else")
 		odeliver("WHISPER", "Zed Far-Realm", "RL~P~RR~Olympus Zeus")
-		eq(O.Relay.QuietLine(nil, nil, "No player named 'Zed Far' is currently playing."), true, "a registered reporter")
+		local reporterLine = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Zed Far")
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), false, "registration is not a send")
+		local refused
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist)
+			if dist == "WHISPER" and msg == "X1~offline-probe" then
+				refused = true
+				eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the client may emit the line during the send")
+				return 12
+			end
+			return 0
+		end
+		O.Comm.Whisper("Zed Far-Realm", "X1~offline-probe")
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(refused, true, "send was attempted")
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the offline send's line stays hidden")
 		eq(O.Relay.QuietLine(nil, nil, "Some other system line."), false)
 		local added = {}
 		ChatFrame_AddMessageEventFilter = function(event, fn) added[#added + 1] = { event = event, fn = fn } end

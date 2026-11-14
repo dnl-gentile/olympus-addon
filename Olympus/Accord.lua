@@ -419,7 +419,9 @@ local function NotFoundName(text)
 	local T = ns.Treasury
 	local pattern = type(T) == "table" and type(T.NotFoundPattern) == "function" and T.NotFoundPattern()
 	local who = type(pattern) == "string" and text:match(pattern)
-	return type(who) == "string" and who:lower() or nil
+	if type(who) ~= "string" then return nil end
+	who = who:gsub("^'", ""):gsub("'$", "")
+	return ((ns.splitNames and ns.Normal(who)) or who):lower()
 end
 local function NamedAs(name, who)
 	return (ns.TellName(name) or ""):lower() == who or (ns.DisplayName(name) or ""):lower() == who
