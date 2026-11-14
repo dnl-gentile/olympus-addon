@@ -3129,6 +3129,7 @@ ns.Comm.RelayPieces({ RL = true, RM = true, RG = true, RX = true, RW = true, RU 
 -- or reporter. The relay still reads the event to manage its next delivery attempt.
 function Relay.QuietLine(_, _, text) -- gp:system-filters
 	if not ns.Gate.Allowed("system-filters") or not Relay.On() then return false end
+	if ns.Secret("relay quiet line", text) then return false end
 	local A = ns.Accord
 	return type(A) == "table" and type(A.QuietLine) == "function" and A.QuietLine(nil, nil, text) == true
 end
