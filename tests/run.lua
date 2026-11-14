@@ -46193,23 +46193,19 @@ end)
 -- real transport not one card, claim, word or chat line ever left. Its tests replaced Comm.Send and
 -- Comm.Whisper, so they never saw it. Here the real Comm.lua takes them.
 test("1.2 craft requests: the real Comm.lua admits the board card, a claim and a mediated word (no capability key without its permit)", function()
-	local R, C = ns.CraftRequests
-	local saved = { member = ns.IsMember, guild = GetGuildInfo, me = ns.me, ui = ns.UI, comm = ns.Comm,
-		chatInfo = C_ChatInfo, onForever = ns.OnForever, relay = ns.Relay, inGuild = IsInGuild }
+	local R, C = ns.CraftRequests, ns.Comm
+	local saved = { member = ns.IsMember, guild = GetGuildInfo, me = ns.me, ui = ns.UI }
 	local ok, err = pcall(function()
 		R.Reset()
+		C.Cancel(R)
 		-- (The window is not under test: whatever UI an earlier test left is not this one's.)
 		ns.UI = { SelectTab = function() end }
 		ns.IsMember = function() return true end
-		IsInGuild = function() return true end
 		GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end end
 		ns.me = "Sage Owl-Realm"
-		-- Exercise the ordinary transport in a fresh guild session. A shared queue can still hold
-		-- jobs for another guild, which the first send correctly drops when membership is read.
-		ns.OnForever = function() return false end
-		ns.Relay = { On = function() return false end }
-		C = FreshComm().Comm
-		ns.Comm = C
+		-- Comm notices a guild change at the first pump or enqueue. Let it discard any
+		-- previous-session work before measuring the crafting request's own queue entries.
+		if C.QueueSize() > 0 then C.Pump() end
 		local before = C.QueueSize()
 		R.OpenComposer()
 		R.SelectItem({ id = 14342, name = "Mooncloth", kind = "craft" }, "craft")
@@ -46226,10 +46222,9 @@ test("1.2 craft requests: the real Comm.lua admits the board card, a claim and a
 		eq(R.SendMediation(r, "Tamsin Ledger-Realm", "receipt"), true, "a mediated word too")
 		eq(C.QueueSize(), before + 3)
 	end)
-	if C then C.Cancel(R) end
+	C.Cancel(R)
 	R.Reset()
-	ns.IsMember, GetGuildInfo, ns.me, ns.UI, ns.Comm = saved.member, saved.guild, saved.me, saved.ui, saved.comm
-	C_ChatInfo, ns.OnForever, ns.Relay, IsInGuild = saved.chatInfo, saved.onForever, saved.relay, saved.inGuild
+	ns.IsMember, GetGuildInfo, ns.me, ns.UI = saved.member, saved.guild, saved.me, saved.ui
 	ns.Views.ClearFilters()
 	if not ok then error(err, 0) end
 end)
