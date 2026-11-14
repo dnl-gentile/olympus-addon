@@ -8127,6 +8127,7 @@ test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's 
 		local said, received = {}, {}
 		local cns = setmetatable({
 			splitNames = true, me = "Me-Realm", clock = 5000,
+			Channels = { IsMe = function(sender) return sender == "Me-Realm" end },
 			Comm = { ChannelIndex = function() return 6 end, ChannelName = function() return "OlympusNet1" end,
 				Inject = function(dist, sender, text, logged) received[#received + 1] = { dist = dist, sender = sender, text = text, logged = logged } end },
 			Gate = { Allowed = function() return true end },
@@ -8139,11 +8140,16 @@ test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's 
 		assert(loadfile(ADDON_DIR .. "ChatHall.lua"))("Olympus", cns)
 		local H = cns.ChatHall
 		eq(H.On(), true)
-		eq(H.Send("M1~A~Olympus II~7~WL~hello"), true)
+		local echoes = 0
+		eq(H.Send("M1~A~Olympus II~7~WL~hello", function() echoes = echoes + 1 end), true)
 		eq(#said, 1); eq(said[1].text, "M1~A~Olympus II~7~WL~hello"); eq(said[1].kind, "CHANNEL"); eq(said[1].target, 6, "the joined channel's number")
 		eq(H.Send("EC~room~1~hey"), false, "another kind: the hidden way alone"); eq(#said, 1)
 		-- The channel's lines: ours counted as the echo, anyone's taken as the hidden line.
+		eq(H.OnChannel(said[1].text, "Other-Realm", "", "", "", "", 0, 6, "OlympusNet1"), true)
+		eq(echoes, 0, "same payload from another sender does not settle our send")
+		table.remove(received, 1)
 		eq(H.OnChannel("M1~A~Olympus II~7~WL~hello", "Me-Realm", "", "6. OlympusNet1", "", "", 0, 6, "OlympusNet1"), true)
+		eq(echoes, 1, "the native echo settles our send")
 		eq(#received, 1); eq(received[1].dist, "CHANNEL"); eq(received[1].sender, "Me-Realm"); eq(received[1].text, "M1~A~Olympus II~7~WL~hello"); eq(received[1].logged, true)
 		eq(H.Stats().echoed, 1)
 		eq(H.OnChannel("M1~A~Olympus V~3~~hi all", "Far Away-Realm", "", "", "", "", 0, 6, "olympusnet1"), true)

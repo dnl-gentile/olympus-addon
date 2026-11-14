@@ -17,7 +17,8 @@ local ADDON, ns = ...
 -- gamepad UI nothing here runs (the chat box gate): the hidden way as before.
 local Hall = {}
 ns.ChatHall = Hall
-local pending = {} -- msg -> when: sent as text, its echo counted
+local pending = {} -- msg -> when sent as text and the optional completion for its own echo
+local PENDING_FOR = 120
 local stats = { sent = 0, echoed = 0, heard = 0, guid = 0 }
 function Hall.Stats() return { sent = stats.sent, echoed = stats.echoed, heard = stats.heard, guid = stats.guid, on = Hall.On() } end
 
@@ -48,11 +49,13 @@ end
 -- in the same channel hear the text at once, and each takes the line once (Channels' sender#id#text within DEDUPE_WINDOW). True when
 -- handed to the game. The role rooms' and the arena's kinds keep the hidden way alone (their
 -- own dedupe is theirs).
-function Hall.Send(msg) -- gp:chat-box
+function Hall.Send(msg, echoed) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return false end
 	if not Hall.On() or type(msg) ~= "string" or msg:sub(1, 3) ~= "M1~" or #msg > 255 then return false end
 	local index = ns.Comm.ChannelIndex()
-	pending[msg] = ns.Now()
+	local now = ns.Now()
+	for m, p in pairs(pending) do if now - p.at > PENDING_FOR then pending[m] = nil end end
+	pending[msg] = { at = now, echoed = type(echoed) == "function" and echoed or nil }
 	local ok = pcall(SendChatMessage, msg, "CHANNEL", nil, index) -- gp:chat-box
 	if not ok then pending[msg] = nil return false end
 	stats.sent = stats.sent + 1
@@ -76,9 +79,11 @@ function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName, _, _, guid)
 	local joined = ns.Comm and ns.Comm.ChannelName and ns.Comm.ChannelName()
 	if type(joined) ~= "string" or type(baseName) ~= "string" or baseName:lower() ~= joined:lower() then return false end
 	if type(text) ~= "string" or #text > 255 or text:sub(1, 3) ~= "M1~" then return false end
-	if pending[text] then
+	local p, C = pending[text], ns.Channels
+	if p and ns.Now() - p.at <= PENDING_FOR and C and C.IsMe and C.IsMe(sender) then
 		pending[text] = nil
 		stats.echoed = stats.echoed + 1
+		if p.echoed then ns.SafeCall("chat hall echo", p.echoed) end
 	end
 	stats.heard = stats.heard + 1
 	-- (A secret GUID is none: passed on as nothing, never read.)

@@ -871,8 +871,15 @@ function Comm.SendChat(msg, done, line, guard)
 	-- (Forever), a tier's line goes as his own text in the joined channel too (ChatHall.lua):
 	-- the same channel hears it at once, every other lane and guild by the hidden way below.
 	local H = ns.ChatHall
-	if type(H) == "table" and H.On() then pcall(H.Send, msg) end
-	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime(), channel = joinedName, line = line, guard = guard }
+	-- A native channel echo proves delivery to that channel even if there is no relay. Keep
+	-- sending the relay copy for wider coverage, but resolve the writer's send only once.
+	local function Complete(sent, why)
+		local f = done
+		done = nil
+		if f then return f(sent, why) end
+	end
+	if type(H) == "table" and H.On() then pcall(H.Send, msg, function() Complete(true) end) end
+	chatQueue[#chatQueue + 1] = { msg = msg, done = done and Complete or nil, t = GetTime(), channel = joinedName, line = line, guard = guard }
 	return true
 end
 function Comm.ChatRoom()
