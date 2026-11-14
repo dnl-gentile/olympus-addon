@@ -3359,7 +3359,8 @@ ns.RegisterEvent("UI_SCALE_CHANGED", function() ns.SafeCall("relayout", Relayout
 -- The bug report, with "Send to <author>" while the addon's author is online (Workshop.lua).
 function UI.ShowBugReport()
 	local text = ns.BuildBugReport()
-	UI.ShowCopy(L.REPORT_BUG, text, ns.Workshop and ns.Workshop.BugAction and ns.Workshop.BugAction(text) or nil)
+	local send = ns.Workshop and ns.Workshop.BugAction and ns.Workshop.BugAction(text) or nil
+	UI.ShowCopy(L.REPORT_BUG, text, send, { hint = L.BUG_COPY_HINT })
 end
 
 -- Where the addon lives: its code and issues (the toc's X-Website), its CurseForge page.
@@ -3428,7 +3429,8 @@ end
 -- "versions", his /oly status "status"; the help and every Copy share "copy"), big = larger, with
 -- a Select all button (the reports: long, and read before copied), auto = opened by itself (no
 -- keyboard: see the end), second = (1.1.5) a { label, fn } button after the first (the help's
--- version letters) }. Each key's window keeps its place and text while another one shows.
+-- version letters), hint = custom copy instructions }. Each key's window keeps its place and
+-- text while another one shows.
 local copyFrames = {}
 local COPY_PLACES = { bug = { 0, 30 }, versions = { 60, -30 }, status = { -60, 30 } }
 
@@ -3520,6 +3522,7 @@ function UI.ShowCopy(title, text, action, opts)
 	local selectAll = rawget(copyFrame, "selectAll")
 	button.fn = action and action.fn or nil
 	button:SetShown(action ~= nil)
+	copyFrame.hint:SetText(opts.hint or L.COPY_HINT)
 	-- With the button on the left, the hint moves right.
 	copyFrame.hint:ClearAllPoints()
 	if action or selectAll then

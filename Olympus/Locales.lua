@@ -669,6 +669,7 @@ L.COPY_DISCORD = "Copy for Discord"
 L.REPORT_BUG = "Report a bug"
 L.SHOW_MAP = "Show on map"
 L.COPY_HINT = "Copy with Ctrl+C or Cmd+C (Mac), then paste in Discord."
+L.BUG_COPY_HINT = "Copy with Ctrl+C or Cmd+C. GitHub Issues link in Help."
 L.STATUS_REPORTER = "You are reporting %s  (%d with the addon)"
 L.STATUS_PEER = "%s is reported by %s  (%d with the addon)"
 L.STATUS_NOGUILD = "You are not in a guild. You still see every Olympus guild."
@@ -1566,7 +1567,7 @@ L.OFFICER_FIXED = "Captains are rank 1 (right below the guild master) in every g
 L.KEY_OFFICERS_ONLY = "Only officers of an Olympus guild can set the realm key."
 L.KEY_TOO_SHORT = "The key needs at least 6 characters."
 L.KEY_SET = "Realm key set: the Olympus channel is now sealed, your guildmates receive the key automatically."
-L.KEY_SET_FOREVER = "Realm key set: your guildmates receive it automatically. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your guild's typed chat lines out of it, and they reach the other guilds by the relays."
+L.KEY_SET_FOREVER = "Realm key set: your guildmates receive it automatically. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your guild's typed chat lines out of it, and the relays carry them only within your ruleset."
 L.KEY_CLEARED = "Realm key cleared: your guild is returning to the public Olympus channel."
 L.KEY_CLEARED_FOREVER = "Realm key cleared. On WoW: Forever your guild was on the public Olympus channel already: your guild's typed chat lines show in it again."
 L.KEY_CLEARED_TAKEN = "A guild officer returned your guild to the public Olympus channel."
@@ -1686,11 +1687,9 @@ L.CHANNEL_LOCKED = "Someone locked Olympus's hidden channel (%s) with a password
 -- 0.9.1: privacy
 L.CHANNEL_PUBLIC = "Your guild set no realm key, so the channel is public: anyone can join it by name."
 L.CHANNEL_SEALED = "Your guild sealed the channel with a realm key: anyone who holds the key can join it."
--- (1.5.9's review) A key holder's audience on Forever (Comm.Audience): the chat warning's, and what the zone, Board,
--- groups, privacy page and Treasurer's share questions say, so it fits any message they send. (Round 2) And it follows
--- their own "on the Olympus channel" without denying it: on Forever that channel is the public one, which the relays
--- carry; the key keeps none of it from showing as text there.
-L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key. On WoW: Forever the relays carry the Olympus channel: what goes on it reaches every Olympus guild, where any of their players can read it, and none of it shows as text in the game's public channel, which anyone can join."
+-- Used by privacy prompts for chat and other addon messages. Explain what a recipient can read
+-- and which part the realm key changes on Forever.
+L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key. On WoW: Forever, other Olympus players can read what their addons receive from relays. Your guild's typed chat stays off the public game channel and relays carry it within your ruleset."
 L.LOCATION_ASK = "|cffe6c35cOlympus: share your zone and layer?|r\n\nIf you share, the addon may announce on the Olympus channel your zone, your layer, your guild rank and your guild, with your name on each message (the game adds it): officers and one member in eight do, every 10 minutes and when their layer changes. Your guild's census then names your zone if you lead your guild or are an officer, and counts members per zone when your addon is the one sending it.\n\nEveryone on the Olympus channel receives it. %s\n\nKeep it private and none of that is sent. Asking to hop to a layer still sends the zone you are in and the layer you want.\n\nChange it any time with /oly location on or /oly location off."
 L.LOCATION_SHARE = "Share"
 L.LOCATION_KEEP = "Keep private"
@@ -2057,7 +2056,7 @@ L.QUIET_PRESENCE_LINE = "Quiet presence: Olympus stops announcing you and where 
 L.QUIET_PRESENCE_TIP = "You turned on Private presence, or an addon you authorized turned on a quiet presence. Olympus stops sending the words that announce you online or say where you are: no hello, census report, layer, map dot, layer-hop offer, court, donations or duty notice, help or crafter answer, Wanted sighting or sighting answer, profile presentation, nor the King's crown or the lists his client repeats. What other clients heard before lapses as after a logout. Your guildmates' census still reads the guild roster: a guild leader or officer still shows online there, and your zone may show for up to 12 minutes. With Private presence your guild is told, and its members' Olympus clients count you offline in the census they send (an older Olympus may not). Olympus chat lines you type, what you post yourself and the records your client relays still go out. Private presence stays on across logins until you turn it off. An addon's quiet presence ends when that addon turns it off, on a /reload or at logout; after a /reload, Olympus may say hello before that addon turns it on again."
 L.QUIET_PRESENCE_HELD = "Quiet presence is on: Olympus sends this once it is off."
 L.PUBLIC_NET_TIP = "No realm key is set, so every Olympus addon meets on the public %s channel. Anyone can join it by name and, with a one-line script, read everything sent there: the census, where people are (for those who share it), the three chats ([Captains] and [Lords] too) and the decrees. Sealed with a key, the channel's name and password come from the key and only players who hold it get in. An officer types /oly key <secret> once, and guildmates with the addon get the key over guild chat. Use the secret the officers of the other guilds use: a key of your own splits your guild off the army."
-L.PUBLIC_NET_TIP_FOREVER = "On WoW: Forever every Olympus addon meets on the public %s channel, whatever key its guild holds. Addons on 1.5.5 or later send the census and the rest by the relays, never on the channel, so what anyone who joins it can read is the chat lines typed by guilds without a realm key ([Captains] and [Lords] too) and the census older addons still send there. A realm key (/oly key) keeps your guild's typed lines out of it: they then reach the other guilds by the relays."
+L.PUBLIC_NET_TIP_FOREVER = "On WoW: Forever every Olympus addon meets on the public %s channel, whatever key its guild holds. Addons on 1.5.5 or later send the census and the rest by the relays, never on the channel, so what anyone who joins it can read is the chat lines typed by guilds without a realm key ([Captains] and [Lords] too) and the census older addons still send there. A realm key (/oly key) keeps your guild's typed lines out of it: the relays then carry them only within your ruleset."
 -- 1.1: the pinned line (request #9).
 L.PIN_LABEL = "Pinned"
 L.PIN_TIP = "Pinned by %s <%s>, %s. It ends in %d min, or when its author (or a higher rank) takes it down. Its words are the author's own, sent with the logged API, so abuse can be reported."
@@ -2719,7 +2718,7 @@ L.KEY_ROTATION_MOVED = "You and your guild are on the new army key: the old chan
 L.KEY_ROTATION_MOVED_FOREVER = "You and your guild hold the new army key. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your typed chat lines out of it."
 L.KEY_ROTATED_AGO = "Rotated %s: %d Lords and Captains have it (%d guilds)"
 L.KEY_ROTATED_TAKEN = "The army's channel key changed (the King's new key, or your officers'): joining the new channel."
-L.KEY_ROTATED_TAKEN_FOREVER = "The army's channel key changed (the King's new key, or your officers'): it is kept. On WoW: Forever your guild stays on the public Olympus channel, and its typed chat lines reach the other guilds by the relays."
+L.KEY_ROTATED_TAKEN_FOREVER = "The army's channel key changed (the King's new key, or your officers'): it is kept. On WoW: Forever your guild stays on the public Olympus channel, and the relays carry its typed chat lines only within your ruleset."
 -- 1.1: the dues (Dues.lua, Fern's #36 and #37): one fixed amount a week to the Treasurer, never public.
 L.DUES_TITLE = "Dues, week of %s"
 L.DUES_A_WEEK = "%s a week"
@@ -3294,6 +3293,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.REPORT_BUG = "Reportar bug"
 	L.SHOW_MAP = "Mostrar no mapa"
 	L.COPY_HINT = "Copie com Ctrl+C ou Cmd+C (Mac) e cole no Discord."
+	L.BUG_COPY_HINT = "Copie com Ctrl+C ou Cmd+C. Link para reportar no GitHub na Ajuda."
 	L.STATUS_REPORTER = "Você está reportando %s  (%d com o addon)"
 	L.STATUS_PEER = "%s é reportada por %s  (%d com o addon)"
 	L.STATUS_NOGUILD = "Você não está em guilda. Ainda vê todas as Olympus."
@@ -4176,7 +4176,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_OFFICERS_ONLY = "Só officers de uma guilda Olympus podem definir a chave do reino."
 	L.KEY_TOO_SHORT = "A chave precisa de pelo menos 6 caracteres."
 	L.KEY_SET = "Chave do reino definida: o canal Olympus agora é selado, seus colegas recebem a chave sozinhos."
-	L.KEY_SET_FOREVER = "Chave do reino definida: seus colegas de guilda a recebem sozinhos. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém as linhas de chat digitadas da sua guilda fora dele, e elas chegam às outras guildas pelos relays."
+	L.KEY_SET_FOREVER = "Chave do reino definida: seus colegas de guilda a recebem sozinhos. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém as linhas de chat digitadas da sua guilda fora dele, e os relays as levam apenas dentro do seu conjunto de regras."
 	L.KEY_CLEARED = "Chave do reino removida: sua guilda está voltando ao canal público do Olympus."
 	L.KEY_CLEARED_FOREVER = "Chave do reino removida. No WoW: Forever sua guilda já estava no canal público do Olympus: as linhas de chat digitadas da sua guilda voltam a aparecer nele."
 	L.KEY_CLEARED_TAKEN = "Um officer da guilda levou sua guilda de volta ao canal público do Olympus."
@@ -4296,7 +4296,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 0.9.1: privacy
 	L.CHANNEL_PUBLIC = "Sua guilda não definiu uma chave de reino, então o canal é público: qualquer um pode entrar nele pelo nome."
 	L.CHANNEL_SEALED = "Sua guilda selou o canal com uma chave de reino: qualquer um que tenha a chave pode entrar nele."
-	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino. No WoW: Forever os relays levam o canal Olympus: o que vai nele chega a todas as guildas Olympus, onde qualquer jogador delas pode ler, e nada disso aparece como texto no canal público do jogo, em que qualquer um pode entrar."
+	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino. No WoW: Forever, outros jogadores Olympus podem ler o que seus addons recebem dos relays. O chat digitado da sua guilda fica fora do canal público do jogo e os relays o levam dentro do seu conjunto de regras."
 	L.LOCATION_ASK = "|cffe6c35cOlympus: compartilhar sua zona e seu layer?|r\n\nSe você compartilhar, o addon pode anunciar no canal Olympus sua zona, seu layer, seu rank na guilda e sua guilda, com seu nome em cada mensagem (o jogo coloca): os officers e um membro em cada oito anunciam, a cada 10 minutos e quando o layer muda. O censo da sua guilda passa a mostrar sua zona se você for o líder ou officer, e a contar os membros por zona quando é o seu addon que o envia.\n\nTodos no canal Olympus recebem isso. %s\n\nSe mantiver privado, nada disso é enviado. Pedir para pular de layer ainda envia a zona onde você está e o layer que você quer.\n\nMude quando quiser com /oly location on ou /oly location off."
 	L.LOCATION_SHARE = "Compartilhar"
 	L.LOCATION_KEEP = "Manter privado"
@@ -4654,7 +4654,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.QUIET_PRESENCE_TIP = "Você ligou a Presença privada, ou um addon que você autorizou ligou uma presença silenciosa. O Olympus deixa de enviar, por conta própria, as palavras que anunciam você online ou dizem onde você está: nenhum olá, relatório do censo, camada, ponto no mapa, oferta de troca de camada, corte, aviso de doações ou de plantão, resposta de ajuda ou de artesão, avistamento do Wanted ou resposta de avistamento, apresentação de perfil, nem a coroa do Rei ou as listas que o cliente dele repete. O que os outros clientes ouviram antes expira como após um logout. O censo dos seus colegas de guilda ainda lê a lista da guilda: um mestre ou oficial de guilda ainda aparece online lá, e sua zona pode aparecer por até 12 minutos. Com a Presença privada a sua guilda é avisada, e os clientes Olympus dos membros dela contam você offline no censo que enviam (um Olympus mais antigo pode não contar). As linhas de chat do Olympus que você digitar, o que você mesmo publicar e os registros que seu cliente repassa ainda são enviados. A Presença privada continua ligada entre logins até você desligar. A presença silenciosa de um addon termina quando esse addon a desligar, num /reload ou ao sair do jogo; depois de um /reload, o Olympus pode dizer olá antes que esse addon a ligue de novo."
 	L.QUIET_PRESENCE_HELD = "A presença silenciosa está ligada: o Olympus envia isto quando ela for desligada."
 	L.PUBLIC_NET_TIP = "Nenhuma chave de reino foi definida, então todo addon de Olympus se encontra no canal público %s. Qualquer um pode entrar nele pelo nome e, com um script de uma linha, ler tudo o que passa por lá: o censo, onde as pessoas estão (de quem compartilha), os três chats ([Capitães] e [Lordes] também) e os decretos. Selado com uma chave, o nome e a senha do canal vêm da chave e só entra quem a tem. Um oficial digita /oly key <segredo> uma vez, e os colegas de guilda com o addon recebem a chave sozinhos pelo chat da guilda. Use o segredo que os oficiais das outras guildas usam: uma chave só sua separa a sua guilda do exército."
-	L.PUBLIC_NET_TIP_FOREVER = "No WoW: Forever todo addon de Olympus se encontra no canal público %s, seja qual for a chave da guilda dele. Os addons na 1.5.5 ou mais nova mandam o censo e o resto pelos relays, nunca pelo canal, então o que qualquer um que entrar nele pode ler são as linhas de chat digitadas pelas guildas sem chave de reino ([Capitães] e [Lordes] também) e o censo que addons mais antigos ainda mandam ali. Uma chave de reino (/oly key) mantém as linhas digitadas da sua guilda fora dele: elas passam a chegar às outras guildas pelos relays."
+	L.PUBLIC_NET_TIP_FOREVER = "No WoW: Forever todo addon de Olympus se encontra no canal público %s, seja qual for a chave da guilda dele. Os addons na 1.5.5 ou mais nova mandam o censo e o resto pelos relays, nunca pelo canal, então o que qualquer um que entrar nele pode ler são as linhas de chat digitadas pelas guildas sem chave de reino ([Capitães] e [Lordes] também) e o censo que addons mais antigos ainda mandam ali. Uma chave de reino (/oly key) mantém as linhas digitadas da sua guilda fora dele: os relays passam a levá-las apenas dentro do seu conjunto de regras."
 	-- 1.1: a linha fixada (pedido #9).
 	L.PIN_LABEL = "Fixado"
 	L.PIN_TIP = "Fixado por %s <%s>, %s. Acaba em %d min, ou quando o autor (ou alguém de posto mais alto) tirar. As palavras são do próprio autor, enviadas pela API registrada, então abusos podem ser denunciados."
@@ -6033,7 +6033,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_ROTATION_MOVED_FOREVER = "Você e a sua guilda estão com a chave nova do exército. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém suas linhas de chat digitadas fora dele."
 	L.KEY_ROTATED_AGO = "Trocada %s: %d Lordes e Capitães têm (%d guildas)"
 	L.KEY_ROTATED_TAKEN = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): entrando no canal novo."
-	L.KEY_ROTATED_TAKEN_FOREVER = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): ela fica guardada. No WoW: Forever sua guilda continua no canal público do Olympus, e as linhas de chat digitadas dela chegam às outras guildas pelos relays."
+	L.KEY_ROTATED_TAKEN_FOREVER = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): ela fica guardada. No WoW: Forever sua guilda continua no canal público do Olympus, e os relays levam as linhas digitadas dela apenas dentro do seu conjunto de regras."
 	-- 1.1: a contribuição (Dues.lua, pedidos #36 e #37 do Fern): um valor fixo por semana ao Tesoureiro, nunca público.
 	L.DUES_TITLE = "Contribuição, semana de %s"
 	L.DUES_A_WEEK = "%s por semana"
@@ -8387,7 +8387,7 @@ L.CHATWIN_GROUP_HARDCORE = "Hardcore"
 -- Forever, the hidden way alone reaches the writer's own ruleset (the box names it under another one).
 -- The box's words come after its label ("[Olympus]:") and must fit beside it in the default window,
 -- " (public channel)" and the longest ruleset's name with them (tests/chat-rulesets.lua).
-L.CHATWIN_GROUP_SEND = "With your own ruleset chosen, what you write here goes to it alone; under All or another ruleset, and with /ol, to every ruleset. It reaches your own ruleset alone with the gamepad UI, while the Olympus channel is not joined, and on WoW: Forever when your guild holds a realm key. Versions of Olympus before 1.5.9 show every line to everyone."
+L.CHATWIN_GROUP_SEND = "With your own ruleset selected, others can see your message by choosing that ruleset. Under All or another ruleset, and with /ol, it shows for all rulesets. It reaches your own ruleset alone with the gamepad UI, while the Olympus channel is not joined, and on WoW: Forever when your guild holds a realm key. Versions of Olympus before 1.5.9 show every line to everyone."
 L.CHATWIN_PLACEHOLDER_TO = "Only to %s..."
 L.CHATWIN_PLACEHOLDER_EVERY = "To every ruleset..."
 if GetLocale and GetLocale() == "ptBR" then
@@ -8399,7 +8399,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_TITLE = "Conjuntos de regras"
 	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos."
 	L.CHATWIN_GROUP_EMPTY = "Nenhuma mensagem deste conjunto de regras."
-	L.CHATWIN_GROUP_SEND = "Com o seu conjunto escolhido, o que você escreve aqui vai só para ele; em Todos ou em outro conjunto, e com /ol, vai para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
+	L.CHATWIN_GROUP_SEND = "Com o seu conjunto de regras selecionado, outros jogadores podem ver sua mensagem escolhendo esse conjunto. Em Todos ou em outro conjunto, e com /ol, ela aparece para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
 	L.CHATWIN_PLACEHOLDER_TO = "Só para %s..."
 	L.CHATWIN_PLACEHOLDER_EVERY = "Para todos..."
 end

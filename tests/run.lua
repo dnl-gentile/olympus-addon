@@ -17088,12 +17088,15 @@ test("0.9.9: the help button, left of the close button, opens the help and links
 		-- Its button: the bug report, in the same box (no author online: no Send button there).
 		box.action:Click()
 		eq(box:IsShown(), true); eq(box.TitleText:GetText(), ns.L.REPORT_BUG)
+		eq(box.hint:GetText(), ns.L.BUG_COPY_HINT, "the bug report directs players to the issue tracker")
+		assert(box.hint:GetText():find("GitHub Issues", 1, true))
 		assert(box.text:find("^```"), "the bug report: " .. box.text:sub(1, 40))
 		assert(not box.text:find(HELP_LINKS[1], 1, true), "the help is gone")
 		eq(box.action:IsShown(), false, "Report a bug's own button: only with the author online")
 		-- Help again: its own text and button back.
 		help:Click()
 		eq(box.text, helpText); eq(box.action:IsShown(), true)
+		eq(box.hint:GetText(), ns.L.COPY_HINT, "the shared box restores its normal hint")
 		-- Nothing else moved: the census still has its Report a bug button.
 		eq(main.tab, "census"); eq(main.buttons[3]:GetText(), ns.L.REPORT_BUG)
 		main.buttons[3]:Click()

@@ -759,8 +759,8 @@
         "Why is there a grey 'Public channel' line?",
         "Can outsiders read our stuff?"
       ],
-      "answer": "Your guild has no channel key, so anyone who joins the channel by name could read it. An officer types /oly key <secret> (same as the other guilds) and guildmates get it. On WoW: Forever (1.5.9) every guild shares the public channel; a key only keeps your typed chat lines off it.",
-      "in_game": "No channel key, so outsiders could read it: an officer types /oly key <secret> (same as other guilds). On Forever everyone shares the public channel; a key keeps typed chat off it.",
+      "answer": "Anyone can join the public channel. An officer uses /oly key <secret> and guildmates receive the key. On WoW: Forever every guild stays on the public channel. With a key, relays carry the guild's typed chat within its own ruleset.",
+      "in_game": "An officer sets /oly key <secret>. On Forever, the key keeps typed chat off the public channel. Relays carry it only within your own ruleset.",
       "sources": [
         "L.PUBLIC_NET_TIP",
         "README.md:1318-1330"
@@ -1522,8 +1522,8 @@
         "How do I seal the channel?",
         "How do I ignore someone in Olympus?"
       ],
-      "answer": "Officers: /oly key <secret> seals the Olympus channel (same secret as the other guilds, or yours splits off). On WoW: Forever (1.5.9) every guild stays on the public channel: the key only keeps your typed chat lines off it. /oly block <name> ignores a player.",
-      "in_game": "Officers: /oly key <secret> (same as other guilds) seals the channel; on Forever it only keeps typed chat off the public one. /oly block <name> ignores a player.",
+      "answer": "Officers: /oly key <secret> seals the Olympus channel on Classic. On WoW: Forever the key sends your typed chat through relays within your ruleset, off the public channel. /oly block <name> ignores a player.",
+      "in_game": "Officers: use /oly key <secret>. On Forever, relays carry keyed guild chat within your ruleset, off the public channel. Use /oly block <name> to ignore a player.",
       "sources": [
         "README.md:1318-1330",
         "L.HELP_CMD_BLOCK"

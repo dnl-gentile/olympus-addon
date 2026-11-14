@@ -651,21 +651,9 @@ test("1.5.9's review one channel on Forever: a key-less officer's Census line sa
 	InEveryLanguage({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" })
 end)
 
--- 1.5.9's review (B2, from eb2e95a9): a key holder's audience text on Forever (CHANNEL_SEALED_FOREVER, from
--- Comm.Audience) said "your lines never show in it as text", but it is also what the zone sharing question,
--- the Board's flags and camps, the groups' listing and application, the privacy page and the Treasurer's
--- share say of who reads what they send. It now fits any of them: what is sent to all guilds reaches them by
--- the relays, where any of their players can read it, and nothing sent goes into the public channel they
--- share (there ChatHall.On is off for a key holder, and every channel word goes by the relays). In all
--- seven languages, none of which speaks of lines any more. Fails before (each language's word for lines).
--- (Round 2 of the review) "Nothing you send goes into the public Olympus channel they share" then denied the
--- sentence each of four questions puts right before it: the zone's "Everyone on the Olympus channel receives
--- it", the chat warning's "anyone on the channel can read all three", the Treasurer's "goes out on the Olympus
--- channel", the privacy page's census "on the Olympus channel". On Forever the key holder's Olympus channel is
--- the public one (Comm.ChannelSpec), and the relays carry what goes on it. The text now says so, and what the
--- key does keep out: none of it shows as text in the game's public channel. Fails before (the denial, and no
--- word for text, in every language).
-test("1.5.9's review one channel on Forever: a key holder's audience fits any message the privacy questions send (zone, Board, groups, privacy page, treasury, chat): the relays carry the Olympus channel to every guild, none of it as text in the game's public channel, never denying the question's own channel; in every language", function()
+-- The same notice appears in privacy questions for chat and addon data. Check that it describes
+-- what others can read from relays and the limits that apply to typed chat.
+test("Forever realm key copy: privacy prompts describe relayed data and the ruleset limit for typed chat", function()
 	local L = ns.L
 	WithClient({ key = "fixture-secret", lane = 0 }, function(w)
 		local audience = w.C.Audience()
@@ -680,8 +668,8 @@ test("1.5.9's review one channel on Forever: a key holder's audience fits any me
 		ns.Comm = saved
 		if not ok then error(err, 0) end
 	end)
-	assert(L.CHANNEL_SEALED_FOREVER:find("the relays carry the Olympus channel", 1, true), L.CHANNEL_SEALED_FOREVER)
-	assert(L.CHANNEL_SEALED_FOREVER:find("none of it shows as text in the game's public channel", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("players can read what their addons receive from relays", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("typed chat stays off the public game channel", 1, true), L.CHANNEL_SEALED_FOREVER)
 	-- (Each question as a key holder on Forever reads it: the question's own channel sentence, then this.)
 	for key, sentence in pairs({ LOCATION_ASK = "Everyone on the Olympus channel receives it.",
 		CHAN_WARN_ASK = "anyone on the channel can read all three with a script.",
@@ -690,20 +678,15 @@ test("1.5.9's review one channel on Forever: a key holder's audience fits any me
 		local text = key == "CHAN_WARN_ASK" and L[key]:format("Olympus", L.CHANNEL_SEALED_FOREVER) or L[key]:format(L.CHANNEL_SEALED_FOREVER)
 		assert(text:find(sentence, 1, true) and text:find(L.CHANNEL_SEALED_FOREVER, 1, true), key .. ": " .. text)
 	end
-	local LINES = { enUS = "lines", ptBR = "linhas", deDE = "Zeilen", esES = "líneas", frFR = "lignes", itIT = "righe", ruRU = "строки" }
-	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays", frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
-	local TEXT = { enUS = "as text", ptBR = "como texto", deDE = "als Text", esES = "como texto", frFR = "en texte", itIT = "come testo",
-		ruRU = "текстом" }
-	-- (The denial each language said before.)
-	local DENIAL = { enUS = "nothing you send goes into", ptBR = "nada do que você envia entra", deDE = "nichts, was du sendest, kommt in",
-		esES = "nada de lo que envías entra", frFR = "rien de ce que tu envoies n'entre", itIT = "niente di ciò che invii entra",
-		ruRU = "ничего из того, что ты отправляешь, не попадает" }
-	for code, Lc in pairs(Languages()) do
-		local text = Lc.CHANNEL_SEALED_FOREVER
-		assert(not text:find(LINES[code], 1, true), code .. ": no lines in " .. text)
-		assert(text:find(RELAYS[code], 1, true), code .. ": the relays in " .. text)
-		assert(text:find(TEXT[code], 1, true), code .. ": what stays out of the public channel is text: " .. text)
-		assert(not text:find(DENIAL[code], 1, true), code .. ": no denial of the question's channel: " .. text)
+	local RULESET = { enUS = "ruleset", ptBR = "conjunto de regras", deDE = "Regelwerk",
+		esES = "conjunto de reglas", frFR = "règles", itIT = "regole", ruRU = "набора правил" }
+	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays",
+		frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
+	for code, locale in pairs(Languages()) do
+		for _, key in ipairs({ "CHANNEL_SEALED_FOREVER", "KEY_SET_FOREVER", "PUBLIC_NET_TIP_FOREVER", "KEY_ROTATED_TAKEN_FOREVER" }) do
+			local message = locale[key]
+			assert(message:find(RELAYS[code], 1, true) and message:find(RULESET[code], 1, true), code .. " " .. key .. ": " .. message)
+		end
 	end
 	InEveryLanguage({ "CHANNEL_SEALED_FOREVER" })
 end)

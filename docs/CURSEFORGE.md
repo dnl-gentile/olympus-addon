@@ -2192,9 +2192,11 @@ few characters working together can still reach is said plainly further down
     shows, so one outsider can't rename a Lord. A guild's numbers are not part of that picture
     (see below). A report claiming more members than a guild can hold is dropped as forged. A
     guild not heard from for a day leaves the total.
-- **Only our channel counts**: addon messages that arrive on any other chat channel are
-  ignored, so the sealed channel really keeps outsiders out.
-- **Sealed channel** (`/oly key`): outsiders can't find the channel or join it.
+- **Census traffic**: on WoW: Forever, relays carry current reports and the public Olympus
+  channel still accepts valid reports from older clients. Both paths apply the census checks.
+- **Realm key** (`/oly key`): on Forever, the key keeps your guild's typed chat off the public
+  channel and relays carry it within your ruleset. On other clients, the key controls access to
+  the sealed Olympus channel.
 - **The Join screen** (1.1): outside an Olympus guild the addon hears one message alone, a
   member's answer to its own question, and only from the member it asked in the last minute;
   a guild it names counts only if it is an Olympus guild. A member answers each recruit once a
@@ -2309,8 +2311,9 @@ members' clients only, and elsewhere only the Hands the King's list or a Steward
 names (the King can't take back a Steward's Hand: that Steward does, or the author by removing
 him).
 
-On the public channel anyone can try all of the legacy census paths above; **seal it with
-`/oly key`** and only members of Olympus guilds can (any of them still can). Version 1.2 adds the
+On the public channel the legacy census paths above rely on sender and report checks. On
+WoW: Forever those checks still apply to the public channel with a realm key. On other clients,
+a realm key restricts who can join the sealed channel. Version 1.2 adds the
 dormant structural replacement: an explicit, author-signed leadership snapshot, split only
 between complete guild entries so the full federation fits. The first valid signed part creates
 a one-way fail-closed boundary; no role is granted until every part verifies and their complete
@@ -2418,7 +2421,7 @@ Other limits:
 | `/oly nameplates on` · `/oly nameplates off` | a small mark left of the name on friendly players' nameplates (Forever; friendly nameplates show with Shift+V): the game's gold elite mark for the King, silver for the High Council, bronze for guild masters, the verified Legate or department shield for an appointee, and a star for any other member of an Olympus guild (none for a character or a guild the moderators took off, net-off); on by default, hidden with the gamepad UI and with `/oly borders off` |
 | `/oly chatmarks on` · `/oly chatmarks off` | the verified mark before a player's name in the game's own chat (channels, say, yell, emote, party, raid, instance and whispers; guild and officer chat the office marks alone, never the star): the King's gold dragon, a High Councillor's silver then their icon, a guild master's bronze, the Legate or department shield for an appointee, and the star for any other member your addon can check. Olympus's own lines carry none. Through the game's own name filter, so the name's link, right-click and /r stay the game's; on by default, hidden with the gamepad UI, and a councillor's on the King's screen while the council's names are hidden |
 | `/oly key <secret>` | officers: seal the Olympus channel (on WoW: Forever, 1.5.9: keep your guild's typed chat lines out of the public channel, where every guild stays) |
-| `/oly key off` | officers: remove a mismatched guild-only key and return the guild to the public Olympus channel |
+| `/oly key off` | officers: remove a mismatched guild-only key. In Forever, typed chat can use the public channel again. On other clients, the guild returns to the public Olympus channel |
 | `/oly key rotate` | the King or his Steward: a new key for the whole army, by whisper to the Lords and Captains his /who saw in the guilds he picks and over guild chat, never on the Olympus channel (also on the Throne) |
 | `/oly block <name>` | ignore a player |
 | `/oly filter add\|remove <word>` · `/oly filter` | block terms: hide, on your screen, lines of addon text (Olympus chats, writs, decrees, Vox) with a word; the list |
