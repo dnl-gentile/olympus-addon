@@ -873,12 +873,38 @@ test("verify: within the grace only the guild master sees \"GM verification pend
 		eq(#w.As(member, member.Verify.Lines), 0)
 		assert(gm.copies[#gm.copies].text:find(gm.L.VERIFY_NOTICE_HOLD, 1, true), "the guild master learns his powers wait")
 		assert(Find(gm.printed, "GM verification overdue for <" .. GUILD .. ">"))
-		-- Verified: nobody is told any more.
+		-- Approval replaces the guild master's prompt with the original decision on demand.
 		local hc = w.Client(HC, HEARTH, 3)
 		w.Census(GUILD, "Bram Hollow", 120)
 		w.As(hc, hc.Verify.Approve, GUILD)
-		eq(#w.As(member, member.Verify.Lines), 0); eq(#w.As(gm, gm.Verify.Lines), 0)
+		eq(#w.As(member, member.Verify.Lines), 0)
+		line = w.As(gm, gm.Verify.Lines)[1]
+		assert(line and line.text:find(gm.L.VERIFY_LINE_VERIFIED, 1, true), "the GM can see the approval in the Census")
+		w.As(gm, line.onClick)
+		local copy = gm.copies[#gm.copies]
+		assert(copy.text:find("Vera Stone", 1, true), "the approval shows who actually issued it")
+		eq(copy.action, nil, "a verified guild has nothing to request")
+		w.As(gm, gm.Verify.Slash, "")
+		eq(gm.copies[#gm.copies - 1].text, gm.copies[#gm.copies].text, "/oly verify opens the same approval")
 		eq(w.As(gm, gm.Verify.Mine), nil)
+	end)
+end)
+
+test("verify: the guild master can see when verification is not active on the realm", function()
+	World(function(w)
+		local gm = w.Client(GM, GUILD, 0)
+		local member = w.Client(MEMBER, GUILD, 3)
+		w.Census(GUILD, "Bram Hollow", 420)
+		for _, c in ipairs({ gm, member }) do c.Verify.VerifierHere = function() return false end end
+		eq(w.As(gm, gm.Verify.Mine), nil, "no request should be prompted")
+		eq(#w.As(member, member.Verify.Lines), 0)
+		local line = w.As(gm, gm.Verify.Lines)[1]
+		assert(line and line.text:find(gm.L.VERIFY_LINE_WAITING, 1, true))
+		w.As(gm, line.onClick)
+		local copy = gm.copies[#gm.copies]
+		eq(copy.text, gm.L.VERIFY_STATUS_WAITING:format(GUILD))
+		eq(copy.action, nil)
+		eq(copy.opts.second, nil)
 	end)
 end)
 

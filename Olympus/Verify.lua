@@ -1117,14 +1117,17 @@ end
 
 -- Member-facing notices are paused, including overdue guilds. The master still has the original
 -- deadline and reminder. Approval state and the verifiers' follow-up are independent of notices.
-function Verify.Mine(now)
+local function MasterStatus(now)
 	if not ns.IsMember() then return nil end
 	local guild, _, rank = GetGuildInfo("player")
+	if rank ~= 0 then return nil end
 	local status, info = Verify.Status(guild, now)
-	if status == nil or status == "verified" or status == "exempt" then return nil end
-	if info.waiting then return nil end -- (1.5.5: nobody here could verify him yet)
-	local master = rank == 0
-	if not master then return nil end
+	if status then return guild, status, info end
+end
+
+function Verify.Mine(now)
+	local guild, status, info = MasterStatus(now)
+	if not guild or status == "verified" or status == "exempt" or info.waiting then return nil end
 	return "master", guild, status, info
 end
 
@@ -1219,52 +1222,61 @@ function Verify.AskCouncil(guild)
 	return true
 end
 
+local function StatusText(guild, status, info)
+	if not status then return L.VERIFY_STATUS_NONE end
+	if status == "exempt" then return L.VERIFY_STATUS_EXEMPT:format(guild) end
+	if status == "verified" then
+		local e = info.entry
+		return L.VERIFY_STATUS_VERIFIED:format(guild, Shown(e.gm), Shown(e.by), date("%Y-%m-%d", e.at))
+	end
+	if info.waiting then return L.VERIFY_STATUS_WAITING:format(guild) end
+	if status == "pending" then return L.VERIFY_STATUS_GRACE:format(guild, Verify.Duration(info.left)) end
+	return L.VERIFY_STATUS_LATE:format(guild)
+end
+
 -- The notice, in a window it can be copied from; auto: opened by itself (no keyboard taken).
 function Verify.ShowNotice(auto)
-	local who, guild, status, info = Verify.Mine()
+	local guild, status, info = MasterStatus()
 	local UI = ns.UI
-	if not who or not (type(UI) == "table" and type(UI.ShowCopy) == "function") then return false end
-	local action, second
-	if who == "master" then
-		-- (Neither button greys out: the window stays to try again.)
-		action = { label = L.VERIFY_WHISPER_BTN, fn = function() Verify.WhisperVerifier(guild) end }
-		second = { label = L.VERIFY_ASK_BTN, fn = function() Verify.AskCouncil(guild) end }
+	if not guild or not (type(UI) == "table" and type(UI.ShowCopy) == "function") then return false end
+	if status == "verified" or status == "exempt" or info.waiting then
+		if auto then return false end
+		UI.ShowCopy(L.VERIFY_TITLE, StatusText(guild, status, info), nil, { key = "verify" })
+		return true
 	end
-	UI.ShowCopy(L.VERIFY_TITLE, Verify.NoticeText(who, guild, status, info), action, { key = "verify", auto = auto and true or nil, second = second })
+	-- Neither button greys out: the window stays to try again.
+	local action = { label = L.VERIFY_WHISPER_BTN, fn = function() Verify.WhisperVerifier(guild) end }
+	local second = { label = L.VERIFY_ASK_BTN, fn = function() Verify.AskCouncil(guild) end }
+	UI.ShowCopy(L.VERIFY_TITLE, Verify.NoticeText("master", guild, status, info), action, { key = "verify", auto = auto and true or nil, second = second })
 	return true
 end
 
--- On top of the Census (Views.lua) while our guild asks something of this player: a click opens
--- the notice (with the gamepad UI too, where nothing is typed).
+-- The guild master can inspect the decision at the same place as the original request.
 function Verify.Lines(now)
-	local who, guild, status, info = Verify.Mine(now)
-	if not who then return {} end
-	local text
-	if who == "master" then
-		text = status == "pending" and L.VERIFY_LINE_MASTER_GRACE:format(Verify.Duration(info.left)) or L.VERIFY_LINE_MASTER_LATE
+	local guild, status, info = MasterStatus(now)
+	if not guild or status == "exempt" then return {} end
+	local text, tip
+	if status == "verified" then
+		text, tip = Verify.MARK_OK .. L.VERIFY_LINE_VERIFIED, StatusText(guild, status, info)
+	elseif info.waiting then
+		text, tip = Grey(L.VERIFY_LINE_WAITING), StatusText(guild, status, info)
+	elseif status == "pending" then
+		text, tip = Gold(L.VERIFY_LINE_MASTER_GRACE:format(Verify.Duration(info.left))), L.VERIFY_LINE_TIP
 	else
-		text = L.VERIFY_LINE_MEMBER:format(guild)
+		text, tip = Red(L.VERIFY_LINE_MASTER_LATE), L.VERIFY_LINE_TIP
 	end
-	return { { id = "verify-notice", text = status == "pending" and Gold(text) or Red(text), gapAfter = true,
+	return { { id = "verify-notice", text = text, gapAfter = true,
 		onClick = function() Verify.ShowNotice() end,
 		tooltip = function(tt)
 			tt:AddLine(L.VERIFY_TITLE, 1, 0.82, 0)
-			tt:AddLine(L.VERIFY_LINE_TIP, 1, 1, 1, true)
+			tt:AddLine(tip, 1, 1, 1, true)
 		end } }
 end
 
 function Verify.PrintStatus()
 	local guild = IsInGuild() and GetGuildInfo("player")
 	local status, info = Verify.Status(guild)
-	if not status then return ns.Print(L.VERIFY_STATUS_NONE) end
-	if status == "exempt" then return ns.Print(L.VERIFY_STATUS_EXEMPT:format(guild)) end
-	if status == "verified" then
-		local e = info.entry
-		return ns.Print(L.VERIFY_STATUS_VERIFIED:format(guild, Shown(e.gm), Shown(e.by), date("%Y-%m-%d", e.at)))
-	end
-	if info.waiting then return ns.Print(L.VERIFY_STATUS_WAITING:format(guild)) end -- (1.5.5)
-	if status == "pending" then return ns.Print(L.VERIFY_STATUS_GRACE:format(guild, Verify.Duration(info.left))) end
-	return ns.Print(L.VERIFY_STATUS_LATE:format(guild))
+	return ns.Print(StatusText(guild, status, info))
 end
 
 ---------------------------------------------------------------------------
@@ -1754,6 +1766,7 @@ function Verify.Slash(rest)
 	if verb == "" then
 		if Verify.Mine() then return Verify.ShowNotice() end
 		if Verify.CouncilShown() then return Verify.OpenCouncil() end
+		if Verify.ShowNotice() then return true end
 		return Verify.PrintStatus()
 	elseif verb == "status" then
 		return Verify.PrintStatus()
