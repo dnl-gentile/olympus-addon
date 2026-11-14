@@ -3215,9 +3215,13 @@ test("recruit decline reports suppress cold scans only in the same guild and on 
 						client.me, client.db, client.rdb = name, { blocked = {} }, {}
 						client.Now = function() return scene.now end
 						client.Recruit = nil
-						local def = StaticPopupDialogs[DRAFT]
-						assert(loadfile(FIXTURES .. "../../Olympus/Recruit.lua"))("Olympus", client)
-						StaticPopupDialogs[DRAFT] = def
+						-- Recruit.lua defines several pop-ups in the live table. Restore all of
+						-- them so later tests still call the primary client's handlers.
+						local definitions = {}
+						for name, def in pairs(StaticPopupDialogs) do definitions[name] = def end
+						local loaded, why = pcall(assert(loadfile(FIXTURES .. "../../Olympus/Recruit.lua")), "Olympus", client)
+						for name in pairs(StaticPopupDialogs) do StaticPopupDialogs[name] = definitions[name] end
+						assert(loaded, why)
 					end
 					-- The older client has no JD handler. It can still receive the packet from the game.
 					LoadRecruit(modern, me)
