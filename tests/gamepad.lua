@@ -1502,6 +1502,7 @@ local function World(C, opts)
 	-- source).
 	E.FriendsFrame = Blizz("FriendsFrame", "Frame")
 	E.FriendsFrame.shown, E.FriendsFrame.w, E.FriendsFrame.h = false, 338, 424
+	E.FriendsFrameTab1 = Blizz("FriendsFrameTab1", "Button", E.FriendsFrame)
 	E.CommunitiesFrame = Blizz("CommunitiesFrame", "Frame")
 	E.CommunitiesFrame.shown, E.CommunitiesFrame.w, E.CommunitiesFrame.h = false, 814, 576
 	E.LFGWhoListFrame = Blizz("LFGWhoListFrame", "Frame")
@@ -2833,8 +2834,49 @@ test("gamepad pass 4: blocked calls with the gamepad UI: counted, told once in a
 	NoErrors(C, "blocked calls")
 end)
 
-test("gamepad personal verification opens and submits in Olympus-owned windows", function()
-	local C = Session(true)
+test("gamepad personal verification opens in both window styles and submits only by choice", function()
+	local linkCalls, linkReady = {}, false
+	local C, ns = Session(true, { setup = function(c)
+		c.addOnFiles = { Olympus_Link = function(env)
+			local host = rawget(env, "OlympusLinkHandoff")
+			rawset(env, "OlympusLinkHandoff", nil)
+			host.Link = {
+				Slash = function(rest) linkCalls[#linkCalls + 1] = rest end,
+				BotReady = function() return linkReady end,
+			}
+		end }
+	end })
+	local function OpenFromCensus()
+		for _, row in ipairs(Main(C).views.census.rows) do
+			if row:IsShown() and row.line and row.line.id == "verify-self" then
+				C.Click(row)
+				return assert(ns.UI.CopyFrame("verifySelf"))
+			end
+		end
+		error("the Census must offer the personal verification panel")
+	end
+
+	ns.UI.SelectTab("census")
+	local panel = OpenFromCensus()
+	eq(panel.action:IsShown(), false, "Verify is missing at login")
+	eq(rawget(panel, "third"), nil, "the installed module cannot invite a code while the bot is unconfigured")
+	linkReady = true
+	C.Click(panel.second)
+	assert(panel.third and panel.third:IsShown(), "ready Link works even without the ordinary Verify bridge")
+	eq(#linkCalls, 0, "opening and refreshing do not start Link")
+	C.Click(panel.third)
+	eq(#linkCalls, 1); eq(linkCalls[1], "", "explicit click opens the existing Link prompt, with no pasted code")
+	linkReady = false
+	C.Click(panel.third)
+	eq(#linkCalls, 1, "the click checks that Link is still ready")
+	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is unconfigured")
+	local link = ns.Link
+	ns.Link = nil
+	C.Click(panel.second)
+	eq(panel.third:IsShown(), false, "the launcher is hidden when Link is absent")
+	ns.Link = link
+	linkReady = true
+
 	local calls = 0
 	C.env.OlympusVerifyBridge242 = {
 		Status = function() return { version = 243, deliveryOnly = true, membershipProof = false, roleAuthority = false,
@@ -2842,13 +2884,34 @@ test("gamepad personal verification opens and submits in Olympus-owned windows",
 		QueueSelf = function(code) eq(code, "test-personal-code"); calls = calls + 1; return true end,
 	}
 	local before = C.gamePopups or 0
-	local panel = assert(C.ns.Verify.OpenSelf())
+	C.Click(panel.second)
+	assert(panel.action:IsShown(), "Verify is detected after login")
 	eq(calls, 0)
-	InClick(C, function() panel.action:Click() end)
-	local prompt = assert(C.ns.Dialog.Find("OLYMPUS_VERIFY_SELF"))
+	C.Click(panel.action)
+	local prompt = assert(ns.Dialog.Find("OLYMPUS_VERIFY_SELF"))
 	prompt.editBox:SetText("test-personal-code")
-	InClick(C, function() prompt.buttons[1]:Click() end)
+	C.Fire1(prompt.editBox, "OnEnterPressed")
+	eq(calls, 0, "Enter in the editor does not submit")
+	C.Click(prompt.buttons[1])
 	eq(calls, 1); eq(prompt.editBox:GetText(), "")
+
+	C.Switch(false); C.Advance(1)
+	local host = C.NewWidget("Frame", nil, C.env.UIParent)
+	host:SetSize(384, 512)
+	for _, style in ipairs({ "old", "hd" }) do
+		panel:Hide()
+		ns.UI.OpenDocked(host, "census", false, style)
+		eq(ns.UI.WindowStyle(), style)
+		eq(OpenFromCensus(), panel, "the same Olympus panel opens from either Census window")
+		C.Click(panel.second)
+		assert(panel.action:IsShown() and panel.third:IsShown())
+	end
+	C.env.SlashCmdList.OLYMPUS("discord status")
+	eq(#linkCalls, 2); eq(linkCalls[2], "status", "the slash command still forwards its original argument")
+	C.Switch(true); C.Advance(1)
+	panel:Hide()
+	eq(OpenFromCensus(), panel, "the personal verification panel still opens after switching back")
+	eq(calls, 1, "neither transition, refresh nor reopening resubmits")
 	eq(C.gamePopups or 0, before, "no Blizzard popup for the personal code")
 	NoErrors(C, "personal verification")
 end)
