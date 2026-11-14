@@ -26,7 +26,18 @@ L.RECRUIT_INVITE_LIMIT_PASS = "You took %d invites to chat in the last minute, t
 L.RECRUIT_CANDIDATE_PASSING = "%s - offered to other members"
 L.RECRUIT_DECLINED = "%s declined the guild invite: not offered again for 7 days."
 
+L.RECRUIT_HANDOFF_ARRIVED_SCAN = "%s <%s> is passing you a player found by a scan. Claim it to see the name."
+L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> found a player by scanning. Claim the player to review the invitation."
+L.RECRUIT_HANDOFF_CLAIM_SCAN = "Claim scanned player from %s"
+L.RECRUIT_HANDOFF_WAITING_SCAN = "Waiting for scanned player from %s"
+L.RECRUIT_HANDOFF_RECEIVED_SCAN = "Player found by a scan and passed on by %s."
+
 if GetLocale and GetLocale() == "ptBR" then
+	L.RECRUIT_HANDOFF_ARRIVED_SCAN = "%s <%s> está repassando um jogador encontrado na busca. Assuma para ver o nome."
+	L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> encontrou um jogador na busca. Assuma para revisar o convite."
+	L.RECRUIT_HANDOFF_CLAIM_SCAN = "Assumir jogador encontrado por %s"
+	L.RECRUIT_HANDOFF_WAITING_SCAN = "Aguardando jogador encontrado por %s"
+	L.RECRUIT_HANDOFF_RECEIVED_SCAN = "Jogador encontrado na busca e repassado por %s."
 	L.RECRUIT_HANDOFF_OFF = "Aceitar repasses de recrutamento: desligado"
 	L.RECRUIT_OVERFLOW_ON = "Repassar meus jogadores em espera: ligado"
 	L.RECRUIT_OVERFLOW_OFF = "Repassar meus jogadores em espera: desligado"

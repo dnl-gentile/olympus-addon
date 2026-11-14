@@ -59,6 +59,7 @@ Recruit.lastAsk = 0
 
 local routeAsked = {}   -- [Name-Realm] = when we sent them a J1
 local routeAnswered = {} -- [Name-Realm] = when their J2 came
+local closedGuilds = {} -- [guild] = when a member of that guild reported no slots
 local gatesSaid = {}    -- [Name-Realm] = { guild, at, t }: the gates their J2 named (guild nil: none)
 local askedKey = {}     -- [Name-Realm] = when we whispered them (Recruit.asked by the whole name)
 local dnc = {}          -- [Name-Realm] = true: their addon said do not contact
@@ -105,6 +106,11 @@ local function GatesUnconfirmed(now)
 	return false
 end
 
+local function FullDestination(guild)
+	local closedAt = closedGuilds[guild]
+	return closedAt ~= nil and ns.Now() - closedAt <= Recruit.ROUTE_KEEP
+end
+
 -- The route the members' census gave (J2), while it is recent: { gates, gatesLeft, list =
 -- { { name, free, contacts } }, byName, from, t }, or nil. Its list is the last answer's, its
 -- gates the ones two answers agree on.
@@ -112,9 +118,25 @@ function Recruit.Route()
 	local r, now = Recruit.route, ns.Now()
 	if not r or now - (r.t or 0) > Recruit.ROUTE_KEEP then return nil end
 	r.gates, r.gatesLeft = ConfirmedGates(now)
+	local destination = r.gates and r.byName[r.gates]
+	if not destination or destination.free <= 0 or FullDestination(r.gates) then
+		r.gates, r.gatesLeft = nil, nil
+	end
 	return r
 end
 function Recruit.NoContact(name) return dnc[Key(name)] == true end
+
+local function GuildFull()
+	if type(GetNumGuildMembers) ~= "function" then return false end
+	local ok, count = pcall(GetNumGuildMembers)
+	return ok and not ns.IsSecret(count) and type(count) == "number" and count >= ns.Codec.GUILD_CAP
+end
+
+-- Automatic recruiting prompts wait until the player can review them without interrupting play.
+function Recruit.PopupsWait()
+	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance())
+		or ns.ChatLocked() or ns.QuietPresence() or ns.KeyboardFocus() ~= nil or GuildFull()
+end
 
 -- Members a J1 went to within ROUTE_FRESH.
 local function AskedLately(now)
@@ -195,12 +217,34 @@ function Recruit.ParseRoute(text)
 end
 
 -- A member's answer, heard outside an Olympus guild (Comm.HandleOutside): only from one we asked.
+local function RemoveUnwitnessedClosedGuilds(route, sender)
+	-- A full guild is only authoritative when the reply is from a member /who found there.
+	-- An outside observer cannot use a zero-slot route to hide other guilds.
+	local now, ownGuild = ns.Now(), nil
+	for name, closedAt in pairs(closedGuilds) do
+		if now - closedAt > Recruit.ROUTE_KEEP then closedGuilds[name] = nil end
+	end
+	for _, member in ipairs(Recruit.found) do
+		if Key(member.name) == sender then ownGuild = member.guild; break end
+	end
+	for i = #route.list, 1, -1 do
+		local entry = route.list[i]
+		if entry.name == ownGuild then
+			closedGuilds[entry.name] = entry.free == 0 and now or nil
+		elseif entry.free == 0 then
+			route.byName[entry.name] = nil
+			table.remove(route.list, i)
+		end
+	end
+end
+
 function Recruit.OnRoute(sender, text)
 	if text:sub(1, 3) == "QD~" and ns.GuildCharter then return ns.GuildCharter.OnReported(sender, text) end
 	local key, now = Key(sender), ns.Now()
 	if not routeAsked[key] or now - routeAsked[key] > Recruit.ROUTE_WAIT then return false end
 	local route = Recruit.ParseRoute(text)
 	if not route then return false end
+	RemoveUnwitnessedClosedGuilds(route, key)
 	routeAnswered[key] = now
 	-- The gates as this member says them (none, too): shown once another answer agrees (Route).
 	gatesSaid[key] = { guild = route.gates, at = now + (route.gatesLeft or 0), t = now }
@@ -275,7 +319,9 @@ local function RouteOrder(route)
 		rows[#rows + 1] = g
 	end
 	for _, e in ipairs(route.list) do
-		if e.name ~= route.gates and Found(e.name) then rows[#rows + 1] = by[e.name] end
+		if e.name ~= route.gates and e.free > 0 and not FullDestination(e.name) and Found(e.name) then
+			rows[#rows + 1] = by[e.name]
+		end
 	end
 	table.sort(rows, GuildLess)
 	for _, g in ipairs(rows) do out[#out + 1] = g.name end
@@ -298,7 +344,7 @@ function Recruit.Guilds()
 	local route = Recruit.Route()
 	for _, g in ipairs(out) do
 		local e = route and route.byName[g.name]
-		g.free = e and e.free or nil
+		g.free = FullDestination(g.name) and 0 or (e and e.free or nil)
 		g.gates = route and route.gates == g.name or false
 		if ns.GuildCharter then g.affinity, g.charter = ns.GuildCharter.Affinity(g.name, Recruit.found) end
 	end
@@ -316,6 +362,7 @@ function Recruit.NextContact(guild)
 	local route = Recruit.Route()
 	if guild then
 		local e = route and route.byName[guild]
+		if FullDestination(guild) or (e and e.free == 0) then return nil end
 		for _, c in ipairs(e and e.contacts or {}) do
 			local p = FoundIn(c, guild)
 			if p and not Asked(c) and not Asked(p.name) and not dnc[Key(c)] and not dnc[Key(p.name)] then
@@ -329,7 +376,9 @@ function Recruit.NextContact(guild)
 		end
 	end
 	for _, p in ipairs(Recruit.found) do
-		if (not guild or p.guild == guild) and not Asked(p.name) and not dnc[Key(p.name)] then return p end
+		local e = route and route.byName[p.guild]
+		if not FullDestination(p.guild) and (not e or e.free > 0) and (not guild or p.guild == guild)
+			and not Asked(p.name) and not dnc[Key(p.name)] then return p end
 	end
 	return nil
 end
@@ -455,6 +504,9 @@ function Recruit.Ask(contact, message)
 		return false
 	end
 	if not contact or not message or message == "" then return false end
+	local route = Recruit.Route()
+	local destination = route and route.byName[contact.guild]
+	if FullDestination(contact.guild) or (destination and destination.free == 0) then return false end
 	if dnc[Key(contact.name)] then
 		ns.Print(L.RECRUIT_DNC:format(ns.DisplayName(Key(contact.name)) or contact.name))
 		return false
@@ -478,6 +530,9 @@ end
 -- member's addon asked first whether they take recruit whispers.
 function Recruit.Prompt(contact)
 	if not contact then return nil end
+	local route = Recruit.Route()
+	local destination = route and route.byName[contact.guild]
+	if FullDestination(contact.guild) or (destination and destination.free == 0) then return nil end
 	if ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return nil end
 	Recruit.pending = contact
 	AskRoute(contact.name, true)
@@ -537,7 +592,10 @@ end
 function Recruit.OpenGuilds()
 	local out = {}
 	for _, o in ipairs(ns.Views.OpenGuilds(ns.Data.Summary())) do
-		if ns.Data.Dispute(o.e.g) == nil then out[#out + 1] = o end
+		local total = o.e.g.total
+		if type(total) == "number" and total > 0 and ns.Data.Dispute(o.e.g) == nil then
+			out[#out + 1] = o
+		end
 	end
 	return out
 end
@@ -578,22 +636,29 @@ end
 -- as many as fit one addon message.
 function Recruit.RouteAnswer()
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
-	local msg = ("J2~%s~%s~%d~"):format(Recruit.NoContactMe() and "n" or "y", gates and Field(gates.guild) or "",
-		gates and math.max(0, math.floor(gates.at - ns.Now())) or 0)
-	local open = Recruit.OpenGuilds()
+	local open, eligibleGates = Recruit.OpenGuilds(), nil
+	local own, full = GetGuildInfo("player"), GuildFull()
 	for i, o in ipairs(open) do
-		if gates and o.name == gates.guild then
+		if gates and o.name == gates.guild and not (o.name == own and full) then
+			eligibleGates = gates
 			table.insert(open, 1, table.remove(open, i))
 			break
 		end
 	end
-	local own, n = GetGuildInfo("player"), 0
+	local msg = ("J2~%s~%s~%d~"):format(Recruit.NoContactMe() and "n" or "y", eligibleGates and Field(eligibleGates.guild) or "",
+		eligibleGates and math.max(0, math.floor(eligibleGates.at - ns.Now())) or 0)
+	local n = 0
+	if own and not ns.IsSecret(own) and full then
+		msg, n = msg .. Field(own) .. "=0=", 1
+	end
 	for _, o in ipairs(open) do
-		local entry = Field(o.name) .. "=" .. o.free .. "=" .. table.concat(Contacts(o, own), "/")
-		local add = (n > 0 and ";" or "") .. entry
-		if #msg + #add <= 250 then
-			msg, n = msg .. add, n + 1
-			if n >= Recruit.ROUTE_GUILDS then break end
+		if not (o.name == own and full) then
+			local entry = Field(o.name) .. "=" .. o.free .. "=" .. table.concat(Contacts(o, own), "/")
+			local add = (n > 0 and ";" or "") .. entry
+			if #msg + #add <= 250 then
+				msg, n = msg .. add, n + 1
+				if n >= Recruit.ROUTE_GUILDS then break end
+			end
 		end
 	end
 	return msg
@@ -1236,7 +1301,7 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 	-- the game supplies its chat echo immediately. A successful call keeps the draft copyable.
 	local attempt = { at = ns.Now() }
 	publicRecruitmentAt[draft.channel] = attempt
-	local ok = pcall(send, draft.message, "CHANNEL", nil, tostring(draft.public.id))
+	local ok = pcall(send, draft.message, "CHANNEL", nil, tostring(draft.public.id)) -- gp:recruit-public-post
 	if not ok and publicRecruitmentAt[draft.channel] == attempt then
 		publicRecruitmentAt[draft.channel] = nil
 		ns.Print(L.RECRUIT_ANNOUNCE_POST_FALLBACK)
@@ -1271,7 +1336,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 }
 
 local function RemindAnnouncement()
-	if not ReminderAllowed() or not ns.Dialog or ns.Dialog.missing then return end
+	if not ReminderAllowed() or Recruit.PopupsWait() or not ns.Dialog or ns.Dialog.missing then return end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
 	if rotateReminder then
 		local channels = PublicChannels()
@@ -1632,7 +1697,7 @@ end
 
 -- `viaWhisper`: in the recruiting queue (Church > Invites), not the Census. `joinScreen`: sent from
 -- the Join Olympus screen (a J3), in either one.
-local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen)
+local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen, sighting)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	-- (1.5.9) A player who declined this client's invite: only his own JOIN, which clears that first,
 	-- comes in; a reply to our whisper does not.
@@ -1657,7 +1722,7 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 	level = tonumber(level)
 	local req = { name = sender, guild = own, level = level and level >= 1 and level <= 100 and level or nil,
 		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper,
-		joinScreen = joinScreen }
+		joinScreen = joinScreen, sighting = sighting or nil }
 	Recruit.requests[#Recruit.requests + 1] = req
 	-- Officers using The Watch are notified, but the request is never rejected automatically.
 	-- A related character counts only when Alts.lua already holds its two-sided confirmation.
@@ -1676,6 +1741,7 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 		local line
 		if not viaWhisper then line = L.JOIN_ASKED:format(who, req.level or 0, className, own)
 		elseif joinScreen then line = L.JOIN_ASKED_INVITES:format(who, req.level or 0, className, own)
+		elseif sighting then line = ("%s: %s"):format(who, text)
 		else line = L.RECRUIT_WHISPER_ASKED:format(who, own) end
 		ns.Print(line)
 	end
@@ -1793,15 +1859,16 @@ function Recruit.TakeHandoff(name, officer, sighting)
 		end
 		ClearDeclined(name)
 	end
-	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
-	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
+	local copy = sighting and L.RECRUIT_HANDOFF_RECEIVED_SCAN or L.RECRUIT_HANDOFF_RECEIVED
+	local shown = copy:format(ns.DisplayName(officer) or officer)
+	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting)
 	if not accepted then return false end
 	req.handedIn, req.handedBy = true, officer
-	-- (1.5.9, the author: the member who passed a JOIN or a scanned player on gets a share of that
-	-- recruit's points once he joins, "tipo os pontos da rede": this client's own read of the log names
-	-- him in its report of the invite and the join, RecruitRanking.lua.)
+	-- Only a player who asked to join can earn referral credit for the member who passed the request.
 	local ranking = ns.RecruitRanking
-	if ranking and ranking.HandedIn then ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer) end
+	if not sighting and ranking and ranking.HandedIn then
+		ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer)
+	end
 	PromptReply()
 	return true
 end
@@ -1823,8 +1890,8 @@ end
 
 -- (1.5.8) Forever lets a player send INVITES_PER_MINUTE guild invites a minute. The invite
 -- commands this player took to chat (OpenInviteChat) in the last minute count against it. At the
--- limit a new JOIN or scanned player goes to other members when the automatic offers are on;
--- otherwise its popup says the limit is reached and offers Pass.
+-- limit a new JOIN can go to other members when the automatic offers are on. Scans wait
+-- in the local queue or can be passed by hand.
 Recruit.INVITES_PER_MINUTE = 10
 local invitesTaken = {}
 -- (Review of 1.5.9) When this player last took an invite command to chat: the recruiting ranking for
@@ -1876,6 +1943,7 @@ end
 
 local function InviteDraftText(name, req, item)
 	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
+	if req and req.sighting then text = req.text .. "\n\n" .. text end
 	local waiting = req and WaitingAfter(req) or 0
 	if waiting > 0 then text = text .. "\n\n" .. L.RECRUIT_HANDOFF_MORE:format(waiting) end
 	if Recruit.AtInviteLimit() then
@@ -2018,7 +2086,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
-	if pcall(open, "", DEFAULT_CHAT_FRAME) then
+	if pcall(open, "", DEFAULT_CHAT_FRAME) then -- gp:chat-box
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
 		-- (Counted once a popup: a second Ctrl+C after closing chat is the same command.)
@@ -2083,9 +2151,16 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		-- (Recruit.LastInviteAt): he invites from the game's own menu, and his report of the join came only
 		-- when his client won the guild's draw.
 		if not ns.Gate.Allowed("chat-box") then lastInviteAt = ns.Now() end
-		box:SetText("/ginvite " .. name)
+		local command = "/ginvite " .. name
+		box:SetText(command)
+		box:SetScript("OnTextChanged", function(self, userInput)
+			if userInput and self:GetText() ~= command then
+				self:SetText(command)
+				self:HighlightText()
+			end
+		end)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
+		if not data.automatic and ns.Focus(box) then box:HighlightText() end
 		-- Let the game's edit box copy first. Remember Ctrl at key-down because the
 		-- player can release it before C. The only handoff is opening empty chat.
 		local copying
@@ -2102,6 +2177,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	end,
 	OnHide = function(f)
 		f.pasteWatch = nil
+		f.editBox:SetScript("OnTextChanged", nil)
 		f.editBox:SetScript("OnKeyDown", nil)
 		f.editBox:SetScript("OnKeyUp", nil)
 		f.editBox:SetScript("OnEditFocusGained", nil)
@@ -2137,7 +2213,7 @@ end
 -- Offer each valid queued reply once, in order. When the player is busy, only one retry
 -- waits, and only while there is a reply left to show.
 PromptReply = function()
-	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
+	if not Recruiting() or not CanInvite() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
 	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members;
@@ -2164,7 +2240,7 @@ PromptReply = function()
 	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then
 		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
 	end
-	if (InCombatLockdown and InCombatLockdown()) or ns.ChatLocked() or ns.KeyboardFocus() then return RetryReply(2) end
+	if Recruit.PopupsWait() then return RetryReply(2) end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
 		if ns.Dialog.Find(id) then return RetryReply(2) end
 	end
@@ -2268,7 +2344,9 @@ function Recruit.RequestLines(viaWhisper, nested)
 			text = V.ClassColored(who, req.class) .. (whisperOnly and "" or "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className)),
 			right = V.Grey(ns.Ago(req.t)),
 			tooltip = function(tt)
-				tt:AddLine((whisperOnly and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
+				if not req.sighting then
+					tt:AddLine((whisperOnly and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
+				end
 				if req.text then tt:AddLine('"' .. ns.Codec.SanitizeChat(req.text) .. '"', 1, 1, 1, true) end
 			end,
 		}
@@ -2331,7 +2409,7 @@ function Recruit.ResetForTests()
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
-	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
+	wipe(routeAsked); wipe(routeAnswered); wipe(closedGuilds); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere)
 	declinePatterns = nil
 	lastRoute, lastInviteAt = -math.huge, nil

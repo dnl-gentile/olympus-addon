@@ -5177,7 +5177,9 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		local independent = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "the earliest waiting JOIN opens without prior outreach")
 		local incoming = R.requests[2]
 		eq(independent.editBox:GetText(), "/ginvite Stranger")
-		assert(independent.editBox:HasFocus(), "the command can be copied immediately")
+		eq(independent.editBox:HasFocus(), false, "an incoming request does not take the keyboard")
+		independent.editBox:SetFocus()
+		C.RunScript(independent.editBox, "OnEditFocusGained")
 		eq(independent.editBox.selectionStart, 0)
 		eq(independent.editBox.selectionEnd, #independent.editBox:GetText())
 		eq(incoming.invitePrepared, nil, "an automatic display does not take the request out of handoff")
@@ -5399,6 +5401,56 @@ test("gamepad a Join screen request (J3) at a recruiting member opens the JOIN's
 	end
 	GP.Covers("chat-box")
 	GP.Covers("popup-focus")
+end)
+
+test("gamepad recruit: automatic invite drafts preserve focus and their command", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		InClick(C, function() eq(ns.Recruit.ToggleWhisperRecruiting(), true) end)
+		for i, pad in ipairs({ initialPad, not initialPad, initialPad }) do
+			C.Switch(pad)
+			C.now = C.now + 21
+			C.Advance(21)
+			local name = ("Recruit%s"):format(string.char(64 + i))
+			C.Fire("CHAT_MSG_WHISPER", "JOIN", name .. "-Realm")
+			local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+			local box = draft.editBox
+			local command = "/ginvite " .. name
+			eq(box:GetText(), command)
+			eq(box:HasFocus(), false, "an incoming request leaves the keyboard alone")
+			box:SetFocus()
+			C.RunScript(box, "OnEditFocusGained")
+			box.text = "eeee"
+			C.RunScript(box, "OnTextChanged", true)
+			eq(box:GetText(), command, "typing cannot replace the invite command")
+			eq(box.selectionStart, 0, "the restored command is selected")
+			eq(box.selectionEnd, #command)
+			draft:Hide()
+			eq(box:GetScript("OnTextChanged"), nil, "the handler is scoped to this draft")
+		end
+		Check(C.ledger, "incoming invite draft focus")
+		NoErrors(C, "incoming invite draft focus")
+	end
+	GP.Covers("popup-focus")
+end)
+
+test("gamepad recruit: invite drafts wait in an instance and while the guild is full", function()
+	local C, ns = Session(false)
+	InClick(C, function() eq(ns.Recruit.ToggleWhisperRecruiting(), true) end)
+	local count = C.env.GetNumGuildMembers
+	C.env.IsInInstance = function() return true, "pvp" end
+	C.env.GetNumGuildMembers = function() return ns.Codec.GUILD_CAP, 2 end
+	C.Fire("CHAT_MSG_WHISPER", "JOIN", "Recruiter-Realm")
+	eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "no draft in an instance")
+	C.env.IsInInstance = function() return false, "none" end
+	C.now = C.now + 60
+	C.Advance(60)
+	eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "no draft while the guild is full")
+	C.env.GetNumGuildMembers = count
+	C.now = C.now + 60
+	C.Advance(60)
+	assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "the request was kept and appears when the guild has room")
+	NoErrors(C, "invite draft after an instance and a full guild")
 end)
 
 -- Review of the 1.5.9 release (G1): the recruiting ranking for everyone reads the inviter's own guild log

@@ -9,7 +9,7 @@ local function Scene(fn)
 	H.WithUI(function()
 		H.WithNetoff(function(w)
 			local saved = { can = CanGuildInvite, guild = GetGuildInfo, invite = C_GuildInfo, oldInvite = GuildInvite,
-				decline = DeclineGuild, uninvite = GuildUninvite, ignore = C_FriendList, blocked = ns.db.blocked }
+				decline = DeclineGuild, uninvite = GuildUninvite, ignore = C_FriendList, blocked = ns.db.blocked, count = GetNumGuildMembers }
 			local ok, err = pcall(function()
 				H.AsSoldier("Officer")
 				R.ResetForTests()
@@ -18,6 +18,7 @@ local function Scene(fn)
 				w.canInvite, w.guild = true, "Olympus II"
 				CanGuildInvite = function() return w.canInvite end
 				GetGuildInfo = function() return w.guild end
+				GetNumGuildMembers = function() return 2, 2 end
 				C_GuildInfo = { Invite = function(name) w.invites[#w.invites + 1] = name end }
 				GuildInvite = nil
 				local function Unexpected() w.sideEffects = w.sideEffects + 1 end
@@ -35,6 +36,7 @@ local function Scene(fn)
 			R.ResetForTests()
 			CanGuildInvite, GetGuildInfo, C_GuildInfo, GuildInvite = saved.can, saved.guild, saved.invite, saved.oldInvite
 			DeclineGuild, GuildUninvite, C_FriendList, ns.db.blocked = saved.decline, saved.uninvite, saved.ignore, saved.blocked
+			GetNumGuildMembers = saved.count
 			if not ok then error(err, 0) end
 		end)
 	end)

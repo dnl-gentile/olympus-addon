@@ -3633,14 +3633,15 @@ function Views.RecruitLines()
 		lines[#lines].gapAfter = true
 	end
 	for _, g in ipairs(guilds) do
+		local canAsk = g.free ~= 0
 		lines[#lines + 1] = {
 			text = (g.gates and CROWN or "") .. Green("<" .. g.name .. ">"),
 			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. (g.free and ("  " .. Grey(L.FREE_SLOTS:format(ns.FormatNumber(g.free)))) or "")
-				.. "  " .. Gold(L.RECRUIT_ASK),
-			onClick = function() R.PromptNext(g.name) end,
+				.. (canAsk and ("  " .. Gold(L.RECRUIT_ASK)) or ""),
+			onClick = canAsk and function() R.PromptNext(g.name) end or nil,
 			tooltip = function(tt)
 				tt:AddLine("<" .. g.name .. ">", 0.25, 1, 0.25)
-				tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true)
+				if canAsk then tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true) end
 			end,
 		}
 		if ns.GuildCharter then
@@ -3657,7 +3658,7 @@ function Views.RecruitLines()
 				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
 				right = state,
 				-- (Not one who asked not to be contacted, 1.1.)
-				onClick = not closed and function() R.Prompt(p) end or nil,
+				onClick = canAsk and not closed and function() R.Prompt(p) end or nil,
 				tooltip = R.replied[p.name] and function(tt)
 					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
 					-- (A whisper: its links stay, like a chat line's; no other escape code, 0.9.2.)

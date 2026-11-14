@@ -448,10 +448,9 @@ function H.Pass(req, all)
 	return true
 end
 
--- (1.5.8) At this player's invite limit, with the automatic offers on, a new JOIN or scanned player
--- goes to the other members instead of popping up here (Church > Invites still lists it).
+-- At the invite limit, automatically hand off only requests with explicit JOIN intent.
 function H.Overflow(item)
-	if not H.AutoOn() or not H.CanPass(item) then return false end
+	if type(item) ~= "table" or item.scanned or not H.AutoOn() or not H.CanPass(item) then return false end
 	Want(item, true)
 	H.LogItem("OVERFLOW", item)
 	return true
@@ -470,11 +469,13 @@ local busyDialogs = { CLAIM_DIALOG, "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_REC
 
 Notify = function(ref)
 	local who = ns.DisplayName(ref.peer) or ref.peer
-	ns.Print(L.RECRUIT_HANDOFF_ARRIVED:format(who, ref.from))
+	local scan = Sighting(ref.id)
+	ns.Print((scan and L.RECRUIT_HANDOFF_ARRIVED_SCAN or L.RECRUIT_HANDOFF_ARRIVED):format(who, ref.from))
 	local D = ns.Dialog
-	if not D or D.missing or not D.Show or not AvailableNow() then return end
+	if not D or D.missing or not D.Show or R.PopupsWait() then return end
 	for _, which in ipairs(busyDialogs) do if D.Find(which) then return end end
-	D.Show(CLAIM_DIALOG, L.RECRUIT_HANDOFF_CLAIM_PROMPT:format(who, ref.from), nil, ref)
+	local prompt = scan and L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN or L.RECRUIT_HANDOFF_CLAIM_PROMPT
+	D.Show(CLAIM_DIALOG, prompt:format(who, ref.from), nil, ref)
 end
 
 function H.Receive(dist, sender, word)
@@ -580,7 +581,9 @@ function H.Receive(dist, sender, word)
 			-- his share in the recruiting ranking for everyone counts only when the inviter's own report
 			-- names him too (RecruitRanking.HandedOut).
 			local ranking = ns.RecruitRanking
-			if ranking and ranking.HandedOut then ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender) end
+			if ranking and ranking.HandedOut and not ref.request.scanned then
+				ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender)
+			end
 		end
 	end
 	Changed()
@@ -677,7 +680,9 @@ function H.Controls(lines, V, hint)
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
 		if Same(ref.to, own) and Member(ref.peer, ref.from) and ref.state ~= "received" then
-			local label = ref.state == "offered" and L.RECRUIT_HANDOFF_CLAIM or L.RECRUIT_HANDOFF_WAITING
+			local scan = Sighting(ref.id)
+			local label = ref.state == "offered" and (scan and L.RECRUIT_HANDOFF_CLAIM_SCAN or L.RECRUIT_HANDOFF_CLAIM)
+				or (scan and L.RECRUIT_HANDOFF_WAITING_SCAN or L.RECRUIT_HANDOFF_WAITING)
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(label:format(Who(ref.peer, ref.from))),
 				onClick = ref.state == "offered" and function() H.Claim(ref) end or nil,

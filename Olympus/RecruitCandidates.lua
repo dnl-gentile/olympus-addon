@@ -150,11 +150,11 @@ function Q.Passable(row)
 	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row) ~= nil
 end
 
--- The next scanned player the Pass button (or the invite limit) gave to the automatic offers.
+-- The next scanned player explicitly handed off with the Pass button.
 function Q.Overflow(skip)
 	local H = R.Handoff
 	for _, row in ipairs(rows) do
-		if row.passWanted and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
+		if row.passWanted and not row.limitPassed and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
 			and not (skip and skip(row)) then return row end
 	end
 end
@@ -203,17 +203,14 @@ local function Tick()
 	if #rows ~= before then Change() end
 	-- (1.5.8, the author's ask) Only the invite popup comes on its own; a whisper is its
 	-- "Whisper them first" button's, or the list's.
-	if not prompts or quiet or not ns.Dialog or ns.Dialog.missing then return end
+	if not prompts or quiet or R.PopupsWait() or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
-	-- (1.5.8) At the invite limit with the automatic offers on, new sightings go to other members.
+	-- Scans stay in the local queue when automatic handoffs take over at the invite limit.
 	local H = R.Handoff
-	local overflow = H and H.AutoOn() and R.AtInviteLimit()
+	if H and H.AutoOn() and R.AtInviteLimit() then return end
 	for _, row in ipairs(rows) do
 		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then
-			if overflow then
-				-- (Not marked prompted: once the limit clears it pops up here, unless a member took it.)
-				H.Overflow(row)
-			elseif R.CopyCandidateInvite(row, true) then
+			if R.CopyCandidateInvite(row, true) then
 				row.prompted = true
 				return
 			end

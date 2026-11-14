@@ -13,7 +13,7 @@ local function WithHandoff(fn)
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
 		every = ns.Every, quiet = ns.QuietPresence, after = ns.After, rdb = ns.rdb, print = ns.Print,
-		candidates = R.Candidates, unitExists = UnitExists,
+		candidates = R.Candidates, unitExists = UnitExists, count = GetNumGuildMembers,
 	}
 	-- (The scan looks at the target and the nameplates: in these tests nobody stands nearby.)
 	UnitExists = function() return false end
@@ -22,6 +22,7 @@ local function WithHandoff(fn)
 	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {}, timers = {}, printed = {} }
 	ns.Print = function(msg) scene.printed[#scene.printed + 1] = tostring(msg) end
 	GetGuildInfo = function() return own end
+	GetNumGuildMembers = function() return 2, 2 end
 	CanGuildInvite = function() return scene.permission end
 	ns.IsMember = function() return true end
 	ns.ChatLocked = function() return scene.locked == true end
@@ -63,7 +64,7 @@ local function WithHandoff(fn)
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
 	ns.Every, ns.QuietPresence, ns.After, ns.rdb, ns.Print = saved.every, saved.quiet, saved.after, saved.rdb, saved.print
-	R.Candidates, UnitExists = saved.candidates, saved.unitExists
+	R.Candidates, UnitExists, GetNumGuildMembers = saved.candidates, saved.unitExists, saved.count
 	if not ok then error(err, 0) end
 end
 
@@ -570,8 +571,13 @@ test("recruit handoff (1.5.8): a scanned unguilded player is passed from his pop
 		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true)
 		local named = assert(scene.packets[3])
 		assert(named.word:match("^J4~N~") and named.word:sub(-#wolf) == wolf, "the name goes after the claim")
-		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
+		local ranking, credited = ns.RecruitRanking, 0
+		ns.RecruitRanking = { HandedOut = function() credited = credited + 1 end }
+		local ack = H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~")))
+		ns.RecruitRanking = ranking
+		eq(ack, true)
 		eq(H.State(row), "assigned")
+		eq(credited, 0, "passing a scan does not earn referral credit")
 		-- The same player, now whispering JOIN, is never offered a second time, and (review of 1.5.8)
 		-- his JOIN does not pop the same /ginvite here: the member has his name.
 		R.OnWhisper("JOIN", wolf)
@@ -610,7 +616,7 @@ end)
 
 -- 1.5.8 (the author's message to the streamer: "it lines them up for him up to his 10 a minute and
 -- passes the rest to other members accepting requests").
-test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings go to other members or say the limit", function()
+test("recruit handoff (1.5.8): at ten invites a minute only explicit JOINs go to other members automatically", function()
 	WithHandoff(function(scene)
 		local D = Dialogs()
 		ns.Dialog = D
@@ -639,7 +645,7 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 			assert(draft.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "the popup says the limit is reached")
 			assert(draft.def.button2Shown(draft, draft.data), "and offers Pass")
 			draft:Hide()
-			-- Automatic offers on: the next JOIN and the next sighting go to other members, no popup.
+			-- Automatic offers on: the next JOIN goes out and the sighting stays in our queue.
 			eq(H.ToggleAuto(), true)
 			scene.now = scene.now + 21
 			R.OnWhisper("JOIN", "Twelfth Recruit-" .. home)
@@ -650,6 +656,11 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 			local tick = ScanOne(scene, "Far Walker-" .. home)
 			tick()
 			eq(D.Find(DRAFT), nil, "nor for a new sighting")
+			local sighting
+			R.Candidates.EachRow(function(row) sighting = row end)
+			assert(sighting, "scan remains queued locally")
+			eq(sighting.passWanted, nil, "scan is never marked for automatic handoff")
+			eq(H.Overflow(sighting), false, "the overflow handler also rejects scans")
 			scene.tick()
 			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
 			scene.tick()
@@ -3127,4 +3138,64 @@ test("join screen request (1.5.9): mixed versions: a 1.5.8 member takes this bui
 		local draft = assert(D.Find(DRAFT), "the JOIN's popup")
 		eq(draft.data.req.name, applicant)
 	end)
+end)
+
+test("recruit handoff: a claimed scan is identified as a sighting and earns no referral credit", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(H.Toggle(), true)
+		local id = "1234-ab-1-0"
+		eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, id)), true)
+		local claim = assert(D.Find(CLAIM))
+		assert(claim.text:find("scanning", 1, true), "the claim says how the player was found")
+		assert(Find(R.WhisperLines(), "Claim scanned player from"), "the queue distinguishes a sighting")
+		claim:Hide()
+		eq(H.Claim(claim.data), true)
+		local ranking, credited = ns.RecruitRanking, 0
+		ns.RecruitRanking = { HandedIn = function() credited = credited + 1 end }
+		local accepted = H.Receive("WHISPER", mate, Packet(scene, "N", own, own, applicant, id))
+		ns.RecruitRanking = ranking
+		eq(accepted, true)
+		eq(credited, 0, "no referral credit for a sighting")
+		assert(R.requests[1].sighting, "origin preserved in the queue")
+		assert(scene.printed[#scene.printed]:find("found by a scan", 1, true), "no claim that the player asked to join")
+		assert(assert(D.Find(DRAFT)).text:find("found by a scan", 1, true), "the invite shows how the player was found")
+	end)
+end)
+
+test("recruit join routing skips a full guild and withholds gates without known room", function()
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside,
+		open = R.OpenGuilds, gates = ns.Acts.Gates, count = GetNumGuildMembers }
+	local ok, err = pcall(function()
+		R.ResetForTests()
+		GetGuildInfo = function() return own end
+		GetNumGuildMembers = function() return ns.Codec.GUILD_CAP end
+		R.OpenGuilds = function()
+			return { { name = own, free = 10 }, { name = sister, free = 400, e = { g = {} } } }
+		end
+		ns.Acts.Gates = function() return { guild = own, at = ns.Now() + 3600 } end
+		local route = assert(R.ParseRoute(R.RouteAnswer()))
+		eq(route.gates, nil, "the local roster takes precedence over an older estimate with room")
+		eq(route.byName[own].free, 0, "a full guild is explicitly marked")
+		eq(route.byName[sister].free, 400, "a guild with room stays available")
+
+		GetGuildInfo, IsInGuild = function() return nil end, function() return false end
+		ns.Comm.WhisperOutside = function() return true end
+		R.OnFound({
+			{ name = "Full-Realm", guild = own }, { name = "Roomy-Realm", guild = sister },
+		})
+		local positive = "J2~y~" .. own .. "~3600~" .. sister .. "=400=Roomy"
+		eq(R.OnRoute("Full-Realm", "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
+		eq(R.OnRoute("Roomy-Realm", positive), true)
+		eq(R.Route().gates, nil, "legacy gates cannot override a full guild")
+		eq(R.NextContact(own), nil, "no contact for a full guild, even through /who")
+		eq(R.NextContact().guild, sister, "the general request goes to a guild with room")
+		R.asked["Roomy-Realm"] = ns.Now()
+		eq(R.NextContact(), nil, "does not fall back to the only remaining full guild")
+	end)
+	R.ResetForTests()
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
+	R.OpenGuilds, ns.Acts.Gates, GetNumGuildMembers = saved.open, saved.gates, saved.count
+	if not ok then error(err, 0) end
 end)
