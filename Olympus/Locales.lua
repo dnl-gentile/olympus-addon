@@ -300,6 +300,17 @@ Long live the King. Long live Olympus.]==]
 -- para ela da estrutura da rede, do repasse"): the rest the 1.5.8 letter promised. The ranking for
 -- everyone, Church > Invites in sections, the kept switches, the Join page's request as a JOIN, the
 -- census for the guilds that saw too few of us, the chat by ruleset and the King's guild's mark.
+L.LETTER_1_6_0_TITLE = "The Recruiter's Record"
+L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
+
+- {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt.
+- {church} Recruiting prompts no longer take keyboard focus. Guilds without room for new players are skipped, and a nearby player who never asked to join is not automatically passed to another recruiter.
+- {guild} During a census rebuild, the last known count keeps its original time. Refresh requests can compare against that saved view and ask for updates it is missing.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
 L.LETTER_1_5_9_TITLE = "The Whole Host Counted"
 L.LETTER_1_5_9_HEAD, L.LETTER_1_5_9_SIGNED, L.LETTER_1_5_9_LINK = L.LETTER_1_5_9_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_5_9 = [==[Your Majesty. Soldiers of Olympus.
@@ -531,6 +542,17 @@ O Rei pediu ferramentas melhores de recrutamento. Aqui estão. O jogo deixa cada
 - {watch} The Watch pode reenviar uma aprovação de guilda, conferir o mestre de guilda atual, ocultar guildas e copiar nomes.
 
 A todos que mandaram ideias, relatos de bugs e correções: muito obrigado. Um agradecimento especial a Thunder Konig, Fern Melder e Heuto Jerrico.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_6_0_TITLE = "O registro do recrutador"
+	L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_6_0 = [==[Vossa Majestade. Soldados do Olympus.
+
+- {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt.
+- {church} As janelas de recrutamento não tiram mais o foco do teclado. Guildas sem vaga ficam fora da busca, e jogadores próximos que nunca pediram para entrar não são repassados automaticamente a outro recrutador.
+- {guild} Durante a reconstrução do censo, a última contagem mantém o horário original. Os pedidos de atualização podem comparar com os dados salvos e pedir o que falta.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 

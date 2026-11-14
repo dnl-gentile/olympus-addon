@@ -412,7 +412,7 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 		local L = cns.L
 		local raw = assert(L.LETTER_1_5_8)
 		local title, body = cns.Letters.Text("1.5.8")
-		eq(cns.Letters.Versions()[2], "1.5.8", code)
+		eq(cns.Letters.Versions()[3], "1.5.8", code)
 		eq(cns.Letters.Versions()[3], "1.5.7", code)
 		eq(title, L.LETTER_1_5_8_HEAD, code)
 		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
@@ -507,8 +507,8 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_5_9"), code)
 		local title, body = cns.Letters.Text("1.5.9")
-		eq(cns.Letters.Versions()[1], "1.5.9", code .. ": the newest letter first")
-		eq(cns.Letters.Versions()[2], "1.5.8", code)
+		eq(cns.Letters.Versions()[2], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(cns.Letters.Versions()[3], "1.5.8", code)
 		eq(title, rawget(L, "LETTER_1_5_9_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_5_8_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_5_9_SIGNED"), rawget(L, "LETTER_1_5_8_SIGNED"), code .. ": the dev's signature in this language, as 1.5.8's")
