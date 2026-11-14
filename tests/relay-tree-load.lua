@@ -34,6 +34,8 @@
 -- prints one line a case; OLYMPUS_TREE_LOAD_REGISTRANTS="30,60,92", OLYMPUS_TREE_LOAD_GUILDS=140,
 -- OLYMPUS_TREE_LOAD_MINUTES=40 and OLYMPUS_TREE_LOAD_ROUND=<seconds> (RelayTree.TREE_ROUND_EVERY on
 -- the relay) change its cases.
+-- Reproduce the signed census load issue with 90 registrants and a live mesh peer:
+--   OLYMPUS_TREE_LOAD=signed-census luajit tests/run.lua 'signed census load'
 local ns, test, eq, extra = ...
 local T0 = 1794000000
 local FRESH = 15 * 60 -- (Data.FRESH)
@@ -120,7 +122,12 @@ local TREE = { new = extra.addon .. "RelayTree.lua", ["1.5.6"] = FIXTURES .. "re
 -- census lane beside the relay's drip) o.lookRows (the guild rows in each o.look, 14 by default; 0: none, as
 -- in a held row the author's client signs, Data.lua's SignHeld, which fits one piece), o.meshPeer (a signed
 -- relay meshed with this one every Relay.MESH_EVERY by their own Relay.Mesh, which takes what this relay
--- sends across: r.look.peerMissed and r.look.peerSlowest count the looks it missed and the slowest to it).
+-- sends across: r.look.peerMissed and r.look.peerSlowest count the looks it missed and the slowest to it);
+-- (the review of the 1.5.9 release) o.lookOrigins (the realm groups the author's looks count, one look of
+-- each every o.look, as his client says one of each family: 1 by default) and o.lookGap (the seconds
+-- between one group's look and the next one's in each round of them: r.look.byOrigin counts each group's
+-- looks, those the registrants missed and those the mesh peer missed); and with o.meshPeer, r.peerCensus:
+-- the relay's own snapshots and those the mesh peer took whole (the relay's census crossing to it).
 local function Run(o)
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
 		chat = C_ChatInfo, time = GetTime, join = rawget(_G, "JoinChannelByName") }
@@ -373,14 +380,15 @@ local function Run(o)
 		end
 		-- (o.look) The author's signed look the relay's client says (Data.AttestPayload), new each time.
 		local looks = {}
-		if o.look then
-			Each(o.look, STEP / 3, function()
+		local GROUPS = { "ForeverPvP", "ForeverPvE", "ForeverRP", "ForeverRPPvP" } -- (o.lookOrigins)
+		for k = 1, o.look and (o.lookOrigins or 1) or 0 do
+			Each(o.look, STEP / 3 + (k - 1) * (o.lookGap or 0), function()
 				w.id = w.id + 1
 				local t = math.floor(w.now)
-				local word = ("QA~1~%s~CX~3~S~Carried Author-Realm~ForeverPvP~Alliance~13614,12900,30,%d~"):format(("s"):rep(86), t)
+				local word = ("QA~1~%s~CX~3~S~Carried Author-Realm~%s~Alliance~13614,12900,30,%d~"):format(("s"):rep(86), GROUPS[k], t)
 					.. ("Olympus Remembered %d,900,100,450,%d;"):format(w.id, t):rep(o.lookRows or 14)
 				local chunks = R.c.Codec.Chunk(word, tostring(w.id))
-				looks[#looks + 1] = { word = word, at = w.now, pieces = #chunks }
+				looks[#looks + 1] = { word = word, at = w.now, pieces = #chunks, origin = k }
 				As(R, function()
 					for _, p in ipairs(chunks) do R.c.Relay.HandleIn("WHISPER", R.c.me, "RL~P~" .. p) end
 				end)
@@ -499,18 +507,35 @@ local function Run(o)
 		end
 		-- (o.look) Each look said at least two minutes before the end: who missed it, and the slowest arrival.
 		-- (o.meshPeer) And the mesh peer: the looks it missed, and the slowest to reach it. (pieces: the most of any look.)
-		local look = { words = 0, missed = 0, slowest = 0, pieces = 0, peerMissed = 0, peerSlowest = 0 }
+		local look = { words = 0, missed = 0, slowest = 0, pieces = 0, peerMissed = 0, peerSlowest = 0, byOrigin = {} }
 		for _, x in ipairs(looks) do
 			look.pieces = math.max(look.pieces, x.pieces)
 			if stop - x.at >= 120 then
 				look.words = look.words + 1
+				local each = look.byOrigin[x.origin] or { words = 0, missed = 0, peerMissed = 0 }
+				look.byOrigin[x.origin], each.words = each, each.words + 1
 				for _, m in ipairs(regs) do
 					local got = m.looks[x.word]
-					if got then look.slowest = math.max(look.slowest, got - x.at) else look.missed = look.missed + 1 end
+					if got then look.slowest = math.max(look.slowest, got - x.at)
+					else look.missed, each.missed = look.missed + 1, each.missed + 1 end
 				end
 				local there = peer and peer.looks[x.word]
 				if there then look.peerSlowest = math.max(look.peerSlowest, there - x.at)
-				elseif peer then look.peerMissed = look.peerMissed + 1 end
+				elseif peer then look.peerMissed, each.peerMissed = look.peerMissed + 1, each.peerMissed + 1 end
+			end
+		end
+		-- (o.meshPeer) The relay's own snapshots made at least five minutes before the end, and those the
+		-- mesh peer took whole (its census crossing, one every Relay.MESH_CROSS_EVERY at most).
+		local peerCensus
+		if peer then
+			peerCensus = { made = 0, took = 0 }
+			local taken = {}
+			for _, word in ipairs(peer.took) do taken[word] = true end
+			for word, at in pairs(made) do
+				if stop - at >= 300 then
+					peerCensus.made = peerCensus.made + 1
+					if taken[word] then peerCensus.took = peerCensus.took + 1 end
+				end
 			end
 		end
 		-- (o.ownGuild) The relay's snapshots, those its guildmate took whole (byte for byte, each once), the
@@ -535,7 +560,7 @@ local function Run(o)
 		end
 		-- The result: over the registrants that were never offline.
 		local r = { registrants = #regs, guilds = o.guilds, minutes = o.minutes, pieces = pieces, packedPieces = packedPieces,
-			chat = chat, lead = lead, look = look, ownGuild = ownGuild,
+			chat = chat, lead = lead, look = look, ownGuild = ownGuild, peerCensus = peerCensus,
 			foreign = foreign, lost = lost, errors = w.errors, fewest = math.huge, most = 0, snapshots = 0, never = 0, longest = 0, oldest = 0,
 			measured = 0, by = {}, toGuild = 0 }
 		for _, m in ipairs(regs) do
@@ -898,7 +923,32 @@ end)
 -- The whole table, on request (the top of the file).
 ---------------------------------------------------------------------------
 
-if os.getenv("OLYMPUS_TREE_LOAD") == "table" then
+local loadMode = os.getenv("OLYMPUS_TREE_LOAD")
+if loadMode == "signed-census" then
+	test("relay tree under load: signed census load with three carried origins and a live mesh peer", function()
+		local failures = {}
+		for _, chat in ipairs({ 45, 60 }) do
+			local r = Run({ registrants = 90, guilds = 140, minutes = 30, chat = chat, mix = { new = 90, ["1.5.4"] = 10 },
+				ownGuild = true, crossing = 150, king = 300, ownWords = 300, housekeeping = true,
+				look = 1800, lookOrigins = 3, lookGap = 65, lookRows = 0, meshPeer = true })
+			Sound(r)
+			local old, current = r.by["1.5.4"], r.by.new
+			local live = r.peerCensus
+			print(("chat every %ds: longest census gap %.0fs (current %.0fs, 1.5.4 %.0fs), 1.5.4 minimum %d snapshots, "
+				.. "registrant looks missed %d, peer looks missed %d, peer snapshots %d/%d, chat lost %d/missed %d"):format(
+				chat, r.longest, current.longest, old.longest, old.fewest, r.look.missed,
+				r.look.peerMissed, live.took, live.made, r.chat.lost, r.chat.missed))
+			io.stdout:flush()
+			if r.longest >= FRESH or old.fewest < 2 or r.look.missed > 0 or r.look.peerMissed > 0
+				or r.chat.lost > 0 or r.chat.missed > 0 then
+				failures[#failures + 1] = ("%ds chat interval"):format(chat)
+			end
+		end
+		assert(#failures == 0, "signed census load bounds exceeded: " .. table.concat(failures, ", "))
+	end)
+end
+
+if loadMode == "table" then
 	local minutes = tonumber(os.getenv("OLYMPUS_TREE_LOAD_MINUTES")) or 40
 	local guilds = tonumber(os.getenv("OLYMPUS_TREE_LOAD_GUILDS")) or 140
 	local round = tonumber(os.getenv("OLYMPUS_TREE_LOAD_ROUND"))
