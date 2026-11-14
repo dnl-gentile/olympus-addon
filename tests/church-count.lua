@@ -134,6 +134,30 @@ test("1.1.6 Church: linked invite attribution credits the Apostle or Missionary 
 	eq(w:As(c.a1, c.a1.Count.Own, Key(m.name), "a").joins, 0)
 end)
 
+test("1.1.6 Church: linked invite attribution preserves the witness across an account character switch", function()
+	local w, c = Cast()
+	local alt = w:Client("Mira Alt", { rdb = c.m1.ns.rdb })
+	for _, cl in ipairs(w.clients) do
+		cl.ns.Alts.Group = function(n)
+			if Key(n) == Key(alt.name) or Key(n) == Key(c.m1.name) then return { main = c.m1.name } end
+		end
+	end
+	w.alts[Key(c.m1.name)], w.alts[Key(alt.name)] = { alt.name }, { c.m1.name }
+	w:Presence()
+	w:LogEvent(World.GUILD, "invite", alt.name, "Quiet Recruit", 3)
+	w:LogEvent(World.GUILD, "join", "Quiet Recruit", nil, 2)
+	Join(w, World.GUILD, "Quiet Recruit")
+	local room = alt.ns.Comm.QueueRoom
+	alt.ns.Comm.QueueRoom = function() return 0 end
+	w:ReadLog(alt)
+	w:ClearSent()
+	w:Act(c.m1, c.m1.Count.Flush)
+	eq(#w:Sent(c.m1, "NV", "WHISPER", "w"), 0, "the main must not send the alt's evidence")
+	alt.ns.Comm.QueueRoom = room
+	w:Act(alt, alt.Count.Flush)
+	eq(StateOf(w, c.a1, "Quiet Recruit", c.m1.name), "pending")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

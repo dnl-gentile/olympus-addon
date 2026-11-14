@@ -688,12 +688,19 @@ end
 -- A report into the outbox (once: the same text again is the same report). own: this keeper's own
 -- ledger took it; it goes once to each keeper online now, and none online, it waits for no one (the
 -- catch-up carries it).
+local function MyEvidence(o)
+	return not o.by or o.by == ns.FullName(ns.me)
+end
+
 local function Queue(text, own)
 	local out = Out()
-	for _, o in ipairs(out) do if type(o) == "table" and o.text == text then return o end end
+	for _, o in ipairs(out) do
+		if type(o) == "table" and o.text == text and MyEvidence(o) then return o end
+	end
 	if own and #Church.KeepersOnline(false) == 0 then return nil end
 	if #out >= Count.OUTBOX_MAX then table.remove(out, 1) end
-	local o = { text = text, h = ns.Comm.Hash36(text), at = Clock(), to = {}, own = own or nil }
+	-- The server stamps the sender at send time, and that identity is part of the evidence.
+	local o = { text = text, h = ns.Comm.Hash36(text), at = Clock(), to = {}, own = own or nil, by = ns.FullName(ns.me) }
 	out[#out + 1] = o
 	stats.queued = stats.queued + 1
 	return o
@@ -723,7 +730,7 @@ end
 local function RetryOwn(out, now)
 	for i = #out, 1, -1 do
 		local o = out[i]
-		if not o.own and now - (tonumber(o.lw) or tonumber(o.at) or now) >= Count.RESEND_GAP then
+		if MyEvidence(o) and not o.own and now - (tonumber(o.lw) or tonumber(o.at) or now) >= Count.RESEND_GAP then
 			o.lt, o.lw = (tonumber(o.lt) or 0) + 1, now
 			if Count.TakeEvidence(ns.me, o.text) == true then o.own, o.to = true, {}
 			elseif o.lt >= Count.RESEND_TRIES then table.remove(out, i) end
@@ -738,12 +745,16 @@ local sendingEvidence = {}
 function Count.Flush()
 	local out = Out()
 	if not out or #out == 0 or Off() or (ns.ChatLocked and ns.ChatLocked()) then return 0 end
-	local now = Clock()
+	local now, mine = Clock(), 0
 	for i = #out, 1, -1 do
 		local o = out[i]
 		if type(o) ~= "table" or type(o.text) ~= "string" or now - (tonumber(o.at) or 0) > Count.OUTBOX_DAYS * DAY then table.remove(out, i)
-		elseif type(o.to) ~= "table" then o.to = {} end
+		else
+			if type(o.to) ~= "table" then o.to = {} end
+			if MyEvidence(o) then mine = mine + 1 end
+		end
 	end
+	if mine == 0 then return 0 end
 	if Church.IsKeeper(ns.me) and not Church.IsKing(ns.me) then RetryOwn(out, now) end
 	local keepers = {}
 	for _, k in ipairs(Church.KeepersOnline(false)) do
@@ -753,24 +764,26 @@ function Count.Flush()
 	if #keepers == 0 and #out > 0 then Church.FindKeeper() end
 	local sent = 0
 	for _, o in ipairs(#keepers > 0 and out or {}) do
-		o.h = o.h or ns.Comm.Hash36(o.text)
-		for _, k in ipairs(keepers) do
-			local s = SentTo(o, k.key)
-			local attempts = s and tonumber(s.n) or 0
-			local retry = s and not o.own and not sendingEvidence[s] and attempts < Count.RESEND_TRIES
-				and now - (tonumber(s.w) or 0) >= Count.RESEND_GAP
-			if not s or retry then
-				if ns.Comm.QueueRoom() <= Count.SEND_ROOM then return sent end
-				local attempt = { n = attempts + 1, w = now }
-				o.to[k.key], sendingEvidence[attempt] = attempt, true
-				local accepted = ns.Comm.Whisper(k.name, o.text, nil, false, false, function()
-					sendingEvidence[attempt], attempt.w = nil, Clock()
-				end, { owner = Count })
-				if accepted then sent, stats.sent = sent + 1, stats.sent + 1 end
+		if MyEvidence(o) then
+			o.h = o.h or ns.Comm.Hash36(o.text)
+			for _, k in ipairs(keepers) do
+				local s = SentTo(o, k.key)
+				local attempts = s and tonumber(s.n) or 0
+				local retry = s and not o.own and not sendingEvidence[s] and attempts < Count.RESEND_TRIES
+					and now - (tonumber(s.w) or 0) >= Count.RESEND_GAP
+				if not s or retry then
+					if ns.Comm.QueueRoom() <= Count.SEND_ROOM then return sent end
+					local attempt = { n = attempts + 1, w = now }
+					o.to[k.key], sendingEvidence[attempt] = attempt, true
+					local accepted = ns.Comm.Whisper(k.name, o.text, nil, false, false, function()
+						sendingEvidence[attempt], attempt.w = nil, Clock()
+					end, { owner = Count })
+					if accepted then sent, stats.sent = sent + 1, stats.sent + 1 end
+				end
 			end
 		end
 	end
-	for i = #out, 1, -1 do if out[i].own then table.remove(out, i) end end
+	for i = #out, 1, -1 do if out[i].own and MyEvidence(out[i]) then table.remove(out, i) end end
 	return sent
 end
 
@@ -789,7 +802,9 @@ function Count.TakeReceipt(sender, text)
 	local out, done = Out(), 0
 	for i = #out, 1, -1 do
 		local o = out[i]
-		if type(o) == "table" and type(o.text) == "string" and got[o.h or ns.Comm.Hash36(o.text)] then table.remove(out, i); done = done + 1 end
+		if type(o) == "table" and type(o.text) == "string" and MyEvidence(o) and got[o.h or ns.Comm.Hash36(o.text)] then
+			table.remove(out, i); done = done + 1
+		end
 	end
 	stats.receipts = (stats.receipts or 0) + done
 	return true
