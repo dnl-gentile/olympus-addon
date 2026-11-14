@@ -3166,37 +3166,54 @@ end)
 
 test("recruit join routing skips a full guild and withholds gates without known room", function()
 	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside,
-		open = R.OpenGuilds, gates = ns.Acts.Gates, count = GetNumGuildMembers }
+		open = R.OpenGuilds, gates = ns.Acts.Gates, count = GetNumGuildMembers, now = ns.Now,
+		send = SendChatMessage, dialog = ns.Dialog }
 	local ok, err = pcall(function()
 		R.ResetForTests()
+		local now = ns.Now()
+		ns.Now = function() return now end
 		GetGuildInfo = function() return own end
-		GetNumGuildMembers = function() return ns.Codec.GUILD_CAP end
+		GetNumGuildMembers = function() return ns.Codec.GUILD_CAP, 10 end
 		R.OpenGuilds = function()
-			return { { name = own, free = 10 }, { name = sister, free = 400, e = { g = {} } } }
+			return { { name = own, free = 10, e = { g = {} } }, { name = sister, free = 400, e = { g = {} } } }
 		end
 		ns.Acts.Gates = function() return { guild = own, at = ns.Now() + 3600 } end
 		local route = assert(R.ParseRoute(R.RouteAnswer()))
 		eq(route.gates, nil, "the local roster takes precedence over an older estimate with room")
 		eq(route.byName[own].free, 0, "a full guild is explicitly marked")
+		eq(#route.byName[own].contacts, 0, "there are no contacts in a full guild's report")
 		eq(route.byName[sister].free, 400, "a guild with room stays available")
 
 		GetGuildInfo, IsInGuild = function() return nil end, function() return false end
 		ns.Comm.WhisperOutside = function() return true end
-		R.OnFound({
-			{ name = "Full-Realm", guild = own }, { name = "Roomy-Realm", guild = sister },
-		})
+		ns.Dialog = Dialogs()
+		local full, roomy = { name = "Full-Realm", guild = own }, { name = "Roomy-Realm", guild = sister }
+		R.OnFound({ roomy, full })
+		eq(R.OnRoute(roomy.name, "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
+		eq(R.Route().byName[own], nil, "an outsider cannot close another guild")
+		eq(R.NextContact(own), full, "unknown capacity keeps the manual contact available")
+		eq(R.OnRoute(full.name, "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
 		local positive = "J2~y~" .. own .. "~3600~" .. sister .. "=400=Roomy"
-		eq(R.OnRoute("Full-Realm", "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
-		eq(R.OnRoute("Roomy-Realm", positive), true)
+		eq(R.OnRoute(roomy.name, positive), true)
 		eq(R.Route().gates, nil, "legacy gates cannot override a full guild")
+		eq(R.Prompt(full), nil, "opening an invite request directly also respects the guild's capacity")
+		local sent = 0
+		SendChatMessage = function() sent = sent + 1 end
+		R.lastAsk = -1000
+		eq(R.Ask(full, "JOIN"), false, "an already-open draft cannot route to a guild that filled up")
+		eq(sent, 0, "no native whisper went out")
 		eq(R.NextContact(own), nil, "no contact for a full guild, even through /who")
 		eq(R.NextContact().guild, sister, "the general request goes to a guild with room")
 		R.asked["Roomy-Realm"] = ns.Now()
 		eq(R.NextContact(), nil, "does not fall back to the only remaining full guild")
+		eq(R.OnRoute(full.name, "J2~y~" .. own .. "~3600~" .. own .. "=10=Full"), true)
+		eq(R.NextContact(own).name, full.name, "a fresh answer from the guild reopens it")
+		eq(R.Route().gates, own, "confirmed gates can use the newly available space")
 	end)
 	R.ResetForTests()
 	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
 	R.OpenGuilds, ns.Acts.Gates, GetNumGuildMembers = saved.open, saved.gates, saved.count
+	ns.Now, SendChatMessage, ns.Dialog = saved.now, saved.send, saved.dialog
 	if not ok then error(err, 0) end
 end)
 

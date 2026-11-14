@@ -35095,10 +35095,11 @@ do
 		return pt
 	end
 	-- A census with SampleGuilds, our guild Olympus II, the window's calls recorded and nothing sent.
-	function Fern.Census(fn)
+	function Fern.Census(fn, ownSize)
 		local saved = { guilds = ns.rdb.guilds, seen = ns.rdb.seen, guild = GetGuildInfo, online = ns.Roster.online, sweep = ns.Who.sweep,
 			send = ns.Comm.Send, whisper = ns.Comm.Whisper, chunked = ns.Comm.SendChunked, who = ns.Who.Search, guildWho = ns.Who.SearchGuild,
-			ui = ns.UI, gates = ns.Acts.Gates, loginAt = ns.Comm.loginAt, say = SendChatMessage, print = ns.Print }
+			ui = ns.UI, gates = ns.Acts.Gates, loginAt = ns.Comm.loginAt, say = SendChatMessage, print = ns.Print,
+			count = GetNumGuildMembers }
 		local w = { sent = {}, persons = {}, tabs = {}, said = {}, printed = {} }
 		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = tostring(dist) .. " " .. tostring(msg) end
 		ns.Comm.Whisper = function(to, msg) w.sent[#w.sent + 1] = "WHISPER " .. tostring(to) .. " " .. tostring(msg) end
@@ -35111,6 +35112,7 @@ do
 			StatusLine = function() return "status" end, SelectTab = function(tab, focus) w.tabs[#w.tabs + 1] = { tab = tab, focus = focus } end }
 		ns.rdb.guilds, ns.rdb.seen = SampleGuilds(), {}
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		if ownSize then GetNumGuildMembers = function() return ownSize, 9 end end
 		ns.Roster.online, ns.Who.sweep = {}, { list = {} }
 		V.ClearFilters()
 		D.ResetEvening()
@@ -35118,6 +35120,7 @@ do
 		ns.rdb.guilds, ns.rdb.seen, GetGuildInfo, ns.Roster.online, ns.Who.sweep = saved.guilds, saved.seen, saved.guild, saved.online, saved.sweep
 		ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked, ns.Who.Search, ns.Who.SearchGuild = saved.send, saved.whisper, saved.chunked, saved.who, saved.guildWho
 		ns.UI, ns.Acts.Gates, ns.Comm.loginAt, SendChatMessage, ns.Print = saved.ui, saved.gates, saved.loginAt, saved.say, saved.print
+		GetNumGuildMembers = saved.count
 		V.ClearFilters()
 		V.recruitAll = nil
 		D.ResetEvening()
@@ -36026,7 +36029,7 @@ test("1.1 join routing (Fern #20): a member's census answers a J1 with the gates
 		line.onClick()
 		eq(ns.db.recruitsOff, nil)
 		assert(Fern.Find(ns.Views.RealmLines(), ns.L.NOCONTACT_LINE_OFF))
-	end)
+	end, 500)
 	ns.db.recruitsOff = savedOff
 	R.ResetForTests()
 end)
@@ -36286,7 +36289,7 @@ test("1.1 join routing (Fern #20): one forged report names no guild and nobody t
 		ns.Comm.loginAt = now - 10
 		route = R.ParseRoute(Answer("Recruit3-Realm"))
 		eq(table.concat(route.byName["Olympus R1"].contacts, "/"), "Rcap/Rcap3", "its Captains online, not yet its Lord")
-	end)
+	end, 500)
 	ns.db.recruitsOff = savedOff
 	R.ResetForTests()
 end)
