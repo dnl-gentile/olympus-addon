@@ -507,6 +507,15 @@ local function FirstTell(id)
 	return true
 end
 
+-- The inviter and recruit need a witness from another account. The local character list
+-- catches a same-account alt before any optional link has been shared with a keeper.
+local function SameAccount(name)
+	if type(name) ~= "string" then return false end
+	local mine = ns.db and ns.db.myCharacters
+	local full = ns.FullName(ns.Normal(name))
+	return (full and type(mine) == "table" and mine[full:lower()] == true) or Count.Linked(name, ns.me)
+end
+
 function RR.Pair(inviter, invitee, guild, ti, tj, again)
 	if Off() or type(guild) ~= "string" or not ns.IsFederation(guild) then return false end
 	local ik, xk, me = Key(inviter), Key(invitee), Key(ns.me)
@@ -525,6 +534,7 @@ function RR.Pair(inviter, invitee, guild, ti, tj, again)
 		stats.pairs = stats.pairs + 1
 		return RR.Report(Text(RR.SourceOf(invitee, ti)))
 	end
+	if SameAccount(inviter) or SameAccount(invitee) then return false end
 	stats.pairs = stats.pairs + 1
 	if not Reporter(id, guild) then return false end
 	Remember(id, inviter, invitee, g, tj)
@@ -572,6 +582,7 @@ local function StayReports()
 	for id, s in pairs(seen) do
 		local due = type(s) == "table" and tonumber(s.h) and s.h * 3600 + RR.STAY_DAYS * DAY
 		if not due or now > due + RR.STAY_LATE * DAY then seen[id] = nil
+		elseif Owned(s) and (SameAccount(s.i) or SameAccount(s.n)) then seen[id] = nil
 		elseif now >= due and fresh and guild and ns.Fold(guild) == ns.Fold(s.g or "") and Owned(s) then
 			Count.Remember(false)
 			local f = Count.Fact(s.n)

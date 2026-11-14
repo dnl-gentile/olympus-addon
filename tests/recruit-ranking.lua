@@ -1390,6 +1390,26 @@ test("1.5.9 recruiting ranking: one-hour guild logs never credit an invite sent 
 	end
 end)
 
+test("1.5.9 recruiting ranking: another character on the inviter's account is not an independent witness", function()
+	local shared = {}
+	local w, c = Cast({ ivy = { name = "Ivy Plain", rdb = shared } })
+	c.ivo.c.rdb = shared
+	c.ivy.c.db.myCharacters = { ["ivo plain-realm"] = true }
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 0)
+	c.ivo.online = false
+	w:Presence()
+	w:ClearSent()
+	eq(w:ReadLog(c.ivy), true)
+	eq(Naming(w, c.ivy, "Ivo Plain", "New Guy"), 0, "the alt never reports the pair")
+	c.ivy.online, c.ivo.online = false, true
+	w:Presence()
+	w:ReadLog(c.ivo)
+	eq(Naming(w, c.ivo, "Ivo Plain", "New Guy"), 2, "the original inviter can still report it")
+	eq(Score(w, c.a1, "Ivo Plain"), 0, "the inviter alone does not confirm the recruit")
+	w:ReadLog(c.wes)
+	eq(Score(w, c.a1, "Ivo Plain"), 10, "a guildmate can still confirm the recruit")
+end)
+
 -- The account's record of the events read goes (EV_DAYS, or wiped past EV_MAX) while the events are still in a
 -- quiet guild's log: the next read takes them as new and pairs the join again, by the log's order now. Fails
 -- before: nine days on, Ivo sent each keeper an own report of Sid's recruit.
