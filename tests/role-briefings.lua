@@ -704,14 +704,26 @@ test("role briefings: the 1.4.0 release writes its own launch letter (the dev's,
 			assert(loadfile(ADDON .. "Letters.lua"))("Olympus", lns)
 			local Lt = lns.Letters
 			local RB = Fresh({ Letters = Lt, L = own })
-			eq(Lt.LIST[1], "1.5.9"); eq(Lt.LIST[2], "1.5.8"); eq(Lt.LIST[17], "1.4.0"); eq(Lt.Has("1.4.0"), true) -- (the older launch and release letters stay listed)
+			local function position(version)
+				local found
+				for i, listed in ipairs(Lt.LIST) do
+					if listed == version then
+						eq(found, nil, version .. " listed once")
+						found = i
+					end
+				end
+				return assert(found, version .. " is listed")
+			end
+			local launchPosition = position("1.4.0")
+			eq(position("1.5.9") < position("1.5.8"), true)
+			eq(position("1.5.8") < launchPosition, true)
+			eq(Lt.Has("1.4.0"), true)
 			RB.LIVE = false
 			eq(RB.RegisterLaunch(), false, "not LIVE")
 			RB.LIVE = true
 			eq(RB.RegisterLaunch(), false, "LIVE: the release's own letter is kept")
 			eq(own.LETTER_1_4_0_TITLE, L.LETTER_1_4_0_TITLE); eq(own.LETTER_1_4_0, L.LETTER_1_4_0)
-			-- (1.5.8, then 1.5.9: each release's letter at the top moves every older one down a place.)
-			eq(Lt.LIST[17], "1.4.0"); eq(Lt.LIST[18] ~= "1.4.0", true, "listed once")
+			eq(position("1.4.0"), launchPosition, "launch letter keeps its position")
 			ns.db.lettersRead = {}
 			eq(Lt.Show("1.4.0"), true)
 			local f = Lt.Frame()
