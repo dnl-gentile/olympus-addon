@@ -1369,6 +1369,27 @@ test("1.5.9 recruiting ranking: a join, a quit and two members' invites in one h
 	end
 end)
 
+test("1.5.9 recruiting ranking: one-hour guild logs never credit an invite sent after the join", function()
+	for _, newestFirst in ipairs({ false, true }) do
+		for _, knownOrder in ipairs({ false, true }) do
+			local w, c = Cast()
+			w.newestFirst = newestFirst
+			if knownOrder then Recruit(w, World.GUILD, "Wes Brook", "Fresh Kid", 0) end
+			Recruit(w, World.GUILD, "Sid Pass", "Quick Leave", 0)
+			w:Run(60)
+			w:LogEvent(World.GUILD, "quit", "Quick Leave", nil, 0)
+			Leave(w, World.GUILD, "Quick Leave")
+			w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Quick Leave", 0)
+			w:ClearSent()
+			eq(w:ReadLog(c.ivo), true)
+			w:Run(10)
+			eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "the later invite earns no report")
+			eq(Naming(w, c.ivo, "Sid Pass", "Quick Leave"), knownOrder and 2 or 0, "the join has a report only when its order is known")
+			if knownOrder then eq(Naming(w, c.ivo, "Wes Brook", "Fresh Kid"), 2, "the clean pair still counts") end
+		end
+	end
+end)
+
 -- The account's record of the events read goes (EV_DAYS, or wiped past EV_MAX) while the events are still in a
 -- quiet guild's log: the next read takes them as new and pairs the join again, by the log's order now. Fails
 -- before: nine days on, Ivo sent each keeper an own report of Sid's recruit.

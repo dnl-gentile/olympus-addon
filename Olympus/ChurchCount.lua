@@ -462,9 +462,33 @@ end
 -- (an own report held 14 days as his pending recruit; in a guild with no keeper the recruit credited to
 -- him, the first inviter's left pending), and again once that account's record of the events expired while
 -- they were still in the log. The log's own order is time order; which way it runs is read from its first
--- and last events' hours, so it holds whichever way the game lists them. A log whose events all fall in
--- one hour tells no direction: there an hour's invites still go before its joins (the invite and join of
--- one recruit, the common case, stay paired).
+-- and last events' hours, or from unambiguous invite/join pairs in a one-hour log. Keep that direction
+-- for the next read. With no established direction, do not pair a join with any of several invites for
+-- the same player that hour: the last invite on the screen might have been sent after the join.
+local function HourlyLogDirection(events)
+	local players = {}
+	for _, e in ipairs(events) do
+		local name = (e.kind == "invite" or e.kind == "remove") and e.p2 or e.p1
+		local key = Key(name)
+		if key then
+			local p = players[key] or { count = 0 }
+			players[key] = p
+			p.count = p.count + 1
+			if e.kind == "invite" then p.invite = e.i end
+			if e.kind == "join" then p.join = e.i end
+		end
+	end
+	local direction = 0
+	for _, p in pairs(players) do
+		if p.count == 2 and p.invite and p.join then
+			local way = p.invite < p.join and 1 or -1
+			if direction ~= 0 and direction ~= way then return 0 end
+			direction = way
+		end
+	end
+	return direction
+end
+
 function Count.Events()
 	local n = tonumber(GetNumGuildEvents()) or 0
 	local hourNow = math.floor(Clock() / 3600)
@@ -479,7 +503,25 @@ function Count.Events()
 	end
 	-- 1: the log lists the oldest first; -1: the newest first; 0: no way to tell (one hour).
 	local way = 0
-	if out[1] and out[#out].hour ~= out[1].hour then way = out[#out].hour > out[1].hour and 1 or -1 end
+	if out[1] then
+		if out[#out].hour ~= out[1].hour then
+			way = out[#out].hour > out[1].hour and 1 or -1
+		else
+			way = HourlyLogDirection(out)
+		end
+	end
+	local ev = Ev()
+	if way ~= 0 then ev.way = way elseif ev.way == 1 or ev.way == -1 then way = ev.way end
+	if way == 0 then
+		local invites = {}
+		for _, e in ipairs(out) do
+			local key = e.kind == "invite" and Key(e.p2)
+			if key then
+				local first = invites[key]
+				if first then first.unsure, e.unsure = true, true else invites[key] = e end
+			end
+		end
+	end
 	local order = { invite = 1, join = 2 }
 	table.sort(out, function(x, z)
 		if x.hour ~= z.hour then return x.hour < z.hour end
@@ -533,7 +575,7 @@ function Count.Process(events)
 	-- hours, and a read put an hour's invites before its joins, in no set order among themselves, so an invite
 	-- logged after the join in its hour came ahead of it, and two invites of one hour could swap from one read
 	-- to the next. Count.Events now keeps the log's own order within an hour, so the first read pairs right
-	-- too, but where all the log falls in one hour it cannot tell that order.)
+	-- too. A one-hour log with no known direction leaves an ambiguous pair unset.)
 	if type(ev.p) ~= "table" then ev.p = {} end
 	for _, e in ipairs(events) do
 		local sig = e.kind .. ":" .. (Key(e.p1) or "") .. ":" .. (Key(e.p2) or "")
@@ -553,7 +595,7 @@ function Count.Process(events)
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
-				inv[Key(e.p2)] = { by = e.p1, h = e.hour }
+				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour } end
 				if person and Key(e.p1) == meKey then
 					local m = Mine()
 					m.inv[day] = (m.inv[day] or 0) + 1
