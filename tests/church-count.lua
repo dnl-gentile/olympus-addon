@@ -186,6 +186,51 @@ test("1.1.6 Church: linked invite attribution prefers the main over a duplicate 
 	eq(StateOf(w, c.a1, "Shared Recruit", c.m1.name), "credited")
 end)
 
+test("1.1.6 Church: linked invite attribution resolves a confirmed alt from another Forever sub-realm", function()
+	local w, c = Cast()
+	local keeper = c.a1
+	local localRealm, remoteRealm = "CAMWOWUS1Realm1PvE", "CAMWOWUS1Realm2PvE"
+	keeper.ns.realm, keeper.ns.group = localRealm, "ForeverPvE"
+	local popup = StaticPopupDialogs.OLYMPUS_ALT_CONFIRM
+	assert(loadfile(ROOT .. "Olympus/Alts.lua"))("Olympus", keeper.ns)
+	StaticPopupDialogs.OLYMPUS_ALT_CONFIRM = popup
+	local Alts = keeper.ns.Alts
+	local main = "Mira Wells-" .. localRealm
+	local alt = "Mira Alt-" .. remoteRealm
+	local otherRealm = "CAMWOWUS1Realm1PvP"
+	w:As(keeper, Alts.Handle, "CHANNEL", main, ("AL~%d~M~%s~%s"):format(w.clock, World.GUILD, alt))
+	w:As(keeper, Alts.Handle, "CHANNEL", alt, ("AL~%d~A~%s~%s"):format(w.clock, World.GUILD, main))
+	assert(w:As(keeper, Alts.Group, alt), "both claims confirm the real full name")
+	eq(w:As(keeper, Alts.Group, "Mira Alt-" .. localRealm), nil, "normal alt lookup still needs the exact realm")
+
+	local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+	local function Report(recruit, realm)
+		local inviter = realm and ("Mira Alt-" .. realm) or "Mira Alt"
+		return ("NV~1~w~%s~%s~%s~%s~%s"):format(
+			inviter, recruit, World.GUILD, B36(hour - 1), B36(hour))
+	end
+	Join(w, World.GUILD, "Realm Recruit")
+	eq(w:Act(keeper, keeper.Count.TakeEvidence, c.wes.name, Report("Realm Recruit", localRealm)), true)
+	eq(StateOf(w, keeper, "Realm Recruit", main), "credited", "the guild log can give a short name")
+	local sibling = "Mira Sibling-" .. remoteRealm
+	w:As(keeper, Alts.Handle, "CHANNEL", main,
+		("AL~%d~M~%s~%s,%s"):format(w.clock + 1, World.GUILD, alt, sibling))
+	w:As(keeper, Alts.Handle, "CHANNEL", sibling,
+		("AL~%d~A~%s~%s"):format(w.clock + 1, World.GUILD, main))
+	eq(w:Act(keeper, keeper.Count.TakeEvidence, sibling, Report("Pending Recruit", localRealm)), true)
+	eq(StateOf(w, keeper, "Pending Recruit", main), "pending", "another linked alt is not an independent witness")
+	eq(w:Act(keeper, keeper.Count.TakeEvidence, c.wes.name, Report("Wrong Realm", otherRealm)), false,
+		"an explicit different ruleset cannot name this alt")
+
+	local thirdRealm, otherMain = "CAMWOWUS1Realm3PvE", "Mira Second"
+	local sameName = "Mira Alt-" .. thirdRealm
+	w:As(keeper, Alts.Handle, "CHANNEL", otherMain .. "-" .. localRealm,
+		("AL~%d~M~%s~%s"):format(w.clock, World.GUILD, sameName))
+	w:As(keeper, Alts.Handle, "CHANNEL", sameName, ("AL~%d~A~%s~%s"):format(w.clock, World.GUILD, otherMain))
+	eq(w:Act(keeper, keeper.Count.TakeEvidence, c.wes.name, Report("Unclear Recruit", localRealm)), false,
+		"ambiguous short names do not identify a link")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

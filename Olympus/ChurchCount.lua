@@ -415,6 +415,7 @@ end
 local function RecruitMain(name)
 	local A = ns.Alts
 	local group = A and A.Group and A.Group(name)
+	if not group and A and A.GroupByGuildName then group = A.GroupByGuildName(name) end
 	local main = group and group.main
 	if not main or Key(main) == Key(name) then return nil end
 	local role = Church.Role(main)
@@ -879,6 +880,9 @@ local function Linked(a, b)
 	local ka, kb = Key(a), Key(b)
 	for _, n in ipairs(A.Linked(ns.FullName(a)) or {}) do if Key(n) == kb then return true end end
 	for _, n in ipairs(A.Linked(ns.FullName(b)) or {}) do if Key(n) == ka then return true end end
+	-- Ledger rows and historical logs can carry names without their native sub-realm.
+	local group = A.GroupByGuildName and A.GroupByGuildName(a)
+	if group and A.GroupByGuildName(b) == group then return true end
 	return false
 end
 Count.Linked = Linked

@@ -189,7 +189,9 @@ end
 -- Every confirmed group, rebuilt after any change (the census asks often).
 local function Groups()
 	if cache and cache.version == version and cache.rdb == ns.rdb and cache.db == ns.db and cache.group == ns.group and cache.realm == ns.realm then return cache end
-	cache = { version = version, rdb = ns.rdb, db = ns.db, group = ns.group, realm = ns.realm, groups = {}, of = {} }
+	local forever = type(ns.group) == "string" and ns.group:match("^Forever%a+$")
+	cache = { version = version, rdb = ns.rdb, db = ns.db, group = ns.group, realm = ns.realm, groups = {},
+		of = {}, short = forever and {} or nil }
 	local mains = {}
 	for key, c in pairs(Claims()) do
 		if type(c) == "table" and c.role == "M" then mains[key] = true end
@@ -202,7 +204,16 @@ local function Groups()
 		local g = main and GroupOfMain(main)
 		if g then
 			cache.groups[#cache.groups + 1] = g
-			for _, m in ipairs(g.members) do cache.of[Key(m.name)] = g end
+			for _, m in ipairs(g.members) do
+				local full = Key(m.name)
+				cache.of[full] = g
+				if cache.short then
+					local short = ns.Fold(ns.ShortName(m.name))
+					local prior = cache.short[short]
+					if prior == nil then cache.short[short] = { name = full, group = g }
+					elseif prior and (prior.name ~= full or prior.group ~= g) then cache.short[short] = false end
+				end
+			end
 		end
 	end
 	return cache
@@ -212,6 +223,15 @@ end
 function Alts.Group(name)
 	if type(name) ~= "string" or name == "" then return nil end
 	return Groups().of[Key(name)]
+end
+
+-- The guild-event log and the Church ledger can expose only the short name. On Forever's live
+-- rulesets that name is unique within this census. The caller still rejects an explicit other group.
+function Alts.GroupByGuildName(name)
+	if type(name) ~= "string" or name == "" or not OfOurGroup(name) then return nil end
+	local short = Groups().short
+	local record = short and short[ns.Fold(ns.ShortName(ns.Normal(name)))]
+	if record then return record.group end
 end
 
 -- The other names of its player's confirmed group (a list, empty when none).
