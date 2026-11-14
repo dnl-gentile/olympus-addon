@@ -8,7 +8,7 @@ local RelayWorld = extra.RelayWorld
 
 local KING = "Asmongold Thereal"
 local function KingWorld(me)
-	local w = { RelayWorld(me, "Olympus Prime") }
+	local w = { RelayWorld(me, "Olympus Prime", nil, "Harbor Warden") }
 	local cns = w[1]
 	cns.IsKingCharacter = function(name) return type(name) == "string" and ns.ShortName(name) == KING end
 	return unpack(w)
@@ -39,7 +39,7 @@ test("1.5.4 the King's crown: his own client, a relay, whispers each crown to ev
 		end
 		K.Comm.Send("CHANNEL", "T1~P~3~Olympus Prime~1453~420~510", "kinglocation")
 		pump(50)
-		eq(To("Max Ran", "RL~P~T1~P~3~"), 1, "to one relay"); eq(To("Hildryn Payne", "RL~P~T1~P~3~"), 1, "and the other")
+		eq(To("Max Ran", "RL~P~T1~P~3~"), 1, "to one relay"); eq(To("Harbor Warden", "RL~P~T1~P~3~"), 1, "and the other")
 		K.clock = K.clock + 5
 		K.Comm.Send("CHANNEL", "T1~P~3~Olympus Prime~1453~430~510", "kinglocation")
 		pump(50)
@@ -47,10 +47,10 @@ test("1.5.4 the King's crown: his own client, a relay, whispers each crown to ev
 		K.clock = K.clock + K.Relay.KING_GAP
 		K.Comm.Send("CHANNEL", "T1~P~3~Olympus Prime~1453~440~510", "kinglocation")
 		pump(50)
-		eq(To("Max Ran", "RL~P~T1~P~3~"), 2, "the next one after KING_GAP"); eq(To("Hildryn Payne", "RL~P~T1~P~3~"), 2)
+		eq(To("Max Ran", "RL~P~T1~P~3~"), 2, "the next one after KING_GAP"); eq(To("Harbor Warden", "RL~P~T1~P~3~"), 2)
 		K.Comm.Send("CHANNEL", "T1~Q~3~Olympus Prime", "kinglocation")
 		pump(50)
-		eq(To("Max Ran", "RL~P~T1~Q~3~"), 1, "hidden goes at once"); eq(To("Hildryn Payne", "RL~P~T1~Q~3~"), 1)
+		eq(To("Max Ran", "RL~P~T1~Q~3~"), 1, "hidden goes at once"); eq(To("Harbor Warden", "RL~P~T1~Q~3~"), 1)
 		K.Comm.Send("CHANNEL", "X1~another word of his")
 		pump(50)
 		eq(To("Max Ran", "RL~P~X1~"), 0, "his other words: the usual single route")
@@ -59,7 +59,7 @@ test("1.5.4 the King's crown: his own client, a relay, whispers each crown to ev
 		K.clock = K.clock + K.Relay.KING_GAP
 		K.Comm.Send("CHANNEL", "T1~P~3~Olympus Prime~1453~450~510", "kinglocation")
 		pump(50)
-		eq(To("Max Ran", "RL~P~T1~P~3~"), 2, "left out: nothing"); eq(To("Hildryn Payne", "RL~P~T1~P~3~"), 3)
+		eq(To("Max Ran", "RL~P~T1~P~3~"), 2, "left out: nothing"); eq(To("Harbor Warden", "RL~P~T1~P~3~"), 3)
 	end)
 	Guarded(function()
 		local O, _, sent, _, pump = KingWorld("Some Body-Realm")
@@ -73,7 +73,7 @@ end)
 
 test("1.5.4 the King's crown: a relay hands it to its reporters outside the trickle and ahead in the queue, each once a KING_GAP at most, the longest waiting first, KING_PER_MIN a minute in all; his hidden word at once; anyone else's T1~P stays in the trickle", function()
 	Guarded(function()
-		local H, deliver, sent, _, pump = KingWorld("Hildryn Payne-Realm")
+		local H, deliver, sent, _, pump = KingWorld("Harbor Warden-Realm")
 		for i = 1, 3 do deliver("WHISPER", "Reporter" .. i .. "-Realm", "RL~P~RR~Olympus R" .. i) end
 		-- Another guild's census, four one-whisper pieces, first in the minute: each reporter's trickle is spent.
 		for i = 1, 4 do deliver("WHISPER", "Census Guy-Realm", ("RL~P~C7:%d:4:%s"):format(i, ("x"):rep(i < 4 and 200 or 10))) end
@@ -109,7 +109,7 @@ test("1.5.4 the King's crown: a relay hands it to its reporters outside the tric
 	Guarded(function()
 		-- Sixty reporters, the King's crown every 5 s for ten minutes: KING_PER_MIN a minute in all
 		-- (KING_BURST at once), shared fairly, each reporter's crown renewed well inside the clients' lease.
-		local H, deliver, sent, _, pump = KingWorld("Hildryn Payne-Realm")
+		local H, deliver, sent, _, pump = KingWorld("Harbor Warden-Realm")
 		local start = H.clock
 		for i = 1, 60 do deliver("WHISPER", "Reporter" .. i .. "-Realm", "RL~P~RR~Olympus R" .. i) end
 		local last, worst, got = {}, 0, {}
@@ -160,7 +160,7 @@ end)
 
 test("1.5.4 the King's crown: in a relay's queue his newest crown never takes the place of his waiting call (T1 kinds keyed apart)", function()
 	Guarded(function()
-		local H, deliver, sent, _, pump = KingWorld("Hildryn Payne-Realm")
+		local H, deliver, sent, _, pump = KingWorld("Harbor Warden-Realm")
 		deliver("WHISPER", "Reporter1-Realm", "RL~P~RR~Olympus R1")
 		deliver("WHISPER", KING .. "-Realm", "RL~P~T1~S~7~Olympus Prime")
 		deliver("WHISPER", KING .. "-Realm", "RL~P~T1~P~3~Olympus Prime~1453~420~510")
@@ -184,12 +184,12 @@ test("1.5.4 the King's presence: his own client whispers it to every other relay
 		K.Comm.Send("CHANNEL", "T1~o~7~Olympus Prime", "king presence", true)
 		pump(50)
 		eq(To("Max Ran", "RL~P~T1~o~7~"), 1, "to one relay, a crown just before notwithstanding")
-		eq(To("Hildryn Payne", "RL~P~T1~o~7~"), 1, "and the other")
+		eq(To("Harbor Warden", "RL~P~T1~o~7~"), 1, "and the other")
 		K.Relay.LeaveOut("Max Ran", "offline")
 		K.clock = K.clock + 300
 		K.Comm.Send("CHANNEL", "T1~o~8~Olympus Prime", "king presence", true)
 		pump(50)
-		eq(To("Max Ran", "RL~P~T1~o~8~"), 0, "left out: nothing"); eq(To("Hildryn Payne", "RL~P~T1~o~8~"), 1)
+		eq(To("Max Ran", "RL~P~T1~o~8~"), 0, "left out: nothing"); eq(To("Harbor Warden", "RL~P~T1~o~8~"), 1)
 	end)
 	Guarded(function()
 		local O, _, sent, _, pump = KingWorld("Some Body-Realm")
@@ -210,7 +210,7 @@ test("1.5.4 the King's layer: his own client whispers it to every other relay wh
 		end
 		K.Comm.Send("CHANNEL", "L1~1429~3~0~Olympus Prime")
 		pump(50)
-		eq(To("Max Ran", "RL~P~L1~1429~3~"), 1, "to one relay"); eq(To("Hildryn Payne", "RL~P~L1~1429~3~"), 1, "and the other")
+		eq(To("Max Ran", "RL~P~L1~1429~3~"), 1, "to one relay"); eq(To("Harbor Warden", "RL~P~L1~1429~3~"), 1, "and the other")
 		K.clock = K.clock + 60
 		K.Comm.Send("CHANNEL", "L1~1429~3~0~Olympus Prime")
 		pump(50)

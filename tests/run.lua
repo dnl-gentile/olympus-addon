@@ -7218,10 +7218,11 @@ do -- (1.4.3: the relay's tests, their locals scoped)
 -- client takes it once as if from the channel, its origin the sender. A client of each kind here.
 -- relayFile (the review of 1.5.4, mixed versions): another release's Relay.lua instead of this one
 -- (tests/fixtures/relay-1.5.3.lua: a client still on 1.5.3, as tests/hop-forever.lua runs one).
-local function RelayWorld(me, guild, relayFile)
+local function RelayWorld(me, guild, relayFile, secondRelay)
 	local cns, Deliver = FreshComm()
 	cns.me, cns.splitNames = me, true
-	cns.rdb = { council = { names = { ["max ran"] = "Max Ran", ["hildryn payne"] = "Hildryn Payne" }, realm = "Realm" } }
+	secondRelay = secondRelay or "Hildryn Payne"
+	cns.rdb = { council = { names = { ["max ran"] = "Max Ran", [secondRelay:lower()] = secondRelay }, realm = "Realm" } }
 	cns.KingCharacter, cns.TreasurerPins, cns.AuthorCharacters = function() return nil end, function() return {} end, function() return {} end
 	assert(loadfile(relayFile or (ADDON_DIR .. "Relay.lua")))("Olympus", cns)
 	cns.Relay.Reset()

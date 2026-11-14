@@ -8,7 +8,7 @@
 local ns, test, eq, extra = ...
 local RelayWorld = extra.RelayWorld
 local T0 = 1794100000
-local A_NAME, B_NAME, C_NAME = "Max Ran-Realm", "Hildryn Payne-Realm", "Third Relay-Realm" -- all three signed (the council)
+local A_NAME, B_NAME, C_NAME = "Max Ran-Realm", "Harbor Warden-Realm", "Third Relay-Realm" -- all three signed (the council)
 
 -- Clients of one realm group, their whispers and guild words carried by Flush, their timers by Advance.
 local function World(fn)
@@ -24,7 +24,7 @@ local function World(fn)
 	end
 	-- relayFile (1.5.9): another release's Relay.lua (tests/fixtures/relay-1.5.8.lua: a mesh peer on 1.5.8).
 	local function Node(name, guild, relayFile)
-		local c, deliver, sent, heard, pump = RelayWorld(name, guild, relayFile)
+		local c, deliver, sent, heard, pump = RelayWorld(name, guild, relayFile, "Harbor Warden")
 		local n = { c = c, deliver = deliver, sent = sent, heard = heard, pump = pump, guild = guild,
 			chat = C_ChatInfo, cursor = 0, got = {}, logs = {} }
 		c.Log = function(fmt, ...) local ok, msg = pcall(string.format, fmt, ...) n.logs[#n.logs + 1] = ok and msg or tostring(fmt) end
@@ -297,12 +297,12 @@ test("relay mesh (1.5.5): while the relays carry the channel (Relay.On), the lan
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		for _, forever in ipairs({ true, false }) do
-			local R, deliver, sent = RelayWorld("Lane Keeper-Realm", "Olympus II")
+			local R, deliver, sent = RelayWorld("Lane Keeper-Realm", "Olympus II", nil, "Harbor Warden")
 			R.Roster = setmetatable({ RankOf = function(name) return name == "Lord-Realm" and 0 or nil end }, { __index = ns.Roster })
 			if not forever then R.splitNames = false end
 			eq(R.Relay.On(), forever)
 			-- No relay to pick (both left out): only off Forever does a channel word become a native job.
-			R.Relay.LeaveOut("Max Ran"); R.Relay.LeaveOut("Hildryn Payne")
+			R.Relay.LeaveOut("Max Ran"); R.Relay.LeaveOut("Harbor Warden")
 			eq(R.Relay.Pick(), nil)
 			C_ChatInfo.SendAddonMessage = function(_, msg, dist, target)
 				sent[#sent + 1] = { msg = msg, dist = dist, target = target }
@@ -377,7 +377,7 @@ test("relay mesh (1.5.5): /oly bug's relay lines (Relay.BugLines): the relay, th
 		local lines = As(a, a.c.Relay.BugLines, 1500)
 		assert(Bytes(lines) <= 1500, "within the bytes: " .. Bytes(lines))
 		assert(Find(lines, "relay: "), "the relay line")
-		assert(Find(lines, "mesh: ") and Find(lines, "mesh: "):find("Hildryn Payne", 1, true), "the mesh line names the peer")
+		assert(Find(lines, "mesh: ") and Find(lines, "mesh: "):find("Harbor Warden", 1, true), "the mesh line names the peer")
 		assert(Find(lines, "queue: "), "the queue line")
 		-- Missing modules, a stand-in (a client that updated without restarting), one that fails: lines
 		-- for each, and the rest still there.

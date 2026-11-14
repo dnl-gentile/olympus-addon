@@ -235,7 +235,7 @@ if h.RelayWorld then
 			ns.IsMember = function() return true end
 			IsInGuild = function() return true end
 			GetGuildInfo = function() return "Olympus II", "Member", 3 end
-			local R, deliver, sent, _, pump, sentOf = h.RelayWorld("Hildryn Payne-Realm", "Olympus II")
+			local R, deliver, sent, _, pump, sentOf = h.RelayWorld("Harbor Warden-Realm", "Olympus II", nil, "Harbor Warden")
 			R.KingCharacter = function() return "Asmongold Thereal" end
 			R.IsKingCharacter = function(name) return type(name) == "string" and R.ShortName(name) == "Asmongold Thereal" end
 			deliver("WHISPER", "Max Ran-Realm", "RY~") -- (another relay that answered...)
