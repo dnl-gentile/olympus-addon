@@ -1636,6 +1636,12 @@ local function SummaryGuilds()
 	return out, direct, now
 end
 
+local function FreshRelayObservation(g, observed, now)
+	local vouched = g.relayed and g.vouched
+	return vouched and vouched >= observed and vouched - observed <= Data.FRESH
+		and vouched <= now and now - vouched <= Data.FRESH
+end
+
 function Data.Summary()
 	local guilds, direct, now = SummaryGuilds()
 	local localGuilds, scoped = ns.rdb.guilds or {}, ScopedGroup(ns.group)
@@ -1649,10 +1655,7 @@ function Data.Summary()
 			local received, stamp = tonumber(g.t) or 0, ObservationTime(g)
 			local observed = scoped and stamp > 0 and math.min(stamp, received) or received
 			local age = now - observed
-			local vouched = scoped and g.relayed and g.vouched or nil
-			local fresh = age <= Data.FRESH or
-				(vouched ~= nil and vouched >= observed and vouched - observed <= Data.FRESH
-					and vouched <= now and now - vouched <= Data.FRESH)
+			local fresh = age <= Data.FRESH or (scoped ~= nil and FreshRelayObservation(g, observed, now) == true)
 			-- A guild keeps its size from its last report when its reporters log off (the army
 			-- does not shrink every night), for a day; listed (grey) for a week; who is online
 			-- and where only count while fresh.
@@ -1981,12 +1984,13 @@ function Data.ApplyGroupSnapshot(s, now)
 	end
 	if not held then return end
 	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
+	local scoped = ScopedGroup(group)
 	for _, e in ipairs(s.guilds) do
 		if e.counted then
 			counted = counted + 1
 			local observed = ObservationTime(e.g)
 			if observed >= held.observed then refreshed = refreshed + 1 end
-			if e.fresh then
+			if now - observed <= Data.FRESH or (scoped and FreshRelayObservation(e.g, observed, now)) then
 				freshGuilds = freshGuilds + 1
 				freshCharacters = freshCharacters + math.min(e.g.total or 0, ns.Codec.GUILD_CAP)
 			end
