@@ -248,7 +248,7 @@ local function Led()
 	return l
 end
 Count.Led = Led
-ns.On("CHURCH_CHANGED", function() ledAt, credits = nil, nil end)
+ns.On("CHURCH_CHANGED", function() ledAt = nil end)
 ns.On("DATA_CHANGED", function() ledAt = nil end)
 -- This character's own: { pub, pubAt, regs = { [key] = { n, at } }, inv = { [day] = n } }.
 local function Mine()
@@ -1422,9 +1422,11 @@ function Count.Credits()
 	local A = ns.Alts
 	local altVersion = A and A.Version and A.Version()
 	local c = credits
-	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til then return c end
+	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til
+		and (not c.placement or c.placement == Church.State()) then return c end
 	local states, byPerson, winners, G = {}, {}, {}, Gone()
 	local ties, mains = {}, {}
+	local placement
 	local til = now + Count.CREDITS_KEEP
 	for id, r in pairs(recs) do
 		local xc = id:match("^[^:]+:")
@@ -1450,7 +1452,7 @@ function Count.Credits()
 				local bid = winners[xc]
 				if state == "valid" and not G[xc] and r.bn and r.n then
 					local tie = ClaimTie(id, r, recs, mains)
-					if tie ~= id then ties[id] = tie end
+				if tie ~= id then ties[id], placement = tie, placement or Church.State() end
 				end
 				if G[xc] ~= nil then state = "taken"
 				elseif not bid then winners[xc] = id
@@ -1463,7 +1465,8 @@ function Count.Credits()
 	for _, id in pairs(winners) do
 		if states[id] == "valid" then states[id] = Confirmed(recs[id]) and "credited" or "pending" end
 	end
-	credits = { rev = ledRev, altVersion = altVersion, at = now, til = til, r = recs, states = states, winners = winners, byPerson = byPerson }
+	credits = { rev = ledRev, altVersion = altVersion, placement = placement, at = now, til = til, r = recs,
+		states = states, winners = winners, byPerson = byPerson }
 	return credits
 end
 
