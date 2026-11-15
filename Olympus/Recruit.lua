@@ -1383,9 +1383,18 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	preferredIndex = 3,
 }
 
+-- 1.6.0: the other recruiting popups a reminder waits for, as theirs wait for an ad's draft
+-- (PromptReply, the scan's): one on screen at a time.
+local REMINDER_WAITS_FOR = { "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_HANDOFF_CLAIM", "OLYMPUS_RECRUIT_ACTIVATED" }
+
+-- A reminder's tick: one draft at most, and none in combat, an instance, while the player types
+-- (Recruit.PopupsWait), is busy, or has a recruiting popup open; a tick missed waits for the next.
 local function RemindAnnouncement()
 	if not ReminderAllowed() or Recruit.PopupsWait() or Recruit.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
-	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
+	for _, which in ipairs(REMINDER_WAITS_FOR) do
+		if ns.Dialog.Find(which) then return end
+	end
 	if rotateReminder then
 		local channels = PublicChannels()
 		local last = 0

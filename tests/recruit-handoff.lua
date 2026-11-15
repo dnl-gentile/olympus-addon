@@ -3328,3 +3328,52 @@ test("recruit popup interval: one automatic prompt, persisted per guild, with ma
 		eq(draft.data.req.name, "After A Day-" .. home)
 	end)
 end)
+
+---------------------------------------------------------------------------
+-- 1.6.0: the ad reminder (players' reports on 1.5.9: the popup asking to post the recruiting ad in
+-- General came every few minutes and nothing on it said how to slow it down or turn it off).
+---------------------------------------------------------------------------
+
+-- Two joined public channels, the scene's ad reminder every `minutes`, and its tick.
+local function WithAdReminder(scene, minutes, fn)
+	local savedList, savedChat = GetChannelList, C_ChatInfo
+	GetChannelList = function() return 1, "General", false, 2, "Trade", false end
+	C_ChatInfo = setmetatable({ GetChannelInfoFromIdentifier = function(name) return { zoneChannelID = #name } end },
+		{ __index = savedChat })
+	local ok, err = pcall(function()
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(R.SetAnnounceReminder(minutes), true)
+		fn(D, function() return scene.timers["recruiting reminder"]() end)
+	end)
+	GetChannelList, C_ChatInfo = savedList, savedChat
+	if not ok then error(err, 0) end
+end
+local AD = "OLYMPUS_RECRUIT_ANNOUNCEMENT"
+
+-- Fails before 1.6.0: a reminder's tick opened its draft over a JOIN's invite pop-up or a handoff's
+-- Claim, two recruiting popups on screen at once (theirs already waited for an ad's draft).
+test("recruit ad reminder (1.6.0, regression): one recruiting popup at a time: its tick waits while a JOIN's invite draft or a Claim is open", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 30, function(D, Tick)
+			R.OnWhisper("JOIN", "First Applicant-" .. home)
+			local invite = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
+			Tick()
+			eq(D.Find(AD), nil, "no ad draft over the invite pop-up")
+			invite:Hide()
+			Tick()
+			local ad = assert(D.Find(AD), "the next tick opens it")
+			ad:Hide()
+			D.Show(CLAIM, "Guild Recruiter", nil, {})
+			Tick()
+			eq(D.Find(AD), nil, "nor over a handoff's Claim")
+			D.Hide(CLAIM)
+			Tick()
+			assert(D.Find(AD), "then it opens")
+			local open = D.Find(AD)
+			Tick()
+			eq(D.Find(AD), open, "and one ad draft at most")
+		end)
+	end)
+end)
+
