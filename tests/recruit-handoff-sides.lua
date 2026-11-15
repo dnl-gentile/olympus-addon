@@ -261,6 +261,27 @@ local function Arrived(origin)
 	return L.RECRUIT_HANDOFF_ARRIVED:format(origin.short, own)
 end
 
+-- Church > Invites' line `id` as member c sees it.
+local function PageLine(world, c, id)
+	return As(world, c, function()
+		for _, line in ipairs(c.R.WhisperLines()) do if line.id == id then return line end end
+	end)
+end
+
+-- c's click on Prepare invite under `applicant`'s row in Church > Invites.
+local function PrepareFromInvites(world, c, applicant)
+	As(world, c, function()
+		local row -- (the indent of his row: its actions are the lines below it, further in)
+		for _, line in ipairs(c.R.WhisperLines()) do
+			local text, indent = type(line.text) == "string" and line.text or "", line.indent or 0
+			if row and indent <= row then row = nil end
+			if row and line.onClick and text:find(L.RECRUIT_WHISPER_PREPARE_BUTTON, 1, true) then return line.onClick() end
+			if not row and text:find(ns.ShortName(applicant), 1, true) then row = indent end
+		end
+		error("no Prepare invite under " .. applicant .. "'s row", 0)
+	end)
+end
+
 -------------------------------------------------------------------------------------------------
 -- The flow on each faction, accented names included: the claim question, the name, and the invite
 -- command naming the player as the server finds him. (This passed before 1.6.0's fixes too: the
@@ -560,6 +581,45 @@ test("recruit handoff sides (1.6.0, regression): a claimed player's command come
 	end)
 end)
 
+-- (Review of the lane) Incoming JOIN set to Queue only opens no command by itself, a claimed player's
+-- either: his line names the handoff and where to invite him (1.5.9's line said to open Invites).
+test("recruit handoff sides (1.6.0, regression): a claimer whose Incoming JOIN is Queue only reads where to invite the claimed player", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0)
+		Accepting(world, master)
+		local switch = assert(PageLine(world, master, "recruit-whisper-arrival"), "the Incoming JOIN switch")
+		assert(switch.text:find(L.RECRUIT_WHISPER_POPUP_ON, 1, true), "Pop-up first")
+		As(world, master, switch.onClick)
+		assert(PageLine(world, master, "recruit-whisper-arrival").text:find(L.RECRUIT_WHISPER_QUEUE_ONLY, 1, true), "now Queue only")
+		local applicant = Full("Zoë Fírè")
+		JoinAndPass(world, origin, applicant)
+		assert(Run(world, 40, function() return ClaimShown(world, master) end), "he is asked, and claims")
+		Run(world, 30)
+		eq(Count(world, "N", master), 1, "the name came")
+		eq(InviteFor(master, applicant), nil, "Queue only: no command opens by itself")
+		local line = assert(Printed(master, "Zoë Fírè: " .. L.RECRUIT_HANDOFF_RECEIVED:format(origin.short)), "the handoff's line")
+		assert(L.RECRUIT_HANDOFF_IN_QUEUE, "a line saying where to invite him")
+		assert(line:find(L.RECRUIT_HANDOFF_IN_QUEUE, 1, true), "the line says where to invite him: " .. line)
+		-- There, his row's Prepare invite opens the command.
+		PrepareFromInvites(world, master, applicant)
+		local draft, command = InviteFor(master, applicant)
+		assert(draft, "Church > Invites opens his command")
+		eq(command, "/ginvite Zoë Fírè")
+		As(world, master, function() draft.def.extra.onClick(draft, draft.data) end)
+		draft:Hide()
+
+		-- (Failure case) Back on Pop-up, the command opens by itself and the line says nothing more.
+		As(world, master, PageLine(world, master, "recruit-whisper-arrival").onClick)
+		local second = Full("Plain Walker")
+		JoinAndPass(world, origin, second)
+		assert(Run(world, 40, function() return ClaimShown(world, master) end), "the next claim")
+		assert(Run(world, 5, function() return InviteFor(master, second) ~= nil end), "Pop-up: his command opens")
+		local plain = assert(Printed(master, "Plain Walker: " .. L.RECRUIT_HANDOFF_RECEIVED:format(origin.short)), "his line")
+		eq(plain:find(L.RECRUIT_HANDOFF_IN_QUEUE, 1, true), nil, "no pointer when the command opens: " .. plain)
+	end)
+end)
+
 -------------------------------------------------------------------------------------------------
 -- Mixed versions: 1.5.9 members next to 1.6.0 ones.
 -------------------------------------------------------------------------------------------------
@@ -716,26 +776,34 @@ test("recruit handoff sides (1.6.0, simulation): a guild's half hour of passed J
 	end
 end)
 
--- 1.6.0's new line (a claim no name answered) in every language the addon has, each its own words, its
--- one %s the member who passed the player.
-test("recruit handoff sides (1.6.0): the no-name line in every language", function()
-	local english
+-- 1.6.0's new lines in every language the addon has, each its own words: a claim no name answered (its
+-- one %s the member who passed the player), and where to invite a claimed player when Incoming JOIN is
+-- Queue only (no slot).
+local NEW_LINES = { RECRUIT_HANDOFF_NO_NAME = 1, RECRUIT_HANDOFF_IN_QUEUE = 0 }
+local function HandoffText(code)
+	local lns, saved = {}, GetLocale
+	GetLocale = function() return code end
+	local ok, err = pcall(function()
+		assert(loadfile(addonDir .. "Olympus/Locales.lua"))("Olympus", lns)
+		assert(loadfile(addonDir .. "Olympus/Locales/RecruitHandoffText.lua"))("Olympus", lns)
+		for _, file in ipairs({ "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+			assert(loadfile(addonDir .. "Olympus/Locales/" .. file .. ".lua"))("Olympus", lns)
+		end
+	end)
+	GetLocale = saved
+	if not ok then error(err, 0) end
+	return lns
+end
+test("recruit handoff sides (1.6.0): the no-name line and the Queue only pointer in every language", function()
+	local english = {}
 	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
-		local lns, saved = {}, GetLocale
-		GetLocale = function() return code end
-		local ok, err = pcall(function()
-			assert(loadfile(addonDir .. "Olympus/Locales.lua"))("Olympus", lns)
-			assert(loadfile(addonDir .. "Olympus/Locales/RecruitHandoffText.lua"))("Olympus", lns)
-			for _, file in ipairs({ "deDE", "esES", "frFR", "itIT", "ruRU" }) do
-				assert(loadfile(addonDir .. "Olympus/Locales/" .. file .. ".lua"))("Olympus", lns)
-			end
-		end)
-		GetLocale = saved
-		if not ok then error(err, 0) end
-		local line = rawget(lns.L, "RECRUIT_HANDOFF_NO_NAME")
-		assert(type(line) == "string" and line ~= "", code .. ": the line")
-		eq(select(2, line:gsub("%%s", "")), 1, code .. ": its one %s")
-		eq(lns.LocaleCodes(line), lns.LocaleCodes(english or line), code .. ": the English line's codes")
-		if code == "enUS" then english = line else assert(line ~= english, code .. ": its own words") end
+		local lns = HandoffText(code)
+		for key, slots in pairs(NEW_LINES) do
+			local line = rawget(lns.L, key)
+			assert(type(line) == "string" and line ~= "", code .. " " .. key)
+			eq(select(2, line:gsub("%%s", "")), slots, code .. " " .. key .. ": its %s")
+			eq(lns.LocaleCodes(line), lns.LocaleCodes(english[key] or line), code .. " " .. key .. ": the English line's codes")
+			if code == "enUS" then english[key] = line else assert(line ~= english[key], code .. " " .. key .. ": its own words") end
+		end
 	end
 end)

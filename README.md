@@ -3503,7 +3503,9 @@ still open when its offer ends closes. The sender answers a claim and sends the 
 combat too; a chat lockdown or quiet presence still holds it, and a claim that gets no name
 before the offer ends is reported in chat. Once the name arrives, the claimed player's invite
 command opens before older JOINs waiting in the queue, even over an ad's draft or a scanned
-player's whisper review.
+player's whisper review. With **Incoming JOIN** set to Queue only no command opens by itself, a
+claimed player's either: his chat line says to open Invites in the Church, where **Prepare
+invite** opens it.
 
 ### Public recruiting announcement
 

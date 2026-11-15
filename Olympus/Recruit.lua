@@ -1888,8 +1888,12 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 		local line
 		if not viaWhisper then line = L.JOIN_ASKED:format(who, req.level or 0, className, own)
 		elseif joinScreen then line = L.JOIN_ASKED_INVITES:format(who, req.level or 0, className, own)
-		-- (1.6.0: a claimed JOIN said "sent a recruiting reply... Open Invites", while his command opens.)
-		elseif sighting or handed then line = ("%s: %s"):format(who, text)
+		-- (1.6.0: a claimed JOIN said "sent a recruiting reply... Open Invites", while his command opens.
+		-- With Incoming JOIN set to Queue only no command opens by itself, a claimed player's either: his
+		-- line says where to invite him, as 1.5.9's did.)
+		elseif sighting or handed then
+			line = ("%s: %s"):format(who, text)
+			if handed and QueueOnly() then line = line .. " " .. L.RECRUIT_HANDOFF_IN_QUEUE end
 		else line = L.RECRUIT_WHISPER_ASKED:format(who, own) end
 		ns.Print(line)
 	end
