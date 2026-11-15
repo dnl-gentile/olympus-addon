@@ -257,6 +257,55 @@ test("chat delivery (1.6.0): at 92 reporters, ten lines at once: each line's cop
 	end)
 end)
 
+-- 1.6.0 (the same report). Where names split, a line a player types goes in the public channel too, and
+-- everyone in it has it at once (ChatHall.lua), the relay's own client too; its relay copies only matter
+-- to a client outside that channel. They went in the same queue as the lines only the relays carry (a
+-- realm key holder's), which waited behind them. The relay's client notes a line the channel carried
+-- (ChatHall.OnChannel -> Relay.HeardInChannel), and its copies wait behind the others. Fails before: the
+-- first line only the relays carry reached its last reporter after 136 s, behind the three others.
+test("chat delivery (1.6.0): three lines the relay's own client heard in the public channel and three it did not, at once, at 92 reporters: the three only the relays carry reach every reporter first, one after another; the others' copies follow, every reporter's, while there is time", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		-- The relay's client on the public channel, with its own ChatHall.lua.
+		R.Comm.ChannelName = function() return "OlympusNet" end
+		R.Comm.ChannelIndex = function() return 5 end
+		assert(loadfile(extra.addon .. "ChatHall.lua"))("Olympus", R)
+		local t0, last, count, went, seen = R.clock, {}, {}, {}, 0
+		local function Watch()
+			for i = seen + 1, #sent do
+				local k = tonumber(sent[i].msg:match("^RM~L~[^~]+~M1~A~Olympus Guild(%d+)~"))
+				if k then
+					count[k], last[k] = (count[k] or 0) + 1, R.clock - t0
+					went[#went + 1] = { k = k, t = R.clock - t0 }
+				end
+			end
+			seen = #sent
+		end
+		for k = 1, 3 do
+			-- The channel's copy first, its speaker named bare as Forever's channel names him; the relay's after.
+			eq(R.ChatHall.OnChannel(Line(k), ("Speaker Number%d"):format(k), "", "5. OlympusNet", "", "", 0, 5, "OlympusNet"), true)
+			Say(R, k)
+		end
+		for k = 4, 6 do Say(R, k) end
+		Run(3000, Watch)
+		-- (A line to 92 reporters is some 35 s of the lane: the three, one after another, from the start.)
+		for k = 4, 6 do
+			eq(count[k], n, "line " .. k .. " (only the relays carry it) reached every reporter")
+			assert(last[k] <= 40 * (k - 3), ("line %d reached its last reporter after %d s"):format(k, last[k]))
+		end
+		-- (What went of the three before the others were queued: the lane's burst, nothing else waiting then.)
+		local ahead = 0
+		for _, x in ipairs(went) do
+			if x.k <= 3 and x.t < last[6] then ahead = ahead + 1 end
+		end
+		assert(ahead <= R.Relay.CHAT_BURST, ("%d whispers of the lines the channel carried went before the others were done"):format(ahead))
+		for k = 1, 3 do eq(count[k], n, "line " .. k .. "'s copies still reached every reporter, within CHAT_LANE_TTL") end
+		eq(R.Relay.Stats().chatLost, 0)
+		eq(R.Relay.Stats().heardInChannel, 3, "the three lines the relay's client heard in the channel, counted (/oly status)")
+	end)
+end)
+
 test("chat delivery (1.5.5): a reporter whose queue is full of other words still hands every relayed chat line to its guild", function()
 	WithMember(function()
 		local R, _, sent = extra.RelayWorld("Plain Reporter-CAMWOWUS2Realm7PvE", "Olympus II")

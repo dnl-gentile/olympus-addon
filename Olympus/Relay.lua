@@ -248,6 +248,10 @@ function Relay.Stats()
 		-- (nobody to send to by then: ChatAddressee).
 		chatWaiting = Relay.ChatWaiting and Relay.ChatWaiting() or 0, chatLost = stats.chatLost or 0,
 		chatSkipped = stats.chatSkipped or 0,
+		-- (1.6.0) Of those waiting, the copies to other relays and those of lines the public channel carried
+		-- too; and the lines this relay's client heard in that channel (Relay.HeardInChannel).
+		chatAcross = Relay.ChatLanes and Relay.ChatLanes().across or 0, chatCarried = Relay.ChatLanes and Relay.ChatLanes().carried or 0,
+		heardInChannel = stats.heardInChannel or 0,
 		-- (1.5.9's review) The drip's whispers handed to Comm: census transfers', the others', and those
 		-- of either that went past its pace (Relay.DRIP_PER_MIN) while nothing else waited.
 		dripCensus = stats.dripCensus or 0, dripOther = stats.dripOther or 0, dripFree = stats.dripFree or 0 }
@@ -1967,24 +1971,27 @@ end
 -- CHAT_PER_MIN, so every whisper it sent had waited some CHAT_LANE_TTL and the rest went unsent (the
 -- load harness, tests/relay-tree-load.lua, 30 minutes: a line every 30 s took 182 s to a member at
 -- the median and 292 s at most; every 20 s the members missed a third of the lines, one member 41 of
--- 57). The lane now sends the copies to the other relays (across) first: each serves a whole relay's
--- guilds. Queued after the line's reporters, they were the first a full lane let go (two relays, 60 and
--- 30 registrants, a line every 15 s: the second relay's members missed 858 of the first one's lines;
--- none now).
+-- 57). The lane now sends, in this order:
+--   * the copies to the other relays (across): each serves a whole relay's guilds. Queued after the
+--     line's reporters, they were the first a full lane let go (two relays, 60 and 30 registrants, a
+--     line every 15 s: the second relay's members missed 858 of the first one's lines; none now);
+--   * the lines only the relays carry;
+--   * last, the lines the public channel carried as well (ChatHall.lua: a line typed there reaches
+--     everyone in the channel at once, this relay's client too, Relay.HeardInChannel), which only a
+--     client outside that channel still needs from the relay.
 Relay.CHAT_INFLIGHT = 8
 Relay.CHAT_PER_MIN = 160
 Relay.CHAT_BURST = 8
 Relay.CHAT_LANE_MAX = 1500
 Relay.CHAT_LANE_TTL = 300
--- The lane's queues, in the order they are served: the copies across, then the reporters' (ONLY: the
--- lines only the relays carry). A queue: first, last, and its entries.
-local chatLanes = { { first = 1, last = 0 }, { first = 1, last = 0 } }
-local ACROSS, ONLY = chatLanes[1], chatLanes[2]
+-- The three queues of the lane, in the order they are served (a queue: first, last, and its entries).
+local chatLanes = { { first = 1, last = 0 }, { first = 1, last = 0 }, { first = 1, last = 0 } }
+local ACROSS, ONLY, CARRIED = chatLanes[1], chatLanes[2], chatLanes[3]
 local chatInflight, chatFeeding = 0, false
 local chatWaitUntil, chatTimer = -math.huge, false
 local chatBucket = { tokens = Relay.CHAT_BURST, at = -math.huge }
 local function QueueSize(q) return q.last - q.first + 1 end
-local function ChatWaiting() return QueueSize(ACROSS) + QueueSize(ONLY) end
+local function ChatWaiting() return QueueSize(ACROSS) + QueueSize(ONLY) + QueueSize(CARRIED) end
 local function Push(q, e) q.last = q.last + 1; q[q.last] = e end
 local function Pop(q)
 	local e = q[q.first]
@@ -1993,6 +2000,19 @@ local function Pop(q)
 	return e
 end
 local function Unshift(q, e) q.first = q.first - 1; q[q.first] = e end
+-- (1.6.0) The lines the public channel carried, as this relay's client heard them there: the sender's
+-- short name and the line (lower name .. "|" .. line) -> when. Kept CHAT_LANE_TTL, as a whisper waits.
+Relay.CARRIED_MAX = 600
+local carried, carriedCount = {}, 0
+local function Carried(line, now)
+	local at = line and carried[line]
+	return at ~= nil and now - at < Relay.CHAT_LANE_TTL
+end
+-- The front of the lines only the relays carry, once those the channel carried meanwhile went behind.
+local function OnlyFront(now)
+	while ONLY.first <= ONLY.last and Carried(ONLY[ONLY.first].line, now) do Push(CARRIED, Pop(ONLY)) end
+	return ONLY[ONLY.first]
+end
 local FeedChat
 -- Fed again after `seconds` (one timer at a time); meanwhile a word that arrives feeds it once it is due.
 local function ChatLater(seconds)
@@ -2043,13 +2063,15 @@ local function ChatAddressee(e, now)
 	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now) then return nil end
 	return r.name
 end
--- (1.6.0) The whisper to send next and its queue: the first of the copies across, else of the reporters';
--- nil when none waits.
-local function ChatNext()
+-- (1.6.0) The whisper to send next and its queue: the first of the copies across, else of the lines only
+-- the relays carry, else of those the channel carried too; nil when none waits.
+local function ChatNext(now)
 	local e = ACROSS[ACROSS.first]
 	if e then return e, ACROSS end
-	e = ONLY[ONLY.first]
+	e = OnlyFront(now)
 	if e then return e, ONLY end
+	e = CARRIED[CARRIED.first]
+	if e then return e, CARRIED end
 	return nil
 end
 local function FeedChatNow(now)
@@ -2095,25 +2117,48 @@ FeedChat = function()
 end
 -- A chat line's whisper in the lane: to `guild`'s reporter (`name` when queued; `wire` and `body` the
 -- line as ToReporters has it), or, `across` (the relay's key), to that other relay. (1.6.0) Past
--- CHAT_LANE_MAX waiting, the oldest of the reporters' copies goes first, then of the copies across.
+-- CHAT_LANE_MAX waiting, the oldest of the lines the channel carried goes first, then of the others.
 local function ChatTo(name, pieces, body, wire, guild, across)
 	while ChatWaiting() >= Relay.CHAT_LANE_MAX do
-		Pop(QueueSize(ONLY) > 0 and ONLY or ACROSS)
+		Pop(QueueSize(CARRIED) > 0 and CARRIED or (QueueSize(ONLY) > 0 and ONLY or ACROSS))
 		stats.chatLost = (stats.chatLost or 0) + 1
 	end
-	Push(across and ACROSS or ONLY, { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now() })
+	local line = Lower(ns.ShortName(wire or "")) .. "|" .. tostring(body)
+	Push(across and ACROSS or ONLY, { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now(),
+		line = line })
 	FeedChat()
 end
 function Relay.ChatWaiting() return ChatWaiting() end -- (/oly status, tests)
+-- (1.6.0) The lane's whispers waiting in each of its queues (Relay.Stats).
+function Relay.ChatLanes() return { across = QueueSize(ACROSS), only = QueueSize(ONLY), carried = QueueSize(CARRIED) } end
 -- (1.5.9's review) How long the chat lane's oldest whisper still waiting has waited, 0 when none does:
--- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn).
+-- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn). (1.6.0) Of those only the
+-- relays carry: a line the public channel carried too holds no census back.
 function Relay.ChatOldest()
 	local now, oldest = Now(), 0
 	local e = ACROSS[ACROSS.first]
 	if e then oldest = math.max(oldest, now - e.t) end
-	e = ONLY[ONLY.first]
+	e = OnlyFront(now)
 	if e then oldest = math.max(oldest, now - e.t) end
 	return oldest
+end
+-- (1.6.0) A chat line this relay's client heard in the public channel (ChatHall.lua), by its sender as
+-- the channel names him: its whispers still waiting in the lane go after the lines only the relays
+-- carry (OnlyFront). True when noted.
+function Relay.HeardInChannel(sender, text)
+	if not Relay.On() or not Relay.IsRelay(ns.me) or type(sender) ~= "string" or type(text) ~= "string"
+		or text:sub(1, 3) ~= "M1~" then return false end
+	local now = Now()
+	local line = Lower(ns.ShortName(sender)) .. "|" .. text
+	if carriedCount >= Relay.CARRIED_MAX then
+		for k, t in pairs(carried) do
+			if now - t >= Relay.CHAT_LANE_TTL then carried[k], carriedCount = nil, carriedCount - 1 end
+		end
+		if carriedCount >= Relay.CARRIED_MAX then wipe(carried); carriedCount = 0 end
+	end
+	if not carried[line] then carriedCount, stats.heardInChannel = carriedCount + 1, (stats.heardInChannel or 0) + 1 end
+	carried[line] = now
+	return true
 end
 
 -- (1.5.4) The King's presence (T1~o, King.SendPresence: one piece from his signed character every
@@ -3546,8 +3591,9 @@ function Relay.Reset()
 	wipe(listOrigins); wipe(Origins()); wipe(listShares); wipe(listSets)
 	dripBusy, dripping = false, false
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
-	for _, q in ipairs(chatLanes) do wipe(q); q.first, q.last = 1, 0 end -- (1.5.5: the chat lane; 1.6.0: its queues)
+	for _, q in ipairs(chatLanes) do wipe(q); q.first, q.last = 1, 0 end -- (1.5.5: the chat lane; 1.6.0: its three queues)
 	chatInflight, chatFeeding = 0, false
+	wipe(carried); carriedCount = 0 -- (1.6.0)
 	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end

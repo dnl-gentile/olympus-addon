@@ -407,10 +407,13 @@ local function RelayLine()
 	local function N(x) return tonumber(x) or 0 end
 	-- (1.5.5) The relay's chat lane (Relay.lua): chat whispers waiting, lost (past its bound or its time),
 	-- and skipped (their reporter quarantined, no longer served or registered, a relay left out, by then).
-	return ("%s  |  out %d  forwarded %d  delivered %d  dropped %d  dead %d  kept %d  trickled %d  reporters %d  pending %d  |  verify across %d  direct %d  asked %d  answered %d  unsent %d  untrusted %d  bad %d  |  chat lane %d waiting, %d lost, %d skipped"):format(
+	-- (1.6.0) Of those waiting, the copies to other relays and those of lines the public channel carried
+	-- too, and the lines this relay's client heard in that channel.
+	return ("%s  |  out %d  forwarded %d  delivered %d  dropped %d  dead %d  kept %d  trickled %d  reporters %d  pending %d  |  verify across %d  direct %d  asked %d  answered %d  unsent %d  untrusted %d  bad %d  |  chat lane %d waiting (%d across, %d channel-carried), %d lost, %d skipped, %d heard in the channel"):format(
 		not s.on and "off" or (tostring(s.relay or "none") .. (s.sure and "" or " (unanswered)")),
 		N(s.out), N(s.forwarded), N(s.delivered), N(s.dropped), N(s.dead), N(s.kept), N(s.trickled), N(s.reporters), N(s.pending),
-		N(s.verifyAcross), N(s.direct), N(v.asked), N(v.answered), N(v.unsent), N(v.refused), N(v.bad), N(s.chatWaiting), N(s.chatLost), N(s.chatSkipped))
+		N(s.verifyAcross), N(s.direct), N(v.asked), N(v.answered), N(v.unsent), N(v.refused), N(v.bad), N(s.chatWaiting), N(s.chatAcross),
+		N(s.chatCarried), N(s.chatLost), N(s.chatSkipped), N(s.heardInChannel))
 end
 
 ---------------------------------------------------------------------------
