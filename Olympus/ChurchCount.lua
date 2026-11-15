@@ -663,11 +663,38 @@ function Count.OnLogUpdate()
 	Count.Process(Count.Events())
 end
 
+-- (1.6.0) Another character of this account that no keeper can tell from another player: one the
+-- account played (Treasury keeps ns.db.myCharacters) and not linked to us (Alts.Linked: a keeper takes
+-- a linked one's report as the recruiter's own side, never as a witness's). On a Forever ruleset a name
+-- is one across its sub-realms, and the guild log may give it plain.
+local function UnlinkedOwn(name)
+	if type(name) ~= "string" or Key(name) == Key(ns.me) then return false end
+	if Count.Linked and Count.Linked(name, ns.me) then return false end
+	local mine = ns.db and ns.db.myCharacters
+	if type(mine) ~= "table" then return false end
+	local full = ns.FullName(ns.Normal(name))
+	if full and mine[full:lower()] == true then return true end
+	local rules = type(ns.group) == "string" and ns.group:match("^Forever(%a+)$")
+	local k = rules and Key(name)
+	if not k then return false end
+	rules = rules:lower()
+	for character, on in pairs(mine) do
+		if on == true and type(character) == "string" and Key(character) == k
+			and (character:match("%-camwow%a%a%d+realm%d+(%a+)$") == rules) then return true end
+	end
+	return false
+end
+
 -- A pair seen: reported once (Att), when its inviter is a Church person this client knows.
+-- (1.6.0) Never by a character of the inviter's (of the main he recruits for, or of the recruit's) own
+-- account that is not linked to them: a keeper took its read as an independent witness's, and it
+-- confirmed the recruit (RecruitRanking.Pair keeps the account's characters out since the 1.5.9 review).
 function Count.Pair(inviter, invitee, guild, ti, tj, unscoped)
 	local ik, xk = Key(inviter), Key(invitee)
 	if not ik or not xk or ik == xk then return false end
-	if not (Church.IsPerson(inviter) or Count.Claimed(inviter) or (not unscoped and RecruitMain(inviter))) then return false end
+	local main = not unscoped and RecruitMain(inviter) or nil
+	if not (Church.IsPerson(inviter) or Count.Claimed(inviter) or main) then return false end
+	if UnlinkedOwn(inviter) or UnlinkedOwn(invitee) or (main and UnlinkedOwn(main)) then return false end
 	local att = Att()
 	local id = xk .. ":" .. ik
 	if att[id] then return false end

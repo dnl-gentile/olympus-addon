@@ -327,6 +327,46 @@ test("1.6.0 alt links on a Forever ruleset: the main's claim names all eight alt
 	end
 end)
 
+test("1.6.0 Church: a character of the inviter's own account is no witness, linked or not; the log's plain name on another sub-realm of a Forever ruleset is his", function()
+	local w, c = Cast()
+	-- Mira's account has another character in her guild that she never linked (the account's list of
+	-- its characters, ns.db.myCharacters, which Treasury keeps).
+	local twin = w:Client("Mira Twin")
+	twin.ns.db.myCharacters = { ["mira wells-realm"] = true, ["mira twin-realm"] = true }
+	w:Presence()
+	w:LogEvent(World.GUILD, "invite", "Mira Wells", "Twin Recruit", 3)
+	w:LogEvent(World.GUILD, "join", "Twin Recruit", nil, 2)
+	Join(w, World.GUILD, "Twin Recruit")
+	eq(w:ReadLog(twin), true)
+	eq(#w:Sent(twin, "NV", "WHISPER", "w"), 0, "a character of her account reports no pair of hers")
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), nil, "and confirms nothing")
+	w:ReadLog(c.m1)
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), "pending", "her own report, as before")
+	w:ReadLog(c.wes)
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), "credited", "another player's read confirms it")
+
+	-- An Apostle's linked alt, its name plain in the log; another character of that account, never
+	-- linked, whose list writes the alt with its own sub-realm of the ruleset.
+	local alt = w:Client("Aldric Alt", { guild = World.GUILD2 })
+	local cousin = w:Client("Aldric Cousin", { guild = World.GUILD2 })
+	local group = { main = A1, members = { { name = A1 }, { name = alt.name } } }
+	for _, cl in ipairs(w.clients) do
+		cl.ns.Alts.Group = function(n) if Key(n) == Key(A1) or Key(n) == Key(alt.name) then return group end end
+	end
+	w.alts[Key(A1)], w.alts[Key(alt.name)] = { alt.name }, { A1 }
+	cousin.ns.group = "ForeverPvE"
+	cousin.ns.db.myCharacters = { ["aldric alt-" .. FR2:lower()] = true, ["aldric cousin-" .. FR3:lower()] = true }
+	w:Presence()
+	w:LogEvent(World.GUILD2, "invite", "Aldric Alt", "Cousin Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Cousin Recruit", nil, 2)
+	Join(w, World.GUILD2, "Cousin Recruit")
+	eq(w:ReadLog(cousin), true)
+	eq(#w:Sent(cousin, "NV", "WHISPER", "w"), 0, "the alt's own account, across its sub-realms")
+	eq(StateOf(w, c.a2, "Cousin Recruit", A1), nil)
+	w:ReadLog(c.vik)
+	eq(StateOf(w, c.a2, "Cousin Recruit", A1), "credited", "another player's read credits the Apostle")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36
