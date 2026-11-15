@@ -274,6 +274,21 @@ test("1.6.0 alt links on a Forever ruleset: '/oly alt add First Surname' reaches
 	eq(db.alts.links[near.name:lower()] ~= nil, true, "the other alt stays linked")
 end)
 
+test("1.6.0 alt links: at most eight alts per player, also when a ninth was offered before the eighth said yes", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local alts = {}
+	for i, n in ipairs({ "Wynn Ash", "Wynn Birch", "Wynn Cedar", "Wynn Elm", "Wynn Fir", "Wynn Hazel", "Wynn Larch", "Wynn Maple", "Wynn Oak" }) do
+		alts[i] = ForeverAlts(w, n, FR1, { db = db })
+		eq(w:As(main, main.Alts.Slash, "add " .. n), true, "an offer: no link yet")
+	end
+	for i = 1, 8 do eq(w:As(alts[i], alts[i].Alts.Confirm, true), true, alts[i].name) end
+	eq(w:As(alts[9], alts[9].Alts.Confirm, true), false, "the ninth yes")
+	eq(alts[9].printed[#alts[9].printed], ns.L.ALT_FULL:format(8))
+	eq(#w:As(main, main.Alts.MyGroup), 9, "the main and eight alts")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

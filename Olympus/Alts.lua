@@ -545,6 +545,11 @@ function Alts.Confirm(yes)
 		return false
 	end
 	if type(a.links[Key(offer.main)] ) == "table" or #AccountAlts(ns.me) > 0 then ns.Print(L.ALT_ALREADY:format(ns.DisplayName(ns.me))) return false end
+	-- (1.6.0) At most MAX_ALTS: offers count no link, so a ninth one made before the eighth yes was linked
+	-- here, and every other client (which takes MAX_ALTS names of a claim) left one of them out.
+	local others = 0
+	for _, n in ipairs(AccountAlts(offer.main)) do if Key(n) ~= key then others = others + 1 end end
+	if others >= Alts.MAX_ALTS then ns.Print(L.ALT_FULL:format(Alts.MAX_ALTS)) return false end
 	if Alts.Frozen({ offer.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = { name = ns.me, main = offer.main, at = Clock() }
 	-- Any other offer of this character (made under its plain name on another sub-realm) goes with it.
