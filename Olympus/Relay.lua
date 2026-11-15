@@ -54,6 +54,11 @@ ns.Relay = Relay
 -- versions are the relay rules (RU): the author's client hands them to the relays in game and the
 -- relays carry them to one another, so none of the three needs a release to change. A guild whose
 -- members did not update still receives the census through a guildmate who did (hop 3, RG).
+--
+-- 1.6.0 (a guild master kept seeing "GM verification pending" on a guild his guildmates saw verified):
+-- a guildmate hands its guild the verifier's approval its own client holds, unchanged, as hop 3 from
+-- that verifier (Relay.ToOwnGuild; Verify.lua says when). An approval's resend heard over GUILD is
+-- taken for our own guild alone (HandleGuild), as hop 2's always was (HandleRelayed).
 
 Relay.PICK_WINDOW = 600      -- seconds one relay serves a guild before the pick moves on
 Relay.DEAD_FOR = 600         -- a relay that did not answer, or is offline, is left out this long
@@ -2842,11 +2847,18 @@ function Relay.HandleRelayed(dist, sender, text)
 	return true
 end
 
--- Hop 3 heard (a guildmate's hand-over): delivered here once.
+-- Hop 3 heard (a guildmate's hand-over): delivered here once. (1.6.0) An approval's resend (a
+-- reporter handing on the Watch's, or a guildmate's own, Relay.ToOwnGuild) for another guild than
+-- ours is not taken: what a guild is handed over GUILD is its own approval, as hop 2's is.
 function Relay.HandleGuild(dist, sender, text)
 	if dist ~= "GUILD" or not Relay.On() then return false end
 	local flag, origin, body = tostring(text):match("^RG~([LP])~([^~]+)~(.*)$")
 	if not flag then return false end
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval and Lower(approval) ~= Lower(GetGuildInfo("player") or "") then
+		stats.dropped = stats.dropped + 1
+		return false
+	end
 	Relay.TakeVia("G", sender, origin, body, flag == "L")
 	return true
 end
@@ -3200,6 +3212,19 @@ function Relay.Take(origin, text, logged) return Deliver(origin, text, logged) e
 -- (1.5.9's review) census: a census word (a snapshot, CG; another server's census, QA or CX), which goes by
 -- the census lane to our guild (ToGuild).
 function Relay.HandOn(flag, origin, text, census) return ToGuild(flag, origin, text, census) end
+-- (1.6.0) A word our own client holds, handed to our guild as hop 3 hands one on, its origin named (RG):
+-- Verify.lua's guild hand-over, a verifier's approval as that verifier said it. Urgent, as a reporter
+-- hands on a Watch resend (ToGuild); done and options as Comm.Send's (the guard is asked at the send).
+function Relay.ToOwnGuild(origin, text, key, done, options)
+	if not Relay.On() or not IsInGuild() or type(origin) ~= "string" or origin == "" or origin:find("~", 1, true)
+		or type(text) ~= "string" then
+		if done then ns.SafeCall("relay done", done, false, "guild") end
+		return false
+	end
+	local pieces = Envelope("RG", "RG~P~" .. origin .. "~" .. text)
+	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], key, true, false, done, options) ~= false end
+	return ns.Comm.SendBatch("GUILD", pieces, key, nil, true, done, options) ~= false
+end
 Relay.Envelope = Envelope
 function Relay.SetBatches(flag, origin, set, kind) return SetBatches(flag, origin, set, kind) end
 -- A whole transfer to `name` through the drip, keyed `word` (a newer one takes a waiting one's place).
