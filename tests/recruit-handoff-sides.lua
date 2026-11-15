@@ -426,6 +426,69 @@ test("recruit handoff sides (1.6.0): a chat lockdown or quiet presence at the me
 	end
 end)
 
+-- The offer's end, as its packet says it.
+local function OfferEnds(world, to)
+	for _, p in ipairs(world.sent) do
+		if p.op == "O" and p.to == to and not p.dropped then return tonumber(p.word:match("^J4~O~[^~]+~(%d+)~")) end
+	end
+end
+
+-- (Review of the lane) A claim made on Church > Invites' Claim line, its question never shown (he typed
+-- the whole time it could be asked), is told too that no name came: the claim's own timer says it, as
+-- no question's runs.
+test("recruit handoff sides (1.6.0): a claim made on Church > Invites, its question never shown, is told when no name came", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0)
+		Accepting(world, master)
+		JoinAndPass(world, origin, Full("Plain Walker"))
+		assert(Run(world, 20, function() return Count(world, "V", origin, master) > 0 end), "available at the probe")
+		master.focus = { name = "ChatFrame1EditBox" } -- (typing from then on: the question cannot show)
+		assert(Run(world, 20, function() return Count(world, "O", master) > 0 end), "the offer")
+		origin.ns.QuietPresence = function() return true end -- (the member who passed him holds the name)
+		local claim
+		As(world, master, function()
+			local lines = {}
+			master.H.Controls(lines, { Green = tostring, Grey = tostring, Gold = tostring }, nil)
+			for _, line in ipairs(lines) do
+				if line.onClick and line.text and line.text:find(L.RECRUIT_HANDOFF_CLAIM:format(origin.short), 1, true) then claim = line end
+			end
+		end)
+		As(world, master, assert(claim, "the Claim line in Church > Invites").onClick)
+		Run(world, 3)
+		eq(master.D.Find(CLAIM), nil, "no question was shown")
+		eq(Count(world, "N", master), 0, "no name")
+		local ends, line = assert(OfferEnds(world, master), "the offer's end"), L.RECRUIT_HANDOFF_NO_NAME:format(origin.short)
+		Run(world, ends - world.now - 1)
+		eq(Printed(master, line), nil, "not while the offer lasts")
+		Run(world, 3)
+		assert(Printed(master, line), "the claimer reads that no name came")
+	end)
+end)
+
+-- (Review of the lane) A name that came is no "no name", even one this client turns down: here the same
+-- player whispered this member JOIN himself meanwhile, and his own entry stays the one.
+test("recruit handoff sides (1.6.0): a claimed name that comes for a player already in the claimer's queue is no no-name line", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0)
+		Accepting(world, master)
+		local applicant = Full("Plain Walker")
+		JoinAndPass(world, origin, applicant)
+		-- After his claim, before the name arrives, the same player whispers him JOIN.
+		world.beforeSend = function(p)
+			if p.op == "N" and #master.R.requests == 0 then As(world, master, function() master.R.OnWhisper("JOIN", applicant) end) end
+		end
+		assert(Run(world, 30, function() return ClaimShown(world, master) end), "the claim")
+		Run(world, 3)
+		eq(Count(world, "N", master), 1, "the name came")
+		eq(#master.R.requests, 1, "one entry for him")
+		eq(master.R.requests[1].handedIn, nil, "his own JOIN's")
+		Run(world, 100)
+		eq(Printed(master, L.RECRUIT_HANDOFF_NO_NAME:format(origin.short)), nil, "a name came: no no-name line")
+	end)
+end)
+
 -------------------------------------------------------------------------------------------------
 -- The claimer's screen cannot show the claim question.
 -------------------------------------------------------------------------------------------------
@@ -438,6 +501,18 @@ local BLOCKERS = {
 	{ "with a scanned player's whisper review up", function(_, c) c.D.Show(SCAN, "Whisper", nil, {}) end },
 	{ "typing in chat", function(_, c) c.focus = { name = "ChatFrame1EditBox" } end },
 	{ "in a dungeon", function(_, c) c.instance = true end },
+	-- (Review of the lane) Church > Invites' interval between automatic popups, set to 5 minutes, and a
+	-- popup that just showed.
+	{ "inside his interval between automatic popups", function(world, c)
+		local gap = assert(PageLine(world, c, "recruit-popup-gap"), "the interval's choice").filters[1]
+		local five
+		for _, option in ipairs(gap.options) do
+			if option.text == L.RECRUIT_ANNOUNCE_REMINDER_ON:format(5) then five = option end
+		end
+		As(world, c, assert(five, "5 minutes").onClick)
+		As(world, c, c.R.PopupShown)
+		assert(As(world, c, c.R.PopupWait) > 0, "inside the interval")
+	end },
 }
 for _, blocker in ipairs(BLOCKERS) do
 	test("recruit handoff sides (1.6.0, regression): a member " .. blocker[1] .. " says no to the probe, and the player goes to one who can claim", function()
