@@ -616,7 +616,9 @@ function ns.LinkRealms(a, b)
 	local group = table.concat(list, "+")
 	local learned = false
 	for _, m in ipairs(list) do
-		if ns.GroupOf(m) ~= group then
+		-- A Forever realm's group is its family whatever was learned (GroupOf), so what was learned
+		-- is checked too: else the same link is news on every roster scan.
+		if ns.GroupOf(m) ~= group and Learned(db, m) ~= group then
 			if type(db.links) ~= "table" then db.links = {} end
 			db.links[m] = group
 			learned = true
