@@ -1169,6 +1169,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 -- Check the joined channel when preparing the draft and again on an explicit Post click.
 local reminderIndex, reminderTimer, announcementVariant = 1, nil, 0
 local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30 }
+-- 1.6.0 (players' reports on 1.5.9: the popup asking to post the ad in General came every few
+-- minutes, and some uninstalled): the interval the Census offer turns the ads on with
+-- (Views.RECRUIT_AD_MINUTES; 5 in 1.5.8 and 1.5.9).
+Recruit.AD_MINUTES = 30
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement

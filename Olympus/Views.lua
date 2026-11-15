@@ -1818,7 +1818,8 @@ local RECRUIT_SWITCHES = {
 	{ key = "ads", label = "RECRUIT_CENSUS_ADS", hint = "RECRUIT_CENSUS_ADS_HINT" },
 	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT" },
 }
-Views.RECRUIT_AD_MINUTES = 5
+-- (1.6.0: every 30 minutes, Recruit.AD_MINUTES; 5 before, which players found too often.)
+Views.RECRUIT_AD_MINUTES = ns.Recruit and ns.Recruit.AD_MINUTES
 
 -- (Review of the 1.5.9 release) The ads interval the offer's switch turns on: the one the player kept
 -- (Church > Invites keeps it while recruiting is off), else RECRUIT_AD_MINUTES.
