@@ -915,6 +915,11 @@ end)
 -- one %s the member who passed the player), and where to invite a claimed player when Incoming JOIN is
 -- Queue only (no slot).
 local NEW_LINES = { RECRUIT_HANDOFF_NO_NAME = 1, RECRUIT_HANDOFF_IN_QUEUE = 0 }
+-- (Review of the lane) The no-name line says whose queue the player stays in: the member's who passed
+-- him, by the word each language's handoff lines use for a member. "Their queue" ("seiner", "sa", "sua",
+-- "su") read as the player's own.
+local MEMBER_WORD = { enUS = "member", ptBR = "membro", deDE = "Mitglied", esES = "miembro", esMX = "miembro",
+	frFR = "membre", itIT = "membro", ruRU = "участник" }
 local function HandoffText(code)
 	local lns, saved = {}, GetLocale
 	GetLocale = function() return code end
@@ -940,5 +945,7 @@ test("recruit handoff sides (1.6.0): the no-name line and the Queue only pointer
 			eq(lns.LocaleCodes(line), lns.LocaleCodes(english[key] or line), code .. " " .. key .. ": the English line's codes")
 			if code == "enUS" then english[key] = line else assert(line ~= english[key], code .. " " .. key .. ": its own words") end
 		end
+		local noName = lns.L.RECRUIT_HANDOFF_NO_NAME
+		assert(noName:find(MEMBER_WORD[code], 1, true), code .. ": the queue is the member's: " .. noName)
 	end
 end)
