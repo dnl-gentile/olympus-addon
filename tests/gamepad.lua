@@ -5916,21 +5916,33 @@ end)
 -- 1.2.5.1's review: the server's no-such-player line for the BattleTag's whisper to a team member
 -- who just left (Accord.Quiet): no chat filter with the gamepad UI; registered once with mouse and
 -- keyboard; doing nothing from its first line after a switch back to the gamepad UI.
-test("gamepad: the Olympus Accord's quiet not-found line: no chat filter with the gamepad UI, one with mouse and keyboard, inert after the switch back", function()
+-- (1.6.0, the review of the no-player lines fix) Accord.Quiet only registers the filter now: a line
+-- stays out only for a whisper of ours the game was handed (Accord.Tried, from Comm.SendNow). Asked
+-- after Quiet alone, nothing was marked and the filter said false whatever the gate did; each line
+-- here follows a Tried, so "inert" is asked of a line the filter keeps out with mouse and keyboard.
+test("gamepad: the Olympus Accord's quiet not-found line: no chat filter with the gamepad UI, one with mouse and keyboard that keeps our whisper's line out, inert after the switch back", function()
 	local A = Session(true)
 	local ns = A.ns
+	-- The server's line as CHAT_MSG_SYSTEM carries it, numbered (its eleventh value, the lineID).
+	local function Line(fn, id)
+		return fn(nil, "CHAT_MSG_SYSTEM", "No player named 'Iron Warden' is currently playing.", "", "", "", "", "", 0, 0, "", 0, id)
+	end
 	local before = A.Mark()
+	ns.Accord.Tried("Iron Warden-Realm") -- (our whisper to him, handed to the game)
 	ns.Accord.Quiet("Iron Warden-Realm")
 	eq(#A.Since(before), 0, "no chat filter with the gamepad UI")
+	eq(Line(ns.Accord.QuietLine, 501), false, "its line shows with the gamepad UI")
 	A.Switch(false); A.Advance(1)
-	ns.Accord.Quiet("Iron Warden-Realm"); ns.Accord.Quiet("Iron Warden-Realm")
+	ns.Accord.Tried("Iron Warden-Realm"); ns.Accord.Quiet("Iron Warden-Realm")
 	local filters = {}
 	for _, cb in ipairs(A.callbacks) do
 		if cb.kind == "AddMessageEventFilter" and cb.fn == ns.Accord.QuietLine then filters[#filters + 1] = cb end
 	end
 	eq(#filters, 1, "registered once, with mouse and keyboard"); eq(filters[1].key, "CHAT_MSG_SYSTEM")
+	eq(Line(filters[1].fn, 502), true, "our whisper's line kept out, with mouse and keyboard")
+	ns.Accord.Tried("Iron Warden-Realm")
 	A.Switch(true); A.Advance(1)
-	eq(filters[1].fn(nil, "CHAT_MSG_SYSTEM", "No player named 'Iron Warden' is currently playing."), false, "inert with the gamepad UI")
+	eq(Line(filters[1].fn, 503), false, "inert with the gamepad UI: our next whisper's line shows")
 	GP.Covers("system-filters")
 	Check(A.ledger, "the Olympus Accord's quiet line")
 	NoErrors(A, "the Olympus Accord's quiet line")
