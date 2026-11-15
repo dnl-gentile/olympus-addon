@@ -172,6 +172,53 @@ local function OfOurGroup(name)
 	return ns.GroupOf(realm) == group
 end
 
+-- (1.6.0) WoW: Forever's rulesets are families of sub-realms ("CAMWOW...Realm<n>PvE", ns.ForeverFamily),
+-- and a name is one across its family (ns.TellName, Church.Key): a name given plain is the character of
+-- that name on any sub-realm of ours. "/oly alt add First Surname" on the main gave the main's own
+-- sub-realm to an alt that plays on another one: that alt was never asked, and its yes found nothing.
+local function Family()
+	local group = ns.group
+	return type(group) == "string" and group:match("^Forever%a+$") and group or nil
+end
+local function Plain(name) return ns.Fold(ns.ShortName(ns.Normal(tostring(name or "")))) end
+-- A name of our Forever family: its realm one of the family's, or none given.
+local function InFamily(name)
+	local family = Family()
+	if not family or type(name) ~= "string" then return false end
+	local realm = ns.RealmOf(name)
+	return not realm or realm == "" or ns.GroupOf(realm) == family
+end
+-- The key of the one entry of `list` (this account's offers or links) whose character has the plain
+-- name of `name` within our Forever family; nil for none, or two.
+local function ByPlain(list, name)
+	if not InFamily(name) then return nil end
+	local plain, found = Plain(name), nil
+	for k, e in pairs(list) do
+		if type(e) == "table" and type(e.name) == "string" and Plain(e.name) == plain and InFamily(e.name) then
+			if found and found ~= k then return nil end
+			found = k
+		end
+	end
+	return found
+end
+-- This account's offer for a character: under its own name, or one its main made with the plain name.
+-- Its key and the offer.
+local function OfferFor(name)
+	local offers = Account().offers
+	local key = Key(name)
+	if type(offers[key]) == "table" then return key, offers[key] end
+	local k = ByPlain(offers, name)
+	if k then return k, offers[k] end
+	return nil
+end
+-- The key of this account's link of a character: as named, or the linked character of that plain name.
+local function LinkKey(name)
+	local links = Account().links
+	local key = Key(name)
+	if type(links[key]) == "table" then return key end
+	return ByPlain(links, name)
+end
+
 -- The group a main's claim confirms: the main and each alt that names it back.
 local function GroupOfMain(main)
 	if not main or main.role ~= "M" or not OfOurGroup(main.name) then return nil end
@@ -461,13 +508,20 @@ function Alts.Add(input)
 	local name = CharName(input, ns.realm)
 	if not name then ns.Print(L.ALT_WHO_BAD) return false end
 	local a = Account()
-	local me, key = ns.me, Key(name)
-	if key == Key(me) then ns.Print(L.ALT_NOT_SELF) return false end
+	local me = ns.me
+	-- (1.6.0) One this account linked already, named plain from another sub-realm of the ruleset: that one.
+	local linked = LinkKey(name)
+	if linked then name = a.links[linked].name end
+	local key = Key(name)
+	if key == Key(me) or (InFamily(name) and Plain(name) == Plain(me)) then ns.Print(L.ALT_NOT_SELF) return false end
 	-- An alt never starts a link: its main does.
 	if type(a.links[Key(me)]) == "table" then ns.Print(L.ALT_NOT_FROM_ALT:format(ns.DisplayName(a.links[Key(me)].main))) return false end
 	if type(a.links[key]) == "table" or #AccountAlts(name) > 0 then ns.Print(L.ALT_ALREADY:format(ns.DisplayName(name))) return false end
 	if #AccountAlts(me) >= Alts.MAX_ALTS then ns.Print(L.ALT_FULL:format(Alts.MAX_ALTS)) return false end
 	if Alts.Frozen({ name }) then ns.Print(L.ALT_FROZEN) return false end
+	-- One offer a character: one made before under its plain name on another sub-realm goes.
+	local old = OfferFor(name)
+	if old and old ~= key then a.offers[old] = nil end
 	a.offers[key] = { name = name, main = me, t = Clock(), faction = ns.faction, group = ns.GroupOf(ns.realm) }
 	ns.Print(L.ALT_OFFERED:format(ns.DisplayName(name)))
 	return true
@@ -478,9 +532,9 @@ function Alts.Confirm(yes)
 	if not ns.me then return false end
 	local a = Account()
 	local key = Key(ns.me)
-	local offer = a.offers[key]
+	local okey, offer = OfferFor(ns.me)
 	if type(offer) ~= "table" then return false end
-	a.offers[key] = nil
+	a.offers[okey] = nil
 	if not yes then
 		ns.Print(L.ALT_DECLINED:format(ns.DisplayName(offer.main)))
 		return false
@@ -493,6 +547,11 @@ function Alts.Confirm(yes)
 	if type(a.links[Key(offer.main)] ) == "table" or #AccountAlts(ns.me) > 0 then ns.Print(L.ALT_ALREADY:format(ns.DisplayName(ns.me))) return false end
 	if Alts.Frozen({ offer.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = { name = ns.me, main = offer.main, at = Clock() }
+	-- Any other offer of this character (made under its plain name on another sub-realm) goes with it.
+	local plain = Plain(ns.me)
+	for k, o in pairs(a.offers) do
+		if type(o) == "table" and type(o.name) == "string" and Plain(o.name) == plain and InFamily(o.name) and InFamily(ns.me) then a.offers[k] = nil end
+	end
 	Changed()
 	ns.Print(L.ALT_LINKED:format(ns.DisplayName(ns.me), ns.DisplayName(offer.main)))
 	Alts.Send(true)
@@ -512,11 +571,24 @@ function Alts.Remove(input)
 		ns.Print(L.ALT_OFFER_DROPPED:format(ns.DisplayName(name)))
 		return true
 	end
+	-- (1.6.0) On a Forever ruleset the plain name finds its character on any sub-realm of it.
+	local linked = LinkKey(name)
+	if linked then key = linked end
 	local link = a.links[key]
 	local mine = type(a.links[Key(ns.me)]) == "table" and a.links[Key(ns.me)] or nil
 	-- The alt named, or the main of this alt named (this alt leaves it).
-	if type(link) ~= "table" and mine and Key(mine.main) == key then link, key = mine, Key(ns.me) end
-	if type(link) ~= "table" then ns.Print(L.ALT_NOT_LINKED:format(ns.DisplayName(name))) return false end
+	if type(link) ~= "table" and mine and (Key(mine.main) == key
+		or (InFamily(name) and InFamily(mine.main) and Plain(mine.main) == Plain(name))) then link, key = mine, Key(ns.me) end
+	if type(link) ~= "table" then
+		local okey, offer = OfferFor(name)
+		if okey then
+			a.offers[okey] = nil
+			ns.Print(L.ALT_OFFER_DROPPED:format(ns.DisplayName(offer.name)))
+			return true
+		end
+		ns.Print(L.ALT_NOT_LINKED:format(ns.DisplayName(name)))
+		return false
+	end
 	if Alts.Frozen({ link.name, link.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = nil
 	Changed()
@@ -570,7 +642,7 @@ StaticPopupDialogs["OLYMPUS_ALT_CONFIRM"] = {
 -- The alt's question, once a session, never in combat: its main's offer, waiting in the account.
 function Alts.AskConfirm()
 	if asked or not ns.me then return false end
-	local offer = Account().offers[Key(ns.me)]
+	local _, offer = OfferFor(ns.me)
 	if type(offer) ~= "table" then return false end
 	if InCombatLockdown and InCombatLockdown() then return false end
 	asked = true

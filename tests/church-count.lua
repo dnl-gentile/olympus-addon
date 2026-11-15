@@ -231,6 +231,49 @@ test("1.1.6 Church: linked invite attribution resolves a confirmed alt from anot
 		"ambiguous short names do not identify a link")
 end)
 
+-- (1.6.0) Alt links on a WoW: Forever ruleset, whose sub-realms are one family where a name is one:
+-- the real Alts.lua in this world's clients, one account's characters sharing its saved variables.
+local FR1, FR2, FR3 = "CAMWOWUS1Realm1PvE", "CAMWOWUS1Realm2PvE", "CAMWOWUS1Realm3PvE"
+local function ForeverAlts(w, name, realm, opts)
+	opts = opts or {}
+	local cl = w:Client(name .. "-" .. realm, opts)
+	cl.ns.realm, cl.ns.group = realm, "ForeverPvE"
+	if opts.db then cl.ns.db = opts.db end
+	local popup = StaticPopupDialogs.OLYMPUS_ALT_CONFIRM
+	w:As(cl, function() assert(loadfile(ROOT .. "Olympus/Alts.lua"))("Olympus", cl.ns) end)
+	cl.altPopup = StaticPopupDialogs.OLYMPUS_ALT_CONFIRM
+	StaticPopupDialogs.OLYMPUS_ALT_CONFIRM = popup
+	cl.Alts = cl.ns.Alts
+	return cl
+end
+
+test("1.6.0 alt links on a Forever ruleset: '/oly alt add First Surname' reaches an alt on another sub-realm, asked and linked there; '/oly alt remove First Surname' undoes it from either side", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local far = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db })
+	local near = ForeverAlts(w, "Orrin Tallis", FR1, { db = db })
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(main, main.Alts.Slash, "add Orrin Tallis"), true)
+	eq(w:As(far, far.Alts.AskConfirm), true, "the alt on another sub-realm is asked")
+	eq(far.dialogs[#far.dialogs].which, "OLYMPUS_ALT_CONFIRM")
+	w:As(far, far.altPopup.OnAccept)
+	eq(w:As(near, near.Alts.Confirm, true), true, "the alt on the main's own sub-realm, as before")
+	eq(table.concat(w:As(main, main.Alts.MyGroup), ","), table.concat({ main.name, far.name, near.name }, ","))
+	eq(next(db.alts.offers), nil, "no offer left waiting")
+	w:Flush()
+	local claims = w:Sent(far, "AL", "CHANNEL")
+	eq(claims[#claims].msg:match("~([^~]*)$"), main.name, "its claim names the main as the server writes him")
+	-- The plain name takes it apart from the main, and again from the alt naming its main plain.
+	eq(w:As(main, main.Alts.Slash, "remove Ilsa Fenwick"), true)
+	eq(db.alts.links[far.name:lower()], nil)
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(far, far.Alts.Confirm, true), true)
+	eq(w:As(far, far.Alts.Slash, "remove Corvin Ashdale"), true, "from the alt: its main by the plain name")
+	eq(db.alts.links[far.name:lower()], nil)
+	eq(db.alts.links[near.name:lower()] ~= nil, true, "the other alt stays linked")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

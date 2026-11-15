@@ -892,6 +892,9 @@ alts and the census counts people:
   nobody drops the punished character to walk back in on an alt.
 - The same faction and realm group only (one census). Up to 8 alts per player. On the Forever
   beta, which forgets addon data at every login, the offer can't reach the alt yet.
+- On WoW: Forever, the plain `First Surname` finds your character on any sub-realm of the ruleset
+  (1.6.0). Once your alts have said yes, log your main in again: its addon then names them all
+  to everyone else.
 
 ### The Throne (the King and his Hands)
 A tab with a crown that only the King sees: the guild master of the guild named exactly
