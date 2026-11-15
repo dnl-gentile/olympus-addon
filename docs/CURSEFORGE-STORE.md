@@ -37,7 +37,7 @@ Every version's notes are in the [GitHub releases](https://github.com/dnl-gentil
 
 ## Who can use it
 
-**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
+**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not, nor (1.6.0) one that names Olympus only to measure itself against it or to say it is not Olympus ("Stronger Than Olympus", "Not Even Olympus"). The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel
 and hears nothing of the army, but for the author's signed list below, over its own guild.
 The only thing it offers there is the **Join Olympus**
