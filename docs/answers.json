@@ -360,17 +360,18 @@
     {
       "id": "feat-who-can-use",
       "topic": "features",
-      "status": "current (1.1.5)",
+      "status": "current (1.6.0)",
       "questions": [
         "Who can use Olympus?",
         "Why does it say my guild isn't an Olympus guild?",
         "Does it work outside Olympus?"
       ],
-      "answer": "Guilds with Olympus in the name (misspellings count, anti-Olympus names don't), plus guilds on the author's approved list, like <OLYMPIAN> and <OLYMPIANS> on the Alliance. /oly approved shows the list. Anyone else gets the Join Olympus screen.",
-      "in_game": "Guilds with Olympus in the name, plus approved ones like <OLYMPIAN> and <OLYMPIANS> (/oly approved). Anyone else gets the Join Olympus screen.",
-      "notes": "Olympian, Olympia and Olympic are left out by the name rule on purpose; <OLYMPIAN> works from 1.1 only, <OLYMPIANS> from 1.1.5.",
+      "answer": "Guilds with Olympus in the name (misspellings count; anti-Olympus names don't, nor from 1.6.0 do names that only compare themselves with Olympus or say they aren't it, like <Stronger Than Olympus>), plus guilds on the author's approved list (/oly approved), like <OLYMPIAN>. Anyone else gets the Join Olympus screen.",
+      "in_game": "Guilds with Olympus in the name, plus approved ones like <OLYMPIAN> (/oly approved). Not names against Olympus, or that only compare with it or say they aren't it (<Stronger Than Olympus>).",
+      "notes": "Olympian, Olympia and Olympic are left out by the name rule on purpose; <OLYMPIAN> works from 1.1 only, <OLYMPIANS> from 1.1.5 (both on the Alliance). From 1.6.0 the rule also leaves out a name that only compares the guild with Olympus or says it isn't Olympus (Stronger Than Olympus, Not Even Olympus, NotOlympus); a genuine guild named so counts once the author's signed list names it.",
       "sources": [
-        "README.md:41-62"
+        "README.md:41-66",
+        "Core.lua:2115-2127 (the name rule's 1.6.0 note)"
       ]
     },
     {

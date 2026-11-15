@@ -63645,6 +63645,31 @@ end)()
 		assert(check:find("luajit scripts/answers.lua --check", 1, true), "check.sh")
 	end)
 
+	-- 1.6.0 (the review of the name rule, Core.lua's 1.6.0 note): the members of a guild the rule leaves
+	-- out from 1.6.0, its name only comparing the guild with Olympus or saying it is not Olympus, get the
+	-- Join screen, whose "?" answered that guilds with Olympus in the name count, anti-Olympus ones aside.
+	-- The answer names that case, on the Join page's "?" and in the staff's short answer, with an example
+	-- (a made-up name) that the rule leaves out and 1.5.9's counted (tests/fixtures/names-1.5.9.lua); every
+	-- other guild it quotes is approved. Fails before: neither quoted a guild left out.
+	test("1.6.0 answer bank: who can use Olympus, on the Join page's help and in the staff's short answer, names the guilds the rule leaves out from 1.6.0 with an example it leaves out and 1.5.9 counted; every other guild quoted is approved", function()
+		local e = A.Find("feat-who-can-use")
+		local help = A.ExplainText("join")
+		assert(help and help:find("- " .. e.long, 1, true), "the Join page's help carries the answer")
+		local old = setmetatable({}, { __index = ns })
+		assert(loadfile(ROOT .. "tests/fixtures/names-1.5.9.lua"))("Olympus", old)
+		for _, text in ipairs({ e.long, e.text }) do
+			local left = 0
+			for name in text:gmatch("<([^>]+)>") do
+				if not ns.IsApprovedGuild(name) then
+					eq(ns.IsFederation(name), false, name .. ": quoted, not approved, so left out")
+					eq(old.IsFederation(name), true, name .. ": an example of what 1.6.0 leaves out")
+					left = left + 1
+				end
+			end
+			assert(left > 0, "no guild left out from 1.6.0 quoted: " .. text)
+		end
+	end)
+
 	test("1.1.2 Answers: the author, the High Council and the Stewards alone; the list by topic with a search; a click fills the box (after what is typed), never sends and never takes the keyboard; Shift-click the longer answer to copy", function()
 		WithUI(function()
 			local UI = LoadUI()
