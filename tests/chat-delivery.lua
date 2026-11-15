@@ -257,6 +257,33 @@ test("chat delivery (1.6.0): at 92 reporters, ten lines at once: each line's cop
 	end)
 end)
 
+-- 1.6.0 (the same report). A line's reporters went into the lane in the table's order, the same every line:
+-- past what the lane carries, the same guilds came last and lost every line. Each line starts further
+-- round them now (a golden ratio's step). Fails before: one reporter got 23 of the 24 lines, another 11.
+test("chat delivery (1.6.0): at 92 reporters, a line every 10 s for four minutes, more than the lane carries: the lines that go are shared among the reporters, none left with far fewer than another", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		for k = 1, 24 do
+			Say(R, k)
+			Run(8) -- (some 10 s)
+		end
+		Run(400)
+		local got = LinesByReporter(R, sent, n)
+		local fewest, most, total = math.huge, 0, 0
+		for i = 1, n do
+			local c = 0
+			for k = 1, 24 do
+				assert((got[i][Line(k)] or 0) <= 1, "none twice")
+				c = c + (got[i][Line(k)] or 0)
+			end
+			fewest, most, total = math.min(fewest, c), math.max(most, c), total + c
+		end
+		assert(total < 24 * n, "more than the lane carries: some lines did not go (" .. total .. ")")
+		assert(most - fewest <= 4, ("one reporter got %d of the 24 lines, another %d"):format(most, fewest))
+	end)
+end)
+
 -- 1.6.0 (the same report). Where names split, a line a player types goes in the public channel too, and
 -- everyone in it has it at once (ChatHall.lua), the relay's own client too; its relay copies only matter
 -- to a client outside that channel. They went in the same queue as the lines only the relays carry (a

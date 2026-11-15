@@ -1979,6 +1979,9 @@ end
 --   * last, the lines the public channel carried as well (ChatHall.lua: a line typed there reaches
 --     everyone in the channel at once, this relay's client too, Relay.HeardInChannel), which only a
 --     client outside that channel still needs from the relay.
+-- And each line's reporters start further round their list than the last line's did (by the golden
+-- ratio's step, so whatever part of a line a full lane gets out, every guild gets its share): in the
+-- table's order the same guilds came last in every line, and a full lane let them go every time.
 Relay.CHAT_INFLIGHT = 8
 Relay.CHAT_PER_MIN = 160
 Relay.CHAT_BURST = 8
@@ -1990,6 +1993,7 @@ local ACROSS, ONLY, CARRIED = chatLanes[1], chatLanes[2], chatLanes[3]
 local chatInflight, chatFeeding = 0, false
 local chatWaitUntil, chatTimer = -math.huge, false
 local chatBucket = { tokens = Relay.CHAT_BURST, at = -math.huge }
+local chatTurn = 0 -- (1.6.0) the lines queued so far: each starts its reporters further round
 local function QueueSize(q) return q.last - q.first + 1 end
 local function ChatWaiting() return QueueSize(ACROSS) + QueueSize(ONLY) + QueueSize(CARRIED) end
 local function Push(q, e) q.last = q.last + 1; q[q.last] = e end
@@ -2375,7 +2379,7 @@ local function ToReporters(flag, origin, body, sender)
 			wordKey, first = Lower(origin) .. "#" .. id, tonumber(i) == 1
 		end
 	end
-	local pieces
+	local pieces, chatTo
 	local snap = flag ~= "L" and type(set) == "table" and CensusSet(origin, set, now) or nil -- (1.5.5: a census set, held)
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) then
@@ -2442,9 +2446,11 @@ local function ToReporters(flag, origin, body, sender)
 			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
 			-- (REPORTER_RATE) or not sent to him; the relay's own words and chat lines always.
 			if flag == "L" then
-				-- (1.5.5) A chat line: by the chat lane (above), never pushed out of the queue.
+				-- (1.5.5) A chat line: by the chat lane (above), never pushed out of the queue. (1.6.0) Its
+				-- reporters queued below, after this loop, each line starting further round them.
 				stats.forwarded = stats.forwarded + 1
-				ChatTo(r.name, pieces, body, wire, g)
+				chatTo = chatTo or {}
+				chatTo[#chatTo + 1] = { name = r.name, guild = g }
 			elseif own or snapshot or presence or approvalGuild or KingLayer(origin, body, r.name, now) or Afford(r.name, #pieces, now, need, wordKey, first) then
 				stats.forwarded = stats.forwarded + 1
 				Quiet(r.name) -- (a reporter gone offline since: the server's line out of the chat)
@@ -2460,6 +2466,18 @@ local function ToReporters(flag, origin, body, sender)
 			else
 				stats.trickled = (stats.trickled or 0) + 1
 			end
+		end
+	end
+	-- (1.6.0) A chat line's reporters into the lane by name, from a place a golden ratio's step further
+	-- round than the last line's: the part of each line a full lane sends goes round them all evenly.
+	if chatTo then
+		table.sort(chatTo, function(a, b) return a.name < b.name end)
+		chatTurn = chatTurn + 1
+		local k = #chatTo
+		local start = math.floor(chatTurn * k * 0.6180339887) % k
+		for i = 0, k - 1 do
+			local c = chatTo[(start + i) % k + 1]
+			ChatTo(c.name, pieces, body, wire, c.guild)
 		end
 	end
 	local n = 0
@@ -3593,7 +3611,7 @@ function Relay.Reset()
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
 	for _, q in ipairs(chatLanes) do wipe(q); q.first, q.last = 1, 0 end -- (1.5.5: the chat lane; 1.6.0: its three queues)
 	chatInflight, chatFeeding = 0, false
-	wipe(carried); carriedCount = 0 -- (1.6.0)
+	chatTurn = 0; wipe(carried); carriedCount = 0 -- (1.6.0)
 	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end
