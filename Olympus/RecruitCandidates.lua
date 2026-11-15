@@ -132,8 +132,11 @@ end
 
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
-function Q.Check(row, live)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full)
+-- `claimed` (1.6.0): a member's claim of this player under way (RecruitHandoff's SourceReady), which a
+-- fight, an instance or Busy no longer holds; a chat lockdown and quiet presence still do.
+function Q.Check(row, live, claimed)
+	local held = claimed and (ns.ChatLocked() or ns.QuietPresence()) or (not claimed and Quiet())
+	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or held or Hidden(row.full)
 		or R.ScanDeclined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
@@ -145,9 +148,9 @@ function Q.Check(row, live)
 end
 
 -- (1.5.8) A scanned player another member may still invite instead: current, and his command
--- not yet taken to chat here.
-function Q.Passable(row)
-	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row) ~= nil
+-- not yet taken to chat here. `claimed`: as Q.Check's.
+function Q.Passable(row, claimed)
+	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row, nil, claimed) ~= nil
 end
 
 -- The next scanned player explicitly handed off with the Pass button.

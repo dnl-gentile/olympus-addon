@@ -49,12 +49,13 @@ local function NameKey(name)
 	local who = ns.FullName(name)
 	return ns.Fold(ns.splitNames and ns.ShortName(who) or who)
 end
-local function Source(item, blocked)
+local function Source(item, blocked, claimed)
 	if type(item) ~= "table" then return false end
 	if item.scanned then
 		-- (Review of 1.5.8) Once the same player whispers JOIN, the JOIN is his entry: a claim of the
-		-- sighting's offer no longer gets his name, so two members never invite him.
-		if not (R.Candidates ~= nil and R.Candidates.Passable(item)) then return false end
+		-- sighting's offer no longer gets his name, so two members never invite him. (`claimed`, 1.6.0:
+		-- SourceReady's, a claim under way that a fight no longer holds.)
+		if not (R.Candidates ~= nil and R.Candidates.Passable(item, claimed)) then return false end
 		for _, req in ipairs(R.requests) do if SamePlayer(req.name, item.full) then return false end end
 		return true
 	end
@@ -202,7 +203,7 @@ end
 -- one who claimed heard nothing (a Horde recruiter's report of 11-14: "and then nothing happens"). The
 -- probes and offers still wait for the end of a fight; a chat lockdown and quiet presence hold all of it.
 local function SourceReady(ref, claimed)
-	if not Source(ref.request) then return false end
+	if not Source(ref.request, nil, claimed) then return false end
 	if not ref.automatic then return true end
 	local own, allowed = ref.from, nil
 	if claimed then

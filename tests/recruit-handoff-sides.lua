@@ -114,8 +114,8 @@ local function As(world, c, fn, ...)
 end
 
 -- A member: this build's files, or 1.5.9's (`version` "1.5.9"), on `faction`, in the guild's roster,
--- recruiting.
-local function Member(world, short, faction, version, rank)
+-- recruiting; `scan`: with this build's scan of unguilded players too (RecruitCandidates.lua).
+local function Member(world, short, faction, version, rank, scan)
 	local c = { name = Full(short), short = short, faction = faction, version = version or "1.6.0",
 		later = {}, timers = {}, printed = {}, defs = {} }
 	local cns = setmetatable({}, { __index = ns })
@@ -148,6 +148,7 @@ local function Member(world, short, faction, version, rank)
 	else
 		assert(loadfile(addonDir .. "Olympus/Recruit.lua"))("Olympus", cns)
 		assert(loadfile(addonDir .. "Olympus/RecruitHandoff.lua"))("Olympus", cns)
+		if scan then assert(loadfile(addonDir .. "Olympus/RecruitCandidates.lua"))("Olympus", cns) end
 	end
 	for k, v in pairs(StaticPopupDialogs) do if before[k] ~= v then c.defs[k] = v end end
 	for k in pairs(c.defs) do StaticPopupDialogs[k] = before[k] end
@@ -329,6 +330,58 @@ test("recruit handoff sides (1.6.0, regression): a name waiting to leave when it
 		Run(world, 3)
 		eq(Count(world, "N", master), 1, "the name was not dropped at the send")
 		assert(InviteFor(master, applicant), "the invite command")
+	end)
+end)
+
+test("recruit handoff sides (1.6.0, regression): a scanned player passed by hand reaches the member who claims him while the passer fights", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde", nil, nil, true)
+		local master = Member(world, "Brann Holt", "Horde", nil, 0)
+		Accepting(world, master)
+		local found = Full("Zoë Fírè")
+		As(world, origin, function()
+			local switch
+			for _, line in ipairs(origin.R.WhisperLines()) do
+				if line.text and line.text:find(L.RECRUIT_CANDIDATES_OFF, 1, true) then switch = line end
+			end
+			assert(switch, "the scan's switch").onClick()
+			assert(origin.R.Candidates.Enabled(), "the scan is on")
+			origin.R.Candidates.ObserveWho(found, "", "Orc")
+			origin.timers["recruit candidates"].fn()
+			local draft = assert(origin.D.Find(DRAFT), "the scan pops his invite command")
+			assert(draft.data.candidate, "a scanned player's")
+			draft.def.OnButton2(draft, draft.data)
+			draft:Hide()
+		end)
+		assert(Run(world, 30, function() return master.D.Find(CLAIM) ~= nil end), "the claim question")
+		eq(master.D.Find(CLAIM).text, L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN:format(origin.short, own), "a sighting's")
+		origin.combat = true
+		assert(ClaimShown(world, master))
+		Run(world, 3)
+		eq(Count(world, "N", master), 1, "the name goes while he fights")
+		local draft, command = InviteFor(master, found)
+		assert(draft, "the claimer's command")
+		eq(command, "/ginvite Zoë Fírè")
+		-- (Failure case) Quiet presence still holds a sighting's name too.
+		As(world, master, function() draft.def.extra.onClick(draft, draft.data) end)
+		draft:Hide()
+		origin.combat = false
+		local quiet = Full("Quiet Find")
+		As(world, origin, function() origin.R.Candidates.ObserveWho(quiet, "", "Orc") end)
+		assert(Run(world, 30, function()
+			local f = origin.D.Find(DRAFT)
+			return f ~= nil and f.data.candidate ~= nil and f.data.candidate.full == quiet
+		end), "the next one's command")
+		As(world, origin, function()
+			local f = origin.D.Find(DRAFT)
+			f.def.OnButton2(f, f.data)
+			f:Hide()
+		end)
+		assert(Run(world, 40, function() return master.D.Find(CLAIM) ~= nil end), "the next claim question")
+		origin.ns.QuietPresence = function() return true end
+		assert(ClaimShown(world, master))
+		Run(world, 3)
+		eq(Count(world, "N", master), 1, "no name in quiet presence")
 	end)
 end)
 
