@@ -8079,13 +8079,19 @@ end)
 -- 1.4.6 (the dev's ask): the yellow "No player named X" for the relay's own whispers, out of the
 -- chat for good. Fails before: no filter of the relay's.
 test("relay offline whispers: only recent addon sends are filtered, including a refused send; installed once behind the gate", function()
-	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, err = ERR_CHAT_PLAYER_NOT_FOUND_S, add = rawget(_G, "ChatFrame_AddMessageEventFilter") }
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, err = ERR_CHAT_PLAYER_NOT_FOUND_S, add = rawget(_G, "ChatFrame_AddMessageEventFilter"), time = GetTime }
 	local ok, err = pcall(function()
 		GetChannelName = function() return 0 end
 		ns.IsMember = function() return true end
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+		-- (1.6.0: its own clock and none of an earlier test's marks: a filtered run, `relay`, had a test's
+		-- ping to Max Ran a few seconds of os.clock before, and the first line below was hidden by it.
+		-- A line that comes later comes in a later frame: the clock moves on before it.)
+		local mono = 800000
+		GetTime = function() return mono end
+		ns.Accord.Reset()
 		local O, odeliver = RelayWorld("Hildryn Payne-Realm", "Olympus II")
 		O.Treasury = ns.Treasury
 		local relayLine = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Max Ran")
@@ -8106,17 +8112,164 @@ test("relay offline whispers: only recent addon sends are filtered, including a 
 		O.Comm.Whisper("Zed Far-Realm", "X1~offline-probe")
 		for _ = 1, 10 do O.Comm.Pump() end
 		eq(refused, true, "send was attempted")
-		eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the offline send's line stays hidden")
+		-- (Changed on purpose, 1.6.0: one line for one whisper. This asked twice about the line of one
+		-- refused whisper, during the send and after it. The game gives that line once; a second one
+		-- naming him is the player's own whisper's, and shows. The line of a whisper the game took
+		-- comes after the call: that timing has a whisper of its own now.)
+		mono = mono + 1
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), false, "a second line after one refused whisper: the player's own, shown")
+		C_ChatInfo.SendAddonMessage = function() return 0 end
+		O.Comm.Whisper("Zed Far-Realm", "X1~taken-probe")
+		for _ = 1, 10 do O.Comm.Pump() end
+		mono = mono + 1
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the line of a whisper the game took, after the call: hidden")
 		eq(O.Relay.QuietLine(nil, nil, "Some other system line."), false)
 		local added = {}
 		ChatFrame_AddMessageEventFilter = function(event, fn) added[#added + 1] = { event = event, fn = fn } end
 		O.Relay.QuietLines(); O.Relay.QuietLines()
 		eq(#added, 1, "installed once"); eq(added[1].event, "CHAT_MSG_SYSTEM"); eq(added[1].fn, O.Relay.QuietLine)
 	end)
-	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S, GetTime = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err, saved.time
 	ChatFrame_AddMessageEventFilter = saved.add
 	C_ChatInfo = nil
+	ns.Accord.Reset()
 	if not ok then error(err, 0) end
+end)
+
+-- 1.6.0 (the review of the "No player named" lines members saw in their chat): the server answers
+-- each whisper to a player who is not online with one line. 1.6.0's Comm.SendNow marks every whisper
+-- before the game's call (a refused one's line comes during it), and every line naming that player
+-- for Accord.QUIET seconds stayed out of the chat: the player's own whisper to him then said nothing.
+-- Join Olympus's request is one (Recruit.Ask: the player's whisper and the addon's J3 go to the same
+-- member at once), a whisper typed to a High Councillor whose relay was just pinged another. One line
+-- stays out for each whisper the addon handed the game, and the next one shows. Each chat window
+-- that shows system lines runs the filters for the same line: it gets one answer. Real Comm, Relay
+-- and Accord; the game's chat windows run the two filters as ChatFrame_MessageEventHandler does.
+-- Fails before: the player's own line was kept out too.
+local function NoPlayerWorld(fn)
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
+		err = ERR_CHAT_PLAYER_NOT_FOUND_S, time = GetTime }
+	local ok, err = pcall(function()
+		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+		-- Its own clock, past any quiet seconds an earlier test left (theirs ran on os.clock).
+		local w = { mono = 900000, lineID = 7000 }
+		GetTime = function() return w.mono end
+		ns.Accord.Reset()
+		-- The server's line for `name` (the game numbers each chat line: CHAT_MSG_SYSTEM's eleventh
+		-- value, none with w.noLineIDs) in `windows` chat windows, each running the system line's
+		-- filters in turn with the event's values (the relay's, given, then the Accord's; the first
+		-- that says true drops it): in how many windows it shows.
+		function w.Shown(name, windows, relay)
+			local text = ERR_CHAT_PLAYER_NOT_FOUND_S:format(name)
+			w.lineID = w.lineID + 1
+			local id = w.noLineIDs and 0 or w.lineID
+			local n = 0
+			for _ = 1, windows or 1 do
+				local frame = {}
+				local dropped = relay and relay.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id)
+				if not dropped then dropped = ns.Accord.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id) end
+				if not dropped then n = n + 1 end
+			end
+			return n
+		end
+		fn(w, ns.Accord)
+	end)
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S, GetTime = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err, saved.time
+	C_ChatInfo = nil
+	ns.Accord.Reset() -- (its far clock's marks must not outlive it)
+	if not ok then error(err, 0) end
+end
+local function AsForeverMember()
+	GetChannelName = function() return 0 end
+	ns.IsMember = function() return true end
+	IsInGuild = function() return true end
+	GetGuildInfo = function() return "Olympus II", "Member", 3 end
+end
+
+test("1.6.0 no-player lines: one kept out for each whisper the addon handed the game; the player's own whisper to that player still shows: Join Olympus's request beside its J3, a whisper typed to a relay just pinged; the same answer in every chat window", function()
+	NoPlayerWorld(function(w)
+		-- Join Olympus, outside an Olympus guild: the member asked logged off meanwhile. The game refuses
+		-- the J3 at once (TargetOffline) and its line comes during the call; the server's line for the
+		-- player's own whisper (sent with it, from his Send) comes a moment later.
+		GetGuildInfo = function() return nil end
+		IsInGuild = function() return false end
+		local during
+		C_ChatInfo = { SendAddonMessage = function(_, _, dist, target)
+			if dist == "WHISPER" and target == "Gone Member" then during = w.Shown(target, 2) return 12 end
+			return 0
+		end }
+		eq(ns.Comm.WhisperOutside("Gone Member-Realm", "J3~Olympus II~12~MAGE"), false, "the J3: refused")
+		eq(during, 0, "its line: out of both chat windows")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Member", 2), 2, "the player's own whisper: its line shows, in both windows")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Member"), 1, "and any later one")
+		-- A member on Forever, a word for the relay, and the relay Max Ran is offline: his ping is refused
+		-- at once and its line stays out; the member's own whisper to that High Councillor two seconds
+		-- later shows.
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		during = nil
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist == "WHISPER" and target == "Max Ran" then during = w.Shown(target, 1, O.Relay) return 12 end
+			return 0
+		end
+		eq(O.Comm.Send("CHANNEL", "X1~hello"), true)
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(during, 0, "the ping's line: out of the chat")
+		w.mono = w.mono + 2
+		eq(w.Shown("Max Ran", 2, O.Relay), 2, "his own whisper to him: shown, in both windows")
+	end)
+end)
+
+test("1.6.0 no-player lines: three whispers refused to a keeper who logged off keep three lines out and the fourth shows; a try the game throttled keeps none; a whisper the game took keeps its line, which comes after the call; none past QUIET; another name's line and other lines show", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local offline, throttled, lines = { ["Away Keeper"] = true, ["Slow Keeper"] = true }, { ["Slow Keeper"] = 1 }, {}
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if (throttled[target] or 0) > 0 then throttled[target] = throttled[target] - 1 return 3 end
+			if offline[target] then lines[#lines + 1] = w.Shown(target) return 12 end
+			return 0
+		end
+		for i = 1, 3 do O.Comm.Whisper("Away Keeper-Realm", "X1~sync " .. i, nil, false, false) end
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 3, "three tries, each refused at once")
+		eq(lines[1] + lines[2] + lines[3], 0, "their three lines: out of the chat")
+		w.mono = w.mono + 1
+		eq(w.Shown("Away Keeper"), 1, "a fourth (the player's own whisper): shown")
+		-- The game throttles the first try ("not now", 3): nothing went, and its retry is refused.
+		O.Comm.Whisper("Slow Keeper-Realm", "X1~slow", nil, false, false)
+		O.Comm.Pump()
+		eq(#lines, 3, "throttled: no line")
+		w.mono = w.mono + 3 -- (past the queue's wait after a refusal, RETRY_WAIT)
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 4); eq(lines[4], 0, "the retry's line: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Keeper"), 1, "the throttled try kept none back: the player's own line shows")
+		-- A whisper the game took (he was online a moment ago): the server's line comes after the call.
+		O.Comm.Whisper("Late Keeper-Realm", "X1~late", nil, false, false)
+		for _ = 1, 10 do O.Comm.Pump() end
+		w.mono = w.mono + 1
+		eq(w.Shown("Late Keeper"), 0, "its line, a second later: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Late Keeper"), 1, "the next shows")
+		-- Past QUIET a whisper's mark is gone, whether a line came for it or not.
+		O.Comm.Whisper("Online Mate-Realm", "X1~hi", nil, false, false)
+		for _ = 1, 10 do O.Comm.Pump() end
+		w.mono = w.mono + A.QUIET + 1
+		eq(w.Shown("Online Mate"), 1, "QUIET seconds on: shown")
+		eq(w.Shown("Somebody Else"), 1, "a name the addon never whispered: shown")
+		eq(A.QuietLine({}, "CHAT_MSG_SYSTEM", "Some other system line."), false)
+		eq(A.Stats().quieted, 5, "five lines kept out"); eq(A.Stats().passed, 3, "three of the player's own shown within the seconds")
+		-- A client whose system lines carry no lineID: two lines in one frame are told apart by nothing,
+		-- and get the first one's answer: both of ours stay out (never one of ours shown).
+		w.noLineIDs, offline["Far Keeper"] = true, true
+		for i = 1, 2 do O.Comm.Whisper("Far Keeper-Realm", "X1~far " .. i, nil, false, false) end
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 6); eq(lines[5] + lines[6], 0, "both out")
+	end)
 end)
 
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden

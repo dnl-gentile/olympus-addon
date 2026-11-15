@@ -3127,11 +3127,13 @@ ns.Comm.RelayPieces({ RL = true, RM = true, RG = true, RX = true, RW = true, RU 
 
 -- Only shield errors correlated with a recent addon send, not all errors about a known relay
 -- or reporter. The relay still reads the event to manage its next delivery attempt.
-function Relay.QuietLine(_, _, text) -- gp:system-filters
+-- (1.6.0) The line's own values go with it: the Accord's filter keeps one line out for each of our
+-- whispers and tells one line from the next by its lineID.
+function Relay.QuietLine(frame, event, text, ...) -- gp:system-filters
 	if not ns.Gate.Allowed("system-filters") or not Relay.On() then return false end
 	if ns.Secret("relay quiet line", text) then return false end
 	local A = ns.Accord
-	return type(A) == "table" and type(A.QuietLine) == "function" and A.QuietLine(nil, nil, text) == true
+	return type(A) == "table" and type(A.QuietLine) == "function" and A.QuietLine(frame, event, text, ...) == true
 end
 local filtering
 local function QuietLines() -- gp:system-filters!hook

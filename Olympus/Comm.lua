@@ -938,11 +938,13 @@ local function SendNow(dist, msg, logged, whisperTo)
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
 	-- The server can report an offline recipient during a rejected call. Mark the attempted
 	-- whisper before calling it, including whispers that waited in the queue.
-	if dist == "WHISPER" then
-		local A = ns.Accord
-		if type(A) == "table" and type(A.Quiet) == "function" then pcall(A.Quiet, whisperTo) end
-	end
+	-- (1.6.0) Counted: the server answers each whisper to a player who is not online with one line,
+	-- and one line is kept out of the chat for each of ours (Accord.Tried). A call that sent nothing
+	-- (a throttle, an error) takes its mark back, so the player's own whisper to him still shows.
+	local A = dist == "WHISPER" and ns.Accord or nil
+	if type(A) == "table" and type(A.Tried) == "function" then pcall(A.Tried, whisperTo) else A = nil end
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
+	if A and (not ok or RETRYABLE[res]) then pcall(A.Tried, whisperTo, -1) end
 	if ok and IsSuccess(res) then
 		stats.sent = stats.sent + 1
 		refusedInRow = 0

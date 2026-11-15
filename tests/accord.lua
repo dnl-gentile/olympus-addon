@@ -52,6 +52,11 @@ local function Scene(fn, opts)
 		InCombatLockdown, IsInInstance = function() return false end, function() return false end
 		ns.Comm.Whisper = function(to, msg, key, urgent, logged, done, options)
 			w.whispers[#w.whispers + 1] = { to = to, msg = msg, key = key, logged = logged, done = done, options = options }
+			-- (Changed on purpose, 1.6.0: the real queue marks a whisper when it hands it to the game,
+			-- Comm.SendNow's Accord.Tried, and that mark keeps its not-found line out of the chat; the
+			-- Accord's own early call only registers the filter now. This stand-in sends at once, so it
+			-- marks it here.)
+			A.Tried(to)
 			return true
 		end
 		ns.Comm.Send = function(dist, msg, key) w.sends[#w.sends + 1] = { dist = dist, msg = msg, key = key } return true end
