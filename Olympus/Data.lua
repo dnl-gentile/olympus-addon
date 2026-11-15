@@ -1138,11 +1138,22 @@ local function GlobalTrusted(name)
 end
 -- (1.5.5) What the census took, left unproven and refused (Data.CensusStats, for /oly bug).
 Data.CENSUS_REFUSALS = 5 -- the last refusals kept, with their reason
-local censusStats = { cg = { trusted = 0, witnessed = 0, lone = 0, refused = 0 },
+local censusStats = { cg = { trusted = 0, witnessed = 0, lone = 0, refused = 0, skipped = 0 },
 	cx = { author = 0, trusted = 0, witnessed = 0, heard = 0, unproven = 0, refused = 0 },
 	cx3 = { direct = 0, author = 0, unproven = 0 }, qa = { verified = 0, refused = 0, signed = 0 } }
 local censusRefusals = {} -- { kind, why, from, t }, oldest first
 local function Tally(kind, what) censusStats[kind][what] = censusStats[kind][what] + 1 end
+-- A word this client drops on purpose and without fault: the sender did nothing wrong and nothing
+-- is kept, but the drop is counted and its reason kept, so a silent exit never reads as silence on
+-- the wire. (GitHub #91: hundreds of pieces arriving and being discarded looked exactly like
+-- nothing arriving at all, because neither path moved a counter.)
+local function Skipped(kind, why, from)
+	Tally(kind, "skipped")
+	if #censusRefusals >= Data.CENSUS_REFUSALS then table.remove(censusRefusals, 1) end
+	censusRefusals[#censusRefusals + 1] = { kind = kind, why = why, t = ns.Now(),
+		from = type(from) == "string" and ns.ShortName(from) or nil }
+	return false
+end
 local function Refused(kind, why, from)
 	Tally(kind, "refused")
 	if #censusRefusals >= Data.CENSUS_REFUSALS then table.remove(censusRefusals, 1) end
@@ -1537,7 +1548,7 @@ function Data.ReceiveGlobalCensus(dist, sender, text)
 	local now = ns.Now()
 	local self = OwnWord(sender) -- (the relay's stamped copy of our own snapshot too)
 	if kind == "C" then
-		if ver == 1 and ScopedGroup(ns.group) then return false end
+		if ver == 1 and ScopedGroup(ns.group) then return Skipped("cg", "claim-proto", sender) end
 		-- A member's claim: its snapshot follows. It counts as an answer heard (AnswerAsk).
 		if not self then HeardAnswer(now, GlobalTrusted(sender), sender) end
 		return true
@@ -1554,7 +1565,7 @@ function Data.ReceiveGlobalCensus(dist, sender, text)
 		local group, faction, rows = body:match("^([^~]+)~(%a+)~(.*)$")
 		if group ~= ns.group or faction ~= (ns.faction or "Alliance") then return Refused("cg", "scope", sender) end
 		body = rows
-	elseif ScopedGroup(ns.group) then return false end
+	elseif ScopedGroup(ns.group) then return Skipped("cg", "proto", sender) end
 	local trusted = GlobalTrusted(sender)
 	-- (1.5.5) A trusted row a guildmate handed over (RG): display only for a trusted holder (GlobalTake).
 	local rg = trusted and Hop() == "G"
@@ -2971,8 +2982,8 @@ function Data.CensusStats()
 		last[#last + 1] = r.kind .. ":" .. r.why
 	end
 	local g, x, l, q = out.cg, out.cx, out.cx3, out.qa
-	out.line = ("cg t%d w%d l%d r%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d | qa v%d r%d s%d"):format(
-		g.trusted, g.witnessed, g.lone, g.refused, x.author, x.trusted, x.witnessed, x.heard, x.unproven, x.refused,
+	out.line = ("cg t%d w%d l%d r%d s%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d | qa v%d r%d s%d"):format(
+		g.trusted, g.witnessed, g.lone, g.refused, g.skipped or 0, x.author, x.trusted, x.witnessed, x.heard, x.unproven, x.refused,
 		l.direct, l.author, l.unproven, q.verified, q.refused, q.signed) .. (#last > 0 and (" | last " .. table.concat(last, ",")) or "")
 	return out
 end
