@@ -735,7 +735,10 @@ local function CensusBriefLine()
 		if type(r) == "table" and r.counted then
 			if shown < 6 then
 				shown = shown + 1
-				parts[#parts + 1] = r.ours and ("%s here %s"):format(tostring(r.group), tostring(r.characters))
+				-- (1.6.0) Ours from its saved count (Data.ApplyGroupSnapshot), not its live one: "saved" and its age.
+				local saved = r.ours and r.src ~= nil and r.src ~= "live"
+				parts[#parts + 1] = saved and ("%s here saved %s %s"):format(tostring(r.group), Age(r.observed), tostring(r.characters))
+					or r.ours and ("%s here %s"):format(tostring(r.group), tostring(r.characters))
 					or ("%s %s %s %s"):format(tostring(r.group), tostring(r.src or "?"), Age(r.observed), tostring(r.characters))
 			else more = more + 1 end
 		elseif type(r) == "table" then uncounted = uncounted + 1 end

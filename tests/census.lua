@@ -1023,9 +1023,15 @@ test("census continuity: recording a cached census preserves observation time an
 	w.clock = w.clock + w.D.REBUILD_FOR + 1
 	eq(w.D.Summary().snapshot.observed, kept.observed, "an incomplete rebuild keeps its dated snapshot")
 	w.clock = kept.observed + w.D.TOTAL_KEEP + 1
+	-- (1.6.0) A day after its oldest report, with nothing heard since, the saved count still stands, dated:
+	-- 1.5.9 dropped it to history here and showed the empty live count (tests/census-jump.lua).
+	local quiet = w.D.Summary()
+	eq(quiet.snapshot.observed, kept.observed, "nothing newer heard: the saved count still stands past its day")
+	eq(quiet.characters, 1000); eq(quiet.snapshot.quiet, true)
+	w.ns.rdb.guilds["Olympus Ash"] = { total = 120, online = 5, t = w.clock }
 	local stale = w.D.Summary()
-	eq(stale.snapshot, nil); eq(stale.characters, 0)
-	eq(stale.history.characters, 1000); eq(stale.history.counted, false, "an expired count remains separate historical information")
+	eq(stale.snapshot, nil); eq(stale.characters, 120)
+	eq(stale.history.characters, 1000); eq(stale.history.counted, false, "once a newer report is heard, an expired count remains separate historical information")
 end)
 
 test("census continuity: an extra older counted guild cannot veto complete newer coverage", function()
