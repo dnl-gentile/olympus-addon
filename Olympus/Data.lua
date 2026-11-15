@@ -1953,13 +1953,20 @@ function Data.RecordGroupCensus(s, now)
 	if not group then return false end
 	s, now = s or Data.Summary(), now or ns.Now()
 	if s.snapshot then return false end -- a displayed fallback is never a new observation
-	local counted, observed = 0, now
+	-- (1.6.0) newest: the newest report of another guild the look rests on (our own guild's roster is
+	-- read every minute and says nothing of what reaches us). Data.ApplyGroupSnapshot keeps the look
+	-- while nothing newer has reached this client.
+	local counted, observed, newest = 0, now, nil
 	for _, e in ipairs(s.guilds or {}) do
-		if e.counted then counted, observed = counted + 1, math.min(observed, ObservationTime(e.g)) end
+		if e.counted then
+			local at = ObservationTime(e.g)
+			counted, observed = counted + 1, math.min(observed, at)
+			if not e.g.mine then newest = math.max(newest or at, at) end
+		end
 	end
 	local row = GroupRow(group, OurFaction(), tonumber(s.characters or s.total) or 0, tonumber(s.total) or 0, counted, observed)
 	if not row then return false end
-	row.src = "own"
+	row.src, row.newest = "own", newest
 	GroupStore()[GroupKey(row.faction, row.group)] = row
 	GroupStore("heard")[GroupKey(row.faction, row.group)] = nil
 	if Data.CaptureGroupDetails then Data.CaptureGroupDetails(s, now) end
@@ -1985,7 +1992,13 @@ function Data.ApplyGroupSnapshot(s, now)
 	if not held then return end
 	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
 	local scoped = ScopedGroup(group)
+	-- (1.6.0, a member's /oly bug of 11-15: "reports heard=0", old relayed rows, the census going from
+	-- 3,202 on PvE and 3,202 on all servers to 1,544 and 7,068) Whether any guild but ours has been heard
+	-- since the newest report the look rests on (RecordGroupCensus's newest; a look saved before 1.6.0
+	-- has its oldest alone).
+	local since, heardSince = tonumber(held.newest) or held.observed, false
 	for _, e in ipairs(s.guilds) do
+		if not e.g.mine and ObservationTime(e.g) > since then heardSince = true end
 		if e.counted then
 			counted = counted + 1
 			local observed = ObservationTime(e.g)
@@ -1998,10 +2011,18 @@ function Data.ApplyGroupSnapshot(s, now)
 	end
 	-- Enough newer guild reports reconcile the saved coverage. An extra older row cannot veto them.
 	if not held.unscoped and refreshed >= held.guilds and s.characters > 0 then return end
+	-- (1.6.0) The look counts a day from its oldest report, as each guild's own report does (TOTAL_KEEP),
+	-- and past it while no guild but ours has been heard since it was taken. Each guild's report leaves
+	-- the count a day after it was read, and the look's date is its oldest guild's, so a client that hears
+	-- nothing new lost a guild at a time: the look gave way with its oldest guild and the next quarter
+	-- hour saved a smaller one (CensusStats.Sample), while another server's count stays until a newer one
+	-- replaces it (Lasting, the author's 11-12 rule: "ele deveria redistribuir esses dados enquanto não
+	-- tivessem dados novos na rede"). Our line fell and the all-server total rose, with no member lost.
+	-- Once anything newer is heard, a guild unheard for a day leaves the count as before.
 	local snapshot = { group = group, faction = held.faction, observed = held.observed, source = held.src,
 		witnesses = held.w, characters = held.characters, people = held.people, guilds = held.guilds,
-		age = math.max(0, now - held.observed), unscoped = held.unscoped,
-		counted = not held.unscoped and now - held.observed <= Data.TOTAL_KEEP }
+		age = math.max(0, now - held.observed), unscoped = held.unscoped, quiet = not heardSince,
+		counted = not held.unscoped and (now - held.observed <= Data.TOTAL_KEEP or not heardSince) }
 	if not snapshot.counted then s.history = snapshot; return end
 	-- The last-day sum can include old reports. Show the fresh subset separately so the retained
 	-- total cannot hide changes in the guilds that are still reporting.
