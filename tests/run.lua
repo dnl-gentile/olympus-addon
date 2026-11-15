@@ -64832,7 +64832,26 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			-- (1.6.0: this line named 1.5.9 as the newest, so the next release's letter on top broke
+			-- it.) Newest first, whatever release is newest now: each version older than the one
+			-- before it, compared number by number (1.2.5.1 after 1.3.0, before 1.2.5)...
+			local function Older(x, y)
+				local a, b = {}, {}
+				for n in x:gmatch("%d+") do a[#a + 1] = tonumber(n) end
+				for n in y:gmatch("%d+") do b[#b + 1] = tonumber(n) end
+				for i = 1, math.max(#a, #b) do
+					if (a[i] or 0) ~= (b[i] or 0) then return (a[i] or 0) < (b[i] or 0) end
+				end
+				return false
+			end
+			for i = 2, #versions do
+				assert(Older(versions[i], versions[i - 1]), "newest first: " .. versions[i - 1] .. " then " .. versions[i])
+			end
+			-- ...and every letter up to 1.5.9 still listed, in this order, after the newer ones.
+			local HISTORY = "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0"
+			local older = select(2, HISTORY:gsub("%S+", ""))
+			assert(#versions >= older, "every older letter listed: " .. table.concat(versions, " "))
+			eq(table.concat(versions, " ", #versions - older + 1), HISTORY, "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)
