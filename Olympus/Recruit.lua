@@ -1134,6 +1134,25 @@ local function ConfirmOutreach(f, data)
 	return AdvanceOutreach(f, data.queue)
 end
 
+-- (1.6.0) A scanned player's invite popup that "Whisper them first" asks back (the whisper review's
+-- OnHide below). One invite popup shows at a time, and a claimed player's command opens over the
+-- whisper review (PromptReply): while another player's popup is up, his waits for it to close, as
+-- long as he is still current. (A review of the 1.6.0 handoff fixes found it never came back.) His
+-- mark stays until then, so a full scan list keeps his row (RecruitCandidates' Add).
+local AFTER_WHISPER_RETRY = 2
+local function InviteAfterWhisper(candidate)
+	if not candidate.inviteAfterWhisper then return end
+	local D = ns.Dialog
+	local open = D and not D.missing and D.Find and D.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
+	if open and not (type(open.data) == "table" and open.data.candidate == candidate)
+		and Recruit.Candidates and Recruit.Candidates.Check(candidate) then
+		ns.After(AFTER_WHISPER_RETRY, "invite after whisper", function() InviteAfterWhisper(candidate) end)
+		return
+	end
+	candidate.inviteAfterWhisper = nil
+	Recruit.CopyCandidateInvite(candidate)
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	text = "%s",
 	button1 = SEND_LABEL or "Send",
@@ -1153,12 +1172,12 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 		if reason == "clicked" and type(data) == "table" then return AdvanceOutreach(f, data.queue) end
 	end,
 	-- (1.5.8, the author's ask) A whisper asked from a scanned player's invite popup ("Whisper them
-	-- first"): once it closes, sent or not, his invite popup comes back.
+	-- first"): once it closes, sent or not, his invite popup comes back (1.6.0: once no other player's
+	-- is up, InviteAfterWhisper).
 	OnHide = function(_, data)
 		local candidate = type(data) == "table" and data.candidate or nil
 		if type(candidate) ~= "table" or not candidate.inviteAfterWhisper then return end
-		candidate.inviteAfterWhisper = nil
-		ns.After(0, "invite after whisper", function() Recruit.CopyCandidateInvite(candidate) end)
+		ns.After(0, "invite after whisper", function() InviteAfterWhisper(candidate) end)
 	end,
 	timeout = 0,
 	whileDead = true,

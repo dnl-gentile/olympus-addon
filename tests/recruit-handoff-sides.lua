@@ -620,6 +620,141 @@ test("recruit handoff sides (1.6.0, regression): a claimer whose Incoming JOIN i
 	end)
 end)
 
+-- (Review of the lane) A claimed player's command opens over a scanned player's whisper review; when
+-- that review was asked from his invite popup ("Whisper them first"), his popup still comes back.
+test("recruit handoff sides (1.6.0, regression): a scanned player's popup still comes back after Whisper them first when a claimed player's command came during the whisper", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+		Accepting(world, master)
+		local found = Full("Scan Find")
+		As(world, master, function()
+			local switch
+			for _, line in ipairs(master.R.WhisperLines()) do
+				if line.text and line.text:find(L.RECRUIT_CANDIDATES_OFF, 1, true) then switch = line end
+			end
+			assert(switch, "the scan's switch").onClick()
+			master.R.Candidates.ObserveWho(found, "", "Orc")
+		end)
+		local applicant = Full("Zoë Fírè")
+		JoinAndPass(world, origin, applicant)
+		assert(Run(world, 40, function() return master.D.Find(CLAIM) ~= nil end), "the claim question")
+		-- He claims; while the name is on its way the scan pops its player, and he clicks Whisper them first.
+		local review
+		world.beforeSend = function(p)
+			if p.op ~= "N" or review then return end
+			As(world, master, function()
+				master.timers["recruit candidates"].fn()
+				local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+				assert(draft.data.candidate, "a scanned player's")
+				draft.def.OnAlt(draft, draft.data)
+				draft:Hide()
+				review = assert(master.D.Find(SCAN), "his whisper review")
+			end)
+		end
+		assert(ClaimShown(world, master))
+		Run(world, 3)
+		eq(Count(world, "N", master), 1, "the name came during the review")
+		-- He closes the review, sent or not (its OnHide), then takes each invite popup that comes to chat.
+		As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+		local came = {}
+		Run(world, 60, function()
+			local f = master.D.Find(DRAFT)
+			if f then
+				came[f.data.candidate and f.data.candidate.full or f.data.req.name] = true
+				As(world, master, function() f.def.extra.onClick(f, f.data) end)
+				f:Hide()
+			end
+			return came[applicant] and came[found]
+		end)
+		assert(came[applicant], "the claimed player's command opened")
+		assert(came[found], "and the scanned player's popup came back after his whisper")
+		Run(world, 30)
+		eq(master.D.Find(DRAFT), nil, "once each: neither comes back again")
+	end)
+end)
+
+-- The same without a handoff: his own JOIN waited behind the whisper review, and its next look comes
+-- just before the popup is asked back, so the JOIN's popup takes the place first. 76c0c57e and 1.5.9
+-- lost the scanned player's popup then (in the game, when the review closed in the frame before that
+-- look); it comes back once the JOIN's closes.
+test("recruit handoff sides (1.6.0, regression): a scanned player's popup still comes back after Whisper them first when his own JOIN's popup opens as the whisper closes", function()
+	WithWorld(function(world)
+		local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+		local found, own = Full("Scan Find"), Full("Own Walker")
+		As(world, master, function()
+			assert(PageLine(world, master, "recruit-candidate-toggle"), "the scan's switch").onClick()
+			master.R.Candidates.ObserveWho(found, "", "Orc")
+			master.timers["recruit candidates"].fn()
+			local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+			draft.def.OnAlt(draft, draft.data)
+			draft:Hide()
+		end)
+		local review = assert(master.D.Find(SCAN), "his whisper review")
+		-- His own JOIN waits behind the review, looked at again every 2 seconds; he closes the review
+		-- in the second before the next look.
+		As(world, master, function() master.R.OnWhisper("JOIN", own) end)
+		Run(world, 3)
+		eq(master.D.Find(DRAFT), nil, "the JOIN waits for the review")
+		As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+		Run(world, 1)
+		local draft = assert(InviteFor(master, own), "the JOIN's popup came first")
+		As(world, master, function() draft.def.extra.onClick(draft, draft.data) end)
+		draft:Hide()
+		assert(Run(world, 5, function()
+			local f = master.D.Find(DRAFT)
+			return f ~= nil and f.data.candidate ~= nil and f.data.candidate.full == found
+		end), "the scanned player's popup came back after the JOIN's")
+	end)
+end)
+
+-- (Failure case) A scanned player who is no longer current by then does not come back.
+test("recruit handoff sides (1.6.0): a scanned player's popup asked back by Whisper them first does not come back once the scan is off", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+		Accepting(world, master)
+		local found = Full("Scan Find")
+		local switch
+		As(world, master, function()
+			for _, line in ipairs(master.R.WhisperLines()) do
+				if line.text and line.text:find(L.RECRUIT_CANDIDATES_OFF, 1, true) then switch = line end
+			end
+			assert(switch, "the scan's switch").onClick()
+			master.R.Candidates.ObserveWho(found, "", "Orc")
+		end)
+		local applicant = Full("Zoë Fírè")
+		JoinAndPass(world, origin, applicant)
+		assert(Run(world, 40, function() return master.D.Find(CLAIM) ~= nil end), "the claim question")
+		local review
+		world.beforeSend = function(p)
+			if p.op ~= "N" or review then return end
+			As(world, master, function()
+				master.timers["recruit candidates"].fn()
+				local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+				draft.def.OnAlt(draft, draft.data)
+				draft:Hide()
+				review = assert(master.D.Find(SCAN), "his whisper review")
+			end)
+		end
+		assert(ClaimShown(world, master))
+		Run(world, 3)
+		As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+		Run(world, 5)
+		assert(InviteFor(master, applicant), "the claimed player's command is up")
+		-- He turns the scan off while it is up, then takes it to chat.
+		local on = assert(PageLine(world, master, "recruit-candidate-toggle"), "the scan's switch")
+		assert(on.text:find(L.RECRUIT_CANDIDATES_ON, 1, true), "on")
+		As(world, master, on.onClick)
+		assert(not master.R.Candidates.Enabled(), "the scan is off")
+		local draft = InviteFor(master, applicant)
+		As(world, master, function() draft.def.extra.onClick(draft, draft.data) end)
+		draft:Hide()
+		Run(world, 30)
+		eq(master.D.Find(DRAFT), nil, "no scanned player's popup comes back")
+	end)
+end)
+
 -------------------------------------------------------------------------------------------------
 -- Mixed versions: 1.5.9 members next to 1.6.0 ones.
 -------------------------------------------------------------------------------------------------
