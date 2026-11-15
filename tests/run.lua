@@ -5931,8 +5931,10 @@ test("duplicate ids are shown once", function()
 		eq(select(2, Chan.Receive("CHANNEL", "Member7", m, 3001)), "dup")
 		eq((Chan.Receive("CHANNEL", "Member8", m, 3002)), true, "same id from another sender")
 		eq((Chan.Receive("CHANNEL", "Member7", Msg("A", MY_GUILD, 4242, "after a /reload"), 3003)), true, "same id, new text")
-		Chan.Prune(3000 + 121)
-		eq((Chan.Receive("CHANNEL", "Member7", m, 3000 + 121)), true, "forgotten after the window")
+		-- (1.6.0: the window is as long as a relay copy may still come, Channels.DedupeWindow, no longer 120 s.)
+		local after = 3000 + Chan.DedupeWindow() + 1
+		Chan.Prune(after)
+		eq((Chan.Receive("CHANNEL", "Member7", m, after)), true, "forgotten after the window")
 	end)
 end)
 

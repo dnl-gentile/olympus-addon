@@ -415,6 +415,49 @@ test("chat delivery (1.5.5, Forever): guildmates on other sub-realms and under t
 	end)
 end)
 
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines repeated minutes apart, one copy counted as heard twice in
+-- 141 lines shown). A line typed in the public channel comes at once (ChatHall.lua), its relay copy after
+-- waiting in one or two relays' chat lanes (Relay.CHAT_LANE_TTL each): Channels kept a line's id 120 s,
+-- and a later copy was a new line, shown again. It keeps it as long as a copy may come now
+-- (Channels.DedupeWindow). Fails before: the relay's copy 200 s later was taken as a new line.
+test("chat delivery (1.6.0, Forever): a line from the public channel and its relay copies 200 s and ten minutes later are one line, shown once; our own line back as late is ours; past the window a copy is a line again", function()
+	ForeverGuild(function()
+		local C, Codec = ns.Channels, ns.Codec
+		local line = Codec.EncodeChat("A", "OLYMPUS GODS", 4301, "WA", "late by the relay")
+		local _, why = C.Receive("CHANNEL", "Hater Fistinator", line, 9000)
+		eq(why, "muted", "the channel's copy, his name bare: taken")
+		_, why = C.Receive("CHANNEL", "Hater Fistinator-CAMWOWUS2Realm3PvE", line, 9200)
+		eq(why, "dup", "the relay's copy 200 s later: the same line")
+		_, why = C.Receive("CHANNEL", "Hater Fistinator-CAMWOWUS1Realm5PvE", line, 9600)
+		eq(why, "dup", "a copy through two relays' lanes, ten minutes later: the same line")
+		-- Our own line's relay copy, as late.
+		local mine = { ["4302#my late words"] = 9000 }
+		local ok, reason = C.Admit("Wazizo Thelongone-CAMWOWUS1Realm5PvE", "OLYMPUS GODS", "my late words", 9600,
+			{ tier = "A", id = 4302, mine = mine, seen = {}, buckets = {} })
+		eq(ok, false); eq(reason, "own", "our own line, back by a relay ten minutes on")
+		-- The window: a copy's longest way (two relays' lanes and the rest), no longer.
+		local window = C.DedupeWindow()
+		assert(window >= 2 * 300 + 60, "the window covers two relays' lanes: " .. window)
+		C.Prune(9000 + window + 1)
+		_, why = C.Receive("CHANNEL", "Hater Fistinator", line, 9000 + window + 1)
+		eq(why, "muted", "past the window, a copy is a line again")
+	end)
+end)
+
+-- 1.6.0 (the same window, longer): past 1,000 line keys every key went at the next prune, and every copy
+-- still on its way showed its line again. Past Channels' cap the oldest go now. Fails before: after
+-- 1,100 lines and a prune, a copy of the first line was a new line.
+test("chat delivery (1.6.0): 1,100 lines heard within the window, then the minute's prune: a copy of the first still comes as heard", function()
+	local C = ns.Channels
+	for i = 1, 1100 do
+		C.Admit(("Prune Sender%d-Realm"):format(i), "Olympus II", "line " .. i, 20000 + i * 0.1, { id = i, level = 0 })
+	end
+	C.Prune(20200)
+	local ok, why = C.Admit("Prune Sender1-Realm", "Olympus II", "line 1", 20201, { id = 1, level = 0 })
+	eq(ok, false); eq(why, "dup", "a copy of the first line, after the prune")
+	if C.DedupeWindow then C.Prune(20200 + C.DedupeWindow() + 1) end -- (forgotten, for the tests after)
+end)
+
 test("chat guild verification can look up a sender without writing a guild claim", function()
 	ForeverGuild(function()
 		local name, guild = "Readonly Sender-CAMWOWUS1Realm7PvE", "Olympus Other"
