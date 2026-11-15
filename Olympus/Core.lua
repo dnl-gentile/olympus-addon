@@ -2114,14 +2114,17 @@ local RUIN_AFTER = { ruin = true, ruins = true, ruined = true, ashes = true }
 
 -- (1.6.0) Nor is a guild that names Olympus only to measure itself against it, or to say it is not
 -- Olympus: a player asked twice (11-15) that a guild named like "Stronger Than Olympus" be taken out of
--- the addon, and no word above took it ("than" is no insult). Olympus with a "than" anywhere before it
--- ("Way Stronger Than Olympus", "Stronger Than The Olympus"; in "Olympus Stronger Than You" Olympus is
--- the guild itself), or a comparative's "then" just before it, the usual slip ("Stronger Then Olympus");
--- but "None Finer Than Olympus" praises it. "Not", "no", "never" and "non" with up to two words of
--- degree, place or whose between ("Not Even Olympus", "Not Part of Olympus", "Not Your Olympus"); any
--- other word between keeps it ours ("Do Not Anger Olympus", "No Mercy Olympus"). And either glued in
--- front, as AntiOlympus is ("NotOlympus", "StrongerThanOlympus"; in "EthanOlympus" no comparative comes
--- first). A guild of Asmon's Olympus named so still counts once the author's signed list names it.
+-- the addon, and no word above took it ("than" is no insult). Olympus with a "than" just before it, or
+-- with up to two words of degree, place or whose between, "all", "any" and "every" too ("Way Stronger
+-- Than Olympus", "Stronger Than The Olympus", "Stronger Than Any Olympus"; in "Olympus Stronger Than
+-- You" Olympus is the guild itself; any other word between is the name's own phrase and keeps it ours,
+-- "Older Than Time Olympus"), or a comparative's "then" just before it, the usual slip ("Stronger
+-- Then Olympus"); but "None Finer Than Olympus" praises it. "Not", "no", "never" and "non" with up to
+-- two words of degree, place or whose between ("Not Even Olympus", "Not Part of Olympus", "Not Your
+-- Olympus"); any other word between keeps it ours ("Do Not Anger Olympus", "No Mercy Olympus"). And
+-- either glued in front, as AntiOlympus is ("NotOlympus", "StrongerThanOlympus"; in "EthanOlympus" no
+-- comparative comes first). A guild of Asmon's Olympus named so still counts once the author's signed
+-- list names it.
 local PRAISE = { none = true, nothing = true, nobody = true, noone = true, naught = true, nought = true }
 local MORE = { more = true, less = true, worse = true, fewer = true } -- the comparatives without -er
 local DENY = { ["not"] = true, no = true, never = true, non = true }
@@ -2151,15 +2154,20 @@ end
 
 -- Olympus as what the guild measures itself against: a "than" before it (or glued in front), or a
 -- comparative's "then" right before it (or before "the"); not when a "none" before makes it praise.
+-- (1.6.0, the review of this rule) The "than" at most two words off, each between one of degree, place
+-- or whose (LINKS among them) or "all", "any", "every", as with "not" (Denied): "Bolder Than Ever
+-- Olympus" and "Older Than Time Olympus" measure the guild against something else and count as on 1.5.9.
+local EVERY = { all = true, any = true, every = true }
 local function Compared(words, i, glued)
 	local at = glued == "than" and i or nil
 	if not at then
-		for k = i - 1, 1, -1 do
+		for k = i - 1, math.max(1, i - 3), -1 do
 			local w = words[k]
 			if w == "than" or (w == "then" and Comparative(words[k - 1]) and (k == i - 1 or (k == i - 2 and LINKS[words[i - 1]]))) then
 				at = k
 				break
 			end
+			if not (DEGREE[w] or EVERY[w]) then break end
 		end
 	end
 	if not at then return false end

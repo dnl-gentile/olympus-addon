@@ -426,12 +426,15 @@ test("federation filter (1.6.0): a name that measures a guild against Olympus or
 	local saved = { faction = ns.faction, inGuild = IsInGuild, guild = GetGuildInfo, approved = ns.IsApprovedGuild, print = ns.Print }
 	local ok, err = pcall(function()
 		ns.faction = "Alliance"
-		-- Measured against Olympus: a "than" anywhere before it, any case, any spelling of Olympus, the slip
-		-- "then" after a comparative, and glued.
+		-- Measured against Olympus: a "than" right before it or with a word or two of degree, place or whose
+		-- between ("all", "any" and "every" too), any case, any spelling of Olympus, the slip "then" after a
+		-- comparative, and glued.
 		for _, name in ipairs({ "Stronger Than Olympus", "STRONGER THAN OLYMPUS", "stronger than olympus", "More Than Olympus",
 			"Less Than Olympus", "Wiser Than The Olympus", "Way Stronger Than Olympus", "Bigger Than Olimpvs", "Taller Than OLYMPVS",
 			"Stronger Than Ólympus", "Stronger Than 0lympus", "Stronger Than Olympus II", "Stronger Then Olympus",
-			"Stronger Then The Olympus", "StrongerThanOlympus", "MoreThanOlimpvs", "Than Olympus" }) do
+			"Stronger Then The Olympus", "StrongerThanOlympus", "MoreThanOlimpvs", "Than Olympus", "Stronger Than Your Olympus",
+			"Stronger Than Ur Olympus", "Stronger Than All Olympus", "Stronger Than Any Olympus", "Stronger Than Every Olympus",
+			"Stronger Than All of Olympus", "Stronger Than Even The Olympus" }) do
 			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
 		end
 		-- Saying it is not Olympus: "not" and its kind, straight, with a word or two of degree, place or whose
@@ -441,12 +444,14 @@ test("federation filter (1.6.0): a name that measures a guild against Olympus or
 			"NotOlimpvs", "Horde vs Olympus", "Horde Versus Olympus", "Not Horde Nor Olympus" }) do
 			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
 		end
-		-- Still Olympus: Olympus first ("than" after it), praise, any other word between, "then" that is no
-		-- comparison, a name that only ends in "than", a word glued in front that only starts like "no", "not"
-		-- or "than" (Olympus does not start at the O after it: NoobOlympus, NotoriousOlympus, ThanosOlympus),
-		-- the patterns of the realm's guilds (numerals, a word after or before, all caps, accents,
-		-- misspellings) and "Olympus Fake", the census tests' forged guild.
+		-- Still Olympus: Olympus first ("than" after it), praise, any other word between (after "not" or after
+		-- "than": "Older Than Time Olympus"), "then" that is no comparison, a name that only ends in "than", a
+		-- word glued in front that only starts like "no", "not" or "than" (Olympus does not start at the O
+		-- after it: NoobOlympus, NotoriousOlympus, ThanosOlympus), the patterns of the realm's guilds
+		-- (numerals, a word after or before, all caps, accents, misspellings) and "Olympus Fake", the census
+		-- tests' forged guild.
 		for _, name in ipairs({ "Olympus Stronger Than You", "Olympus Than", "None Finer Than Olympus", "Nothing Above Olympus",
+			"Older Than Time Olympus", "Bolder Than Ever Olympus", "Faster Than Light Olympus",
 			"Do Not Anger Olympus", "Do Not Mess With Olympus", "No Mercy Olympus", "Never Ending Olympus", "Olympus Is Not Dead",
 			"And Then Olympus", "EthanOlympus", "Jonathan Olympus", "NoobOlympus", "NotoriousOlympus", "NoobsOfOlympus",
 			"NoonOlympus", "NoOneOlympus", "ThanosOlympus", "Olympus II", "OLYMPUS IV", "Olympus 2", "OlympusII",

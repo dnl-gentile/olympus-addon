@@ -304,10 +304,12 @@ end)
 
 -- 1.6.0, the review of the rule above: a guild whose name only looks like one counts as on 1.5.9. Here a
 -- word glued in front that only starts like "no" or "than" ("NoobOlympus", "ThanosOlympus": Olympus does
--- not start at the O after it). Each takes the rival's place in Run (its members on 1.5.9 and 1.6.0, the
--- relay and the Knights' master on 1.6.0, the Embers' on 1.5.9), then a 1.6.0 verifier that approved it.
+-- not start at the O after it), and a "than" with another word before Olympus, its own phrase ("Older Than
+-- Time Olympus"). Each takes the rival's place in Run (its members on 1.5.9 and 1.6.0, the relay and the
+-- Knights' master on 1.6.0, the Embers' on 1.5.9), then a 1.6.0 verifier that approved it.
 -- Fails before: 1.6.0 shut such a guild out as it does the rival (its 1.6.0 member no member and silent,
 -- the relay and the 1.6.0 master without it, its approval dropped).
+local LOOKALIKES = { "NoobOlympus", "ThanosOlympus", "Older Than Time Olympus" }
 local function Counted(Node, As, guild)
 	local r = Run(Node, As, { guild = guild, relay = "1.6.0", rival59 = "1.5.9", rival60 = "1.6.0", knights = "1.6.0", embers = "1.5.9" })
 	local function Seen(c) return ("%d guilds %d characters%s"):format(c.guilds, c.characters, c.rival and " with it" or "") end
@@ -315,12 +317,12 @@ local function Counted(Node, As, guild)
 		tostring(r.member["Rival Lead"]), tostring(r.member["Rival Member"]), r.sent["Rival Lead"], r.sent["Rival Member"],
 		Seen(r.relay), tostring(Carries(r.snapshot, guild)), Seen(r["Knight Lead"]), Seen(r["Ember Lead"]))
 end
-test("federation names (1.6.0): a guild whose name only looks like a comparison or a denial (NoobOlympus, ThanosOlympus) counts through a relay with 1.5.9 and 1.6.0 clients as on 1.5.9: both its members report, the relay, its snapshot and every client count it, a 1.6.0 verifier keeps its approval", function()
+test("federation names (1.6.0): a guild whose name only looks like a comparison or a denial (NoobOlympus, ThanosOlympus, Older Than Time Olympus) counts through a relay with 1.5.9 and 1.6.0 clients as on 1.5.9: both its members report, the relay, its snapshot and every client count it, a 1.6.0 verifier keeps its approval", function()
 	local seen = {}
 	World(function(Node, As)
-		for _, guild in ipairs({ "NoobOlympus", "ThanosOlympus" }) do seen[guild] = Counted(Node, As, guild) end
+		for _, guild in ipairs(LOOKALIKES) do seen[guild] = Counted(Node, As, guild) end
 	end)
-	for _, guild in ipairs({ "NoobOlympus", "ThanosOlympus" }) do
+	for _, guild in ipairs(LOOKALIKES) do
 		local v = Verifier("1.6.0", guild)
 		local list = { guild .. ":verified", DAWN .. ":pending" }
 		table.sort(list)
