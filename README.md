@@ -3493,6 +3493,18 @@ oldest eligible request and any open reply window stay with the sender. Officers
 and send invitations themselves. **Pass** on a pop-up sends that player the same way (on a JOIN's
 pop-up, the JOINs waiting behind it too), and (1.5.9) leaves this switch as you set it.
 
+From 1.6.0 a recipient answers no to a probe while his screen cannot show the claim question:
+another recruiting pop-up open (an invite command waiting for its paste, an ad's draft, a scanned
+player's whisper review, a reply to review), typing, an instance, a full guild, or the interval
+between automatic pop-ups (in combat he does not answer, as before). The sender then asks the
+next member at once. An offer that arrives
+while the question cannot show is asked as soon as it can be, while the offer lasts; a question
+still open when its offer ends closes. The sender answers a claim and sends the name during
+combat too; a chat lockdown or quiet presence still holds it, and a claim that gets no name
+before the offer ends is reported in chat. Once the name arrives, the claimed player's invite
+command opens before older JOINs waiting in the queue, even over an ad's draft or a scanned
+player's whisper review.
+
 ### Public recruiting announcement
 
 In **Church → Invites**, turn **Recruiting** on, then select a joined public channel under

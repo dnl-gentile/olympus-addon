@@ -1842,8 +1842,9 @@ function Recruit.OnSystemLine(text)
 end
 
 -- `viaWhisper`: in the recruiting queue (Church > Invites), not the Census. `joinScreen`: sent from
--- the Join Olympus screen (a J3), in either one.
-local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen, sighting)
+-- the Join Olympus screen (a J3), in either one. `handed` (1.6.0): passed on by another member, whose
+-- line `text` is (Recruit.TakeHandoff).
+local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen, sighting, handed)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	-- (1.5.9) A player who declined this client's invite: only his own JOIN, which clears that first,
 	-- comes in; a reply to our whisper does not.
@@ -1887,7 +1888,8 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 		local line
 		if not viaWhisper then line = L.JOIN_ASKED:format(who, req.level or 0, className, own)
 		elseif joinScreen then line = L.JOIN_ASKED_INVITES:format(who, req.level or 0, className, own)
-		elseif sighting then line = ("%s: %s"):format(who, text)
+		-- (1.6.0: a claimed JOIN said "sent a recruiting reply... Open Invites", while his command opens.)
+		elseif sighting or handed then line = ("%s: %s"):format(who, text)
 		else line = L.RECRUIT_WHISPER_ASKED:format(who, own) end
 		ns.Print(line)
 	end
@@ -2002,7 +2004,7 @@ function Recruit.TakeHandoff(name, officer, sighting)
 	if not sighting and Recruit.Declined(name) then ClearDeclined(name) end
 	local copy = sighting and L.RECRUIT_HANDOFF_RECEIVED_SCAN or L.RECRUIT_HANDOFF_RECEIVED
 	local shown = copy:format(ns.DisplayName(officer) or officer)
-	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting)
+	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting, true)
 	if not accepted then return false end
 	req.handedIn, req.handedBy = true, officer
 	-- Only a player who asked to join can earn referral credit for the member who passed the request.
@@ -2372,12 +2374,22 @@ PromptReply = function()
 		if held then RetryReply(Recruit.AtInviteLimit() and InviteLimitWait() or 10) end
 	end
 	-- A player who explicitly claimed a handoff can review it during the optional interval.
+	-- (1.6.0) He comes first too: the member who passed him keeps him for this member alone, and his
+	-- command waited behind older JOINs whose popups had not opened yet.
 	local wait = Recruit.PopupWait()
+	local function Unshown(pending)
+		return pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
+			and (not H or not (H.State(pending) or H.Taken(pending)))
+	end
 	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and (not H or not (H.State(pending) or H.Taken(pending))) then
-			req = pending
-			if wait <= 0 or pending.handedIn then break end
+		if pending.handedIn and Unshown(pending) then req = pending; break end
+	end
+	if not req then
+		for _, pending in ipairs(Recruit.requests) do
+			if Unshown(pending) then
+				req = pending
+				if wait <= 0 then break end
+			end
 		end
 	end
 	if not req then return Later() end
@@ -2385,10 +2397,22 @@ PromptReply = function()
 	if not req.handedIn then gap = math.max(gap, wait) end
 	if gap > 0 then return RetryReply(gap) end
 	if Recruit.PopupsWait() then return RetryReply(2) end
+	-- (1.6.0) A claimed player's command opens over an ad's draft or a scanned player's whisper review
+	-- (RecruitHandoff's Claim question waits for both): with one of them up, 1.5.9 printed his name and
+	-- opened no command, and the name was typed by hand (a Horde recruiter's report of 11-14).
+	local over = false
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
-		if ns.Dialog.Find(id) then return RetryReply(2) end
+		if ns.Dialog.Find(id) then
+			if not (req.handedIn and (id == "OLYMPUS_RECRUIT_OUTREACH" or id == "OLYMPUS_RECRUIT_ANNOUNCEMENT")) then return RetryReply(2) end
+			over = true
+		end
 	end
-	for _, pending in ipairs(Recruit.requests) do
+	local order = {}
+	for _, pending in ipairs(Recruit.requests) do if pending.handedIn then order[#order + 1] = pending end end
+	if not over then
+		for _, pending in ipairs(Recruit.requests) do if not pending.handedIn then order[#order + 1] = pending end end
+	end
+	for _, pending in ipairs(order) do
 		if pending.viaWhisper and (wait <= 0 or pending.handedIn) and not pending.popupShown
 			and not pending.invitePrepared and not pending.passWanted and not (H and H.Taken(pending))
 			and CurrentRequest(pending) then
@@ -2402,6 +2426,8 @@ PromptReply = function()
 			end
 		end
 	end
+	-- (The others still wait for that popup, as before: looked at again in a moment.)
+	if over then return RetryReply(2) end
 	Later()
 end
 

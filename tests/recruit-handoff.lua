@@ -206,6 +206,10 @@ end)
 
 test("recruit overflow: an eligible recipient privately replies only while opted in and available", function()
 	WithHandoff(function(scene)
+		-- (Changed on purpose in 1.6.0: a yes now also means his screen can show the Claim question,
+		-- RecruitHandoff's CanAsk, and WithHandoff leaves ns.Dialog out. Every client has Olympus's
+		-- dialogs, Dialog.lua: here an empty screen. tests/recruit-handoff-sides.lua covers a busy one.)
+		ns.Dialog = Dialogs()
 		local function Probe(id)
 			return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
 		end
@@ -1383,6 +1387,9 @@ end)
 test("recruit overflow (review of 1.5.8): a member who takes no names says no to a probe at once", function()
 	WithHandoff(function(scene)
 		WithLog(function()
+			-- (Changed on purpose in 1.6.0, as in "an eligible recipient privately replies...": his yes asks
+			-- that his screen can show the Claim question; an empty screen of Olympus's dialogs here.)
+			ns.Dialog = Dialogs()
 			local function Probe(id)
 				return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
 			end

@@ -32,8 +32,11 @@ L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> found a player by scanning. Claim
 L.RECRUIT_HANDOFF_CLAIM_SCAN = "Claim scanned player from %s"
 L.RECRUIT_HANDOFF_WAITING_SCAN = "Waiting for scanned player from %s"
 L.RECRUIT_HANDOFF_RECEIVED_SCAN = "Player found by a scan and passed on by %s."
+-- 1.6.0: a claim that no name answered before the offer expired (RecruitHandoff.lua's Prune).
+L.RECRUIT_HANDOFF_NO_NAME = "No name came from %s before the offer expired; the player stays in their queue."
 
 if GetLocale and GetLocale() == "ptBR" then
+	L.RECRUIT_HANDOFF_NO_NAME = "Nenhum nome chegou de %s antes de a oferta expirar; o jogador continua na fila dele."
 	L.RECRUIT_INVITE_SELECT_COMMAND = "Clique no comando para selecioná-lo."
 	L.RECRUIT_HANDOFF_ARRIVED_SCAN = "%s <%s> está repassando um jogador encontrado na busca. Assuma para ver o nome."
 	L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN = "%s <%s> encontrou um jogador na busca. Assuma para revisar o convite."
