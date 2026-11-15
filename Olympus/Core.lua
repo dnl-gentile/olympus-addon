@@ -2099,7 +2099,8 @@ end
 local AGAINST = { anti = true, against = true, no = true, ["not"] = true, never = true, down = true,
 	death = true, kill = true, hate = true, hates = true, haters = true, destroy = true,
 	ruin = true, ruins = true, ruined = true, ruining = true, raze = true, burn = true, crush = true,
-	doom = true, wreck = true } -- "Ruin Olympus", "Ruins of Olympus", "Burn Olympus" (1.0.1)
+	doom = true, wreck = true, -- "Ruin Olympus", "Ruins of Olympus", "Burn Olympus" (1.0.1)
+	vs = true, versus = true, nor = true } -- (1.6.0, with the comparisons below) "Horde vs Olympus", "Not Horde Nor Olympus"
 local LINKS = { with = true, to = true, the = true, of = true }
 -- (1.5.4, the verifiers' ask: "Olympus is for Cucks" reached their list.) The insults that follow the
 -- name, straight or after a linking verb or preposition ("is", "for"), are against it too.
@@ -2111,8 +2112,74 @@ local AGAINST_AFTER = { haters = true, hater = true, sucks = true, sux = true, r
 local LINKS_AFTER = { ["in"] = true, of = true, on = true, to = true, the = true, is = true, are = true, ["for"] = true, was = true, be = true }
 local RUIN_AFTER = { ruin = true, ruins = true, ruined = true, ashes = true }
 
+-- (1.6.0) Nor is a guild that names Olympus only to measure itself against it, or to say it is not
+-- Olympus: a player asked twice (11-15) that a guild named like "Stronger Than Olympus" be taken out of
+-- the addon, and no word above took it ("than" is no insult). Olympus with a "than" anywhere before it
+-- ("Way Stronger Than Olympus", "Stronger Than The Olympus"; in "Olympus Stronger Than You" Olympus is
+-- the guild itself), or a comparative's "then" just before it, the usual slip ("Stronger Then Olympus");
+-- but "None Finer Than Olympus" praises it. "Not", "no", "never" and "non" with up to two words of
+-- degree, place or whose between ("Not Even Olympus", "Not Part of Olympus", "Not Your Olympus"); any
+-- other word between keeps it ours ("Do Not Anger Olympus", "No Mercy Olympus"). And either glued in
+-- front, as AntiOlympus is ("NotOlympus", "StrongerThanOlympus"; in "EthanOlympus" no comparative comes
+-- first). A guild of Asmon's Olympus named so still counts once the author's signed list names it.
+local PRAISE = { none = true, nothing = true, nobody = true, noone = true, naught = true, nought = true }
+local MORE = { more = true, less = true, worse = true, fewer = true } -- the comparatives without -er
+local DENY = { ["not"] = true, no = true, never = true, non = true }
+local DEGREE = { even = true, really = true, quite = true, yet = true, exactly = true, actually = true, truly = true,
+	officially = true, technically = true, totally = true, fully = true, so = true, very = true, just = true, like = true,
+	part = true, of = true, ["in"] = true, ["for"] = true, from = true, with = true, to = true, at = true, a = true, an = true,
+	the = true, my = true, your = true, ur = true, our = true, their = true }
+
+local function Comparative(w) return w ~= nil and (MORE[w] == true or (#w > 3 and w:sub(-2) == "er")) end
+
+-- What one word glues in front of an O-led Olympus word: "deny" (NotOlympus), "than"
+-- (StrongerThanOlympus, ThanOlympus), or nil.
+local function Glued(word)
+	for s = 2, #word - 4 do
+		if word:byte(s) == 111 then -- "o"
+			local front, rest = word:sub(1, s - 1), word:sub(s)
+			local c, vowel = front:match("^(%a-)th([ae])n$")
+			local kind = DENY[front] and "deny"
+				or (c and ((c == "" and vowel == "a") or (c ~= "" and Comparative(c))) and "than") or nil
+			if kind and (rest:find("olympus", 1, true) or OlympusWord(Sounds(rest))) then return kind end
+		end
+	end
+	return nil
+end
+
+-- Olympus as what the guild measures itself against: a "than" before it (or glued in front), or a
+-- comparative's "then" right before it (or before "the"); not when a "none" before makes it praise.
+local function Compared(words, i, glued)
+	local at = glued == "than" and i or nil
+	if not at then
+		for k = i - 1, 1, -1 do
+			local w = words[k]
+			if w == "than" or (w == "then" and Comparative(words[k - 1]) and (k == i - 1 or (k == i - 2 and LINKS[words[i - 1]]))) then
+				at = k
+				break
+			end
+		end
+	end
+	if not at then return false end
+	for j = 1, at - 1 do
+		if PRAISE[words[j]] then return false end
+	end
+	return true
+end
+
+-- "Not" and its kind before Olympus, straight or with up to two words of degree, place or whose between.
+local function Denied(words, i)
+	for k = i - 1, math.max(1, i - 3), -1 do
+		if DENY[words[k]] then return true end
+		if not DEGREE[words[k]] then return false end
+	end
+	return false
+end
+
 local function Against(words, i)
-	if words[i]:find("^anti") then return true end -- glued: AntiOlympus
+	local glued = Glued(words[i])
+	if words[i]:find("^anti") or glued == "deny" then return true end -- glued: AntiOlympus, NotOlympus (1.6.0)
+	if Compared(words, i, glued) or Denied(words, i) then return true end -- (1.6.0)
 	local before, before2 = words[i - 1], words[i - 2]
 	if before and AGAINST[before] then return true end
 	if before and LINKS[before] and before2 and AGAINST[before2] then return true end
