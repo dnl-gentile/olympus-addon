@@ -289,6 +289,44 @@ test("1.6.0 alt links: at most eight alts per player, also when a ninth was offe
 	eq(#w:As(main, main.Alts.MyGroup), 9, "the main and eight alts")
 end)
 
+test("1.6.0 alt links on a Forever ruleset: the main's claim names all eight alts on other sub-realms, those past one message plain, and another client links all eight; a claim that fits is as before", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local other = ForeverAlts(w, "Wren Hollow", FR3)
+	local names = { "Wynn Copperfield", "Wynn Ravenscroft", "Wynn Hollowmere", "Wynn Kettleburn", "Wynn Stonebridge",
+		"Wynn Ashworth", "Wynn Duskwater", "Wynn Millbrook" }
+	local full = {}
+	local function Claim()
+		w:Flush()
+		w:ClearSent()
+		eq(w:As(main, main.Alts.Send, true), true)
+		local sent = w:Sent(main, "AL", "CHANNEL")
+		w:Flush()
+		return sent[#sent].msg
+	end
+	for i, n in ipairs(names) do
+		local cl = ForeverAlts(w, n, i % 2 == 0 and FR3 or FR2, { db = db })
+		full[i] = cl.name
+		eq(w:As(main, main.Alts.Slash, "add " .. cl.name), true)
+		eq(w:As(cl, cl.Alts.Confirm, true), true)
+		if i == 3 then
+			-- Three fit with their sub-realms: the claim is the one every version reads, names and all.
+			local claim = Claim()
+			eq(claim:match("~([^~]*)$"), table.concat({ full[1], full[3], full[2] }, ","))
+		end
+	end
+	local claim = Claim()
+	eq(#claim <= 250, true, "one message")
+	local named = {}
+	for n in claim:match("~([^~]*)$"):gmatch("[^,]+") do named[#named + 1] = n end
+	eq(#named, 8, "every alt named: " .. claim)
+	for i, n in ipairs(full) do
+		local g = w:As(other, other.Alts.Group, n)
+		eq(g and g.main, main.name, "linked on another client: " .. names[i])
+	end
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

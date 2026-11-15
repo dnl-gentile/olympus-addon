@@ -219,13 +219,21 @@ local function LinkKey(name)
 	return ByPlain(links, name)
 end
 
--- The group a main's claim confirms: the main and each alt that names it back.
-local function GroupOfMain(main)
+-- The group a main's claim confirms: the main and each alt that names it back. (1.6.0) An alt the
+-- claim names plain (Wire, past one message's room with its sub-realm) is the one claim of our Forever
+-- family with that plain name (byPlain), never one of two.
+local function GroupOfMain(main, byPlain)
 	if not main or main.role ~= "M" or not OfOurGroup(main.name) then return nil end
 	local members = { { name = main.name, guild = main.guild } }
+	local seen = { [Key(main.name)] = true }
 	for _, alt in ipairs(main.links) do
 		local c = ClaimOf(alt)
-		if c and c.role == "A" and c.links[1] and Key(c.links[1]) == Key(main.name) and OfOurGroup(c.name) then
+		if not c and byPlain and InFamily(alt) then
+			local k = byPlain[Plain(alt)]
+			c = k and Claims()[k] or nil
+		end
+		if c and c.role == "A" and c.links[1] and Key(c.links[1]) == Key(main.name) and OfOurGroup(c.name) and not seen[Key(c.name)] then
+			seen[Key(c.name)] = true
 			members[#members + 1] = { name = c.name, guild = c.guild }
 		end
 	end
@@ -236,19 +244,23 @@ end
 -- Every confirmed group, rebuilt after any change (the census asks often).
 local function Groups()
 	if cache and cache.version == version and cache.rdb == ns.rdb and cache.db == ns.db and cache.group == ns.group and cache.realm == ns.realm then return cache end
-	local forever = type(ns.group) == "string" and ns.group:match("^Forever%a+$")
+	local forever = Family()
 	cache = { version = version, rdb = ns.rdb, db = ns.db, group = ns.group, realm = ns.realm, groups = {},
 		of = {}, short = forever and {} or nil }
-	local mains = {}
+	local mains, byPlain = {}, forever and {} or nil
 	for key, c in pairs(Claims()) do
 		if type(c) == "table" and c.role == "M" then mains[key] = true end
+		if byPlain and type(c) == "table" and c.role == "A" and type(c.name) == "string" and InFamily(c.name) then
+			local p = Plain(c.name)
+			if byPlain[p] == nil then byPlain[p] = key elseif byPlain[p] ~= key then byPlain[p] = false end
+		end
 	end
 	for _, e in pairs(Account().links) do
 		if type(e) == "table" then mains[Key(e.main)] = true end
 	end
 	for key in pairs(mains) do
 		local main = ClaimOf(key)
-		local g = main and GroupOfMain(main)
+		local g = main and GroupOfMain(main, byPlain)
 		if g then
 			cache.groups[#cache.groups + 1] = g
 			for _, m in ipairs(g.members) do
@@ -374,15 +386,27 @@ function Alts.Claim()
 	return "-", {}
 end
 
--- Names as they travel: short on our realm, Name-Realm otherwise; as many as fit.
+-- Names as they travel: short on our realm, Name-Realm otherwise; as many as fit. (1.6.0) On a Forever
+-- ruleset, when they do not all fit with their sub-realms, the last ones travel plain so that all fit:
+-- a 1.6.0 client finds each by that character's own claim (GroupOfMain); an older one links only the
+-- names that kept their sub-realm. Eight alts on other sub-realms left two out of the claim, linked
+-- nowhere but on the player's own account.
 local function Wire(at, role, guild, names)
 	local head = ("AL~%d~%s~%s~"):format(at, role, tostring(guild or ""):gsub("[~|%c]", ""))
+	local shown, plain = {}, {}
+	for i, n in ipairs(names) do
+		shown[i] = ns.RealmOf(n) == ns.realm and ns.ShortName(n) or n
+		plain[i] = InFamily(n) and ns.ShortName(n) or shown[i]
+	end
 	local parts, len = {}, #head
-	for _, n in ipairs(names) do
-		local shown = ns.RealmOf(n) == ns.realm and ns.ShortName(n) or n
-		if len + #shown + 1 > 250 then break end
-		parts[#parts + 1] = shown
-		len = len + #shown + 1
+	for i = 1, #names do
+		local rest = 0
+		for j = i + 1, #names do rest = rest + #plain[j] + 1 end
+		local s = shown[i]
+		if len + #s + 1 + rest > 250 then s = plain[i] end
+		if len + #s + 1 > 250 then break end
+		parts[#parts + 1] = s
+		len = len + #s + 1
 	end
 	return head .. table.concat(parts, ",")
 end
