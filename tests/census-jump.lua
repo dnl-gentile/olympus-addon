@@ -182,6 +182,103 @@ test("1.6.0 census jump: newer census data still ends the saved count: a complet
 	eq(s.snapshot, nil); eq(here, 3202 - gone.total, "the silent guild is out"); eq(all, 3202 - gone.total)
 end)
 
+-- The header's words for it: the all-server total says the date of its oldest count past a day, and the
+-- saved count says why it still stands.
+test("1.6.0 census jump: the header dates an all-server total resting on a count over a day old and says the saved count stays because nothing newer arrived; a fresh total says neither", function()
+	extra.WithUI(function()
+		local UI = extra.LoadUI()
+		local w = World("1.6.0")
+		Live({ w })
+		local saved = { groups = ns.Data.Groups, rebuilding = ns.Data.Rebuilding, group = ns.group }
+		local ok, err = pcall(function()
+			ns.group = "ForeverPvE"
+			ns.Data.Groups, ns.Data.Rebuilding = w.D.Groups, function() return nil end
+			local s = w.D.Summary()
+			local h = UI.CensusHeader(s, w.clock)
+			local F = ns.FormatNumber
+			eq(h.characters, 3202)
+			eq(h.secondary, ns.L.CENSUS_HEADER_ALL_OLD:format(F(8726), date("%m/%d", OLDEST)))
+			eq(h.allNote, ns.L.CENSUS_HEADER_ALL_OLD_TIP:format(date("%m/%d %H:%M", OLDEST)))
+			eq(h.sub, ns.L.CENSUS_STATS_KIND_PVE .. " · " .. ns.L.CENSUS_HEADER_SAVED:format(date("%m/%d %H:%M", OLDEST), F(380), 1))
+			eq(h.note, ns.L.CENSUS_HEADER_SAVED_TIP:format(date("%m/%d %H:%M", OLDEST)) .. " " .. ns.L.CENSUS_HEADER_QUIET_TIP)
+			-- The census reaches the client again: a live count and a fresh total, no date, no note.
+			w.clock = T0 + 24 * HOUR
+			assert(w.D.ReceiveGlobalCensus("CHANNEL", RELAY, Snapshot(w.clock, Rows(w.clock - 60, 2))))
+			assert(w.D.ReceiveGroupCensus("CHANNEL", RELAY, PvPLook(w)))
+			h = UI.CensusHeader(w.D.Summary(), w.clock)
+			eq(h.characters, 3262); eq(h.secondary, ns.L.CENSUS_HEADER_ALL:format(F(3262 + 5524)))
+			eq(h.allNote, nil); eq(h.note, nil)
+		end)
+		ns.Data.Groups, ns.Data.Rebuilding, ns.group = saved.groups, saved.rebuilding, saved.group
+		if not ok then error(err, 0) end
+	end)
+end)
+
+-- The census page (CensusStats.ServerLines) under the all-server totals: beside "Other servers as of",
+-- this server's date while its count is the saved one.
+test("1.6.0 census jump: the census page dates this server's saved count under the all-server totals, beside the other servers' date; a live count has no such line", function()
+	assert(loadfile(ROOT .. "Olympus/Locales/CensusStatsText.lua"))("Olympus", ns) -- (the page's words)
+	local w = World("1.6.0")
+	Live({ w })
+	local cns = setmetatable({ rdb = {}, Data = w.D, Now = function() return w.clock end,
+		Comm = { loginAt = T0 - HOUR, Send = function() end, SendChunked = function() end },
+		On = function() end, Every = function() end }, { __index = ns })
+	assert(loadfile(ROOT .. "Olympus/CensusStats.lua"))("Olympus", cns)
+	local function Bare(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+	local function Lines()
+		local lines = {}
+		cns.CensusStats.ServerLines(lines, w.D.Summary(), w.clock)
+		local texts = {}
+		for i, line in ipairs(lines) do texts[Bare(line.text)] = i end
+		return lines, texts
+	end
+	local L = ns.L
+	local lines, texts = Lines()
+	local here = L.CENSUS_STATS_HERE_AS_OF:format(date("%Y-%m-%d %H:%M", OLDEST))
+	local other = L.CENSUS_STATS_SERVERS_AS_OF:format(date("%Y-%m-%d %H:%M", T0 + 21 * HOUR))
+	assert(texts[here], "this server's date: " .. here)
+	eq(texts[here], texts[other] + 1, "right under the other servers' date")
+	local tip = {}
+	lines[texts[here]].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+	eq(tip[2], L.CENSUS_STATS_HERE_AS_OF_TIP)
+	w.clock = T0 + 24 * HOUR
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", RELAY, Snapshot(w.clock, Rows(w.clock - 60, 2))))
+	lines, texts = Lines()
+	local prefix = L.CENSUS_STATS_HERE_AS_OF:match("^(.-)%%s")
+	for text in pairs(texts) do assert(not text:find(prefix, 1, true), "no date for a live count: " .. text) end
+end)
+
+-- The new words in every language the addon speaks, each as the game loads it: translated, their %s
+-- kept, Russian without the long dash.
+test("1.6.0 census jump: the header's and the page's new lines in every language", function()
+	local KEYS = { "CENSUS_HEADER_ALL_OLD", "CENSUS_HEADER_ALL_OLD_TIP", "CENSUS_HEADER_QUIET_TIP", "CENSUS_STATS_HERE_AS_OF", "CENSUS_STATS_HERE_AS_OF_TIP" }
+	local function Load(code)
+		local lns, saved = {}, GetLocale
+		GetLocale = function() return code end
+		local ok, err = pcall(function()
+			assert(loadfile(ROOT .. "Olympus/Locales.lua"))("Olympus", lns)
+			assert(loadfile(ROOT .. "Olympus/Locales/CensusStatsText.lua"))("Olympus", lns)
+			if code ~= "enUS" and code ~= "ptBR" then assert(loadfile(ROOT .. "Olympus/Locales/" .. code .. ".lua"))("Olympus", lns) end
+		end)
+		GetLocale = saved
+		if not ok then error(err, 0) end
+		return lns.L
+	end
+	local en = Load("enUS")
+	local function Formats(s) return select(2, s:gsub("%%s", "")) end
+	for _, key in ipairs(KEYS) do assert(type(en[key]) == "string" and en[key] ~= "", "English " .. key) end
+	for _, code in ipairs({ "ptBR", "deDE", "esES", "frFR", "itIT", "ruRU" }) do
+		local L = Load(code)
+		for _, key in ipairs(KEYS) do
+			local text = L[key]
+			assert(type(text) == "string" and text ~= en[key], code .. " translates " .. key)
+			eq(Formats(text), Formats(en[key]), code .. " " .. key .. " keeps its %s")
+			if code == "ruRU" then eq(text:find("\226\128\148", 1, true), nil, "ruRU " .. key .. " without the long dash") end
+		end
+		assert(#L.CENSUS_HEADER_ALL_OLD:format("12,345", "11/15") <= 44 * (code == "ruRU" and 2 or 1), code .. ": the header's number stays short")
+	end
+end)
+
 -- The jump's census as clients of three releases live it side by side, hearing the same words: the relay's
 -- snapshot, an older one, a day of nothing new, the other ruleset's count, then the relay's newer view.
 -- Then three councillors (one per release) take their own look of PvE to PvP, where listeners of each

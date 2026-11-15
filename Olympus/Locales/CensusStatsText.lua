@@ -46,6 +46,9 @@ L.CENSUS_STATS_ALL_PEOPLE = "People, every server"
 -- (1.5.9) The date of the oldest other server's count in the totals (CensusStats.ServerLines).
 L.CENSUS_STATS_SERVERS_AS_OF = "Other servers as of %s"
 L.CENSUS_STATS_SERVERS_AS_OF_TIP = "The date of the oldest count of another server in these totals. A server's last count stays in them until a newer one arrives."
+-- (1.6.0) This server's saved count in the totals, when it is the one shown (CensusStats.ServerLines).
+L.CENSUS_STATS_HERE_AS_OF = "This server as of %s"
+L.CENSUS_STATS_HERE_AS_OF_TIP = "Your addon's last full count of this server. It stays in these totals until newer census reports reach you."
 L.CENSUS_STATS_APPROX = "~%s"
 L.CENSUS_STATS_BY_KIND = "By ruleset"
 L.CENSUS_STATS_BY_REGION = "By region"
@@ -179,6 +182,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CENSUS_STATS_ALL_PEOPLE = "Pessoas, todos os servidores"
 	L.CENSUS_STATS_SERVERS_AS_OF = "Outros servidores, registro de %s"
 	L.CENSUS_STATS_SERVERS_AS_OF_TIP = "A data do registro mais antigo de outro servidor nestes totais. O último registro de um servidor fica neles até chegar um mais novo."
+	L.CENSUS_STATS_HERE_AS_OF = "Este servidor, registro de %s"
+	L.CENSUS_STATS_HERE_AS_OF_TIP = "A última contagem completa deste servidor feita pelo seu addon. Ela fica nestes totais até chegarem relatos mais novos do censo."
 	L.CENSUS_STATS_APPROX = "~%s"
 	L.CENSUS_STATS_BY_KIND = "Por tipo de reino"
 	L.CENSUS_STATS_BY_REGION = "Por região"
