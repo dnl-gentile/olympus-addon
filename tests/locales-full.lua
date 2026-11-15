@@ -283,3 +283,20 @@ test("languages (1.6.0): the ad reminder's Less often, Turn off and where to tur
 		end
 	end
 end)
+
+-- Fails before: the time between automatic recruiting pop-ups (Church > Invites, added for 1.6.0) and
+-- its choices were English in the five language files.
+local POPUP_GAP = { "RECRUIT_POPUP_GAP_TITLE", "RECRUIT_POPUP_GAP_DEFAULT", "RECRUIT_POPUP_GAP_HOURS", "RECRUIT_POPUP_GAP_DAILY" }
+test("languages (1.6.0, regression): the time between automatic recruiting pop-ups in every language, short enough for its menu", function()
+	for code, file in pairs(LANGS) do
+		local L = Load(code).L
+		for _, k in ipairs(POPUP_GAP) do
+			assert(type(rawget(english.L, k)) == "string", "English " .. k)
+			assert(L[k] ~= english.L[k], file .. " " .. k .. ": its own words")
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), file .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, file .. " " .. k .. ": no em dash")
+		end
+		assert(Chars(L.RECRUIT_POPUP_GAP_TITLE) <= Chars(english.L.RECRUIT_POPUP_GAP_TITLE) + 2,
+			file .. ": the menu's label no longer than the English one's: " .. L.RECRUIT_POPUP_GAP_TITLE)
+	end
+end)
