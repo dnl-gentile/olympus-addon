@@ -186,6 +186,47 @@ test("1.1.6 Church: linked invite attribution prefers the main over a duplicate 
 	eq(StateOf(w, c.a1, "Shared Recruit", c.m1.name), "credited")
 end)
 
+-- (1.6.0) The guild log gives hours ago, so two reads of one invite can name hours an hour apart: a row
+-- kept under a linked alt who is a missionary himself (by a keeper before 1.6.0, or before the link
+-- reached it) and the main's own row of the same invite then differ by that hour.
+test("1.6.0 Church: an invite kept under a linked missionary alt and again under the main, its hours an hour apart, counts for the main", function()
+	local w, c = Cast()
+	local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+	Join(w, World.GUILD, "Skew Recruit")
+	local function Report(ti, tj)
+		return ("NV~1~w~Mira Wells~Skew Recruit-Realm~%s~%s~%s"):format(World.GUILD, B36(ti), B36(tj))
+	end
+	-- Before the link: Mira's own row, a missionary's, the earlier read's hours.
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(hour - 2, hour - 1)), true)
+	eq(StateOf(w, c.a1, "Skew Recruit", "Mira Wells"), "credited")
+	-- Mira is Aldric's alt (both claims heard): a later read, an hour on, is the Apostle's own row.
+	local revision = 1
+	c.a1.ns.Alts.Group = function(name)
+		if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+	end
+	c.a1.ns.Alts.Version = function() return revision end
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(hour - 1, hour)), true)
+	eq(StateOf(w, c.a1, "Skew Recruit", A1), "credited", "the main's row wins, whichever read came first")
+	eq(StateOf(w, c.a1, "Skew Recruit", "Mira Wells"), "taken")
+	eq(w:As(c.a1, c.a1.Count.Own, Key(A1), "a").joins, 1)
+	eq(w:As(c.a1, c.a1.Count.Own, Key("Mira Wells"), "a").joins, 0, "the missionary's row scores nothing")
+	-- Two hours apart is another invite as the log tells them: the earlier claim, as before.
+	c.a1.ns.Alts.Group = function() return nil end
+	revision = revision + 1
+	Join(w, World.GUILD, "Far Recruit")
+	local function Far(ti, tj)
+		return ("NV~1~w~Mira Wells~Far Recruit-Realm~%s~%s~%s"):format(World.GUILD, B36(ti), B36(tj))
+	end
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Far(hour - 4, hour - 3)), true)
+	c.a1.ns.Alts.Group = function(name)
+		if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+	end
+	revision = revision + 1
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Far(hour - 2, hour - 1)), true)
+	eq(StateOf(w, c.a1, "Far Recruit", "Mira Wells"), "credited", "the earlier row of two invites")
+	eq(StateOf(w, c.a1, "Far Recruit", A1), "taken")
+end)
+
 test("1.1.6 Church: linked invite attribution resolves a confirmed alt from another Forever sub-realm", function()
 	local w, c = Cast()
 	local keeper = c.a1

@@ -1440,6 +1440,10 @@ local function Confirmed(r) return r.ws ~= nil and #r.ws > 0 end
 -- Legacy keepers may report the same invite under the alt's name. Compare those two claims under
 -- the main's id, then prefer the row already recorded against the main. Giving both rows the
 -- same tie key keeps the comparison consistent even if a third recruiter also claims the join.
+-- (1.6.0) The guild log gives hours ago, so two reads of one invite can name hours an hour apart
+-- (Count.Events, SeenEvent): a row kept under a missionary alt before its link was heard, an hour
+-- earlier than the main's own, took the recruit from the main on every keeper that knew the link.
+local function Near(a, b) return a ~= nil and b ~= nil and math.abs(a - b) <= 3600 end
 local function ClaimTie(id, r, recs, mains)
 	if r.kind ~= "i" or not r.tj or not r.g or not Confirmed(r) then return id end
 	local main = mains[r.bn]
@@ -1452,19 +1456,23 @@ local function ClaimTie(id, r, recs, mains)
 	local candidate = recs[key]
 	if candidate and candidate.kind == "i" and Confirmed(candidate)
 		and not (candidate.x or candidate.t or candidate.a)
-		and r.tc == candidate.tc and r.tj == candidate.tj and r.g == candidate.g then
+		and Near(r.tc, candidate.tc) and Near(r.tj, candidate.tj) and r.g == candidate.g then
 		return key
 	end
 	return id
 end
 
--- A confirmed claim wins, then the earliest. Equal times use the claim tie keys.
-local function Before(id, r, bid, b, ties)
+-- A confirmed claim wins, then the earliest. Equal times use the claim tie keys. (1.6.0) A row tied to
+-- the main's own (ClaimTie) is weighed as that row, whose own place it never takes: the two always
+-- stand alike against a third claim, whichever order the ledger lists them in.
+local function Before(id, r, bid, b, ties, recs)
+	local tie, btie = ties[id] or id, ties[bid] or bid
+	if tie ~= id and recs[tie] then r = recs[tie] end
+	if btie ~= bid and recs[btie] then b = recs[btie] end
 	local conf, bconf = Confirmed(r), Confirmed(b)
 	if conf ~= bconf then return conf end
 	local at, bat = r.tc or 0, b.tc or 0
 	if at ~= bat then return at < bat end
-	local tie, btie = ties[id] or id, ties[bid] or bid
 	if tie ~= btie then return tie < btie end
 	return id == tie and bid ~= btie
 end
@@ -1514,7 +1522,7 @@ function Count.Credits()
 				end
 				if G[xc] ~= nil then state = "taken"
 				elseif not bid then winners[xc] = id
-				elseif Before(id, r, bid, recs[bid], ties) then states[bid], winners[xc] = "taken", id
+				elseif Before(id, r, bid, recs[bid], ties, recs) then states[bid], winners[xc] = "taken", id
 				else state = "taken" end
 			end
 			states[id] = state
