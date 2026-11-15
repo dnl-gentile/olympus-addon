@@ -279,6 +279,27 @@ test("1.6.0 census jump: the header's and the page's new lines in every language
 	end
 end)
 
+-- /oly bug's compact census line (Diagnostics.lua's CensusBriefLine): the 11-15 report could not tell a
+-- saved count from a live one. Ours says "saved" and its age when it is the saved count.
+test("1.6.0 census jump: /oly bug's census brief says when this server's count is the saved one, and how old; a live count as before", function()
+	local w = World("1.6.0")
+	Live({ w })
+	local saved = { groups = ns.Data.Groups, now = ns.Now, group = ns.group }
+	local ok, err = pcall(function()
+		ns.group = "ForeverPvE"
+		ns.Data.Groups, ns.Now = function() return w.D.Groups(w.D.Summary(), w.clock) end, function() return w.clock end
+		local brief = ns.StatusText():match("census brief: [^\n]+")
+		assert(brief and brief:find("; ForeverPvE here saved 43h 3202;", 1, true), "ours, saved, 43 hours old: " .. tostring(brief))
+		assert(brief:find("all 8726 chars", 1, true), brief)
+		w.clock = T0 + 24 * HOUR
+		assert(w.D.ReceiveGlobalCensus("CHANNEL", RELAY, Snapshot(w.clock, Rows(w.clock - 60, 2))))
+		brief = ns.StatusText():match("census brief: [^\n]+")
+		assert(brief:find("; ForeverPvE here 3262;", 1, true), "ours live: " .. brief)
+	end)
+	ns.Data.Groups, ns.Now, ns.group = saved.groups, saved.now, saved.group
+	if not ok then error(err, 0) end
+end)
+
 -- The jump's census as clients of three releases live it side by side, hearing the same words: the relay's
 -- snapshot, an older one, a day of nothing new, the other ruleset's count, then the relay's newer view.
 -- Then three councillors (one per release) take their own look of PvE to PvP, where listeners of each
