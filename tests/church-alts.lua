@@ -289,6 +289,93 @@ test("1.6.0 Church alts: eight alts with long names, all on other sub-realms: th
 	eq(CountLinked(w, dara, alts), realms, "1.5.9: the names with their sub-realm")
 end)
 
+-- The groups a client holds (Alts.StatusLine's count) and the claims it keeps, by key.
+local function GroupsOn(w, k) return tonumber((w:As(k, k.Alts.StatusLine)):match("^(%d+) players linked here")) end
+local function ClaimKeys(k)
+	local list = {}
+	for key in pairs(k.ns.rdb.altClaims or {}) do list[#list + 1] = key end
+	table.sort(list)
+	return table.concat(list, ",")
+end
+
+-- WoW: Forever stamps a guildmate's word over GUILD with the reader's own sub-realm (World.New's stamp:
+-- Comm.PeerRealm, Layers.lua, measured), and a Church group's claims go over GUILD too (Alts.Send). Filed
+-- under that stamp, each guild copy was a second claimant beside the claim's channel copy at a guildmate
+-- on another sub-realm: a phantom group of the main and the alts that share his sub-realm (the census's
+-- total one short for each of them in the guild, Alts.Duplicates), none found by a plain name from the
+-- guild log (GroupByGuildName), and the plain names of an overflowing claim each matched two claims, so a
+-- keeper there linked five alts of eight. Fails before: two groups, four duplicates, 5 of 8.
+test("1.6.0 Church alts: a Church group's claims over GUILD, stamped with each reader's own sub-realm, are filed under the sub-realm each hello named: one group counted once at guildmates on other sub-realms, all eight of an overflowing claim linked; a guild copy whose hello is not heard is left to the other routes", function()
+	-- Corvin and Ardo Flint on Realm1, Ardo Gale on Realm2, Ardo Crest on Realm3, all in Olympus Ember; there
+	-- Eda (a keeper) and Wren on Realm2, Tobin on Realm3.
+	local w = World.New({ apostles = { MAIN, "Eda Marsh-" .. R2 }, stamp = true })
+	local eda = MakeClient(w, "Eda Marsh-" .. R2, { guild = G1 })
+	local wren = MakeClient(w, "Wren Hollow-" .. R2, { guild = G1 })
+	local tobin = MakeClient(w, "Tobin Reed-" .. R3, { guild = G1 })
+	local acct = NewAccount()
+	local three = { A.flint, A.gale, A.crest }
+	AddChar(w, acct, MAIN, G1, 0)
+	for _, a in ipairs(three) do AddChar(w, acct, a, G1) end
+	w:Run(60)
+	w:Presence()
+	local sm = Login(w, acct, MAIN)
+	for _, a in ipairs(three) do Slash(w, sm, "add " .. Plain(a)) end
+	for _, a in ipairs(three) do Confirm(w, acct, a) end
+	sm = Login(w, acct, MAIN)
+	w:Run(61)
+	Logout(w, acct)
+	w:Run(30)
+	local want = { MAIN:lower(), A.crest:lower(), A.flint:lower(), A.gale:lower() }
+	table.sort(want)
+	want = table.concat(want, ",")
+	for _, k in ipairs({ eda, wren, tobin }) do
+		eq(ClaimKeys(k), want, "each claim under its own sub-realm, on " .. k.name)
+		eq(GroupsOn(w, k), 1, "one group on " .. k.name)
+		eq(w:As(k, k.Alts.Duplicates, { [G1:lower()] = true }), 3, "four characters in Olympus Ember, one player, on " .. k.name)
+		for _, name in ipairs({ "Ardo Flint", "Ardo Gale", "Ardo Crest", Plain(MAIN) }) do
+			local g = w:As(k, k.Alts.GroupByGuildName, name)
+			eq(g and g.main, MAIN, name .. " by the guild log's plain name, on " .. k.name)
+		end
+	end
+	-- A guild copy from a guildmate whose hello this client has not heard: nowhere to file it, left to the
+	-- channel's copy (here lost: Forever's relays at their worst) and to his next guild copy, once his hello
+	-- is heard. Ula joins Olympus Ember on Realm3 with no claim kept.
+	local ula = MakeClient(w, "Ula Fenn-" .. R3, { guild = G1 })
+	w.lost = { AL = true }
+	w.noHello = { [Key(A.flint)] = true }
+	local flint = Login(w, acct, A.flint)
+	w:Run(61)
+	eq(LastClaim(w, flint):match("^AL~%d+~(%u)~"), "A", "its claim went out")
+	eq(ClaimKeys(ula), "", "nothing filed under the reader's own sub-realm")
+	w.noHello = nil
+	w:As(flint, flint.Alts.Send, true)
+	w:Run(1)
+	eq(ClaimKeys(ula), A.flint:lower(), "his next guild copy, under the sub-realm his hello named")
+
+	-- An overflowing claim: eight alts with long names on Realm3, four of them in Eda's guild, the main in
+	-- Olympus Vale. Its last four names travel plain (Wire); each is found by that alt's one claim.
+	local w2 = World.New({ apostles = { MAIN, "Eda Marsh-" .. R2 }, stamp = true })
+	local eda2 = MakeClient(w2, "Eda Marsh-" .. R2, { guild = G1 })
+	local acct2 = NewAccount()
+	AddChar(w2, acct2, MAIN, G2, 0)
+	local alts = { "Wynn Copperfield-" .. R3, "Wynn Ravenscroft-" .. R3, "Wynn Hollowmere-" .. R3, "Wynn Kettleburn-" .. R3,
+		"Wynn Stonebridge-" .. R3, "Wynn Ashworth-" .. R3, "Wynn Duskwater-" .. R3, "Wynn Millbrook-" .. R3 }
+	for i, a in ipairs(alts) do AddChar(w2, acct2, a, i % 2 == 0 and G1 or "Olympus Ironwood Keep") end
+	w2:Run(60)
+	local sm2 = Login(w2, acct2, MAIN)
+	for _, a in ipairs(alts) do Slash(w2, sm2, "add " .. Plain(a)) end
+	for _, a in ipairs(alts) do Confirm(w2, acct2, a) end
+	sm2 = Login(w2, acct2, MAIN)
+	w2:Run(61)
+	local named = Named(LastClaim(w2, sm2))
+	local plain = 0
+	for _, n in ipairs(named) do if not n:find("-", 1, true) then plain = plain + 1 end end
+	eq(#named, 8)
+	eq(plain > 0, true, "some names plain")
+	eq(CountLinked(w2, eda2, alts), 8, "all eight linked at a keeper on another sub-realm")
+	eq(GroupsOn(w2, eda2), 1)
+end)
+
 ---------------------------------------------------------------------------
 -- The credit: an Apostle main, keepers of both versions, witnesses in three guilds
 ---------------------------------------------------------------------------

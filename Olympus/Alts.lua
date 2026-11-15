@@ -13,7 +13,8 @@ local L = ns.L
 --     AL~<time of the account's last change>~<M|A|->~<its guild>~<its alts (M) | its main (A)>
 --   A link counts on a client only when both characters said it: the main naming the alt, and the
 --   alt naming the main. A name another player claims alone links nothing. (1.6.0) On a Forever
---   ruleset an Apostle's or Missionary's group says it over GUILD and to the keepers online too.
+--   ruleset an Apostle's or Missionary's group says it over GUILD and to the keepers online too
+--   (over GUILD the stamp carries the reader's own sub-realm: the sender's is his hello's).
 -- - The census counts people: the army's total leaves out every linked character past the first
 --   of its player's in a guild the total counts (Data.Summary). The treasury's ranking and its
 --   week's donors put a player's characters on one line, under the main's name (Treasury.Report).
@@ -39,7 +40,7 @@ Alts.MAX_CLAIMS = 5000       -- claims kept (the oldest unfrozen goes first)
 Alts.DATE_AHEAD = 60         -- a claim dated further ahead of the server's clock is not taken
 Alts.ASK_AFTER = 15          -- the alt's confirmation is asked this long after login (not in combat)
 
-local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0, guild = 0, keepers = 0 }
+local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0, guild = 0, keepers = 0, unplaced = 0 }
 local version = 0            -- bumped on every change of a claim or of this account's links
 local cache                  -- { version, groups = { { main, members = { { name, guild } } } }, of = { [key] = group } }
 local lastSent = -math.huge
@@ -448,7 +449,8 @@ end
 -- Apostle or Missionary main (ChurchCount), and the trickle passes few of a busy evening's words. So
 -- there such a group's claims also go to the claimant's own guild over GUILD, with each channel claim,
 -- and by whisper to every keeper this client hears online (Church.KeepersOnline): each new claim within
--- the minute's round, and each again every EVERY. Every route's sender is the server's stamp.
+-- the minute's round, and each again every EVERY. Every route's sender is the server's stamp (over GUILD
+-- with the reader's own sub-realm: the receiver takes his hello's, Alts.Handle).
 local toldKeepers = {} -- keeper key -> { at = the claim's revision told, t = when }
 local function ChurchGroup(role, names)
 	local C = ns.Church
@@ -514,12 +516,27 @@ end
 
 -- (1.6.0) On a Forever ruleset a claim also comes over GUILD and by whisper (Alts.Send): its sender
 -- is the server's stamp there too, its own character's word. Elsewhere the channel's alone, as before.
+-- Over GUILD the server stamps a guildmate with the READER's own sub-realm, never his (Comm.PeerRealm,
+-- Layers.lua), so there his sub-realm is the one his hello named. Taken under the stamp, a guild copy was
+-- a second claimant beside the claim's channel copy at every guildmate on another sub-realm: a phantom
+-- group of the main and the alts on his sub-realm (Duplicates took one character too many from the
+-- census's total for each of them), none found by a plain name (GroupByGuildName), and an overflowing
+-- claim's plain names each matched two claims (GroupOfMain linked five alts of eight). A guild copy from a
+-- guildmate whose hello is not heard yet (every client repeats it within ten minutes, Comm.Hello), or
+-- whose hello names no sub-realm of ours, is left to the other routes and to his next copy (every EVERY).
 function Alts.Handle(dist, sender, text)
-	if dist ~= "CHANNEL" and not (Family() and (dist == "GUILD" or dist == "WHISPER")) then return end
+	local family = Family()
+	if dist ~= "CHANNEL" and not (family and (dist == "GUILD" or dist == "WHISPER")) then return end
 	local at, role, guild, list = tostring(text):match("^AL~(%d+)~([MA%-])~([^~]*)~?(.*)$")
 	at = tonumber(at)
 	if not at then return end
 	sender = ns.FullName(sender)
+	if dist == "GUILD" then
+		local C = ns.Comm
+		local own = type(C) == "table" and type(C.PeerRealm) == "function" and C.PeerRealm(sender) or nil
+		if type(own) ~= "string" or own == "" or ns.GroupOf(own) ~= family then stats.unplaced = stats.unplaced + 1 return end
+		sender = ns.FullName(ns.ShortName(sender), own)
+	end
 	local key = Key(sender)
 	-- This account's own characters: its saved links say it better.
 	if AccountMain(sender) then return end
