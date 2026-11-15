@@ -256,3 +256,47 @@ test("languages (1.5.9, regression): the recruiting handoffs' lines in every lan
 		assert(L.RECRUIT_HANDOFF_PASSING:find(L.CHURCH_NAV_INVITES, 1, true), file .. ": Church > Invites named as its tab is")
 	end
 end)
+
+-- 1.6.0 (players' reports on 1.5.9: the ad popup came too often and said nothing of how to stop it):
+-- the ad reminder's popup, its Less often and Turn off and the line under its Post line, and the chat
+-- lines after them, in every language: its own words, the English codes, Church > Invites named as
+-- that language's tabs are, buttons short enough for the popup, and (Russian) no em dash.
+local AD_REMINDER = { "RECRUIT_ANNOUNCE_LESS", "RECRUIT_ANNOUNCE_TURN_OFF", "RECRUIT_ANNOUNCE_REMINDER_NOTE",
+	"RECRUIT_ANNOUNCE_REMINDER_SLOWER", "RECRUIT_ANNOUNCE_REMINDER_STOPPED" }
+test("languages (1.6.0): the ad reminder's Less often, Turn off and where to turn it back on, in every language", function()
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Load(code).L
+		for _, k in ipairs(AD_REMINDER) do
+			-- (rawget: a missing line reads as its own key, Locales.lua's L.)
+			assert(type(rawget(english.L, k)) == "string" and english.L[k] ~= "", "English " .. k)
+			assert(type(rawget(L, k)) == "string" and L[k] ~= "", code .. " " .. k)
+			if code ~= "enUS" then assert(L[k] ~= english.L[k], code .. " " .. k .. ": its own words") end
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), code .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, code .. " " .. k .. ": no em dash")
+		end
+		for _, k in ipairs({ "RECRUIT_ANNOUNCE_REMINDER_NOTE", "RECRUIT_ANNOUNCE_REMINDER_SLOWER", "RECRUIT_ANNOUNCE_REMINDER_STOPPED" }) do
+			assert(L[k]:find(L.TAB_CHURCH, 1, true) and L[k]:find(L.CHURCH_NAV_INVITES, 1, true),
+				code .. " " .. k .. ": Church > Invites named as its tabs are")
+		end
+		for _, k in ipairs({ "RECRUIT_ANNOUNCE_LESS", "RECRUIT_ANNOUNCE_TURN_OFF" }) do
+			assert(Chars(L[k]) <= 16, ("%s %s: a button of %d characters: %s"):format(code, k, Chars(L[k]), L[k]))
+		end
+	end
+end)
+
+-- Fails before: the time between automatic recruiting pop-ups (Church > Invites, added for 1.6.0) and
+-- its choices were English in the five language files.
+local POPUP_GAP = { "RECRUIT_POPUP_GAP_TITLE", "RECRUIT_POPUP_GAP_DEFAULT", "RECRUIT_POPUP_GAP_HOURS", "RECRUIT_POPUP_GAP_DAILY" }
+test("languages (1.6.0, regression): the time between automatic recruiting pop-ups in every language, short enough for its menu", function()
+	for code, file in pairs(LANGS) do
+		local L = Load(code).L
+		for _, k in ipairs(POPUP_GAP) do
+			assert(type(rawget(english.L, k)) == "string", "English " .. k)
+			assert(L[k] ~= english.L[k], file .. " " .. k .. ": its own words")
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), file .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, file .. " " .. k .. ": no em dash")
+		end
+		assert(Chars(L.RECRUIT_POPUP_GAP_TITLE) <= Chars(english.L.RECRUIT_POPUP_GAP_TITLE) + 2,
+			file .. ": the menu's label no longer than the English one's: " .. L.RECRUIT_POPUP_GAP_TITLE)
+	end
+end)

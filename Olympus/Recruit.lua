@@ -1168,7 +1168,13 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 
 -- Check the joined channel when preparing the draft and again on an explicit Post click.
 local reminderIndex, reminderTimer, announcementVariant = 1, nil, 0
-local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30 }
+-- 1.6.0 (players' reports on 1.5.9: the popup asking to post the ad in General came every few
+-- minutes, nothing on it said how to slow it down or stop it, and some uninstalled): 60 and 120
+-- minutes too, for the popup's Less often. The shorter ones stay for whoever chose them.
+local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30, 60, 120 }
+-- The interval the Census offer turns the ads on with (Views.RECRUIT_AD_MINUTES; 5 in 1.5.8 and
+-- 1.5.9), and the least the popup's Less often gives.
+Recruit.AD_MINUTES = 30
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement
@@ -1287,6 +1293,25 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 	end
 end
 
+-- 1.6.0: the reminder's own draft says how often it opens and where that is set, under its Less often
+-- and Turn off (the popup's text, after the Post line); "" for an ad the player opened himself.
+local function ReminderNote(reminder)
+	local minutes = REMINDER_MINUTES[reminderIndex] or 0
+	if not reminder or minutes <= 0 then return "" end
+	return "\n\n" .. L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(minutes)
+end
+
+-- The interval the popup's Less often sets: twice this one at least, and Recruit.AD_MINUTES at least,
+-- as the reminder's menu lists them; nil at the longest (the button is not shown then).
+local function LongerReminder()
+	local minutes = REMINDER_MINUTES[reminderIndex] or 0
+	if minutes <= 0 then return nil end
+	local least = math.max(minutes * 2, Recruit.AD_MINUTES)
+	for index, m in ipairs(REMINDER_MINUTES) do
+		if m >= least then return index end
+	end
+end
+
 local function CopyAnnouncement(channel, reminder)
 	local guild = WhisperGuild()
 	if not guild or not ns.Dialog or ns.Dialog.missing then return false end
@@ -1307,7 +1332,7 @@ local function CopyAnnouncement(channel, reminder)
 	local name = current.name:lower()
 	if not AnnouncementReady(name, reminder) then return false end
 	local message = AnnouncementText(guild)
-	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), nil,
+	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), ReminderNote(reminder),
 		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message), reminder = reminder })
 	if not draft then return false end
 	if not reminder then lastAnnouncement = { public = current, guild = guild } end
@@ -1360,11 +1385,24 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 	return true
 end
 
+local function ReminderDraft(draft)
+	return type(draft) == "table" and draft.reminder == true and (REMINDER_MINUTES[reminderIndex] or 0) > 0
+end
+local LessOften, TurnOffReminder -- (below SetReminder)
+
+-- 1.6.0: a reminder's draft (Olympus's own window, in both input modes) has Less often and Turn off
+-- beside Close and Post, with the line ReminderNote gives; an ad opened from Church > Invites has
+-- neither. (Dialog.lua: button3 is OnAlt, the extra button keeps nothing open by itself.)
 StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
-	text = L.RECRUIT_ANNOUNCE_COPY,
+	text = L.RECRUIT_ANNOUNCE_COPY .. "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
 	button2 = L.RECRUIT_ANNOUNCE_POST,
+	button3 = L.RECRUIT_ANNOUNCE_LESS,
 	OnButton2 = PostAnnouncement,
+	OnAlt = function(f, draft) LessOften(f, draft) end,
+	button3Shown = function(_, draft) return ReminderDraft(draft) and LongerReminder() ~= nil end,
+	extra = { label = L.RECRUIT_ANNOUNCE_TURN_OFF, shown = function(_, draft) return ReminderDraft(draft) end,
+		onClick = function(f, draft) TurnOffReminder(f, draft) end },
 	EditBoxOnEnterPressed = function(box, draft)
 		if box:HasFocus() then PostAnnouncement(box:GetParent(), draft, "enter") end
 	end,
@@ -1383,9 +1421,18 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	preferredIndex = 3,
 }
 
+-- 1.6.0: the other recruiting popups a reminder waits for, as theirs wait for an ad's draft
+-- (PromptReply, the scan's): one on screen at a time.
+local REMINDER_WAITS_FOR = { "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_HANDOFF_CLAIM", "OLYMPUS_RECRUIT_ACTIVATED" }
+
+-- A reminder's tick: one draft at most, and none in combat, an instance, while the player types
+-- (Recruit.PopupsWait), is busy, or has a recruiting popup open; a tick missed waits for the next.
 local function RemindAnnouncement()
 	if not ReminderAllowed() or Recruit.PopupsWait() or Recruit.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
-	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
+	for _, which in ipairs(REMINDER_WAITS_FOR) do
+		if ns.Dialog.Find(which) then return end
+	end
 	if rotateReminder then
 		local channels = PublicChannels()
 		local last = 0
@@ -1433,6 +1480,23 @@ local function SetReminder(index, keep)
 		ns.Fire("DATA_CHANGED")
 	end
 	if keep ~= false then KeepAdChoices() end
+end
+
+-- 1.6.0: the reminder's draft's Less often and Turn off, each the player's choice as the menu in
+-- Church > Invites makes it (kept, AdChoices: a /reload and a login find it), closing the draft
+-- (SetReminder), and one chat line saying where it is set again. Recruiting itself stays on.
+LessOften = function(f, draft)
+	local index = ReminderDraft(draft) and LongerReminder()
+	if not index then return end
+	SetReminder(index)
+	ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(REMINDER_MINUTES[index]))
+end
+
+TurnOffReminder = function(f, draft)
+	if not ReminderDraft(draft) then return end
+	SetReminder(1)
+	ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED)
+	if f:IsShown() and f.data == draft then f:Hide() end
 end
 
 -- What this character chose for his guild (AdChoices); with none, 1.5.8's interval, kept in his

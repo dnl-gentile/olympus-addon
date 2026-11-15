@@ -81,8 +81,11 @@ local function Dialogs()
 			if f.which == which and f.open and (data == nil or f.data == data) then return f end
 		end
 	end
-	function D.Show(which, a, _, data)
+	function D.Show(which, a, b, data)
 		local f = { which = which, text = a, data = data, open = true, def = StaticPopupDialogs[which] }
+		-- (1.6.0) The whole text as Dialog.Show formats it, with both arguments (an ad reminder's line).
+		local formatted, whole = pcall(string.format, tostring(f.def and f.def.text or ""), a, b)
+		f.shown = formatted and whole or nil
 		f.Hide = function() f.open = false end
 		f.IsShown = function() return f.open end
 		shown[#shown + 1] = f
@@ -3326,5 +3329,120 @@ test("recruit popup interval: one automatic prompt, persisted per guild, with ma
 		R.OnWhisper("JOIN", "After A Day-" .. home)
 		local draft = assert(D.Find(DRAFT), "automatic prompt returns after the interval")
 		eq(draft.data.req.name, "After A Day-" .. home)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.6.0: the ad reminder (players' reports on 1.5.9: the popup asking to post the recruiting ad in
+-- General came every few minutes and nothing on it said how to slow it down or turn it off).
+---------------------------------------------------------------------------
+
+-- Two joined public channels, the scene's ad reminder every `minutes`, and its tick.
+local function WithAdReminder(scene, minutes, fn)
+	local savedList, savedChat = GetChannelList, C_ChatInfo
+	GetChannelList = function() return 1, "General", false, 2, "Trade", false end
+	C_ChatInfo = setmetatable({ GetChannelInfoFromIdentifier = function(name) return { zoneChannelID = #name } end },
+		{ __index = savedChat })
+	local ok, err = pcall(function()
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(R.SetAnnounceReminder(minutes), true)
+		fn(D, function() return scene.timers["recruiting reminder"]() end)
+	end)
+	GetChannelList, C_ChatInfo = savedList, savedChat
+	if not ok then error(err, 0) end
+end
+local AD = "OLYMPUS_RECRUIT_ANNOUNCEMENT"
+
+-- Fails before 1.6.0: a reminder's tick opened its draft over a JOIN's invite pop-up or a handoff's
+-- Claim, two recruiting popups on screen at once (theirs already waited for an ad's draft).
+test("recruit ad reminder (1.6.0, regression): one recruiting popup at a time: its tick waits while a JOIN's invite draft or a Claim is open", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 30, function(D, Tick)
+			R.OnWhisper("JOIN", "First Applicant-" .. home)
+			local invite = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
+			Tick()
+			eq(D.Find(AD), nil, "no ad draft over the invite pop-up")
+			invite:Hide()
+			Tick()
+			local ad = assert(D.Find(AD), "the next tick opens it")
+			ad:Hide()
+			D.Show(CLAIM, "Guild Recruiter", nil, {})
+			Tick()
+			eq(D.Find(AD), nil, "nor over a handoff's Claim")
+			D.Hide(CLAIM)
+			Tick()
+			assert(D.Find(AD), "then it opens")
+			local open = D.Find(AD)
+			Tick()
+			eq(D.Find(AD), open, "and one ad draft at most")
+		end)
+	end)
+end)
+
+-- Fails before 1.6.0: the popup had Close and Post alone. Its Less often (1.5.9's 5 minutes: 30, then
+-- 60, then 120, where it is no longer offered) and Turn off are the player's choices as the menu in
+-- Church > Invites makes them, saved for this character, and its text says how often it comes and
+-- where to change it or turn it back on. An ad the player opened himself has neither.
+test("recruit ad reminder (1.6.0, regression): its popup's Less often and Turn off, saved; the line saying where to turn it back on; none on an ad opened by hand", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 5, function(D, Tick)
+			local L, def = ns.L, StaticPopupDialogs[AD]
+			-- (Kept by the character's name alone on Forever, its family's sub-realms sharing it.)
+			local key = ns.ShortName(me)
+			local function Saved() return ns.rdb.recruitAds and ns.rdb.recruitAds[key] and ns.rdb.recruitAds[key].minutes end
+			local function Printed(text)
+				for _, line in ipairs(scene.printed) do if line == text then return true end end
+				return false
+			end
+			eq(Saved(), 5, "1.5.9's interval, as its Census offer saved it")
+			Tick()
+			local draft = assert(D.Find(AD), "a reminder's draft")
+			eq(draft.data.reminder, true)
+			assert(draft.shown:find("\n\n" .. L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(5), 1, true), "it says every 5 min and where: " .. tostring(draft.shown))
+			eq(def.button3, L.RECRUIT_ANNOUNCE_LESS)
+			eq(def.button3Shown(draft, draft.data), true, "Less often")
+			eq(def.extra.label, L.RECRUIT_ANNOUNCE_TURN_OFF)
+			eq(def.extra.shown(draft, draft.data), true, "Turn off")
+			for _, step in ipairs({ 30, 60, 120 }) do
+				def.OnAlt(draft, draft.data, "clicked")
+				eq(R.AnnounceReminderMinutes(), step, "Less often: every " .. step .. " min")
+				eq(Saved(), step, "saved as a choice")
+				eq(draft.open, false, "the draft closes")
+				assert(Printed(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(step)), "a chat line says where to change it")
+				Tick()
+				draft = assert(D.Find(AD), "the next reminder")
+				assert(draft.shown:find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(step), 1, true), draft.shown)
+			end
+			eq(def.button3Shown(draft, draft.data), false, "at 120 min no Less often")
+			eq(def.extra.shown(draft, draft.data), true, "Turn off still")
+			def.OnAlt(draft, draft.data, "clicked")
+			eq(R.AnnounceReminderMinutes(), 120, "a stale Less often changes nothing")
+			scene.cancelled = nil
+			def.extra.onClick(draft, draft.data)
+			eq(R.AnnounceReminderMinutes(), 0, "Turn off")
+			eq(Saved(), 0, "saved off")
+			eq(scene.cancelled, true, "its timer stops")
+			eq(draft.open, false, "the draft closes")
+			assert(Printed(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED), "a chat line says where to turn it back on")
+			eq(R.IsWhisperRecruiting(), true, "recruiting itself stays on")
+			-- An ad opened from Church > Invites: Close and Post alone, and no line about a reminder.
+			assert(Find(R.WhisperLines(), L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"))).onClick()
+			local manual = assert(D.Find(AD), "the ad opened by hand")
+			eq(manual.data.reminder, nil)
+			eq(def.button3Shown(manual, manual.data), false)
+			eq(def.extra.shown(manual, manual.data), false)
+			eq(manual.shown, L.RECRUIT_ANNOUNCE_COPY:format("General"), "the Post line alone")
+			def.extra.onClick(manual, manual.data)
+			def.OnAlt(manual, manual.data, "clicked")
+			eq(manual.open, true, "neither acts on it")
+			eq(R.AnnounceReminderMinutes(), 0)
+			-- Turned on again in Church > Invites, the popup is the reminder's again.
+			eq(R.SetAnnounceReminder(30), true)
+			manual:Hide()
+			scene.timers["recruiting reminder"]()
+			draft = assert(D.Find(AD))
+			eq(def.button3Shown(draft, draft.data), true, "at 30 min Less often again")
+		end)
 	end)
 end)

@@ -3861,7 +3861,9 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		assert(Row("join").line.text:find(L.RECRUIT_CENSUS_JOIN, 1, true))
 		assert(Row("ads").line.text:find(L.RECRUIT_CENSUS_ADS, 1, true))
 		assert(Row("scan").line.text:find(L.RECRUIT_CENSUS_SCAN, 1, true))
-		assert(Text(L.RECRUIT_CENSUS_ADS_HINT:format(5)), "the ads switch says a popup comes up every 5 minutes")
+		-- (Changed on purpose in 1.6.0, players' reports that the ad popup came too often: the offer's ads
+		-- every 30 minutes, Recruit.AD_MINUTES; every 5 before.)
+		assert(Text(L.RECRUIT_CENSUS_ADS_HINT:format(30)), "the ads switch says a popup comes up every 30 minutes")
 		eq(Row("thanks"), nil); eq(Row("done"), nil)
 		C.Click(assert(Row("later")))
 		eq(U.PageId(), "census/")
@@ -3910,7 +3912,7 @@ test("gamepad centered Census recruitment offers three switches, Done and both d
 		C.Click(Row("ads"))
 		eq(IsOn("ads"), true, "the ads switch turns green")
 		eq(IsOn("join"), true, "ads need JOIN answers: it turns on with them")
-		eq(R.AnnounceReminderMinutes(), 5, "the reminder runs every 5 minutes")
+		eq(R.AnnounceReminderMinutes(), 30, "the reminder runs every 30 minutes (1.6.0; 5 before)")
 		-- (The Done line is a button: its row takes no clicks in game, Views.lua.)
 		C.Click(assert(Row("done")).primary)
 		eq(U.PageId(), "census/", "Done closes the page")
@@ -4151,9 +4153,11 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		assert(Line(R, "recruit-handoff-overflow").text:find(L.RECRUIT_OVERFLOW_ON, 1, true),
 			"passing the player's own requests on turns on with recruiting")
 		C.Click(Row(U, "ads"))
-		eq(R.AnnounceReminderMinutes(), 5, "Post recruiting ads turns the reminder on every 5 minutes")
+		-- (Changed on purpose in 1.6.0, players' reports that the ad popup came too often: every 30
+		-- minutes, Recruit.AD_MINUTES; every 5 before.)
+		eq(R.AnnounceReminderMinutes(), 30, "Post recruiting ads turns the reminder on every 30 minutes")
 		eq(On(U, "ads"), true)
-		eq(Line(R, "recruit-announcement-reminder").filters[1].value, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(5),
+		eq(Line(R, "recruit-announcement-reminder").filters[1].value, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(30),
 			"Church shows the same interval")
 		C.Click(Row(U, "join"))
 		eq(R.IsWhisperRecruiting(), false, "turning JOIN answers off turns recruiting off")
@@ -4177,7 +4181,7 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		-- (Changed on purpose in 1.5.9, the author's report 11-12: "As configurações não devem mudar entre
 		-- login": the ads reminder keeps its own record beside the choice, kept with recruiting never on
 		-- too; 1.5.8 kept it in the choice.)
-		eq(ns.rdb.recruitAds[ns.me].minutes, 5)
+		eq(ns.rdb.recruitAds[ns.me].minutes, 30)
 		eq(#(C.said or {}), 0, "the switches send nothing")
 		C.Click(assert(Row(U, "done")).primary)
 		eq(U.PageId(), "census/")
@@ -4189,7 +4193,7 @@ test("gamepad Census recruitment switches turn on their features and the handoff
 		eq(nextR.IsWhisperRecruiting(), true, "JOIN answers come back after a login")
 		eq(nextR.Handoff.Accepting(), true, "the handoffs come back")
 		eq(nextR.Candidates.Enabled(), true, "the scan comes back")
-		eq(nextR.AnnounceReminderMinutes(), 5, "the ads come back")
+		eq(nextR.AnnounceReminderMinutes(), 30, "the ads come back")
 		nextNS.UI.Toggle()
 		eq(nextNS.UI.PageId(), "census/", "a choice made asks no more")
 		-- The Church's own interval menu is kept the same way: off there stays off after a login.
@@ -4310,7 +4314,8 @@ local function RecruitingShown(R, L)
 		local ads = reminder.filters[1]
 		minutes = 0
 		for index, option in ipairs(ads.options) do
-			if option.selected then minutes = ({ 0, 2, 5, 10, 15, 30 })[index] end
+			-- (1.6.0: 60 and 120 minutes after the others, for the popup's Less often.)
+			if option.selected then minutes = ({ 0, 2, 5, 10, 15, 30, 60, 120 })[index] end
 			eq(option.selected, option.text == ads.value, "the dropdown shows its selected interval")
 		end
 	else
@@ -4351,7 +4356,7 @@ end
 local function RecruitAds(C, R, minutes)
 	for _, line in ipairs(R.WhisperLines()) do
 		if line.id == "recruit-announcement-reminder" then
-			for index, m in ipairs({ 0, 2, 5, 10, 15, 30 }) do
+			for index, m in ipairs({ 0, 2, 5, 10, 15, 30, 60, 120 }) do
 				if m == minutes then InClick(C, line.filters[1].options[index].onClick); return end
 			end
 		end
@@ -4536,6 +4541,199 @@ test("gamepad recruiting (1.5.9): the ads reminder keeps its own record, kept wi
 	end
 end)
 
+-- 1.6.0 (players' reports on 1.5.9: the popup asking to post the recruiting ad in General came every
+-- few minutes, a player who had turned recruiting on asked how to turn it off, and others
+-- uninstalled). Two joined public channels, General and Trade, as a player has them.
+local function AdChannels(C)
+	C.channels.General, C.channels.Trade = 1, 2
+	C.env.C_ChatInfo.GetChannelInfoFromIdentifier = function(name)
+		local ids = { General = 11, Trade = 22 }
+		return ids[name] and { zoneChannelID = ids[name] } or nil
+	end
+end
+-- He plays from second `from` to `to` (a step every 10 seconds, or `step`): a 90-second fight every 11
+-- minutes, 40 seconds typing in the game's chat every 7, and a dungeon from the 40th to the 70th minute
+-- of every two hours. Each ad popup is counted the step it opens, with what he was doing then;
+-- onPopup(draft, n) answers it, else he closes it.
+local function PlayWithAds(C, ns, from, to, onPopup, seen, step)
+	seen, step = seen or {}, step or 10
+	local chat, dungeon, last, inInstance = C.env.ChatFrame1EditBox, false, nil, C.env.IsInInstance
+	C.env.IsInInstance = function() return dungeon, dungeon and "party" or "none" end
+	for t = from + step, to, step do
+		C.combat = t % 660 >= 200 and t % 660 < 290
+		dungeon = t % 7200 >= 2400 and t % 7200 < 4200
+		local typing = t % 420 >= 100 and t % 420 < 140
+		if typing and C.focus ~= chat then chat:Show(); C.focus = chat
+		elseif not typing and C.focus == chat then C.focus = nil; chat:Hide() end
+		C.now = C.now + step; C.Advance(step)
+		local draft = ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
+		if draft and draft.data ~= last then
+			last = draft.data
+			seen[#seen + 1] = { at = t, combat = C.combat, dungeon = dungeon, typing = typing }
+			if onPopup then onPopup(draft, #seen) end
+			if draft:IsShown() and draft.data == last then C.Click(draft.buttons[1]) end
+		end
+	end
+	C.combat, C.env.IsInInstance = false, inInstance
+	if C.focus == chat then C.focus = nil; chat:Hide() end
+	return seen
+end
+-- The Census offer's choices, as a player who first opens the window takes them: Turn on all, then Done,
+-- then OK on the window saying where the popups stop; the window closed again.
+local function OfferAllAds(C, ns)
+	local U = ns.UI
+	local function Row(id)
+		for _, row in ipairs(U.SelfTestView().rows) do
+			if row:IsShown() and row.line.id == "census-recruit-" .. id then return row end
+		end
+	end
+	U.Toggle()
+	eq(U.PageId(), "census/recruitment", "the Census offer")
+	C.Click(assert(Row("all"), "Turn on all").primary)
+	C.Click(assert(Row("done"), "Done").primary)
+	C.Click(assert(ns.Dialog.Find("OLYMPUS_RECRUIT_ACTIVATED"), "where to stop the popups, once").buttons[1])
+	U.Toggle()
+end
+-- The next ad popup's window: none for `quiet` seconds (one would stay open until closed), then one
+-- within `limit`.
+local function NextAdPopup(C, ns, quiet, limit)
+	C.now = C.now + quiet; C.Advance(quiet)
+	eq(ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT"), nil, "no ad popup within " .. quiet .. " seconds")
+	for _ = quiet + 10, limit, 10 do
+		C.now = C.now + 10; C.Advance(10)
+		local draft = ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
+		if draft then return draft end
+	end
+	error("no ad popup within " .. limit .. " seconds")
+end
+
+-- Two hours with the Census offer's choices bring a few ad popups at most, half an hour apart at least,
+-- none in combat, a dungeon or while typing, never taking the keyboard, in both input styles and across
+-- a switch. Fails before 1.6.0: the offer set every 5 minutes, 14 popups in these two hours.
+test("gamepad recruiting ads (1.6.0): two hours with the Census offer's choices bring a few ad popups, half an hour apart, never in combat, a dungeon or while typing", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { setup = AdChannels })
+		local R = ns.Recruit
+		ns.EVERY_SPREAD = 0 -- (the reminder's ticker starts at once: the count below is exact)
+		OfferAllAds(C, ns)
+		eq(R.AnnounceReminderMinutes(), 30, "the offer's ads every 30 minutes")
+		local sends = #(C.said or {})
+		local function Look(draft, n)
+			eq(draft.editBox:HasFocus(), false, "it never takes the keyboard")
+			if n == 2 then C.Click(draft.buttons[2]) end -- (the second one he posts)
+		end
+		local seen = PlayWithAds(C, ns, 0, 3600, Look)
+		C.Switch(not initialPad)
+		PlayWithAds(C, ns, 3600, 7200, Look, seen)
+		assert(#seen >= 1 and #seen <= 4, ("two hours with the offer's choices: %d ad popups; at most one per 30 minutes"):format(#seen))
+		eq(#seen, 2, "here: the fourth and the last half hour (the first while typing, the second in the dungeon)")
+		for i, popup in ipairs(seen) do
+			eq(popup.combat, false, "never in combat: " .. popup.at)
+			eq(popup.dungeon, false, "never in a dungeon: " .. popup.at)
+			eq(popup.typing, false, "never while typing: " .. popup.at)
+			if i > 1 then assert(popup.at - seen[i - 1].at >= 30 * 60, "half an hour apart at least") end
+		end
+		eq(#C.said, sends + 1, "the one he posted, and nothing else")
+		C.Switch(initialPad); C.Advance(1)
+		Check(C.ledger, "ad reminder over two hours")
+		NoErrors(C, "ad reminder over two hours")
+	end
+	GP.Covers("popup-focus")
+	GP.Covers("recruit-public-post")
+end)
+
+-- The popup says how often it comes and where to change it or turn it back on, beside Close, Post, Less
+-- often and Turn off. Its Turn off holds for the rest of the session, after a /reload and after a login,
+-- recruiting still on. Fails before 1.6.0: the popup had Close and Post alone.
+test("gamepad recruiting ads (1.6.0): the popup says how often it comes and where to change it; its Turn off holds across a /reload and a login, recruiting on", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { setup = AdChannels })
+		local R, L = ns.Recruit, ns.L
+		ns.EVERY_SPREAD = 0
+		OfferAllAds(C, ns)
+		local draft = NextAdPopup(C, ns, 29 * 60, 31 * 60)
+		assert(draft.text:GetText():find("\n\n" .. L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(30), 1, true),
+			"the popup says every 30 min and where to change it or turn it back on")
+		eq(draft.buttons[1]:GetText(), L.RECRUIT_WHISPER_CLOSE); eq(draft.buttons[2]:GetText(), L.RECRUIT_ANNOUNCE_POST)
+		eq(draft.buttons[3]:IsShown(), true); eq(draft.buttons[3]:GetText(), L.RECRUIT_ANNOUNCE_LESS)
+		eq(draft.extraButton:IsShown(), true); eq(draft.extraButton:GetText(), L.RECRUIT_ANNOUNCE_TURN_OFF)
+		C.Switch(not initialPad); C.Advance(1)
+		local printed = #C.printed
+		C.Click(draft.extraButton)
+		eq(draft:IsShown(), false, "Turn off closes it")
+		eq(R.AnnounceReminderMinutes(), 0, "the reminder is off")
+		eq(R.IsWhisperRecruiting(), true, "recruiting stays on")
+		local told = false
+		for i = printed + 1, #C.printed do
+			if C.printed[i]:find(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED, 1, true) then told = true end
+		end
+		eq(told, true, "a chat line says where to turn it back on")
+		eq(RecruitingShown(R, L).ads, 0, "Church > Invites shows it off")
+		-- (With no reminder left, a popup would stay open until closed: a minute a step finds it. 35 minutes
+		-- each time: past the interval he turned off and its ticker's start, a minute at most.)
+		eq(#PlayWithAds(C, ns, 0, 35 * 60, nil, nil, 60), 0, "none after")
+		eq(#(C.said or {}), 0, "nothing posted")
+		Check(C.ledger, "ad reminder turned off")
+		NoErrors(C, "ad reminder turned off")
+		local C2, ns2 = NextSession(C, not initialPad, "reload", { setup = AdChannels })
+		eq(ns2.Recruit.IsWhisperRecruiting(), true, "after a /reload recruiting is on")
+		eq(ns2.Recruit.AnnounceReminderMinutes(), 0, "and the reminder off")
+		eq(#PlayWithAds(C2, ns2, 0, 35 * 60, nil, nil, 60), 0, "no ad popup after a /reload")
+		Check(C2.ledger, "ad reminder after a /reload")
+		NoErrors(C2, "ad reminder after a /reload")
+		local C3, ns3 = NextSession(C2, initialPad, "login", { setup = AdChannels })
+		eq(ns3.Recruit.IsWhisperRecruiting(), true, "after a login recruiting is on")
+		eq(RecruitingShown(ns3.Recruit, L).ads, 0, "and the reminder off")
+		eq(#PlayWithAds(C3, ns3, 0, 35 * 60, nil, nil, 60), 0, "no ad popup after a login")
+		eq(#(C3.said or {}), 0, "nothing posted")
+		Check(C3.ledger, "ad reminder after a login")
+		NoErrors(C3, "ad reminder after a login")
+	end
+end)
+
+-- The popup's Less often: a 1.5.9 player's saved 5 minutes stay after the update until he clicks it;
+-- then 30, the next popup half an hour later; then 60, kept across a /reload, the next popup an hour
+-- later, still offering it (120 and the last step: tests/recruit-handoff.lua). Each click closes the
+-- popup and says where to change it. Fails before 1.6.0: no Less often.
+test("gamepad recruiting ads (1.6.0): Less often on the popup: a 1.5.9 player's 5 minutes kept until his click, then 30, then 60 across a /reload", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { setup = AdChannels })
+		local R, L = ns.Recruit, ns.L
+		RecruitClick(C, R, "recruit-whisper-toggle")
+		RecruitAds(C, R, 5) -- (as 1.5.9's Census offer set and saved it)
+		NoErrors(C, "1.5.9's ads")
+		local C2, ns2 = NextSession(C, initialPad, "login", { setup = AdChannels })
+		eq(ns2.Recruit.AnnounceReminderMinutes(), 5, "the update keeps his saved interval")
+		local function Less(C, ns, draft, minutes)
+			local printed = #C.printed
+			C.Click(draft.buttons[3])
+			eq(ns.Recruit.AnnounceReminderMinutes(), minutes, "Less often: every " .. minutes .. " minutes")
+			eq(ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT"), nil, "it closes")
+			assert((C.printed[printed + 1] or ""):find(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(minutes), 1, true),
+				"and says where to change it: " .. tostring(C.printed[printed + 1]))
+		end
+		local draft = NextAdPopup(C2, ns2, 0, 7 * 60)
+		assert(draft.text:GetText():find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(5), 1, true), "every 5 min, it says")
+		Less(C2, ns2, draft, 30)
+		draft = NextAdPopup(C2, ns2, 29 * 60, 32 * 60)
+		assert(draft.text:GetText():find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(30), 1, true))
+		C2.Switch(not initialPad); C2.Advance(1)
+		Less(C2, ns2, draft, 60)
+		Check(C2.ledger, "Less often")
+		NoErrors(C2, "Less often")
+		local C3, ns3 = NextSession(C2, not initialPad, "reload", { setup = AdChannels })
+		eq(ns3.Recruit.AnnounceReminderMinutes(), 60, "kept across a /reload")
+		draft = NextAdPopup(C3, ns3, 59 * 60, 62 * 60)
+		assert(draft.text:GetText():find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(60), 1, true), "every 60 min, it says")
+		eq(draft.buttons[3]:IsShown(), true, "Less often still offered")
+		eq(draft.extraButton:IsShown(), true, "and Turn off")
+		C3.Click(draft.buttons[1])
+		eq(ns3.Recruit.AnnounceReminderMinutes(), 60, "Close changes nothing")
+		Check(C3.ledger, "Less often after a /reload")
+		NoErrors(C3, "Less often after a /reload")
+	end
+end)
+
 -- 1.5.8 (the author's ask, 11-12: "se você não tiver selecionado nenhuma, deveria ser activate all"):
 -- with every switch off, one button turns the three on, as their own clicks would, and Done follows.
 -- 1.5.9 (the author's report, 11-12: a player did not know where to turn recruiting off while its
@@ -4582,7 +4780,7 @@ test("gamepad Census offer: Turn on all turns every switch on", function()
 		C.Click(all.primary)
 		eq(U.PageId(), "census/recruitment", "the page stays")
 		eq(R.IsWhisperRecruiting(), true, "JOIN answers on")
-		eq(R.AnnounceReminderMinutes(), 5, "ads every 5 minutes")
+		eq(R.AnnounceReminderMinutes(), 30, "ads every 30 minutes (1.6.0; every 5 before)")
 		eq(R.Candidates.Enabled(), true, "the unguilded scan on")
 		eq(ns.rdb.recruitmentPreference[ns.me].offerOverflow, true, "and the automatic offers of his own waiting requests")
 		eq(ns.rdb.recruitmentPreference[ns.me].acceptHandoffs, true, "and the requests others pass on")
@@ -4706,26 +4904,32 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 		eq(R2.Handoff.AutoOn(), false, "his waiting players not offered, as he left it")
 		-- (Review of the 1.5.9 release: the returning offer's switches applied 1.5.8's first choices over the
 		-- kept ones: his waiting players offered to other members, saved so for every login, and his ads
-		-- every 5 minutes; README: "the offer turns nothing on by itself".) His ads every 30 minutes, set in
+		-- every 5 minutes; README: "the offer turns nothing on by itself".) His ads every 15 minutes, set in
 		-- Church > Invites; off there again, the offer's JOIN switch brings recruiting back with every
 		-- switch as he left it.
+		-- (Changed on purpose in 1.6.0: the first offer's ads come every 30 minutes now, Recruit.AD_MINUTES;
+		-- the interval he keeps here is 15, which no first offer sets. It was the menu's last one, 30.)
 		local ads = assert(Line(R2, "recruit-announcement-reminder"), "the ads reminder").filters[1].options
-		InClick(C2, ads[#ads].onClick)
-		eq(R2.AnnounceReminderMinutes(), 30)
+		local fifteen
+		for _, option in ipairs(ads) do
+			if option.text == ns2.L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15) then fifteen = option end
+		end
+		InClick(C2, assert(fifteen, "15 min in the menu").onClick)
+		eq(R2.AnnounceReminderMinutes(), 15)
 		ChurchSwitch(C2, R2, false)
 		Reopen(U2)
 		eq(Offered(U2), true)
 		assert(Row(U2, "ads").line.text:find("ReadyCheck-NotReady", 1, true), "the ads show off while recruiting is")
 		-- (Review of the 1.5.9 release: nothing showed the hint naming a kept interval.) The ads switch would
-		-- bring back his 30 minutes, and its hint says so, not the first offer's 5.
-		assert(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(30)), "the ads hint names the 30 minutes he kept")
-		eq(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(ns2.Views.RECRUIT_AD_MINUTES)), nil, "not the first offer's 5")
+		-- bring back his 15 minutes, and its hint says so, not the first offer's 30.
+		assert(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(15)), "the ads hint names the 15 minutes he kept")
+		eq(Text(U2, ns2.L.RECRUIT_CENSUS_ADS_HINT:format(ns2.Views.RECRUIT_AD_MINUTES)), nil, "not the first offer's 30")
 		C2.Click(assert(Row(U2, "join")))
 		eq(R2.IsWhisperRecruiting(), true)
 		eq(R2.Handoff.AutoOn(), false, "the offer's JOIN: his waiting players still not offered, as he left it")
 		eq(ns2.rdb.recruitmentPreference[ns2.me].offerOverflow, nil, "nor saved on")
 		eq(R2.Handoff.Accepting(), true, "handoffs taken, as he left them")
-		eq(R2.AnnounceReminderMinutes(), 30, "his ads every 30 minutes, as he left them")
+		eq(R2.AnnounceReminderMinutes(), 15, "his ads every 15 minutes, as he left them")
 		-- Off in Church again: the offer comes back; Turn on all brings recruiting back with the scan
 		-- he kept (on, not toggled off by the button), and Done ends the offer.
 		ChurchSwitch(C2, R2, false)
@@ -4736,7 +4940,7 @@ test("gamepad Census offer (1.5.9): off in Church > Invites it comes back until 
 		eq(R2.Candidates.Enabled(), true, "Turn on all leaves the kept scan on")
 		eq(R2.Handoff.AutoOn(), false, "Turn on all: his waiting players still not offered")
 		eq(ns2.rdb.recruitmentPreference[ns2.me].offerOverflow, nil, "nor saved on")
-		eq(R2.AnnounceReminderMinutes(), 30, "Turn on all: his ads as he left them")
+		eq(R2.AnnounceReminderMinutes(), 15, "Turn on all: his ads as he left them")
 		C2.Click(assert(Row(U2, "done")).primary)
 		eq(ns2.rdb.recruitmentPreference[ns2.me].offerAgain, nil, "Done ends the offer's return")
 		Reopen(U2)
@@ -5558,10 +5762,11 @@ test("gamepad public recruiting announcement: reminder dropdown, independent cha
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(3, "Private")), nil, "private channels are omitted")
 		eq(Find(L.RECRUIT_ANNOUNCE_CHANNEL:format(5, "OlympusNet")), nil, "Olympus is omitted even if reported with a zone ID")
 		local intervals = assert(ReminderChoices())
-		eq(#intervals, 6)
+		-- (Changed on purpose in 1.6.0: 60 and 120 minutes after the others, for the popup's Less often.)
+		eq(#intervals, 8)
 		eq(intervals[1].text, L.RECRUIT_ANNOUNCE_REMINDER_OFF)
 		eq(intervals[1].selected, true, "off by default")
-		for i, minutes in ipairs({ 2, 5, 10, 15, 30 }) do
+		for i, minutes in ipairs({ 2, 5, 10, 15, 30, 60, 120 }) do
 			eq(intervals[i + 1].text, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes))
 			eq(intervals[i + 1].selected, false)
 		end

@@ -3503,11 +3503,16 @@ A rounded lower bound appears only when the current census holds fresh accepted 
 counts. A recent Olympus recruitment message heard in that same channel delays preparing
 another draft for two minutes on this client.
 
-The local reminder starts off. Choose 2, 5, 10, 15 or 30 minutes or **Off** in the reminder dropdown. It rotates
-through joined public channels by default. You can switch to the last
+The local reminder starts off. Choose 2, 5, 10, 15, 30, 60 or 120 minutes or **Off** in the reminder
+dropdown; the Census offer's **Post recruiting ads** (and its **Turn on all**) sets 30 minutes (1.6.0; 5
+before). It rotates through joined public channels by default. You can switch to the last
 public channel you selected. While recruitment is on, a reminder opens one preview per interval and skips
 unavailable channels and channels where someone recently posted. Each preview waits for your confirmation.
-The reminder waits if you are busy or already have a preview open.
+The reminder waits while you are in combat, in an instance, typing, busy, or have a preview or another
+recruiting pop-up open; a turn it misses waits for the next interval. A reminder's preview (1.6.0) says
+how often it opens and has **Less often** (30 minutes, then twice as long, up to 120) and **Turn off**
+beside **Close** and **Post**. Each is saved as if chosen in the dropdown, which turns the reminder back
+on; recruiting itself stays on. An interval saved before 1.6.0 is kept until you change it.
 
 ### Attended Army snapshot (not active in releases)
 
