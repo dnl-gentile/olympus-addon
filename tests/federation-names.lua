@@ -74,23 +74,26 @@ local function World(fn)
 	if not ok then error(err, 0) end
 end
 
--- A client's census as its window shows it: { guilds = n, characters = n, rival = its row or nil }.
-local function Census(n, As)
+-- A client's census as its window shows it: { guilds = n, characters = n, rival = its row or nil }, the
+-- rival being RIVAL or the guild named.
+local function Census(n, As, rival)
 	local s = As(n, n.N.Data.Summary)
 	local out = { guilds = #s.guilds, characters = s.characters }
-	for _, e in ipairs(s.guilds) do if e.name == RIVAL then out.rival = e end end
+	for _, e in ipairs(s.guilds) do if e.name == (rival or RIVAL) then out.rival = e end end
 	return out
 end
-local function Carries(payload) return payload ~= nil and payload:find(RIVAL, 1, true) ~= nil end
+local function Carries(payload, rival) return payload ~= nil and payload:find(rival or RIVAL, 1, true) ~= nil end
 
 -- A relay of Olympus Dawn; a member of the rival guild on 1.5.9 and one on 1.6.0; the masters of two
 -- Olympus guilds, one on each version. Each reads its roster and sends its census as the game would carry
 -- it (by whisper to the relay); the relay hands each word to the guilds' registered reporters, then its
--- snapshot. versions: { relay, rival59, rival60, knights, embers }.
+-- snapshot. versions: { relay, rival59, rival60, knights, embers }, and guild: the rival's name (RIVAL
+-- if none).
 local function Run(Node, As, v)
+	local rival = v.guild or RIVAL
 	local R = Node(RELAY, DAWN, v.relay, 200)
-	local A = Node("Rival Lead", RIVAL, v.rival59, 120)
-	local B = Node("Rival Member", RIVAL, v.rival60, 120)
+	local A = Node("Rival Lead", rival, v.rival59, 120)
+	local B = Node("Rival Member", rival, v.rival60, 120)
 	local K = Node("Knight Lead", KNIGHTS, v.knights, 150)
 	local E = Node("Ember Lead", EMBERS, v.embers, 90)
 	local out = { member = {}, sent = {} }
@@ -119,14 +122,14 @@ local function Run(Node, As, v)
 		end)
 	end
 	As(R, R.pump, 200)
-	out.relay, out.snapshot = Census(R, As), As(R, R.N.Data.GlobalCensusPayload)
+	out.relay, out.snapshot = Census(R, As, rival), As(R, R.N.Data.GlobalCensusPayload)
 	-- What the relay handed each reporter, then its snapshot as it reaches them (hop M).
 	for _, n in ipairs({ K, E }) do
 		for _, p in ipairs(R.sent) do
 			if p.dist == "WHISPER" and ns.ShortName(p.target or "") == n.short then As(n, n.deliver, "WHISPER", R.N.me, p.msg) end
 		end
 		As(n, n.N.Relay.TakeVia, "M", R.N.me, R.N.me, out.snapshot)
-		out[n.short] = Census(n, As)
+		out[n.short] = Census(n, As, rival)
 	end
 	out.nodes = { R = R, A = A, B = B, K = K, E = E }
 	return out
@@ -167,6 +170,48 @@ test("federation names (1.6.0): a guild named as a comparison through a relay wi
 	end)
 end)
 
+-- A verifier's client (Verify.lua in a namespace of its own over the harness's, as tests/verify.lua's
+-- world loads it), whose census and saved words hold both guilds, the rival (RIVAL or the guild named)
+-- approved: its list and its answer (GV~S), and whether the approval is still held once the client's
+-- session tick prunes its saved words (Verify.Prune, which drops an approval of no Olympus guild).
+local function Verifier(version, rival)
+	rival = rival or RIVAL
+	local now = 1800000000
+	local dialogs = {}
+	for k, v in pairs(StaticPopupDialogs) do dialogs[k] = v end
+	local c = setmetatable({ me = "Max Ran-Realm", realm = "Realm", L = setmetatable({}, { __index = ns.L }), RealmPages = {},
+		rdb = { guilds = { [rival] = { leader = "Rival Lead", realm = "Realm", total = 120, online = 9, t = now },
+			[DAWN] = { leader = "Dawn Lead", realm = "Realm", total = 200, online = 6, t = now } },
+			verify = { seen = {}, told = {}, requests = {},
+				list = { [ns.Fold(rival)] = { k = "A", at = now - 1800, guild = rival, gm = "Rival Lead-Realm", by = "Max Ran-Realm" } },
+				start = { [ns.Fold(rival)] = { at = now - 3600, guild = rival, by = "Max Ran-Realm", last = now },
+					[ns.Fold(DAWN)] = { at = now - 3600, guild = DAWN, by = "Max Ran-Realm", last = now } } } } }, { __index = ns })
+	c.Fire, c.On, c.RegisterEvent, c.Print = function() end, function() end, function() end, function() end
+	c.After, c.Every, c.Now = function() end, function() return { Cancel = function() end } end, function() return now end
+	c.UI = { Refresh = function() end }
+	c.Comm = { Handle = function() end, Send = function() return true end, SendChunked = function() return true end }
+	local savedGuild, savedIn = GetGuildInfo, IsInGuild
+	GetGuildInfo, IsInGuild = function() return DAWN, "Member", 3 end, function() return true end -- (the verifier's own guild)
+	local ok, out = pcall(function()
+		if version == "1.5.9" then assert(loadfile(OLD))("Olympus", c) end
+		assert(loadfile(extra.addon .. "Locales/VerifyText.lua"))("Olympus", c)
+		assert(loadfile(extra.addon .. "Verify.lua"))("Olympus", c)
+		c.Verify.Clock = function() return now end
+		local pending, verified = c.Verify.Pending(now)
+		local names = {}
+		for _, e in ipairs(pending) do names[#names + 1] = e.guild .. ":" .. e.status end
+		for _, e in ipairs(verified) do names[#names + 1] = e.guild .. ":" .. e.status end
+		table.sort(names)
+		local answer = c.Verify.Payload(now)
+		c.Verify.Prune(now)
+		return { list = table.concat(names, ","), answer = answer, approved = c.rdb.verify.list[ns.Fold(rival)] ~= nil }
+	end)
+	GetGuildInfo, IsInGuild = savedGuild, savedIn
+	for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = dialogs[k] end
+	if not ok then error(out, 0) end
+	return out
+end
+
 -- Fails before: 1.6.0 kept counting it after the update.
 test("federation names (1.6.0): a client that counted such a guild drops it once on 1.6.0: its census rows and totals, the rows it passes on, a new report of it; the saved row waits out its week unseen; the verifiers' list and answer, the Join page's /who list and route", function()
 	World(function(Node, As)
@@ -200,48 +245,13 @@ test("federation names (1.6.0): a client that counted such a guild drops it once
 		eq(rdb.guilds[DAWN].t, dawn + 60, "the Dawn's census taken")
 		eq(rdb.guilds[RIVAL].t, t, "the rival's refused"); eq(Census(K2, As).rival, nil)
 	end)
-	-- A verifier's client (Verify.lua in a namespace of its own over the harness's, as tests/verify.lua's
-	-- world loads it), whose census and saved words hold both guilds, the rival approved: its list and its
-	-- answer (GV~S), before its update and after it.
-	local function Verifier(version)
-		local now = 1800000000
-		local dialogs = {}
-		for k, v in pairs(StaticPopupDialogs) do dialogs[k] = v end
-		local c = setmetatable({ me = "Max Ran-Realm", realm = "Realm", L = setmetatable({}, { __index = ns.L }), RealmPages = {},
-			rdb = { guilds = { [RIVAL] = { leader = "Rival Lead", realm = "Realm", total = 120, online = 9, t = now },
-				[DAWN] = { leader = "Dawn Lead", realm = "Realm", total = 200, online = 6, t = now } },
-				verify = { seen = {}, told = {}, requests = {},
-					list = { [ns.Fold(RIVAL)] = { k = "A", at = now - 1800, guild = RIVAL, gm = "Rival Lead-Realm", by = "Max Ran-Realm" } },
-					start = { [ns.Fold(RIVAL)] = { at = now - 3600, guild = RIVAL, by = "Max Ran-Realm", last = now },
-						[ns.Fold(DAWN)] = { at = now - 3600, guild = DAWN, by = "Max Ran-Realm", last = now } } } } }, { __index = ns })
-		c.Fire, c.On, c.RegisterEvent, c.Print = function() end, function() end, function() end, function() end
-		c.After, c.Every, c.Now = function() end, function() return { Cancel = function() end } end, function() return now end
-		c.UI = { Refresh = function() end }
-		c.Comm = { Handle = function() end, Send = function() return true end, SendChunked = function() return true end }
-		local savedGuild, savedIn = GetGuildInfo, IsInGuild
-		GetGuildInfo, IsInGuild = function() return DAWN, "Member", 3 end, function() return true end -- (the verifier's own guild)
-		local ok, out = pcall(function()
-			if version == "1.5.9" then assert(loadfile(OLD))("Olympus", c) end
-			assert(loadfile(extra.addon .. "Locales/VerifyText.lua"))("Olympus", c)
-			assert(loadfile(extra.addon .. "Verify.lua"))("Olympus", c)
-			c.Verify.Clock = function() return now end
-			local pending, verified = c.Verify.Pending(now)
-			local names = {}
-			for _, e in ipairs(pending) do names[#names + 1] = e.guild .. ":" .. e.status end
-			for _, e in ipairs(verified) do names[#names + 1] = e.guild .. ":" .. e.status end
-			table.sort(names)
-			return { list = table.concat(names, ","), answer = (c.Verify.Payload(now)) }
-		end)
-		GetGuildInfo, IsInGuild = savedGuild, savedIn
-		for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = dialogs[k] end
-		if not ok then error(out, 0) end
-		return out
-	end
 	local v59, v60 = Verifier("1.5.9"), Verifier("1.6.0")
 	eq(v59.list, DAWN .. ":pending," .. RIVAL .. ":verified", "before: on the verifiers' list, approved")
 	eq(v59.answer:find(RIVAL, 1, true) ~= nil, true, "before: its approval and start in a verifier's answer")
+	eq(v59.approved, true, "before: its approval held")
 	eq(v60.list, DAWN .. ":pending", "after: off the list")
 	eq(v60.answer:find(RIVAL, 1, true), nil, "after: neither its approval nor its start in the answer")
+	eq(v60.approved, false, "after: its approval dropped at the next tick")
 	-- A member's route answer (J2) naming it, on the Join page of this harness's client: before its update
 	-- (1.5.9's rule) and after it.
 	local old = setmetatable({}, { __index = ns })
@@ -290,4 +300,34 @@ test("federation names (1.6.0): a client that counted such a guild drops it once
 		local s = ns.Data.Summary()
 		for _, e in ipairs(s.seen) do assert(e.name ~= RIVAL, "after: no sighting of it listed") end
 	end)
+end)
+
+-- 1.6.0, the review of the rule above: a guild whose name only looks like one counts as on 1.5.9. Here a
+-- word glued in front that only starts like "no" or "than" ("NoobOlympus", "ThanosOlympus": Olympus does
+-- not start at the O after it). Each takes the rival's place in Run (its members on 1.5.9 and 1.6.0, the
+-- relay and the Knights' master on 1.6.0, the Embers' on 1.5.9), then a 1.6.0 verifier that approved it.
+-- Fails before: 1.6.0 shut such a guild out as it does the rival (its 1.6.0 member no member and silent,
+-- the relay and the 1.6.0 master without it, its approval dropped).
+local function Counted(Node, As, guild)
+	local r = Run(Node, As, { guild = guild, relay = "1.6.0", rival59 = "1.5.9", rival60 = "1.6.0", knights = "1.6.0", embers = "1.5.9" })
+	local function Seen(c) return ("%d guilds %d characters%s"):format(c.guilds, c.characters, c.rival and " with it" or "") end
+	return ("members %s/%s, sent %d/%d; relay %s, its snapshot with it %s; 1.6.0 master %s; 1.5.9 master %s"):format(
+		tostring(r.member["Rival Lead"]), tostring(r.member["Rival Member"]), r.sent["Rival Lead"], r.sent["Rival Member"],
+		Seen(r.relay), tostring(Carries(r.snapshot, guild)), Seen(r["Knight Lead"]), Seen(r["Ember Lead"]))
+end
+test("federation names (1.6.0): a guild whose name only looks like a comparison or a denial (NoobOlympus, ThanosOlympus) counts through a relay with 1.5.9 and 1.6.0 clients as on 1.5.9: both its members report, the relay, its snapshot and every client count it, a 1.6.0 verifier keeps its approval", function()
+	local seen = {}
+	World(function(Node, As)
+		for _, guild in ipairs({ "NoobOlympus", "ThanosOlympus" }) do seen[guild] = Counted(Node, As, guild) end
+	end)
+	for _, guild in ipairs({ "NoobOlympus", "ThanosOlympus" }) do
+		local v = Verifier("1.6.0", guild)
+		local list = { guild .. ":verified", DAWN .. ":pending" }
+		table.sort(list)
+		eq(("%s; verifier's list %s, approval held %s, in its answer %s"):format(seen[guild], v.list, tostring(v.approved),
+			tostring(v.answer:find(guild, 1, true) ~= nil)),
+			"members true/true, sent 3/3; relay 4 guilds 560 characters with it, its snapshot with it true; "
+			.. "1.6.0 master 4 guilds 560 characters with it; 1.5.9 master 4 guilds 560 characters with it; "
+			.. "verifier's list " .. table.concat(list, ",") .. ", approval held true, in its answer true", guild)
+	end
 end)

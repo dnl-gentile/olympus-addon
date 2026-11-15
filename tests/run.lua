@@ -442,11 +442,14 @@ test("federation filter (1.6.0): a name that measures a guild against Olympus or
 			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
 		end
 		-- Still Olympus: Olympus first ("than" after it), praise, any other word between, "then" that is no
-		-- comparison, a name that only ends in "than", the patterns of the realm's guilds (numerals, a word
-		-- after or before, all caps, accents, misspellings) and "Olympus Fake", the census tests' forged guild.
+		-- comparison, a name that only ends in "than", a word glued in front that only starts like "no", "not"
+		-- or "than" (Olympus does not start at the O after it: NoobOlympus, NotoriousOlympus, ThanosOlympus),
+		-- the patterns of the realm's guilds (numerals, a word after or before, all caps, accents,
+		-- misspellings) and "Olympus Fake", the census tests' forged guild.
 		for _, name in ipairs({ "Olympus Stronger Than You", "Olympus Than", "None Finer Than Olympus", "Nothing Above Olympus",
 			"Do Not Anger Olympus", "Do Not Mess With Olympus", "No Mercy Olympus", "Never Ending Olympus", "Olympus Is Not Dead",
-			"And Then Olympus", "EthanOlympus", "Jonathan Olympus", "Olympus II", "OLYMPUS IV", "Olympus 2", "OlympusII",
+			"And Then Olympus", "EthanOlympus", "Jonathan Olympus", "NoobOlympus", "NotoriousOlympus", "NoobsOfOlympus",
+			"NoonOlympus", "NoOneOlympus", "ThanosOlympus", "Olympus II", "OLYMPUS IV", "Olympus 2", "OlympusII",
 			"Olympus Zeus", "Olympus II Legion", "OLYMPUS PRIME", "Sons of Olympus", "Knights of Olympus", "Order of the Olympus",
 			"Dark Olympus", "Ólympus", "Olympus Élite", "Hijos del Olimpo", "0lympus", "Olimpvs", "Olympus vs Horde", "Olympus Fake" }) do
 			eq(ns.IsFederation(name), true, name)

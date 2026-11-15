@@ -2133,7 +2133,9 @@ local DEGREE = { even = true, really = true, quite = true, yet = true, exactly =
 local function Comparative(w) return w ~= nil and (MORE[w] == true or (#w > 3 and w:sub(-2) == "er")) end
 
 -- What one word glues in front of an O-led Olympus word: "deny" (NotOlympus), "than"
--- (StrongerThanOlympus, ThanOlympus), or nil.
+-- (StrongerThanOlympus, ThanOlympus), or nil. The Olympus word starts at the glued O, "ol" as every
+-- spelling of it does: in NoobOlympus, NotoriousOlympus or ThanosOlympus the "no", "not" or "than" only
+-- begins another word, and the guild is ours as on 1.5.9 (1.6.0, the review of this rule).
 local function Glued(word)
 	for s = 2, #word - 4 do
 		if word:byte(s) == 111 then -- "o"
@@ -2141,7 +2143,7 @@ local function Glued(word)
 			local c, vowel = front:match("^(%a-)th([ae])n$")
 			local kind = DENY[front] and "deny"
 				or (c and ((c == "" and vowel == "a") or (c ~= "" and Comparative(c))) and "than") or nil
-			if kind and (rest:find("olympus", 1, true) or OlympusWord(Sounds(rest))) then return kind end
+			if kind and rest:sub(1, 2) == "ol" and (rest:find("olympus", 1, true) or OlympusWord(Sounds(rest))) then return kind end
 		end
 	end
 	return nil
