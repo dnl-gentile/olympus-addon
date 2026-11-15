@@ -509,6 +509,54 @@ test("verify guild hand-over: a fresh-install member hearing it still asks for t
 	end)
 end)
 
+-- (The review of the hand-over: a trade-off kept, Verify.lua's top says why.) A 1.5.9 client counts any
+-- snapshot it takes as the answer to its own ask, a guild's hand-over too, and skips its login's retry: a
+-- 1.5.9 guild master handed his approval at his login, and a 1.5.9 guildmate who logged in with him, get
+-- the rest of the store (here another guild's revocation) at their next half-hourly ask, which a verifier
+-- who came online after their first ask would have answered at their retry. Pinned: a change to it is a
+-- decision, not an accident.
+test("verify guild hand-over: 1.5.9 clients that take a hand-over at login skip their login's retry and get the rest of the store at their half-hourly ask", function()
+	World(function(Node, As, Flush, Advance)
+		local hub = Node("Hildryn Payne-Realm", "Olympus Hearth")
+		local holder = Ready(Node("Guild Mate-Realm", GUILD))
+		local master = Ready(Node(MASTER, GUILD, { rank = 0, old = true }))
+		local member = Ready(Node("Old Member-Realm", GUILD, { old = true }))
+		Approved(As, T0, holder)
+		Advance(3600)
+		As(holder, holder.c.Verify.Login)
+		Play(Advance, As, { holder }, 900, 60) -- (online a quarter of an hour, nobody there to answer its asks)
+		for _, n in ipairs({ master, member }) do As(n, n.deliver, "WHISPER", hub.c.me, "RY~") end
+		As(master, master.c.Comm.Hello, true); Flush()
+		for _, n in ipairs({ master, member }) do As(n, n.c.Verify.Login) end
+		local all = { holder, master, member }
+		Play(Advance, As, all, 120)
+		eq(HandOvers(holder), 1); assert(Find(holder.logs, "handed to the guild (login)"), "at his login")
+		-- A verifier comes online two minutes after their login, after their first ask.
+		local verifier = Ready(Node(HC, "Olympus Crown"))
+		verifier.c.rdb.guilds[GUILD] = { leader = MASTER, realm = "Realm" }
+		Approved(As, T0, verifier)
+		eq(As(verifier, verifier.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, REVOKED, MASTER)), true)
+		eq(As(verifier, verifier.c.Verify.Handle, "CHANNEL", HC, ("GV~1~R~%d~%s~%s"):format(T0 + 1, REVOKED, MASTER)), true)
+		As(hub, hub.deliver, "WHISPER", HC, "RY~")
+		all[#all + 1] = verifier
+		Play(Advance, As, all, 480) -- (ten minutes after their login: their retry's window is past)
+		for _, n in ipairs({ master, member }) do
+			eq(n.c.Verify.Stats().asked, 1, n.c.me .. ": the hand-over counted as the answer, its login's retry skipped")
+			eq(As(n, n.c.Verify.Status, GUILD), "verified", n.c.me .. ": its own guild's approval, handed over")
+			local _, info = As(n, n.c.Verify.Status, REVOKED)
+			eq(info.revoked, nil, n.c.me .. ": the other guild's revocation not yet")
+		end
+		-- Their half-hourly ask (Verify.Ask, from the game's ticker): the verifier's answer, handed to the guild.
+		Play(Advance, As, all, master.c.Verify.ASK_EVERY - 600, 60)
+		for _, n in ipairs({ master, member }) do As(n, n.c.Verify.Ask) end
+		Play(Advance, As, all, 60)
+		for _, n in ipairs({ master, member }) do
+			local _, info = As(n, n.c.Verify.Status, REVOKED)
+			eq(info.revoked and info.revoked.at, T0 + 1, n.c.me .. " has it from its half-hourly ask")
+		end
+	end)
+end)
+
 test("verify guild hand-over: a guild master still on 1.5.9 is handed the approval at his login by a 1.6.0 guildmate", function()
 	World(function(Node, As, Flush, Advance)
 		local mate = Ready(Node("Guild Mate-Realm", GUILD))

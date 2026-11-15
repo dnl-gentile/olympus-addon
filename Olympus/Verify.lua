@@ -100,6 +100,13 @@ local L = ns.L
 -- guildmate on GUILD_ASK_SINCE or newer). A 1.5.9 guild master never asks: logging in together with
 -- them (a realm restart), when none has heard the guild GUILD_LOGIN_GAP yet, he is handed nothing at his
 -- login and waits for the turn (GUILD_SHARE_EVERY, about half an hour), once: his client keeps it.
+-- (The review, a trade-off kept.) A 1.5.9 client counts any snapshot it takes as the answer to its own
+-- ask, a hand-over too, and skips its login's retry: a 1.5.9 guild master handed his approval at his
+-- login, and a 1.5.9 guildmate whose login came within its retry's window (about six minutes) before a
+-- hand-over, get the rest of the store (other guilds' words and starts) at their next half-hourly ask,
+-- or sooner from a guildmate's answered ask handed to the guild. 1.5.9 cannot change, and holding the
+-- login's hand-over past his retry would show the guild master his notice again; 1.6.0 counts no one
+-- guild's word alone (Verify.Handle).
 
 local Verify = {}
 ns.Verify = Verify
