@@ -3352,7 +3352,11 @@ function mesh.Join(name, now)
 	mesh.sent[key] = now
 	mesh.n.rjOut = (mesh.n.rjOut or 0) + 1
 	Quiet(name)
-	ns.Comm.Whisper(name, ("RJ~1~%d~%d"):format(regs, tree), "relay rj " .. key, false)
+	-- (1.6.0) Urgent: as an ordinary whisper a busy relay's queue pushed it out (the load harness, two
+	-- relays at a line every 30 s: 3 of the 10 RJ they sent each other in 20 minutes), MESH_FOR passed with
+	-- none, and for most of a round the other relay sent it no chat line, census or list (its guilds'
+	-- members missed 213 of the 3,724 lines; none since).
+	ns.Comm.Whisper(name, ("RJ~1~%d~%d"):format(regs, tree), "relay rj " .. key, true)
 end
 function mesh.JoinAnswered()
 	if not Relay.On() or not Relay.IsSignedRelay(ns.me) then return end
