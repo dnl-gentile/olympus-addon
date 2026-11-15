@@ -227,6 +227,41 @@ test("1.6.0 Church: an invite kept under a linked missionary alt and again under
 	eq(StateOf(w, c.a1, "Far Recruit", A1), "taken")
 end)
 
+-- (1.6.0) Those two rows, tied (ClaimTie), stand together at the earlier of their hours against a third
+-- recruiter's claim on the same recruit. Weighed at the main's own row, the later read, a third claim of
+-- the alt row's hour took the recruit from the pair, which the alt's row alone held before 1.6.0, and one
+-- of the main row's hour took him on its name (the tie keys). Fails before: the third credited in both.
+test("1.6.0 Church: an invite kept under a linked missionary alt and under the main an hour apart stands at the earlier hour against a third recruiter's claim", function()
+	for _, case in ipairs({
+		{ third = "Nils Ford", hours = -2, wins = A1, why = "a third claim of the alt row's hour" },
+		{ third = "Abel Quill", hours = -1, wins = A1, why = "a third claim of the main row's hour, its name first" },
+		{ third = "Abel Quill", hours = -3, wins = "Abel Quill", why = "a third claim earlier than both rows" },
+	}) do
+		local w, c = Cast()
+		w:Client("Abel Quill")
+		w:Act(c.a1, c.a1.Church.NameMissionary, "Abel Quill")
+		w:Run(8 * 3600)
+		w:Presence()
+		local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+		Join(w, World.GUILD, "Skew Recruit")
+		local function Report(by, ti, tj)
+			return ("NV~1~w~%s~Skew Recruit-Realm~%s~%s~%s"):format(by, World.GUILD, B36(ti), B36(tj))
+		end
+		-- Before the link: Mira's own row (a missionary's) and the third recruiter's.
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report("Mira Wells", hour - 2, hour - 1)), true)
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.third, hour + case.hours, hour + case.hours + 1)), true)
+		-- Mira is Aldric's alt (both claims heard): the later read, an hour on, is his own row.
+		c.a1.ns.Alts.Group = function(name)
+			if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+		end
+		c.a1.ns.Alts.Version = function() return 1 end
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report("Mira Wells", hour - 1, hour)), true)
+		for _, by in ipairs({ A1, "Mira Wells", case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.wins) and "credited" or "taken", case.why .. ", the row of " .. by)
+		end
+	end
+end)
+
 test("1.1.6 Church: linked invite attribution resolves a confirmed alt from another Forever sub-realm", function()
 	local w, c = Cast()
 	local keeper = c.a1

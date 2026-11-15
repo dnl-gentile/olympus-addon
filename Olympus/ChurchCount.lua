@@ -1464,14 +1464,17 @@ end
 
 -- A confirmed claim wins, then the earliest. Equal times use the claim tie keys. (1.6.0) A row tied to
 -- the main's own (ClaimTie) is weighed as that row, whose own place it never takes: the two always
--- stand alike against a third claim, whichever order the ledger lists them in.
-local function Before(id, r, bid, b, ties, recs)
+-- stand alike against a third claim, whichever order the ledger lists them in. They stand at the
+-- earlier of their times (tieAt: the earliest tc among a main's row and the rows tied to it): at the
+-- main's row, the later read, a third claim of the alt row's hour took the recruit from them, which the
+-- alt's row alone held before 1.6.0, and one of the main row's hour took him on its tie key.
+local function Before(id, r, bid, b, ties, recs, tieAt)
 	local tie, btie = ties[id] or id, ties[bid] or bid
 	if tie ~= id and recs[tie] then r = recs[tie] end
 	if btie ~= bid and recs[btie] then b = recs[btie] end
 	local conf, bconf = Confirmed(r), Confirmed(b)
 	if conf ~= bconf then return conf end
-	local at, bat = r.tc or 0, b.tc or 0
+	local at, bat = tieAt[tie] or r.tc or 0, tieAt[btie] or b.tc or 0
 	if at ~= bat then return at < bat end
 	if tie ~= btie then return tie < btie end
 	return id == tie and bid ~= btie
@@ -1481,7 +1484,7 @@ end
 -- ids of his records, r = the records }. (1.2.3: kept while the ledger is the same, until the first open
 -- registration reaches REG_DAYS and CREDITS_KEEP at most, nothing else in it depends on the time; built
 -- in one pass over the ids, no table for each record: every minute's 1,932 records cost 30 ms and over
--- 1 MB of garbage on the author's laptop, the same result each time.)
+-- 1 MB of garbage on the author's laptop, the same result each time. 1.6.0: two passes, the ties first.)
 function Count.Credits()
 	local now = Clock()
 	local recs = Led().r
@@ -1491,9 +1494,11 @@ function Count.Credits()
 	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til
 		and (not c.placement or c.placement == Church.State()) then return c end
 	local states, byPerson, winners, G = {}, {}, {}, Gone()
-	local ties, mains = {}, {}
+	local ties, mains, tieAt = {}, {}, {}
 	local placement
 	local til = now + Count.CREDITS_KEEP
+	-- (1.6.0) Two passes: every record's state and tie first, so a tied pair's earlier time (tieAt) is
+	-- known before any claim is weighed against it, whichever order the ledger lists them in.
 	for id, r in pairs(recs) do
 		local xc = id:match("^[^:]+:")
 		if xc then
@@ -1513,18 +1518,26 @@ function Count.Credits()
 				if state == "open" and ends < til then til = ends end
 			elseif r.kind == "g" and r.tj > (r.tc or 0) + Count.REG_DAYS * DAY then state = "expired"
 			else state = "valid" end
-			if state == "valid" or state == "open" then
-				-- (1.2.1: a recruit the archive counts already, Gone, is no live claim's: he counts once.)
-				local bid = winners[xc]
-				if state == "valid" and not G[xc] and r.bn and r.n then
-					local tie = ClaimTie(id, r, recs, mains)
-				if tie ~= id then ties[id], placement = tie, placement or Church.State() end
+			if state == "valid" and not G[xc] and r.bn and r.n then
+				local tie = ClaimTie(id, r, recs, mains)
+				if tie ~= id then
+					ties[id], placement = tie, placement or Church.State()
+					tieAt[tie] = math.min(tieAt[tie] or recs[tie].tc or 0, r.tc or 0)
 				end
-				if G[xc] ~= nil then state = "taken"
-				elseif not bid then winners[xc] = id
-				elseif Before(id, r, bid, recs[bid], ties, recs) then states[bid], winners[xc] = "taken", id
-				else state = "taken" end
 			end
+			states[id] = state
+		end
+	end
+	for id, r in pairs(recs) do
+		local state = states[id]
+		if state == "valid" or state == "open" then
+			-- (1.2.1: a recruit the archive counts already, Gone, is no live claim's: he counts once.)
+			local xc = id:match("^[^:]+:")
+			local bid = winners[xc]
+			if G[xc] ~= nil then state = "taken"
+			elseif not bid then winners[xc] = id
+			elseif Before(id, r, bid, recs[bid], ties, recs, tieAt) then states[bid], winners[xc] = "taken", id
+			else state = "taken" end
 			states[id] = state
 		end
 	end
