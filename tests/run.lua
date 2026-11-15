@@ -5819,6 +5819,68 @@ test("1.5.8 packed chat tokens capture crafter GUID letters only for exact seman
 	eq(assert(Codec.DecodeChat(message)).text, named, "encode/decode keeps the exact link")
 end)
 
+test("1.5.9 trade links require one canonical Player GUID and two bounded positive decimal IDs", function()
+	local guid = "Player-6931-017A0447"
+	local function Link(kind, data)
+		return "|cffffd000|H" .. kind .. ":" .. data .. "|h[Blacksmithing]|h|r"
+	end
+	local function Token(kind, data)
+		return "[Blacksmithing](" .. kind .. ":" .. data .. "/ffffd000)"
+	end
+	local function Rejected(kind, data, why)
+		local link, token = Link(kind, data), Token(kind, data)
+		eq(Codec.LinkAt(link, 1), nil, why)
+		assert(Codec.SanitizeChat(link) ~= link, why .. ": sanitizer")
+		eq(Codec.PackLinks(link), link, why .. ": packer")
+		eq(Codec.UnpackLinks(token), token, why .. ": token")
+	end
+
+	for _, bad in ipairs({
+		{ "", "no fields" },
+		{ guid .. ":3100", "missing skillLineID" },
+		{ guid .. ":3100:164:1", "extra field" },
+		{ ":3100:164", "empty GUID" },
+		{ guid .. "::164", "empty spellID" },
+		{ guid .. ":3100:", "empty skillLineID" },
+		{ guid .. ":0:164", "zero spellID" },
+		{ guid .. ":3100:0", "zero skillLineID" },
+		{ guid .. ":-1:164", "negative spellID" },
+		{ guid .. ":3100:-1", "negative skillLineID" },
+		{ guid .. ":spell:164", "letters in spellID" },
+		{ guid .. ":3100:skill", "letters in skillLineID" },
+		{ "Crafter-6931-017A0447:3100:164", "arbitrary GUID kind" },
+		{ "Player-6931-017A0447:Player-6931-017A0447:164", "GUID in spellID" },
+		{ guid .. ":3100:" .. guid, "GUID in skillLineID" },
+		{ guid .. ":3100:164:" .. guid, "duplicate GUID field" },
+		{ "Player--017A0447:3100:164", "empty realm" },
+		{ "Player-0-017A0447:3100:164", "zero realm" },
+		{ "Player-06931-017A0447:3100:164", "non-canonical realm" },
+		{ "Player-12345678901-017A0447:3100:164", "overlong realm" },
+		{ "Player-6931-00000000:3100:164", "zero player ID" },
+		{ "Player-6931-017a0447:3100:164", "lowercase player ID" },
+		{ "player-6931-017A0447:3100:164", "lowercase GUID kind" },
+		{ "Player-6931-017A044:3100:164", "short player ID" },
+		{ "Player-6931-0017A0447:3100:164", "overlong player ID" },
+		{ guid .. ":03100:164", "non-canonical spellID" },
+		{ guid .. ":3100:0164", "non-canonical skillLineID" },
+		{ guid .. ":1000000000:164", "overlong spellID" },
+		{ guid .. ":3100:1000000000", "overlong skillLineID" },
+		{ guid .. ":31\n00:164", "control byte" },
+		{ guid .. ":" .. ("1"):rep(121) .. ":164", "data over 120 bytes" },
+	}) do
+		Rejected("trade", bad[1], bad[2])
+	end
+	for _, kind in ipairs({ "item", "spell", "enchant", "quest" }) do
+		Rejected(kind, guid .. ":3100:164", "trade data on " .. kind)
+	end
+
+	for _, data in ipairs({ guid .. ":3100:164", "Player-1234567890-FFFFFFFF:999999999:999999999" }) do
+		local link = Link("trade", data)
+		eq(Codec.LinkAt(link, 1), #link, "valid bounded trade data")
+		eq(Codec.SanitizeChat(link), link, "valid trade link stays live")
+	end
+end)
+
 test("long chat splits at safe points and every part fits one message", function()
 	local guild = "Olympus Poseidon Real"
 	eq(#guild, 21)
@@ -58034,6 +58096,50 @@ do
 		end)
 	end)
 
+	test("1.5.9 Chat tab: the exact validated trade link hovers and reaches SetItemRef once; malformed and other links stay blocked", function()
+		WithWindow(function(w)
+			local target = "trade:Player-6931-017A0447:3100:164"
+			local trade = "|cffffd000|H" .. target .. "|h[Blacksmithing]|h|r"
+			ns.rdb.chat = { A = { Line(T0, "Member599-Realm", "look " .. trade) } }
+			local f = w.CW.Open()
+			local b = BubbleWith(f, "[Blacksmithing]")
+			assert(b, "the exact trade link is in its bubble")
+			local savedRef, savedTip = rawget(_G, "SetItemRef"), GameTooltip.SetHyperlink
+			local calls, hovered = {}, {}
+			local ok, err = pcall(function()
+				SetItemRef = function(link, text, button)
+					calls[#calls + 1] = { link = link, text = text, button = button }
+				end
+				GameTooltip.SetHyperlink = function(_, link) hovered[#hovered + 1] = link end
+				IsShiftKeyDown = function() return false end
+				WithGamepadUI(false, function()
+					b:Fire("OnHyperlinkEnter", target, trade)
+					eq(hovered[1], target, "validated trade hover uses the existing native tooltip path")
+					b:Fire("OnHyperlinkLeave")
+					b:Fire("OnHyperlinkClick", target, trade, "LeftButton")
+					eq(#calls, 1, "the exact trade click is passed once")
+					eq(calls[1].link, target); eq(calls[1].text, trade); eq(calls[1].button, "LeftButton")
+
+					for _, link in ipairs({
+						"trade:Player-6931-017A0447:3100",
+						"trade:Player-6931-017a0447:3100:164",
+						"trade:Player-6931-017A0447:3100:164:1",
+						"player:Member599-Realm",
+						"item:not-a-number",
+					}) do
+						b:Fire("OnHyperlinkEnter", link, "[blocked]")
+						b:Fire("OnHyperlinkClick", link, "[blocked]", "LeftButton")
+					end
+					b:Fire("OnHyperlinkClick", target, trade, "RightButton")
+					eq(#hovered, 1, "malformed and other links get no native hover")
+					eq(#calls, 1, "malformed, other and right-click links get no SetItemRef call")
+				end)
+			end)
+			SetItemRef, GameTooltip.SetHyperlink = savedRef, savedTip
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	-- 1.1.6 (WatchChat.lua): the Chat tab's side of chat moderation, with a stand-in WatchChat that
 	-- answers who may act (its own rules have their tests in tests/watch-chat.lua): a deleted line's
 	-- bubble, the moderator's button on hover and a right-click on a line he may act on, the timeout's
@@ -61235,6 +61341,24 @@ end)()
 		end)
 		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
 		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.9 profession trade hyperlink survives sanitize, transport and native display byte for byte", function()
+		local trade = "|cffffd000|Htrade:Player-6931-017A0447:3100:164|h[Blacksmithing]|h|r"
+		local sanitized = Codec.SanitizeChat(trade)
+		eq(sanitized, trade, "the exact Forever hyperlink stays live")
+		local packed = Codec.PackLinks(sanitized)
+		eq(packed, "[Blacksmithing](trade:Player-6931-017A0447:3100:164/ffffd000)", "pipe-free transport token")
+		eq(Codec.PackLinks(packed), packed, "packing is idempotent")
+		local wire = assert(Codec.EncodeChat("A", MY_GUILD, 159, "PA", sanitized))
+		eq(assert(Codec.DecodeChat(wire)).text, trade, "the receiver reconstructs the exact hyperlink")
+		eq(Codec.UnpackLinks(Codec.UnpackLinks(packed)), trade, "unpacking is idempotent")
+		eq(Chan.Relink(trade), trade, "trade is not item presentation")
+		WithTabs(function(w)
+			eq(Recv("A", "Member599", sanitized), true)
+			local delivered = assert(w[1].lines[1], "the line delivered to the native chat frame")
+			eq(delivered:match(": (.*)$"), trade, "native AddMessage trade text")
+		end)
 	end)
 
 	test("1.5.8 native local echo presents the exact Black Silk Pack as hex without changing transport or history", function()

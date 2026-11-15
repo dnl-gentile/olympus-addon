@@ -47,7 +47,7 @@ local L = ns.L
 --   ns.EscapeCloses (nothing on UISpecialFrames with the gamepad UI: its X closes it there).
 -- - Links in a line show their tooltip on hover (GameTooltip:SetHyperlink) and go into its own
 --   box with a Shift-click; never ChatEdit_InsertLink or HandleModifiedItemClick. 1.5.4: a left
---   click on an item, spell, enchant or quest link opens the game's link window as a click in the
+--   click on an item, spell, enchant, quest or trade link opens the game's link window as a click in the
 --   game's chat does (SetItemRef, the gate's item-ref), with mouse and keyboard alone; and an item
 --   shows with the name and colour this client's item data gives it (ChatWindow.Relink).
 -- Nothing is drawn while the tab is hidden: a change marks it dirty and it redraws at most every
@@ -87,7 +87,7 @@ local GUIDE_X = 20                                    -- the Olympus tab's line:
 local MAX_NOTES = 5
 local LOOK_GAP = 1                                    -- the Olympus tab awaited: the game's chat windows read this often
 local GREY = "|cff9d9d9d"
-local LINK_TIPS = { item = true, spell = true, enchant = true, quest = true } -- (the links Codec lets through)
+local LINK_TIPS = { item = true, spell = true, enchant = true, quest = true, trade = true } -- (the links Codec lets through)
 local WHY = { moved = "CHATWIN_WHY_MOVED", late = "CHATWIN_WHY_LATE", failed = "CHATWIN_WHY_FAILED", left = "CHATWIN_WHY_LEFT",
 	-- 1.2.4: a room's line refused at Enter (ChatRooms.Send's reasons), or every whisper of it lost
 	-- on its way (Comm's and the room's permit's reasons): each its own words, not "the game refused it".
@@ -677,9 +677,15 @@ local function InsertLink(text)
 	if eb.Insert then eb:Insert(text) else eb:SetText((eb:GetText() or "") .. text) end
 end
 
+local function SafeLinkKind(link)
+	if type(link) ~= "string" then return nil end
+	local kind, data = link:match("^(%a+):(.*)$")
+	if not kind or not LINK_TIPS[kind] or not ns.Codec.ValidLinkData(kind, data) then return nil end
+	return kind
+end
+
 local function LinkTip(owner, link)
-	local kind = type(link) == "string" and link:match("^(%a+):")
-	if not kind or not LINK_TIPS[kind] then return end
+	if not SafeLinkKind(link) then return end
 	GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
 	if pcall(GameTooltip.SetHyperlink, GameTooltip, link) then
 		GameTooltip:Show()
@@ -690,14 +696,14 @@ local function LinkTip(owner, link)
 end
 
 -- 1.5.4 (the dev: items "clicável, com hover que aparece os detalhes do item"): a left click on an
--- item, spell, enchant or quest link in a line opens the game's link window, as a click in the
+-- item, spell, enchant, quest or trade link in a line opens the game's link window, as a click in the
 -- game's chat does (ChatFrame's OnHyperlinkClick calls SetItemRef, which shows ItemRefTooltip).
--- Never for another link type (a player link would open the game's chat box), and never with the
--- gamepad UI (a game panel from Olympus there): the hover tooltip stays, the click does nothing.
+-- The target is checked again at this native boundary; never for malformed data or another link
+-- type (a player link would open the game's chat box), and never with the gamepad UI (a game panel
+-- from Olympus there): the hover tooltip stays, the click does nothing.
 function ChatWindow.LinkClick(link, text, button) -- gp:item-ref
 	if not ns.Gate.Allowed("item-ref") then return false end
-	local kind = type(link) == "string" and link:match("^(%a+):")
-	if not kind or not LINK_TIPS[kind] or button ~= "LeftButton" then return false end
+	if not SafeLinkKind(link) or button ~= "LeftButton" then return false end
 	if type(SetItemRef) ~= "function" then return false end
 	return (pcall(SetItemRef, link, text, button)) -- gp:item-ref
 end

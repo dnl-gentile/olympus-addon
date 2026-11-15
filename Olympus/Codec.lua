@@ -431,8 +431,9 @@ end
 Codec.CHAT_MAX = 250
 Codec.CHAT_PARTS = 3
 Codec.CHAT_TIERS = { A = true, C = true, L = true }
--- (0.9.2: no achievement links, which none of our clients has, and whose data is not numbers.)
-local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true }
+-- (0.9.2: no achievement links, which none of our clients has, and whose data is not numbers.
+-- 1.5.9: Forever's other-player profession link, with its own exact validator below.)
+local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true, trade = true }
 
 -- A link's data as the game writes it for these types (0.9.2): an id from 1, then at most 31
 -- more fields, each empty or a whole number ("19019::::::::60::" or "5:-1"), 120 bytes at
@@ -441,24 +442,44 @@ local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true }
 -- conservatively at 10 digits; neither component may be zero. Anything else (letters, an
 -- empty or zero id, a field the size of a novel) could be a malformed link made to break the
 -- client's tooltip, and is shown as plain text.
-local function CrafterGUID(field)
+local function CanonicalPlayerGUID(field)
 	local realm, player = field:match("^Player%-([1-9]%d*)%-([0-9A-F]+)$")
 	return realm ~= nil and #realm <= 10 and #player == 8 and player ~= "00000000"
 end
 
+-- The existing conservative hyperlink-ID bound: canonical positive decimal, at most 9 digits.
+local function LinkID(field)
+	return field:find("^[1-9]%d?%d?%d?%d?%d?%d?%d?%d?$") ~= nil
+end
+
+-- Forever's profession hyperlink (1.5.9), documented as trade:guid:spellID:skillLineID. This is
+-- deliberately separate from the generic item/spell/enchant/quest grammar: exactly three
+-- nonempty fields, one canonical nonzero Player GUID and two bounded positive decimal IDs.
+local function TradeData(data)
+	if #data > 120 then return false end
+	local guid, spellID, skillLineID = data:match("^([^:]+):([^:]+):([^:]+)$")
+	return guid ~= nil and CanonicalPlayerGUID(guid) and LinkID(spellID) and LinkID(skillLineID)
+end
+
 local function LinkData(kind, data)
 	if #data > 120 then return false end
+	if kind == "trade" then return TradeData(data) end
 	local n, crafter = 0, false
 	for field in (data .. ":"):gmatch("([^:]*):") do
 		n = n + 1
-		if n == 1 and not field:find("^[1-9]%d?%d?%d?%d?%d?%d?%d?%d?$") then return false end
+		if n == 1 and not LinkID(field) then return false end
 		if n > 32 then return false end
 		if n > 1 and not (field == "" or (#field <= 11 and field:find("^%-?%d+$"))) then
-			if kind ~= "item" or crafter or not CrafterGUID(field) then return false end
+			if kind ~= "item" or crafter or not CanonicalPlayerGUID(field) then return false end
 			crafter = true
 		end
 	end
 	return true
+end
+
+-- The same whitelist and semantic boundary for the Chat tab's native hover/click delegation.
+function Codec.ValidLinkData(kind, data)
+	return type(kind) == "string" and LINK_TYPES[kind] == true and type(data) == "string" and LinkData(kind, data)
 end
 
 -- Length of a link we let through that starts at i, or nil: an optional colour (Classic
@@ -474,7 +495,7 @@ local function LinkAt(s, i)
 		j = j + #color
 	end
 	local kind, data, text = s:match("^|H(%a+):([^|]*)|h%[([^|%[%]%c]*)%]|h", j)
-	if not kind or not LINK_TYPES[kind] or not LinkData(kind, data) or text == "" or #text > 100 then return nil end
+	if not kind or not Codec.ValidLinkData(kind, data) or text == "" or #text > 100 then return nil end
 	j = j + #kind + #data + #text + 9 -- "|H" ":" "|h[" "]|h"
 	if color then
 		if s:sub(j, j + 1) ~= "|r" then return nil end
@@ -656,7 +677,7 @@ function Codec.PackLinks(s)
 end
 
 local function Untoken(name, kind, data, colour)
-	if not LINK_TYPES[kind] or not LinkData(kind, data) or name == "" or #name > 100 then return nil end
+	if not Codec.ValidLinkData(kind, data) or name == "" or #name > 100 then return nil end
 	if colour ~= "" and not (colour:find("^%x%x%x%x%x%x%x%x$") or (#colour <= 38 and colour:find("^n[%w_]+:$"))) then return nil end
 	local link = "|H" .. kind .. ":" .. data .. "|h[" .. name .. "]|h"
 	if colour ~= "" then link = "|c" .. colour .. link .. "|r" end
@@ -670,7 +691,7 @@ function Codec.UnpackLinks(s)
 	if not s:find("](", 1, true) then return s end
 	-- The capture admits only the old numeric punctuation plus the letters a canonical Player
 	-- GUID needs. DecodeChat bounds the whole input at 255 bytes; LinkData then applies its exact
-	-- kind, 120-byte, field-count and crafter-GUID validation before Untoken reconstructs anything.
+	-- kind, 120-byte, field-count and kind-specific Player-GUID validation before Untoken reconstructs anything.
 	return (s:gsub("%[([^%[%]|%c]+)%]%((%a+):([0-9A-FPalyer:%-]*)/([^%)]*)%)", Untoken))
 end
 
