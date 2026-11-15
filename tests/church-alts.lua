@@ -160,8 +160,9 @@ local function CountLinked(w, k, list)
 	return n
 end
 -- An alt logs in, is asked (Alts.ASK_AFTER) and says yes in the dialog; its claim goes at LOGIN_AFTER.
-local function Confirm(w, acct, full)
-	local cl = Login(w, acct, full)
+-- opts: Login's (legacy: on 1.5.9).
+local function Confirm(w, acct, full, opts)
+	local cl = Login(w, acct, full, opts)
 	w:Run(16)
 	local d = cl.dialogs[#cl.dialogs]
 	local asked = d ~= nil and d.which == "OLYMPUS_ALT_CONFIRM"
@@ -736,4 +737,57 @@ test("1.6.0 Church alts: an alt that leaves its main on its own side says so ove
 	Logout(w, acct)
 	w:Run(700)
 	for _, k in ipairs({ K.eda, K.bera }) do eq(StateOf(w, k, "Wolf Recruit", MAIN), nil, "not the former main's, on " .. k.name) end
+end)
+
+-- 1.5.9 kept "/oly alt add First Surname" on the main under the main's own sub-realm: no alt on another
+-- sub-realm was ever asked, and players linked theirs by the full name instead. That offer stayed in the
+-- account's saved variables, and 1.6.0 finds an offer by its plain name (OfferFor): the alt, linked
+-- already, was asked again, and the main's "/oly alt remove First Surname" took that offer back instead
+-- of the link ("The link offered to ... is withdrawn.", the link kept until a second remove). Fails
+-- before: the alt is asked again; the first remove withdraws the offer.
+test("1.6.0 Church alts: an offer 1.5.9 left under the main's own sub-realm for an alt linked since by its full name: the alt is not asked again, and /oly alt remove First Surname on the main takes the link apart at once", function()
+	-- On 1.5.9: the plain name (kept under Realm1, never answered on Realm2), then the full name, linked.
+	local function Before()
+		local w = World.New({ apostles = { MAIN } })
+		local acct = NewAccount()
+		AddChar(w, acct, MAIN, G1, 0)
+		AddChar(w, acct, A.gale, G1)
+		w:Run(60)
+		local sm = Login(w, acct, MAIN, { legacy = true })
+		eq(Slash(w, sm, "add " .. Plain(A.gale)), true)
+		local _, asked = Confirm(w, acct, A.gale, { legacy = true })
+		eq(asked, false, "1.5.9 never asked the alt on another sub-realm")
+		sm = Login(w, acct, MAIN, { legacy = true })
+		eq(Slash(w, sm, "add " .. A.gale), true)
+		_, asked = Confirm(w, acct, A.gale, { legacy = true })
+		eq(asked, true)
+		eq(acct.db.alts.links[A.gale:lower()] ~= nil, true, "linked by the full name")
+		eq(acct.db.alts.offers[(Plain(A.gale) .. "-" .. R1):lower()] ~= nil, true, "the plain name's offer left over")
+		return w, acct
+	end
+	-- 1.6.0, the alt logged in first.
+	local w, acct = Before()
+	local gale = Login(w, acct, A.gale)
+	w:Run(61)
+	eq(#gale.dialogs, 0, "not asked again")
+	eq(next(acct.db.alts.offers), nil, "the answered offer dropped")
+	eq(acct.db.alts.links[A.gale:lower()] ~= nil, true, "still linked")
+	-- 1.6.0, the main logged in first, taking the link apart by the plain name.
+	w, acct = Before()
+	local sm = Login(w, acct, MAIN)
+	eq(Slash(w, sm, "remove " .. Plain(A.gale)), true)
+	local removed = w:As(sm, function() return ns.L.ALT_REMOVED:format(ns.DisplayName(A.gale), ns.DisplayName(MAIN)) end)
+	eq(sm.printed[#sm.printed], removed, "the link, at the first remove")
+	eq(acct.db.alts.links[A.gale:lower()], nil)
+	eq(next(acct.db.alts.offers), nil, "its leftover offer with it")
+	gale = Login(w, acct, A.gale)
+	w:Run(61)
+	eq(#gale.dialogs, 0, "the alt is not asked to link again")
+	-- 1.6.0, the main's /oly alt: that offer waits for nothing.
+	w, acct = Before()
+	sm = Login(w, acct, MAIN)
+	w:As(sm, sm.Alts.PrintStatus)
+	local waiting = w:As(sm, function() return ns.L.ALT_WAITING:format(ns.DisplayName(Plain(A.gale) .. "-" .. R1)) end)
+	eq(Printed(sm, waiting), false, "no offer listed as waiting for the linked alt")
+	eq(acct.db.alts.links[A.gale:lower()] ~= nil, true)
 end)

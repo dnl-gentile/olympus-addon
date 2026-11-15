@@ -203,22 +203,45 @@ local function ByPlain(list, name)
 	end
 	return found
 end
--- This account's offer for a character: under its own name, or one its main made with the plain name.
--- Its key and the offer.
-local function OfferFor(name)
-	local offers = Account().offers
-	local key = Key(name)
-	if type(offers[key]) == "table" then return key, offers[key] end
-	local k = ByPlain(offers, name)
-	if k then return k, offers[k] end
-	return nil
-end
 -- The key of this account's link of a character: as named, or the linked character of that plain name.
 local function LinkKey(name)
 	local links = Account().links
 	local key = Key(name)
 	if type(links[key]) == "table" then return key end
 	return ByPlain(links, name)
+end
+-- Two names of one character: the same name, or the same plain name within our Forever family.
+local function Same(a, b)
+	if type(a) ~= "string" or type(b) ~= "string" then return false end
+	return Key(a) == Key(b) or (InFamily(a) and InFamily(b) and Plain(a) == Plain(b))
+end
+-- (1.6.0) An offer this account's links answer already: its character linked to that offer's main. 1.5.x
+-- kept "/oly alt add First Surname" under the main's own sub-realm, which no alt on another one could
+-- answer, so players linked theirs by the full name; that offer, now found by its plain name, asked the
+-- linked alt again, and "/oly alt remove First Surname" on the main took it back instead of the link.
+local function Answered(offer)
+	if type(offer) ~= "table" or type(offer.name) ~= "string" then return false end
+	local k = LinkKey(offer.name)
+	local link = k and Account().links[k]
+	return type(link) == "table" and Same(link.main, offer.main)
+end
+-- The offers this account's links answer already go (Answered), before any is looked up or listed.
+local function DropAnswered()
+	local offers = Account().offers
+	for k, o in pairs(offers) do
+		if Answered(o) then offers[k] = nil end
+	end
+end
+-- This account's offer for a character: under its own name, or one its main made with the plain name.
+-- Its key and the offer.
+local function OfferFor(name)
+	DropAnswered()
+	local offers = Account().offers
+	local key = Key(name)
+	if type(offers[key]) == "table" then return key, offers[key] end
+	local k = ByPlain(offers, name)
+	if k then return k, offers[k] end
+	return nil
 end
 
 -- The group a main's claim confirms: the main and each alt that names it back. (1.6.0) An alt the
@@ -673,20 +696,14 @@ function Alts.Remove(input)
 	local name = CharName(input, ns.realm)
 	if not name then ns.Print(L.ALT_WHO_BAD) return false end
 	local a = Account()
-	local key = Key(name)
-	if type(a.offers[key]) == "table" then
-		a.offers[key] = nil
-		ns.Print(L.ALT_OFFER_DROPPED:format(ns.DisplayName(name)))
-		return true
-	end
-	-- (1.6.0) On a Forever ruleset the plain name finds its character on any sub-realm of it.
-	local linked = LinkKey(name)
-	if linked then key = linked end
+	-- (1.6.0) The link first, then an offer: on a Forever ruleset the plain name finds its character on any
+	-- sub-realm of it, and an offer 1.5.x left under that name for a character linked since is no stand-in
+	-- for the link (Answered): the first remove took that offer back and left the link.
+	local key = LinkKey(name) or Key(name)
 	local link = a.links[key]
 	local mine = type(a.links[Key(ns.me)]) == "table" and a.links[Key(ns.me)] or nil
 	-- The alt named, or the main of this alt named (this alt leaves it).
-	if type(link) ~= "table" and mine and (Key(mine.main) == key
-		or (InFamily(name) and InFamily(mine.main) and Plain(mine.main) == Plain(name))) then link, key = mine, Key(ns.me) end
+	if type(link) ~= "table" and mine and Same(mine.main, name) then link, key = mine, Key(ns.me) end
 	if type(link) ~= "table" then
 		local okey, offer = OfferFor(name)
 		if okey then
@@ -699,6 +716,10 @@ function Alts.Remove(input)
 	end
 	if Alts.Frozen({ link.name, link.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = nil
+	-- Its offers to that main go with it: a 1.5.x one would ask it to link again.
+	for k, o in pairs(a.offers) do
+		if type(o) == "table" and Same(o.name, link.name) and Same(o.main, link.main) then a.offers[k] = nil end
+	end
 	Changed()
 	ns.Print(L.ALT_REMOVED:format(ns.DisplayName(link.name), ns.DisplayName(link.main)))
 	Alts.Send(true)
@@ -726,6 +747,7 @@ function Alts.PrintStatus()
 		ns.Print(L.ALT_NONE)
 	end
 	local waiting = {}
+	DropAnswered() -- (1.6.0: a 1.5.x offer for an alt linked since waits for nothing)
 	for _, o in pairs(a.offers) do if type(o) == "table" then waiting[#waiting + 1] = ns.DisplayName(o.name) end end
 	table.sort(waiting)
 	if #waiting > 0 then ns.Print(L.ALT_WAITING:format(table.concat(waiting, ", "))) end
