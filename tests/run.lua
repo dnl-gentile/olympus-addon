@@ -11,6 +11,15 @@
 -- Run a separately distributed module's own suite here too (1.4.0; see the hook where Olympus
 -- Link's tests used to be, and the README's Integrating with Olympus):
 --   OLYMPUS_EXTRA_SUITE=/path/to/suite.lua OLYMPUS_TEST_FILTER='<name part>' luajit tests/run.lua
+-- Keep LuaJIT's trace compiler on, to look into the compiler itself (the suite runs without it):
+--   OLYMPUS_TEST_JIT=1 luajit tests/run.lua
+
+-- (1.6.0) The game runs the addon on a plain Lua 5.1 interpreter. LuaJIT's trace compiler
+-- sometimes compiled the chat moderation store's lookup wrong (WatchChat.lua's Store, then
+-- ActiveOn): a guild master's own fresh timeout went unseen in about one Bones chat test run in
+-- 250, never with the compiler off nor once its traces were flushed. The addon runs interpreted
+-- here, as in the game.
+if rawget(_G, "jit") and os.getenv("OLYMPUS_TEST_JIT") ~= "1" then jit.off(); jit.flush() end
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
 local ADDON_DIR = ROOT .. "Olympus/"
@@ -250,6 +259,13 @@ local function test(name, fn)
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
 assert(loadfile(ROOT .. "tests/test-performance.lua"))(test, eq, ROOT)
+-- (1.6.0) The top of this file: no test runs compiled code the game never runs. Fails while
+-- LuaJIT's trace compiler is on without OLYMPUS_TEST_JIT=1 asking for it.
+test("Harness: the addon runs on the interpreter, as in the game: LuaJIT's trace compiler stays off unless OLYMPUS_TEST_JIT=1", function()
+	local J = rawget(_G, "jit")
+	if not J then return end
+	eq(J.status(), os.getenv("OLYMPUS_TEST_JIT") == "1", "LuaJIT's trace compiler on")
+end)
 
 -- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
 -- from other guilds count only when someone else's recent report names them (Data.KnownRank).

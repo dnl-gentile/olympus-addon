@@ -49,6 +49,9 @@ local MODE = type(H) == "string" and H or nil
 if type(H) ~= "table" then H = nil end
 local ROOT = H and H.ROOT or ((arg and arg[0] or ""):match("^(.*)tests[/\\]gamepad%.lua$") or "./")
 local ADDON_DIR = ROOT .. "Olympus/"
+-- (1.6.0) Alone too, the addon runs interpreted, as in the game and as tests/run.lua runs it
+-- (OLYMPUS_TEST_JIT=1 keeps LuaJIT's trace compiler on).
+if not H and rawget(_G, "jit") and os.getenv("OLYMPUS_TEST_JIT") ~= "1" then jit.off(); jit.flush() end
 
 local passed, failed = 0, 0
 local test = H and H.test or function(name, fn)
