@@ -1961,15 +1961,38 @@ end
 -- later, and the 9th is the first that waits past CHAT_LANE_TTL. Past CHAT_LANE_MAX waiting the
 -- oldest goes, and one that waited CHAT_LANE_TTL is no longer news (both counted: Stats().chatLost,
 -- "lost" in /oly status). The real cure is several lines in one whisper: a new form, for 1.5.6.
+--
+-- (1.6.0, a member's /oly bug on 1.5.9: lines up to five minutes late, repeated or missing, his own
+-- queue empty.) A busy relay's lane stayed full: at 90 registrants a line every 30 s is past
+-- CHAT_PER_MIN, so every whisper it sent had waited some CHAT_LANE_TTL and the rest went unsent (the
+-- load harness, tests/relay-tree-load.lua, 30 minutes: a line every 30 s took 182 s to a member at
+-- the median and 292 s at most; every 20 s the members missed a third of the lines, one member 41 of
+-- 57). The lane now sends the copies to the other relays (across) first: each serves a whole relay's
+-- guilds. Queued after the line's reporters, they were the first a full lane let go (two relays, 60 and
+-- 30 registrants, a line every 15 s: the second relay's members missed 858 of the first one's lines;
+-- none now).
 Relay.CHAT_INFLIGHT = 8
 Relay.CHAT_PER_MIN = 160
 Relay.CHAT_BURST = 8
 Relay.CHAT_LANE_MAX = 1500
 Relay.CHAT_LANE_TTL = 300
-local chatQ, chatFirst, chatLast, chatInflight, chatFeeding = {}, 1, 0, 0, false
+-- The lane's queues, in the order they are served: the copies across, then the reporters' (ONLY: the
+-- lines only the relays carry). A queue: first, last, and its entries.
+local chatLanes = { { first = 1, last = 0 }, { first = 1, last = 0 } }
+local ACROSS, ONLY = chatLanes[1], chatLanes[2]
+local chatInflight, chatFeeding = 0, false
 local chatWaitUntil, chatTimer = -math.huge, false
 local chatBucket = { tokens = Relay.CHAT_BURST, at = -math.huge }
-local function ChatWaiting() return chatLast - chatFirst + 1 end
+local function QueueSize(q) return q.last - q.first + 1 end
+local function ChatWaiting() return QueueSize(ACROSS) + QueueSize(ONLY) end
+local function Push(q, e) q.last = q.last + 1; q[q.last] = e end
+local function Pop(q)
+	local e = q[q.first]
+	q[q.first] = nil
+	q.first = q.first + 1
+	return e
+end
+local function Unshift(q, e) q.first = q.first - 1; q[q.first] = e end
 local FeedChat
 -- Fed again after `seconds` (one timer at a time); meanwhile a word that arrives feeds it once it is due.
 local function ChatLater(seconds)
@@ -1991,9 +2014,8 @@ local function ChatSend(e)
 		settled = true
 		chatInflight = math.max(0, chatInflight - 1)
 		if not sent and why == "full" and Now() - e.t < Relay.CHAT_LANE_TTL then
-			-- (No room even for an urgent whisper: back at the front, tried again in a second.)
-			chatFirst = chatFirst - 1
-			chatQ[chatFirst] = e
+			-- (No room even for an urgent whisper: back at the front of its queue, tried again in a second.)
+			Unshift(e.queue or ONLY, e)
 			ChatLater(1)
 			return
 		end
@@ -2021,23 +2043,31 @@ local function ChatAddressee(e, now)
 	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now) then return nil end
 	return r.name
 end
-local function ChatPop()
-	chatQ[chatFirst] = nil
-	chatFirst = chatFirst + 1
+-- (1.6.0) The whisper to send next and its queue: the first of the copies across, else of the reporters';
+-- nil when none waits.
+local function ChatNext()
+	local e = ACROSS[ACROSS.first]
+	if e then return e, ACROSS end
+	e = ONLY[ONLY.first]
+	if e then return e, ONLY end
+	return nil
 end
 local function FeedChatNow(now)
 	local b = chatBucket
 	if now > b.at then b.tokens = math.min(Relay.CHAT_BURST, b.tokens + (now - b.at) * Relay.CHAT_PER_MIN / 60) end
 	b.at = math.max(b.at, now)
-	while chatInflight < Relay.CHAT_INFLIGHT and chatFirst <= chatLast and now >= chatWaitUntil do
-		local e = chatQ[chatFirst]
+	while chatInflight < Relay.CHAT_INFLIGHT and now >= chatWaitUntil do
+		local e, q = ChatNext(now)
+		if not e then break end
 		if now - e.t >= Relay.CHAT_LANE_TTL then
-			ChatPop()
+			Pop(q)
 			stats.chatLost = (stats.chatLost or 0) + 1
 		elseif b.tokens < #e.pieces then
 			ChatLater(math.max(1, (#e.pieces - b.tokens) * 60 / Relay.CHAT_PER_MIN))
+			break
 		else
-			ChatPop()
+			Pop(q)
+			e.queue = q
 			local to = ChatAddressee(e, now)
 			if not to then
 				stats.chatSkipped = (stats.chatSkipped or 0) + 1
@@ -2061,25 +2091,29 @@ FeedChat = function()
 	-- feeding for good, every later word stopped at its first line until a /reload.
 	local ok = ns.SafeCall("relay chat", FeedChatNow, now)
 	chatFeeding = false
-	if not ok and chatFirst <= chatLast then ChatLater(1) end
+	if not ok and ChatWaiting() > 0 then ChatLater(1) end
 end
 -- A chat line's whisper in the lane: to `guild`'s reporter (`name` when queued; `wire` and `body` the
--- line as ToReporters has it), or, `across` (the relay's key), to that other relay.
+-- line as ToReporters has it), or, `across` (the relay's key), to that other relay. (1.6.0) Past
+-- CHAT_LANE_MAX waiting, the oldest of the reporters' copies goes first, then of the copies across.
 local function ChatTo(name, pieces, body, wire, guild, across)
 	while ChatWaiting() >= Relay.CHAT_LANE_MAX do
-		ChatPop()
+		Pop(QueueSize(ONLY) > 0 and ONLY or ACROSS)
 		stats.chatLost = (stats.chatLost or 0) + 1
 	end
-	chatLast = chatLast + 1
-	chatQ[chatLast] = { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now() }
+	Push(across and ACROSS or ONLY, { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now() })
 	FeedChat()
 end
 function Relay.ChatWaiting() return ChatWaiting() end -- (/oly status, tests)
 -- (1.5.9's review) How long the chat lane's oldest whisper still waiting has waited, 0 when none does:
 -- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn).
 function Relay.ChatOldest()
-	local e = chatQ[chatFirst]
-	return e and math.max(0, Now() - e.t) or 0
+	local now, oldest = Now(), 0
+	local e = ACROSS[ACROSS.first]
+	if e then oldest = math.max(oldest, now - e.t) end
+	e = ONLY[ONLY.first]
+	if e then oldest = math.max(oldest, now - e.t) end
+	return oldest
 end
 
 -- (1.5.4) The King's presence (T1~o, King.SendPresence: one piece from his signed character every
@@ -3512,7 +3546,8 @@ function Relay.Reset()
 	wipe(listOrigins); wipe(Origins()); wipe(listShares); wipe(listSets)
 	dripBusy, dripping = false, false
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
-	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
+	for _, q in ipairs(chatLanes) do wipe(q); q.first, q.last = 1, 0 end -- (1.5.5: the chat lane; 1.6.0: its queues)
+	chatInflight, chatFeeding = 0, false
 	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end

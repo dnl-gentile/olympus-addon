@@ -227,6 +227,36 @@ test("chat delivery (1.5.5): at 92 reporters, ten lines at once: the first eight
 	end)
 end)
 
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines up to five minutes late, repeated or missing, his own queue
+-- empty). A line's copy to another relay (RX) waited behind the line's reporters, so a full lane let it
+-- go first: that relay's guilds lost every line a busy relay could not finish within CHAT_LANE_TTL. The
+-- copies across go ahead of the reporters' now. Fails before: line 1 crossed after its 92 reporters,
+-- 33 s, and lines 9 and 10 never crossed.
+test("chat delivery (1.6.0): at 92 reporters, ten lines at once: each line's copy to the mesh peer goes ahead of every reporter's, within ten seconds, the ninth and tenth too, which no reporter's round finishes in time", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		local other = "Max Ran-CAMWOWUS2Realm1PvE"
+		R.Relay.HandleAck("WHISPER", other, "RY~")
+		eq(R.Relay.HandleMesh("WHISPER", other, "RJ~1~0~0"), true, "the other relay joined")
+		local t0, crossed, seen = R.clock, {}, 0
+		local function Watch()
+			for i = seen + 1, #sent do
+				local s = sent[i]
+				local k = s.target and ns.ShortName(s.target) == "Max Ran" and tonumber(s.msg:match("^RX~L~[^~]+~M1~A~Olympus Guild(%d+)~"))
+				if k then crossed[k] = crossed[k] or (R.clock - t0) end
+			end
+			seen = #sent
+		end
+		for k = 1, 10 do Say(R, k) end
+		Run(3000, Watch)
+		for k = 1, 10 do
+			assert(crossed[k], "line " .. k .. " crossed to the mesh peer")
+			assert(crossed[k] <= 10, ("line %d crossed after %d s"):format(k, crossed[k]))
+		end
+	end)
+end)
+
 test("chat delivery (1.5.5): a reporter whose queue is full of other words still hands every relayed chat line to its guild", function()
 	WithMember(function()
 		local R, _, sent = extra.RelayWorld("Plain Reporter-CAMWOWUS2Realm7PvE", "Olympus II")
