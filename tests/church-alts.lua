@@ -689,3 +689,51 @@ test("1.6.0 Church alts: with no alt claim through the channel, the recruits of 
 	for _, k in ipairs(all) do eq(Joins(w, k, MAIN), 4, "joins on " .. k.name) end
 	Twice(w, all)
 end)
+
+-- An alt that leaves its main on its own side (/oly alt remove <main> there) says so with a "-" claim.
+-- Its Church role is none (the role was its main's), so that claim went on the channel alone, which
+-- Forever's relays may lose at their worst (World.lost): the keepers, who hold a Church group's claims by
+-- whisper, kept the link and credited its later recruits to its former main until his next claim. Fails
+-- before: the keepers still link it after the removal, and its next recruit counts for the main.
+test("1.6.0 Church alts: an alt that leaves its main on its own side says so over GUILD and to the keepers online, once: with no alt claim through the channel, the keepers drop the link at once and its next recruit is not its former main's", function()
+	local w, K, W, acct = ChurchWorld({ lost = true })
+	LinkAll(w, acct, { "flint", "brook", "crest" })
+	-- The keepers hold both claims (by whisper); Tobin, her guildmate, her own claim alone (over GUILD), on
+	-- which a witness reports her recruits (ChurchCount's ClaimedMain).
+	for _, k in ipairs({ K.eda, K.bera }) do eq(LinkedOn(w, k, A.brook), MAIN, "linked before, on " .. k.name) end
+	eq(w:As(W.tobin, W.tobin.Alts.ClaimedMain, A.brook), MAIN)
+	Logout(w, acct)
+	w:Run(700)
+	-- Ardo Brook (Olympus Vale) takes herself out of the group.
+	local brook = Login(w, acct, A.brook)
+	w:Run(61)
+	w:ClearSent()
+	eq(Slash(w, brook, "remove " .. Plain(MAIN)), true)
+	w:Run(61)
+	for _, k in ipairs({ K.eda, K.bera }) do eq(LinkedOn(w, k, A.brook), nil, "dropped at once, on " .. k.name) end
+	eq(w:As(W.tobin, W.tobin.Alts.ClaimedMain, A.brook), nil, "her guildmate too")
+	eq(LinkedOn(w, K.eda, A.flint), MAIN, "the others stay")
+	-- Her "-" claims by route (any session of hers).
+	local function Withdrawals(dist)
+		local n = 0
+		for _, e in ipairs(w:Sent(nil, "AL", dist)) do
+			if e.from.name == A.brook and e.msg:match("^AL~%d+~%-~") then n = n + 1 end
+		end
+		return n
+	end
+	eq(Withdrawals("CHANNEL"), 1)
+	eq(Withdrawals("GUILD"), 1, "to her guild")
+	local told = Withdrawals("WHISPER")
+	eq(told > 0, true, "to the keepers online")
+	-- Said once: not again in a later round (the minute's ticker, Alts.Send), nor at her next login.
+	w:Run(brook.Alts.EVERY + 100)
+	w:As(brook, brook.Alts.Send, false)
+	w:Run(1)
+	Recruit(w, acct, A.brook, G2, "Wolf Recruit-" .. R1, { short = true })
+	eq(Withdrawals("CHANNEL"), 1, "once")
+	eq(Withdrawals("GUILD"), 1, "once")
+	eq(Withdrawals("WHISPER"), told, "once to each keeper")
+	Logout(w, acct)
+	w:Run(700)
+	for _, k in ipairs({ K.eda, K.bera }) do eq(StateOf(w, k, "Wolf Recruit", MAIN), nil, "not the former main's, on " .. k.name) end
+end)

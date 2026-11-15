@@ -476,7 +476,11 @@ local function TellKeepers(wire, at, now)
 end
 
 -- Sends this character's claim: at the login's first round, after a change, every EVERY. A
--- character never linked sends nothing; one whose links were all removed says so once.
+-- character never linked sends nothing; one whose links were all removed says so once. (1.6.0) On a
+-- Forever ruleset that "-" goes on every route a Church group's claims take: a former alt's own Church
+-- role is none (the role was its main's), so an alt that left its main itself said so on the channel
+-- alone, which a relay may lose, and the keepers, who hold its earlier claim by whisper, credited its
+-- later recruits to that main until his next claim.
 function Alts.Send(force)
 	local changed = GuildChanged()
 	if not ns.me or not ns.IsMember() then return false end
@@ -487,7 +491,7 @@ function Alts.Send(force)
 	local at = tonumber(a.at) or 0
 	if role == "-" and not (a.told[key] and a.told[key] < at) then return false end
 	local wire = Wire(at, role, GetGuildInfo("player"), names)
-	local church = Family() ~= nil and ChurchGroup(role, names)
+	local church = Family() ~= nil and (role == "-" or ChurchGroup(role, names))
 	if church then TellKeepers(wire, at, ns.Now()) end
 	if not force and ns.Now() - lastSent < Alts.EVERY then return false end
 	lastSent = ns.Now()
