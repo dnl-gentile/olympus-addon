@@ -214,6 +214,40 @@ test("1.6.0 census jump: the header dates an all-server total resting on a count
 	end)
 end)
 
+-- The same in the window: the smaller number beside the soldiers, and the hover over them.
+test("1.6.0 census jump: the window's header shows the dated all-server number, and its hover says why the saved count stays and how old the total is", function()
+	extra.WithUI(function()
+		local w = World("1.6.0")
+		Live({ w })
+		local D = ns.Data
+		local saved = { summary = D.Summary, groups = D.Groups, rebuilding = D.Rebuilding, now = ns.Now, group = ns.group }
+		local ok, err = pcall(function()
+			ns.group = "ForeverPvE"
+			D.Summary = function() return w.D.Summary() end
+			D.Groups = function(s, now) return w.D.Groups(s, now or w.clock) end
+			D.Rebuilding = function() return nil end
+			ns.Now = function() return w.clock end
+			local UI = extra.LoadUI()
+			UI.Toggle()
+			local main = OlympusFrame
+			UI.Refresh()
+			eq(main.total:GetText(), ns.L.ARMY_TOTAL:format(ns.FormatNumber(3202)))
+			eq(main.people:GetText(), ns.L.CENSUS_HEADER_ALL_OLD:format(ns.FormatNumber(8726), date("%m/%d", OLDEST)))
+			local a = main.people:Anchor("BOTTOMLEFT")
+			assert(main.headerX + a[4] + main.people:GetUnboundedStringWidth() <= main:GetWidth() - 26, "the dated number stays inside the header")
+			main.headerHover:Fire("OnEnter")
+			local want = ns.L.CENSUS_HEADER_SAVED_TIP:format(date("%m/%d %H:%M", OLDEST)) .. " " .. ns.L.CENSUS_HEADER_QUIET_TIP
+				.. "\n" .. ns.L.CENSUS_HEADER_ALL_OLD_TIP:format(date("%m/%d %H:%M", OLDEST))
+			local found
+			for _, line in ipairs(GameTooltip.lines) do if line == want then found = true end end
+			assert(found, "the hover says why the count stays and how old the total is")
+			main.headerHover:Fire("OnLeave")
+		end)
+		D.Summary, D.Groups, D.Rebuilding, ns.Now, ns.group = saved.summary, saved.groups, saved.rebuilding, saved.now, saved.group
+		if not ok then error(err, 0) end
+	end)
+end)
+
 -- The census page (CensusStats.ServerLines) under the all-server totals: beside "Other servers as of",
 -- this server's date while its count is the saved one.
 test("1.6.0 census jump: the census page dates this server's saved count under the all-server totals, beside the other servers' date; a live count has no such line", function()
