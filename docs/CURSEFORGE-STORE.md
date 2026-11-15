@@ -509,8 +509,11 @@ publish the request to the board.
 **Recruiting on linked characters.** Confirm a character with [alt links](#alt-links-11-one-player-counted-once)
 and its confirmed recruits count as direct recruits of its Apostle or Missionary main. They must
 still join an Olympus guild and be confirmed independently. Each recruit counts once; linking
-does not give the alt the main's role or permissions. Earlier recruits can only be recovered
-where a client still has usable guild-log evidence.
+does not give the alt the main's role or permissions. On WoW: Forever (1.6.0) such characters also
+tell their guild and the Church's keepers online that they are linked, since the Olympus channel
+reaches other guilds only through the relays: a guildmate's addon reports the alt's recruit on the
+alt's word, and a keeper credits it once it has heard both the alt and the main. Earlier recruits
+can only be recovered where a client still has usable guild-log evidence.
 
 *Continued in the README: [The Missionary Church of Olympus (1.1.6)](https://github.com/dnl-gentile/olympus-addon#the-missionary-church-of-olympus-116).*
 

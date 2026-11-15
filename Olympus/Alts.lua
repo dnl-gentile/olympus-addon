@@ -12,7 +12,8 @@ local L = ns.L
 --   server stamps), at login, when a link changes and every EVERY:
 --     AL~<time of the account's last change>~<M|A|->~<its guild>~<its alts (M) | its main (A)>
 --   A link counts on a client only when both characters said it: the main naming the alt, and the
---   alt naming the main. A name another player claims alone links nothing.
+--   alt naming the main. A name another player claims alone links nothing. (1.6.0) On a Forever
+--   ruleset an Apostle's or Missionary's group says it over GUILD and to the keepers online too.
 -- - The census counts people: the army's total leaves out every linked character past the first
 --   of its player's in a guild the total counts (Data.Summary). The treasury's ranking and its
 --   week's donors put a player's characters on one line, under the main's name (Treasury.Report).
@@ -38,7 +39,7 @@ Alts.MAX_CLAIMS = 5000       -- claims kept (the oldest unfrozen goes first)
 Alts.DATE_AHEAD = 60         -- a claim dated further ahead of the server's clock is not taken
 Alts.ASK_AFTER = 15          -- the alt's confirmation is asked this long after login (not in combat)
 
-local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0 }
+local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0, guild = 0, keepers = 0 }
 local version = 0            -- bumped on every change of a claim or of this account's links
 local cache                  -- { version, groups = { { main, members = { { name, guild } } } }, of = { [key] = group } }
 local lastSent = -math.huge
@@ -255,6 +256,7 @@ local function Groups()
 			if byPlain[p] == nil then byPlain[p] = key elseif byPlain[p] ~= key then byPlain[p] = false end
 		end
 	end
+	cache.byPlain = byPlain
 	for _, e in pairs(Account().links) do
 		if type(e) == "table" then mains[Key(e.main)] = true end
 	end
@@ -291,6 +293,22 @@ function Alts.GroupByGuildName(name)
 	local short = Groups().short
 	local record = short and short[ns.Fold(ns.ShortName(ns.Normal(name)))]
 	if record then return record.group end
+end
+
+-- (1.6.0) The main a character's own claim names (role A), as last heard: its word alone, which links
+-- nothing (Group needs its main's claim too). The Church's witness reports an alt's recruit on it, and
+-- the keeper, who asks both claims, decides (ChurchCount.Pair). On Forever the guild log gives the name
+-- plain: then the one claim of our family with that plain name, never one of two.
+function Alts.ClaimedMain(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	local c = ClaimOf(name)
+	if not c and InFamily(name) then
+		local byPlain = Groups().byPlain
+		local k = byPlain and byPlain[Plain(name)]
+		c = k and Claims()[k] or nil
+	end
+	if type(c) ~= "table" or c.role ~= "A" or type(c.links) ~= "table" or type(c.links[1]) ~= "string" or not OfOurGroup(c.name) then return nil end
+	return c.links[1]
 end
 
 -- The other names of its player's confirmed group (a list, empty when none).
@@ -424,6 +442,37 @@ local function GuildChanged()
 	return true
 end
 
+-- (1.6.0) On a Forever ruleset the channel reaches another guild only through one relay, within each
+-- guild's share of its trickle (Relay.lua: Afford), and never another relay's guilds: a keeper, or a
+-- guildmate reading the guild log, who never heard both claims credited no linked alt's recruit to its
+-- Apostle or Missionary main (ChurchCount), and the trickle passes few of a busy evening's words. So
+-- there such a group's claims also go to the claimant's own guild over GUILD, with each channel claim,
+-- and by whisper to every keeper this client hears online (Church.KeepersOnline): each new claim within
+-- the minute's round, and each again every EVERY. Every route's sender is the server's stamp.
+local toldKeepers = {} -- keeper key -> { at = the claim's revision told, t = when }
+local function ChurchGroup(role, names)
+	local C = ns.Church
+	if type(C) ~= "table" or type(C.Role) ~= "function" then return false end
+	local r = C.Role(role == "A" and names[1] or ns.me)
+	return r == "A" or r == "M"
+end
+local function TellKeepers(wire, at, now)
+	local C = ns.Church
+	if type(C) ~= "table" or type(C.KeepersOnline) ~= "function" then return 0 end
+	local n, me = 0, Key(ns.me)
+	for _, k in ipairs(C.KeepersOnline(false) or {}) do
+		local name = type(k) == "table" and k.name
+		local kk = type(name) == "string" and Key(name) or nil
+		local told = kk and toldKeepers[kk]
+		if kk and kk ~= me and (not told or told.at ~= at or now - told.t >= Alts.EVERY) then
+			toldKeepers[kk] = { at = at, t = now }
+			if ns.Comm.Whisper(name, wire, "alts " .. kk, false, false) ~= false then n = n + 1 end
+		end
+	end
+	stats.keepers = stats.keepers + n
+	return n
+end
+
 -- Sends this character's claim: at the login's first round, after a change, every EVERY. A
 -- character never linked sends nothing; one whose links were all removed says so once.
 function Alts.Send(force)
@@ -435,11 +484,18 @@ function Alts.Send(force)
 	local role, names = Alts.Claim()
 	local at = tonumber(a.at) or 0
 	if role == "-" and not (a.told[key] and a.told[key] < at) then return false end
+	local wire = Wire(at, role, GetGuildInfo("player"), names)
+	local church = Family() ~= nil and ChurchGroup(role, names)
+	if church then TellKeepers(wire, at, ns.Now()) end
 	if not force and ns.Now() - lastSent < Alts.EVERY then return false end
 	lastSent = ns.Now()
 	a.told[key] = at
 	stats.sent = stats.sent + 1
-	ns.Comm.Send("CHANNEL", Wire(at, role, GetGuildInfo("player"), names), "alts")
+	ns.Comm.Send("CHANNEL", wire, "alts")
+	if church and IsInGuild() then
+		stats.guild = stats.guild + 1
+		ns.Comm.Send("GUILD", wire, "alts guild")
+	end
 	return true
 end
 
@@ -456,8 +512,10 @@ local function Frozen(old, new)
 	return out
 end
 
+-- (1.6.0) On a Forever ruleset a claim also comes over GUILD and by whisper (Alts.Send): its sender
+-- is the server's stamp there too, its own character's word. Elsewhere the channel's alone, as before.
 function Alts.Handle(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
+	if dist ~= "CHANNEL" and not (Family() and (dist == "GUILD" or dist == "WHISPER")) then return end
 	local at, role, guild, list = tostring(text):match("^AL~(%d+)~([MA%-])~([^~]*)~?(.*)$")
 	at = tonumber(at)
 	if not at then return end
@@ -731,6 +789,7 @@ end)
 -- Tests start from a clean state.
 function Alts.Reset()
 	cache, lastSent, asked = nil, -math.huge, false
+	toldKeepers = {}
 	for k in pairs(stats) do stats[k] = 0 end
 	Bump()
 end

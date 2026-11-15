@@ -367,6 +367,109 @@ test("1.6.0 Church: a character of the inviter's own account is no witness, link
 	eq(StateOf(w, c.a2, "Cousin Recruit", A1), "credited", "another player's read credits the Apostle")
 end)
 
+-- (1.6.0) A world of Forever clients: Core's name helpers (FullName, RealmOf, GroupOf) read the harness's
+-- own realm and ruleset, so each client runs with its own there, as the game's would.
+local function Pack(...) return { n = select("#", ...), ... } end
+local function ForeverWorld(opts)
+	local w = World.New(opts)
+	function w:As(cl, fn, ...)
+		local r, g, f = ns.realm, ns.group, ns.faction
+		ns.realm, ns.group, ns.faction = cl.ns.realm, cl.ns.group, cl.ns.faction
+		local out = Pack(pcall(World.As, self, cl, fn, ...))
+		ns.realm, ns.group, ns.faction = r, g, f
+		if not out[1] then error(out[2], 0) end
+		return unpack(out, 2, out.n)
+	end
+	return w
+end
+
+test("1.6.0 Church on Forever: a linked alt's recruit counts for its Apostle main when the channel carries no alt claim: the claims go over GUILD and to the keepers online, and a guildmate reports the pair on the alt's own claim", function()
+	local MAIN = "Corvin Ashdale-" .. FR1
+	local w = ForeverWorld({ apostles = { MAIN, "Edda Marsh-" .. FR1 } })
+	-- Forever's relays at their worst: no claim said on the channel reaches anyone.
+	w.lost = { AL = true }
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })                   -- an Apostle, Olympus Ember
+	local keeper = ForeverAlts(w, "Edda Marsh", FR1, { guild = World.GUILD2 })        -- an Apostle in Olympus Vale
+	local mate = ForeverAlts(w, "Vik Stone", FR3, { guild = World.GUILD2 })            -- a plain member there
+	local alt = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db, guild = World.GUILD2 }) -- the Apostle's alt, there
+	-- Another player's link, his main no Church person: his claims stay on the channel.
+	local pdb = { chatRooms = true, addonChat = true }
+	local plain = ForeverAlts(w, "Hale Brook", FR2, { db = pdb, guild = World.GUILD2 })
+	local plainAlt = ForeverAlts(w, "Hale Cotter", FR3, { db = pdb, guild = World.GUILD2 })
+	alt.online, plainAlt.online = false, false
+	w:Presence()
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(plain, plain.Alts.Slash, "add Hale Cotter"), true)
+	-- One character of an account at a time: the alts log in and say yes.
+	main.online, plain.online, alt.online, plainAlt.online = false, false, true, true
+	w:Presence()
+	eq(w:As(alt, alt.Alts.Confirm, true), true)
+	eq(w:As(plainAlt, plainAlt.Alts.Confirm, true), true)
+	w:Flush()
+	eq(#w:Sent(alt, "AL", "GUILD"), 1, "the alt's claim to its own guild")
+	eq(#w:Sent(alt, "AL", "WHISPER"), 1, "and to the keeper it hears online")
+	eq(w:Sent(alt, "AL", "WHISPER")[1].target, keeper.name)
+	eq(#w:Sent(plainAlt, "AL", "GUILD") + #w:Sent(plainAlt, "AL", "WHISPER"), 0, "no Church group: the channel alone")
+	-- The main logs in again: his claim reaches the keeper too.
+	alt.online, plainAlt.online, main.online = false, false, true
+	w:Presence()
+	eq(w:As(main, main.Alts.Send, true), true)
+	w:Flush()
+	local g = w:As(keeper, keeper.Alts.Group, alt.name)
+	eq(g and g.main, MAIN, "the keeper holds the link, both claims heard")
+	eq(w:As(mate, mate.Alts.Group, alt.name), nil, "the guildmate holds the alt's claim alone")
+	-- The alt invites; the recruit joins; the guildmate's addon reads the guild log, which gives names plain.
+	main.online, alt.online = false, true
+	w:Presence()
+	w:LogEvent(World.GUILD2, "invite", "Ilsa Fenwick", "Lark Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Lark Recruit", nil, 2)
+	Join(w, World.GUILD2, "Lark Recruit")
+	eq(w:ReadLog(mate), true)
+	eq(#w:Sent(mate, "NV", "WHISPER", "w") > 0, true, "the guildmate reports the alt's pair")
+	eq(StateOf(w, keeper, "Lark Recruit", MAIN), "credited", "credited to the Apostle")
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1)
+	eq(StateOf(w, keeper, "Lark Recruit", alt.name), nil, "no row for the alt")
+	w:ReadLog(alt)
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1, "the alt's own report adds nothing")
+end)
+
+test("1.6.0 Church: a pair a guildmate reported on the alt's own claim, which the keeper refused for want of the main's claim, goes again at once when both claims are heard", function()
+	local MAIN = "Corvin Ashdale-" .. FR1
+	local w = ForeverWorld({ apostles = { MAIN, "Edda Marsh-" .. FR1 } })
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local keeper = ForeverAlts(w, "Edda Marsh", FR1, { guild = World.GUILD2 })
+	local mate = ForeverAlts(w, "Vik Stone", FR3, { guild = World.GUILD2 })
+	local alt = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db, guild = World.GUILD2 })
+	alt.online = false
+	w:Presence()
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	main.online, alt.online = false, true
+	w:Presence()
+	eq(w:As(alt, alt.Alts.Confirm, true), true)
+	w:Flush()
+	-- The alt recruits before its main logs in again: nobody holds his claim naming her yet.
+	w:LogEvent(World.GUILD2, "invite", "Ilsa Fenwick", "Wren Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Wren Recruit", nil, 2)
+	Join(w, World.GUILD2, "Wren Recruit")
+	eq(w:ReadLog(mate), true)
+	eq(#w:Sent(mate, "NV", "WHISPER", "w") > 0, true, "reported on the alt's own claim")
+	eq(StateOf(w, keeper, "Wren Recruit", MAIN), nil, "refused for now: no main's claim at the keeper")
+	-- The main logs in: everyone hears his claim. The guildmate's next read sends the pair again at once,
+	-- long before the outbox's hourly try.
+	alt.online, main.online = false, true
+	w:Presence()
+	eq(w:As(main, main.Alts.Send, true), true)
+	w:Flush()
+	eq((w:As(mate, mate.Alts.Group, alt.name) or {}).main, MAIN, "both claims heard by the guildmate")
+	w:Run(mate.Count.READ_GAP + 1)
+	eq(w:ReadLog(mate), true)
+	eq(StateOf(w, keeper, "Wren Recruit", MAIN), "credited")
+	w:ReadLog(mate)
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1, "once")
+end)
+
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()
 	local w, c = Cast()
 	local B = ns.Codec.Base36

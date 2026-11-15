@@ -421,6 +421,18 @@ local function RecruitMain(name)
 	local role = Church.Role(main)
 	if role == "A" or role == "M" then return main end
 end
+-- (1.6.0) The Apostle or Missionary main an inviter's own alt claim names (Alts.ClaimedMain): his word
+-- alone, which no keeper credits on (TakeEvidence asks RecruitMain: both claims). On Forever a guildmate
+-- hears that claim over GUILD (Alts.Send) while the main's own claim, said in another guild, reaches him
+-- only through a relay's trickle, if at all: a witness who waited for both reported none of the alt's
+-- recruits, and the keepers, who hear both claims by whisper, had nothing to credit.
+local function ClaimedMain(name)
+	local A = ns.Alts
+	local main = A and type(A.ClaimedMain) == "function" and A.ClaimedMain(name) or nil
+	if type(main) ~= "string" or Key(main) == Key(name) then return nil end
+	local role = Church.Role(main)
+	if role == "A" or role == "M" then return main end
+end
 
 -- (1.5.5) A Church person of our guild by this client's own book: one its roster holds now. His own
 -- client may never say so (one that holds a signed list older than the one naming him), and then no
@@ -604,7 +616,7 @@ function Count.Process(events)
 						ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
 					end
 					-- A link may be heard after the original read. Only retry pairs from this guild.
-					if ev.g[seen] and RecruitMain(by) and Count.Pair(by, e.p1, guild, ti, tj) then found = found + 1 end
+					if ev.g[seen] and (RecruitMain(by) or ClaimedMain(by)) and Count.Pair(by, e.p1, guild, ti, tj) then found = found + 1 end
 				end
 			end
 		else
@@ -685,7 +697,17 @@ local function UnlinkedOwn(name)
 	return false
 end
 
--- A pair seen: reported once (Att), when its inviter is a Church person this client knows.
+-- (1.6.0) A report of ours still in the outbox goes to every keeper online again at once, its tries started
+-- over: one sent on an alt's own claim alone, which a keeper without the main's claim refused for now.
+local function Again(text)
+	local me = ns.FullName(ns.me)
+	for _, o in ipairs(Out() or {}) do
+		if type(o) == "table" and o.text == text and (not o.by or o.by == me) then o.to = {} end
+	end
+end
+
+-- A pair seen: reported once (Att), when its inviter is a Church person this client knows (or, 1.6.0, the
+-- linked alt of one: both claims heard, or the alt's own, ClaimedMain).
 -- (1.6.0) Never by a character of the inviter's (of the main he recruits for, or of the recruit's) own
 -- account that is not linked to them: a keeper took its read as an independent witness's, and it
 -- confirmed the recruit (RecruitRanking.Pair keeps the account's characters out since the 1.5.9 review).
@@ -693,19 +715,28 @@ function Count.Pair(inviter, invitee, guild, ti, tj, unscoped)
 	local ik, xk = Key(inviter), Key(invitee)
 	if not ik or not xk or ik == xk then return false end
 	local main = not unscoped and RecruitMain(inviter) or nil
-	if not (Church.IsPerson(inviter) or Count.Claimed(inviter) or main) then return false end
-	if UnlinkedOwn(inviter) or UnlinkedOwn(invitee) or (main and UnlinkedOwn(main)) then return false end
+	local claimed = not main and not unscoped and ClaimedMain(inviter) or nil
+	local person = Church.IsPerson(inviter) or Count.Claimed(inviter)
+	if not (person or main or claimed) then return false end
+	if UnlinkedOwn(inviter) or UnlinkedOwn(invitee) or (main and UnlinkedOwn(main)) or (claimed and UnlinkedOwn(claimed)) then return false end
 	local att = Att()
 	local id = xk .. ":" .. ik
-	if att[id] then return false end
-	att[id] = Day(Clock())
+	-- (1.6.0) One reported on the alt's own claim alone is marked apart: once both claims are heard here it
+	-- goes again, at once (Again), where before it waited for the outbox's hourly tries, four at most.
+	local early = claimed ~= nil and not person
+	local mark = early and (id .. "?") or id
+	if att[id] or att[mark] then return false end
+	local again = not early and att[id .. "?"] ~= nil
+	att[mark] = Day(Clock())
 	local n = 0
 	for k, d in pairs(att) do if Day(Clock()) - d > Count.ATT_DAYS then att[k] = nil else n = n + 1 end end
-	if n > Count.ATT_MAX then wipe(att); att[id] = Day(Clock()) end
+	if n > Count.ATT_MAX then wipe(att); att[mark] = Day(Clock()) end
 	stats.pairs = stats.pairs + 1
 	local g = CleanGuild(guild)
 	if not g then return false end
-	Count.SendEvidence(("NV~1~w~%s~%s~%s~%s~%s"):format(inviter, invitee, g, B36(ti), B36(tj)))
+	local text = ("NV~1~w~%s~%s~%s~%s~%s"):format(inviter, invitee, g, B36(ti), B36(tj))
+	if again then Again(text) end
+	Count.SendEvidence(text)
 	return true
 end
 

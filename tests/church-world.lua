@@ -265,9 +265,12 @@ function World:Queue(from, dist, msg, target, logged)
 	return true
 end
 
--- Who hears one message: the channel, the guild, or the one name (online, and a member).
+-- Who hears one message: the channel, the guild, or the one name (online, and a member). (1.6.0)
+-- w.lost: message types the channel hands to nobody, still sent: WoW: Forever, where another client's
+-- word reaches another guild only through one relay's trickle (Relay.lua), at its worst.
 local function Recipients(w, e)
 	local out = {}
+	if e.dist == "CHANNEL" and w.lost and w.lost[e.msg:sub(1, 2)] then return out end
 	for _, cl in ipairs(w.clients) do
 		if cl ~= e.from and cl.online and cl.guild and ns.IsFederation(cl.guild) then
 			if e.dist == "CHANNEL" or (e.dist == "GUILD" and cl.guild == e.from.guild)
