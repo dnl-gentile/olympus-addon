@@ -980,6 +980,17 @@ test("verify guild hand-over: guildmates logging in after a 1.5.9 guild master h
 		As(master, master.c.Comm.Hello, true); Flush()
 		Play(Advance, As, all, 120, 60)
 		eq(Total(), 2, "the next turn's")
+		-- (The review of the hand-over) His hellos go on a while, then stop (he logged out): the turn within
+		-- GUILD_LOGIN_GAP of his last hello still goes, then none to a guild master gone, however long his
+		-- guildmates stay. (Without the guard, one every turn: five here.)
+		for minute = 2 * share + 3, 2 * share + 25 do
+			Play(Advance, As, all, 60, 60)
+			if minute % 10 == 0 or minute == 2 * share + 25 then As(master, master.c.Comm.Hello, true); Flush() end
+		end
+		eq(Total(), 2)
+		local V = mates[1].c.Verify
+		Play(Advance, As, all, 2 * V.GUILD_SHARE_EVERY + V.GUILD_LOGIN_GAP, 60)
+		eq(Total(), 3, "the one turn within GUILD_LOGIN_GAP of his last hello, then none")
 	end)
 end)
 
