@@ -575,6 +575,77 @@ test("verify guild hand-over: a verified 1.6.0 guild master's login costs his gu
 	end)
 end)
 
+-- (The review of the hand-over) A guild master who logs in before the guildmate holding his approval: his
+-- login's ask and its retry went before it came. Fails before: he asked nothing more for half an hour (this
+-- world runs no half-hourly ask: never), expected 3 asks, got 2, and stayed pending.
+test("verify guild hand-over: a guild master who logs in before his guildmates asks again when a 1.6.0 guildmate comes online", function()
+	World(function(Node, As, Flush, Advance)
+		local master = Ready(Node(MASTER, GUILD, { rank = 0 })) -- (alone online: a node hears the guild once made)
+		Advance(3600)
+		As(master, master.c.Verify.Login)
+		Play(Advance, As, { master }, 360)
+		eq(master.c.Verify.Stats().guildAsked, 2, "his login's ask and its retry, with nobody there to answer")
+		eq(#master.copies, 1, "told once at his login: nobody held the approval then")
+		-- A 1.5.9 guildmate comes online: one that never answers is no reason to ask.
+		local old = Ready(Node("Old Mate-Realm", GUILD, { old = true }))
+		As(old, old.c.Comm.Hello, true); Flush()
+		Play(Advance, As, { master, old }, 60, 60)
+		eq(master.c.Verify.Stats().guildAsked, 2, "a 1.5.9 guildmate's hello asks nothing")
+		-- The guildmate holding the approval (HC's of a day before) logs in, a minute after that.
+		local holder = Ready(Node("Guild Mate-Realm", GUILD))
+		Approved(As, T0, holder)
+		As(holder, holder.c.Verify.Login)
+		As(holder, holder.c.Comm.Hello, true); Flush()
+		Play(Advance, As, { master, holder, old }, 120, 60)
+		eq(master.c.Verify.Stats().guildAsked, 2, "not within GUILD_ASK_GAP of his last ask (the retry)...")
+		Play(Advance, As, { master, holder, old }, 120)
+		eq(master.c.Verify.Stats().guildAsked, 3, "...then, the guildmate's first hello still counted: he asked his guild again")
+		local status, info = As(master, master.c.Verify.Status, GUILD)
+		eq(status, "verified", "his guildmate handed him the approval")
+		eq(info.entry.at, T0); eq(info.entry.by, HC)
+		eq(HandOvers(holder), 1); assert(Find(holder.logs, "handed to the guild (asked)"), "an answer to his ask")
+		eq(#master.copies, 1, "no second pop-up")
+		-- Verified, he asks nothing more, whoever comes online.
+		local late = Ready(Node("Late Mate-Realm", GUILD))
+		As(late, late.c.Comm.Hello, true); Flush()
+		Play(Advance, As, { master, holder, old, late }, 300, 60)
+		eq(master.c.Verify.Stats().guildAsked, 3)
+	end)
+end)
+
+test("verify guild hand-over: a guild master nobody holds an approval for asks again as 1.6.0 guildmates come online, GUILD_ASK_GAP apart at most, once for each", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local master = Ready(Node(MASTER, GUILD, { rank = 0 }))
+		local V = master.c.Verify
+		Advance(3600)
+		As(master, V.Login)
+		Play(Advance, As, { master }, 600, 60)
+		eq(V.Stats().guildAsked, 2, "his login's ask and its retry")
+		local times, last = {}, V.Stats().guildAsked
+		local function Minute()
+			Play(Advance, As, { master }, 60, 60)
+			if V.Stats().guildAsked > last then times[#times + 1], last = Now(), V.Stats().guildAsked end
+		end
+		-- A 1.6.0 guildmate holding nothing comes online every minute for twenty minutes.
+		local mates = {}
+		for i = 1, 20 do
+			mates[i] = Node(("Late Mate%02d-Realm"):format(i), GUILD)
+			As(mates[i], mates[i].c.Comm.Hello, true); Flush()
+			Minute()
+		end
+		for _ = 1, V.GUILD_ASK_GAP / 60 do Minute() end
+		assert(#times >= 4, "he asked again as they came: " .. #times)
+		for i = 2, #times do assert(times[i] - times[i - 1] >= V.GUILD_ASK_GAP, "asks GUILD_ASK_GAP apart at most") end
+		-- Their hellos again, each guildmate heard already: no ask.
+		local before = V.Stats().guildAsked
+		for minute = 1, 12 do
+			Play(Advance, As, { master }, 60, 60)
+			if minute == 10 then for _, m in ipairs(mates) do As(m, m.c.Comm.Hello, true) end Flush() end
+		end
+		eq(V.Stats().guildAsked, before, "a guildmate heard already is no reason to ask again")
+	end)
+end)
+
 test("verify guild hand-over: a guild master whose guildmates are all on 1.5.9 falls back to a verifier's answer, as before", function()
 	World(function(Node, As, Flush, Advance)
 		local hub = Node("Hildryn Payne-Realm", "Olympus Hearth")

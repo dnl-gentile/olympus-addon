@@ -95,6 +95,11 @@ local L = ns.L
 -- one row, no final semicolon, a snapshot's row that every version keeps over the older approval), and
 -- so answers a guild master's ask that names an older word. One guild's word alone (a resend, a
 -- hand-over, that answer) is no answer to a client's own ask (Verify.Handle: its login's retry stays).
+-- (The review, again.) A guild master who logs in before the guildmates who hold the approval asks
+-- his guild again when one of them comes online (Verify.GuildAskTick: the first hello this session of a
+-- guildmate on GUILD_ASK_SINCE or newer). A 1.5.9 guild master never asks: logging in together with
+-- them (a realm restart), when none has heard the guild GUILD_LOGIN_GAP yet, he is handed nothing at his
+-- login and waits for the turn (GUILD_SHARE_EVERY, about half an hour), once: his client keeps it.
 
 local Verify = {}
 ns.Verify = Verify
@@ -1787,7 +1792,11 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 -- master's last hello seen by GuildShareTick; listenGuild, listenFrom: our guild, and since when this
 -- client hears it (the login, or the guild joined since). The hellos' times are this computer's clock
 -- (ns.Now, as Comm keeps them), so listenFrom is too; the hand-overs' are the server's (Verify.Clock).
+-- (The review of the hand-over) guildAskedWall: our last ask on this computer's clock; matesHeard,
+-- matesGuild: the guildmates (folded short names) whose hellos GuildAskTick heard this session, and for
+-- which guild; mateNew: whether one that may answer came since our last ask.
 local handing, guildAsked, gmHello, listenGuild, listenFrom = nil, -math.huge, nil, nil, nil
+local guildAskedWall, matesHeard, matesGuild, mateNew = -math.huge, {}, nil, false
 
 -- Our guild, where the relay runs (Forever) and this client is a member, out of quiet presence: the
 -- hand-over's whole scope. Elsewhere the channel carries verification as before.
@@ -1930,7 +1939,7 @@ function Verify.GuildAsk(now)
 	local guild, status, info = MasterStatus(now)
 	if not guild or status == "verified" or status == "exempt" then return false end
 	local held = info.entry or info.revoked
-	guildAsked = now
+	guildAsked, guildAskedWall = now, ns.Now()
 	stats.guildAsked = stats.guildAsked + 1
 	return ns.Comm.Send("GUILD", ("GV~%d~G~%s~%d"):format(Verify.PROTOCOL, guild, held and held.at or 0), "verify guild ask", true) ~= false
 end
@@ -1951,6 +1960,32 @@ function Verify.HandleGuildAsk(sender, text)
 	local entry, gm = Handable(mine)
 	if not entry or not SamePerson(gm, ns.FullName(sender)) or entry.at <= tonumber(held) then return false end
 	return HandOver(mine, "asked")
+end
+
+-- (The review of the hand-over) A guild master who logged in before the guildmates who hold his guild's
+-- approval: his login's ask and its retry went before they came, and his next ask (Verify.Ask) was half
+-- an hour away. From Verify.Tick, while his guild is not verified here: a guildmate whose hello names
+-- GUILD_ASK_SINCE or newer, heard for the first time this session after his last ask (one that may hold
+-- the approval and answers, and may not have heard that ask), makes him ask his guild again, GUILD_ASK_GAP
+-- after the last at the earliest (Verify.GuildAsk); his guildmates' GUILD_WINDOW bounds the hand-overs.
+function Verify.GuildAskTick(now)
+	now = now or Verify.Clock()
+	local mine, C, R = OwnGuild(), ns.Comm, ns.Relay
+	if not mine or type(C.Peers) ~= "function" or type(C.PeerVersion) ~= "function" or type(R.AtLeast) ~= "function" then return false end
+	if matesGuild ~= Key(mine) then matesGuild, matesHeard, mateNew = Key(mine), {}, false end
+	local guild, status = MasterStatus(now)
+	if not guild or status == "verified" or status == "exempt" then return false end
+	for _, name in ipairs(C.Peers()) do
+		local key = Key(ns.ShortName(name))
+		if not matesHeard[key] then
+			matesHeard[key] = true
+			local version, at = C.PeerVersion(name)
+			if type(at) == "number" and at > guildAskedWall and R.AtLeast(version, Verify.GUILD_ASK_SINCE) then mateNew = true end
+		end
+	end
+	if not mateNew or now - guildAsked < Verify.GUILD_ASK_GAP then return false end
+	mateNew = false
+	return Verify.GuildAsk(now)
 end
 
 -- A guild master whose hello names a version before GUILD_ASK_SINCE never asks: from Verify.Tick, his
@@ -1993,6 +2028,7 @@ function Verify.Tick(now)
 	Verify.Observe(now)
 	Verify.Prune(now)
 	Verify.GuildShareTick(now) -- (1.6.0: an older guild master's hand-over)
+	Verify.GuildAskTick(now) -- (the review of the hand-over: a guild master's ask again, a guildmate come online)
 	if not loginAt or now - loginAt < Verify.NOTICE_AFTER then return false end
 	Verify.CouncilNotices(now)
 	if told then return false end
@@ -2011,6 +2047,7 @@ function Verify.Login(now)
 	-- (1.6.0) The guild's hand-over hears our guild from now on (Verify.GuildShareTick: this computer's clock).
 	local mine = IsInGuild() and GetGuildInfo("player")
 	listenGuild, listenFrom, gmHello = type(mine) == "string" and mine ~= "" and Key(mine) or nil, ns.Now(), nil
+	matesHeard, matesGuild, mateNew = {}, nil, false -- (Verify.GuildAskTick: this session's guildmates)
 	local session = {}
 	startup = session
 	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", function()
