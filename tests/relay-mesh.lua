@@ -562,3 +562,33 @@ test("relay mesh (1.5.9's review): a relay's own signed look crossing to a mesh 
 		assert(Took(b, qa), "B's client takes it whole")
 	end)
 end)
+
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines late, repeated or missing). A relay told a mesh peer it was of
+-- the mesh (RJ) by an ordinary whisper, which a busy relay's queue pushed out (the load harness, two
+-- relays at a line every 30 s: 3 of the 10 RJ they sent each other in 20 minutes); past MESH_FOR the peer sent it
+-- no chat line, census or list for the rest of a round. RJ goes urgent now. Fails before: after three
+-- rounds of A's queue full of ordinary whispers, A was no longer B's mesh peer and B's chat line stayed
+-- on its own island.
+test("relay mesh (1.6.0): a relay whose queue is full of ordinary whispers at every round still tells its mesh peer it is of the mesh (RJ), so three rounds on the peer still holds it, and a chat line said at the peer crosses to it", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta")
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(b, b.c.Relay.MeshPeer, A_NAME), true, "A is B's mesh peer")
+		for _ = 1, 3 do
+			Advance(a.c.Relay.MESH_EVERY - a.c.Relay.PING_WAIT - 1)
+			-- A's round, then more ordinary whispers than its queue holds, handed in right after, as a busy relay's.
+			Mesh(a, As)
+			As(a, function()
+				for i = 1, a.c.Comm.MAX_QUEUE do a.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. i, nil, false, false) end
+			end)
+			Mesh(b, As)
+			Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		end
+		eq(As(b, b.c.Relay.MeshPeer, A_NAME), true, "A is still B's mesh peer, three rounds and some 900 s on")
+		local before = Count(b, "RX~L~", A_NAME)
+		As(b, b.deliver, "WHISPER", "Line Speaker-Realm", "RL~L~M1~A~Olympus Beta~5~WA~still crossing")
+		Flush()
+		eq(Count(b, "RX~L~", A_NAME) - before, 1, "the chat line crossed from B to A")
+	end)
+end)

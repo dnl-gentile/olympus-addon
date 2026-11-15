@@ -18,7 +18,19 @@ local BUCKET_SIZE = 6            -- per sender: a burst of 6 parts, then one eve
 local BUCKET_REFILL = 1.2        -- (an unmodified client never goes faster than that)
 local MAX_SHOWN_PER_MINUTE = 60  -- flood guard per channel
 local FAIR_SHARE = 10            -- once a channel is half full, no sender gets more lines than this a minute
-local DEDUPE_WINDOW = 120
+-- (1.6.0) A line's id and text are kept as long as another copy of it may come. Where names split
+-- (Forever) its copy in the public channel comes at once (ChatHall.lua) and the relay's after waiting in
+-- its sender's relay's chat lane and, for another relay's guilds, in that relay's lane too (each up to
+-- Relay.CHAT_LANE_TTL), its sender's own queue (30 s) and the hand-on to the guild before that. Kept
+-- 120 s, a relay copy that waited longer showed the line a second time (a member's /oly bug on 1.5.9:
+-- lines repeated minutes apart, one copy counted as heard twice in 141 lines shown).
+local function DedupeWindow()
+	local R = ns.Relay
+	local ttl = type(R) == "table" and tonumber(R.CHAT_LANE_TTL) or 300
+	return math.max(120, 2 * ttl + 120)
+end
+Channels.DedupeWindow = DedupeWindow
+local SEEN_KEEP = 5000           -- line keys kept at most (the oldest go first)
 local HISTORY = 100              -- lines kept per channel
 local LOG_GAP = 60               -- at most one "dropped" log line per sender per minute
 local NOTICE_GAP = 60            -- at most one flood guard notice a minute...
@@ -1614,12 +1626,12 @@ function Channels.Admit(sender, guild, text, now, o)
 		local key = who .. "#" .. o.id .. "#" .. text
 		-- Our own line coming back (already shown when sent): the same id and text, from a name
 		-- that is ours however it is written ("First-Surname", "First Surname", with a realm or not).
-		local was = own[o.id .. "#" .. text]
-		if was and now - was < DEDUPE_WINDOW and Channels.IsMe(sender) then
+		local was, window = own[o.id .. "#" .. text], DedupeWindow()
+		if was and now - was < window and Channels.IsMe(sender) then
 			Bump(st, "dup")
 			return false, "own"
 		end
-		if heard[key] and now - heard[key] < DEDUPE_WINDOW then
+		if heard[key] and now - heard[key] < window then
 			Bump(st, "dup")
 			return false, "dup"
 		end
@@ -2413,13 +2425,20 @@ end
 
 function Channels.Prune(now)
 	now = now or GetTime()
-	local n = 0
+	local n, window = 0, DedupeWindow()
 	for k, t in pairs(seen) do
-		if now - t > DEDUPE_WINDOW then seen[k] = nil else n = n + 1 end
+		if now - t > window then seen[k] = nil else n = n + 1 end
 	end
-	if n > 1000 then wipe(seen) end
+	-- (1.6.0) Past SEEN_KEEP, the oldest keys go (all of them went at 1,000, and every copy still on its
+	-- way showed its line again).
+	if n > SEEN_KEEP then
+		local keys = {}
+		for k, t in pairs(seen) do keys[#keys + 1] = { k = k, t = t } end
+		table.sort(keys, function(a, b) return a.t < b.t end)
+		for i = 1, n - SEEN_KEEP do seen[keys[i].k] = nil end
+	end
 	for k, t in pairs(mine) do
-		if now - t > DEDUPE_WINDOW then mine[k] = nil end
+		if now - t > window then mine[k] = nil end
 	end
 	for k, b in pairs(buckets) do
 		if now - b.t > 60 then buckets[k] = nil end

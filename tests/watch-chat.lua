@@ -387,8 +387,10 @@ test("watch: chat moderation: one line is deleted on every client: the Chat tab'
 		eq(after, beforeLines, "nothing more to a companion")
 		local late = ns.Codec.EncodeChat("A", X, id, "", "first rude line")
 		local shown, why = w.Inject("CHANNEL", B.name, D, late)
-		eq(why, "dup", "heard twice within two minutes: the duplicate check drops it first")
-		w.epoch = w.epoch + 121 -- (past Channels' DEDUPE_WINDOW: only the tombstone knows it now)
+		eq(why, "dup", "heard twice within the duplicate window: the duplicate check drops it first")
+		-- (Past Channels' duplicate window, Channels.DedupeWindow: 120 s before 1.6.0, as long as a relay copy
+		-- may still come since. Only the tombstone knows it now.)
+		w.epoch = w.epoch + D.ns.Channels.DedupeWindow() + 1
 		shown, why = w.Inject("CHANNEL", B.name, D, late)
 		eq(shown, false); eq(why, "deleted", "a late copy is dropped")
 		shown, why = w.Inject("CHANNEL", B.name, Y1, late)

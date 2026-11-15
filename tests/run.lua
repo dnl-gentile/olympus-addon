@@ -5947,8 +5947,10 @@ test("duplicate ids are shown once", function()
 		eq(select(2, Chan.Receive("CHANNEL", "Member7", m, 3001)), "dup")
 		eq((Chan.Receive("CHANNEL", "Member8", m, 3002)), true, "same id from another sender")
 		eq((Chan.Receive("CHANNEL", "Member7", Msg("A", MY_GUILD, 4242, "after a /reload"), 3003)), true, "same id, new text")
-		Chan.Prune(3000 + 121)
-		eq((Chan.Receive("CHANNEL", "Member7", m, 3000 + 121)), true, "forgotten after the window")
+		-- (1.6.0: the window is as long as a relay copy may still come, Channels.DedupeWindow, no longer 120 s.)
+		local after = 3000 + Chan.DedupeWindow() + 1
+		Chan.Prune(after)
+		eq((Chan.Receive("CHANNEL", "Member7", m, after)), true, "forgotten after the window")
 	end)
 end)
 
@@ -7277,7 +7279,7 @@ assert(loadfile(ROOT .. "tests/relay-fallback.lua"))(ns, test, eq, { RelayWorld 
 assert(loadfile(ROOT .. "tests/roster-subrealm.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/roster-guid.lua"))(ns, test, eq)
 -- 1.5.5: every chat line reaches every member once (tests/chat-delivery.lua).
-assert(loadfile(ROOT .. "tests/chat-delivery.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
+assert(loadfile(ROOT .. "tests/chat-delivery.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 assert(loadfile(ROOT .. "tests/king-crown-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.4: the King's presence where he leads no guild named Olympus (tests/king-online.lua).
 assert(loadfile(ROOT .. "tests/king-online.lua"))(ns, test, eq, { RelayWorld = RelayWorld, ADDON_DIR = ADDON_DIR })

@@ -86,6 +86,10 @@ function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName, _, _, guid)
 		if p.echoed then ns.SafeCall("chat hall echo", p.echoed) end
 	end
 	stats.heard = stats.heard + 1
+	-- (1.6.0) On a relay's client: everyone in this channel has the line now, so its relay copies wait
+	-- behind the lines only the relays carry (Relay.HeardInChannel).
+	local R = ns.Relay
+	if type(R) == "table" and type(R.HeardInChannel) == "function" then ns.SafeCall("chat hall relay", R.HeardInChannel, sender, text) end
 	-- (A secret GUID is none: passed on as nothing, never read.)
 	if ns.IsSecret(guid) or type(guid) ~= "string" or not guid:find("^Player%-%d+%-%x+$") then guid = false end
 	if guid then stats.guid = stats.guid + 1 end

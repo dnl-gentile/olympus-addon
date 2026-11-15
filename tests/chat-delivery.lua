@@ -227,6 +227,112 @@ test("chat delivery (1.5.5): at 92 reporters, ten lines at once: the first eight
 	end)
 end)
 
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines up to five minutes late, repeated or missing, his own queue
+-- empty). A line's copy to another relay (RX) waited behind the line's reporters, so a full lane let it
+-- go first: that relay's guilds lost every line a busy relay could not finish within CHAT_LANE_TTL. The
+-- copies across go ahead of the reporters' now. Fails before: line 1 crossed after its 92 reporters,
+-- 33 s, and lines 9 and 10 never crossed.
+test("chat delivery (1.6.0): at 92 reporters, ten lines at once: each line's copy to the mesh peer goes ahead of every reporter's, within ten seconds, the ninth and tenth too, which no reporter's round finishes in time", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		local other = "Max Ran-CAMWOWUS2Realm1PvE"
+		R.Relay.HandleAck("WHISPER", other, "RY~")
+		eq(R.Relay.HandleMesh("WHISPER", other, "RJ~1~0~0"), true, "the other relay joined")
+		local t0, crossed, seen = R.clock, {}, 0
+		local function Watch()
+			for i = seen + 1, #sent do
+				local s = sent[i]
+				local k = s.target and ns.ShortName(s.target) == "Max Ran" and tonumber(s.msg:match("^RX~L~[^~]+~M1~A~Olympus Guild(%d+)~"))
+				if k then crossed[k] = crossed[k] or (R.clock - t0) end
+			end
+			seen = #sent
+		end
+		for k = 1, 10 do Say(R, k) end
+		Run(3000, Watch)
+		for k = 1, 10 do
+			assert(crossed[k], "line " .. k .. " crossed to the mesh peer")
+			assert(crossed[k] <= 10, ("line %d crossed after %d s"):format(k, crossed[k]))
+		end
+	end)
+end)
+
+-- 1.6.0 (the same report). A line's reporters went into the lane in the table's order, the same every line:
+-- past what the lane carries, the same guilds came last and lost every line. Each line starts further
+-- round them now (a golden ratio's step). Fails before: one reporter got 23 of the 24 lines, another 11.
+test("chat delivery (1.6.0): at 92 reporters, a line every 10 s for four minutes, more than the lane carries: the lines that go are shared among the reporters, none left with far fewer than another", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		for k = 1, 24 do
+			Say(R, k)
+			Run(8) -- (some 10 s)
+		end
+		Run(400)
+		local got = LinesByReporter(R, sent, n)
+		local fewest, most, total = math.huge, 0, 0
+		for i = 1, n do
+			local c = 0
+			for k = 1, 24 do
+				assert((got[i][Line(k)] or 0) <= 1, "none twice")
+				c = c + (got[i][Line(k)] or 0)
+			end
+			fewest, most, total = math.min(fewest, c), math.max(most, c), total + c
+		end
+		assert(total < 24 * n, "more than the lane carries: some lines did not go (" .. total .. ")")
+		assert(most - fewest <= 4, ("one reporter got %d of the 24 lines, another %d"):format(most, fewest))
+	end)
+end)
+
+-- 1.6.0 (the same report). Where names split, a line a player types goes in the public channel too, and
+-- everyone in it has it at once (ChatHall.lua), the relay's own client too; its relay copies only matter
+-- to a client outside that channel. They went in the same queue as the lines only the relays carry (a
+-- realm key holder's), which waited behind them. The relay's client notes a line the channel carried
+-- (ChatHall.OnChannel -> Relay.HeardInChannel), and its copies wait behind the others. Fails before: the
+-- first line only the relays carry reached its last reporter after 136 s, behind the three others.
+test("chat delivery (1.6.0): three lines the relay's own client heard in the public channel and three it did not, at once, at 92 reporters: the three only the relays carry reach every reporter first, one after another; the others' copies follow, every reporter's, while there is time", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		-- The relay's client on the public channel, with its own ChatHall.lua.
+		R.Comm.ChannelName = function() return "OlympusNet" end
+		R.Comm.ChannelIndex = function() return 5 end
+		assert(loadfile(extra.addon .. "ChatHall.lua"))("Olympus", R)
+		local t0, last, count, went, seen = R.clock, {}, {}, {}, 0
+		local function Watch()
+			for i = seen + 1, #sent do
+				local k = tonumber(sent[i].msg:match("^RM~L~[^~]+~M1~A~Olympus Guild(%d+)~"))
+				if k then
+					count[k], last[k] = (count[k] or 0) + 1, R.clock - t0
+					went[#went + 1] = { k = k, t = R.clock - t0 }
+				end
+			end
+			seen = #sent
+		end
+		for k = 1, 3 do
+			-- The channel's copy first, its speaker named bare as Forever's channel names him; the relay's after.
+			eq(R.ChatHall.OnChannel(Line(k), ("Speaker Number%d"):format(k), "", "5. OlympusNet", "", "", 0, 5, "OlympusNet"), true)
+			Say(R, k)
+		end
+		for k = 4, 6 do Say(R, k) end
+		Run(3000, Watch)
+		-- (A line to 92 reporters is some 35 s of the lane: the three, one after another, from the start.)
+		for k = 4, 6 do
+			eq(count[k], n, "line " .. k .. " (only the relays carry it) reached every reporter")
+			assert(last[k] <= 40 * (k - 3), ("line %d reached its last reporter after %d s"):format(k, last[k]))
+		end
+		-- (What went of the three before the others were queued: the lane's burst, nothing else waiting then.)
+		local ahead = 0
+		for _, x in ipairs(went) do
+			if x.k <= 3 and x.t < last[6] then ahead = ahead + 1 end
+		end
+		assert(ahead <= R.Relay.CHAT_BURST, ("%d whispers of the lines the channel carried went before the others were done"):format(ahead))
+		for k = 1, 3 do eq(count[k], n, "line " .. k .. "'s copies still reached every reporter, within CHAT_LANE_TTL") end
+		eq(R.Relay.Stats().chatLost, 0)
+		eq(R.Relay.Stats().heardInChannel, 3, "the three lines the relay's client heard in the channel, counted (/oly status)")
+	end)
+end)
+
 test("chat delivery (1.5.5): a reporter whose queue is full of other words still hands every relayed chat line to its guild", function()
 	WithMember(function()
 		local R, _, sent = extra.RelayWorld("Plain Reporter-CAMWOWUS2Realm7PvE", "Olympus II")
@@ -413,6 +519,49 @@ test("chat delivery (1.5.5, Forever): guildmates on other sub-realms and under t
 		eq(C.IsMe("Wazizo Thelongone-CAMWOWUS2Realm7PvE"), true)
 		eq(C.IsMe("Wazizo Thelongone-CAMWOWUS1Realm8PvP"), false, "a namesake of another family is not us")
 	end)
+end)
+
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines repeated minutes apart, one copy counted as heard twice in
+-- 141 lines shown). A line typed in the public channel comes at once (ChatHall.lua), its relay copy after
+-- waiting in one or two relays' chat lanes (Relay.CHAT_LANE_TTL each): Channels kept a line's id 120 s,
+-- and a later copy was a new line, shown again. It keeps it as long as a copy may come now
+-- (Channels.DedupeWindow). Fails before: the relay's copy 200 s later was taken as a new line.
+test("chat delivery (1.6.0, Forever): a line from the public channel and its relay copies 200 s and ten minutes later are one line, shown once; our own line back as late is ours; past the window a copy is a line again", function()
+	ForeverGuild(function()
+		local C, Codec = ns.Channels, ns.Codec
+		local line = Codec.EncodeChat("A", "OLYMPUS GODS", 4301, "WA", "late by the relay")
+		local _, why = C.Receive("CHANNEL", "Hater Fistinator", line, 9000)
+		eq(why, "muted", "the channel's copy, his name bare: taken")
+		_, why = C.Receive("CHANNEL", "Hater Fistinator-CAMWOWUS2Realm3PvE", line, 9200)
+		eq(why, "dup", "the relay's copy 200 s later: the same line")
+		_, why = C.Receive("CHANNEL", "Hater Fistinator-CAMWOWUS1Realm5PvE", line, 9600)
+		eq(why, "dup", "a copy through two relays' lanes, ten minutes later: the same line")
+		-- Our own line's relay copy, as late.
+		local mine = { ["4302#my late words"] = 9000 }
+		local ok, reason = C.Admit("Wazizo Thelongone-CAMWOWUS1Realm5PvE", "OLYMPUS GODS", "my late words", 9600,
+			{ tier = "A", id = 4302, mine = mine, seen = {}, buckets = {} })
+		eq(ok, false); eq(reason, "own", "our own line, back by a relay ten minutes on")
+		-- The window: a copy's longest way (two relays' lanes and the rest), no longer.
+		local window = C.DedupeWindow()
+		assert(window >= 2 * 300 + 60, "the window covers two relays' lanes: " .. window)
+		C.Prune(9000 + window + 1)
+		_, why = C.Receive("CHANNEL", "Hater Fistinator", line, 9000 + window + 1)
+		eq(why, "muted", "past the window, a copy is a line again")
+	end)
+end)
+
+-- 1.6.0 (the same window, longer): past 1,000 line keys every key went at the next prune, and every copy
+-- still on its way showed its line again. Past Channels' cap the oldest go now. Fails before: after
+-- 1,100 lines and a prune, a copy of the first line was a new line.
+test("chat delivery (1.6.0): 1,100 lines heard within the window, then the minute's prune: a copy of the first still comes as heard", function()
+	local C = ns.Channels
+	for i = 1, 1100 do
+		C.Admit(("Prune Sender%d-Realm"):format(i), "Olympus II", "line " .. i, 20000 + i * 0.1, { id = i, level = 0 })
+	end
+	C.Prune(20200)
+	local ok, why = C.Admit("Prune Sender1-Realm", "Olympus II", "line 1", 20201, { id = 1, level = 0 })
+	eq(ok, false); eq(why, "dup", "a copy of the first line, after the prune")
+	if C.DedupeWindow then C.Prune(20200 + C.DedupeWindow() + 1) end -- (forgotten, for the tests after)
 end)
 
 test("chat guild verification can look up a sender without writing a guild claim", function()
