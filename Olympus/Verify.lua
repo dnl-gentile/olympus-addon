@@ -88,6 +88,13 @@ local L = ns.L
 -- is heard (at the send too): a guild hears one every GUILD_WINDOW at most, nothing goes to other guilds.
 -- A guild master takes it as any resend (CanForwardResend: a newer revocation wins; for his own guild
 -- alone, Relay.HandleGuild).
+-- (The review of the 1.6.0 hand-over.) A guildmate that missed a revocation still holds the approval
+-- it revoked, and hands that over: a guild master or a guildmate with a fresh store took it, and the
+-- guildmate handed it on later. A 1.6.0 guildmate whose newest word on its guild is a newer revocation
+-- answers such a hand-over with that revocation over GUILD, as hop 3 from its verifier (AnswerRevoked:
+-- one row, no final semicolon, a snapshot's row that every version keeps over the older approval), and
+-- so answers a guild master's ask that names an older word. One guild's word alone (a resend, a
+-- hand-over, that answer) is no answer to a client's own ask (Verify.Handle: its login's retry stays).
 
 local Verify = {}
 ns.Verify = Verify
@@ -141,10 +148,12 @@ function Verify.Clock()
 	return math.floor(tonumber(t) or ns.Now())
 end
 
-local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0, guildAsked = 0, handed = 0 }
+local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0, guildAsked = 0, handed = 0,
+	revocations = 0 }
 local snapshots, startup = 0, nil
 -- (unsent: answers refused a send, the review of the 1.5.4 candidate; 1.6.0, the guild's hand-over:
--- guildAsked, the guild master's asks to his guild; handed, the hand-overs this client sent its guild)
+-- guildAsked, the guild master's asks to his guild; handed, the hand-overs this client sent its guild;
+-- revocations, its answers to its guild with a newer revocation, the review of the hand-over)
 function Verify.Stats() return stats end
 
 local function Key(s) return ns.Fold(tostring(s or "")) end
@@ -730,6 +739,15 @@ local function HeardHandOver(guild, now)
 	if type(guild) ~= "string" or type(mine) ~= "string" or Key(mine) ~= Key(guild) then return end
 	handedAt[Key(guild)] = now or Verify.Clock()
 end
+-- (The review of the hand-over.) Our guild (folded) -> { at, t }: the revocation a guildmate's answer
+-- (AnswerRevoked, below) last carried, heard or sent here, and when. Our own answer waiting is given up.
+local revokeHeard = {}
+local function HeardRevocation(guild, at, now)
+	local mine = IsInGuild() and GetGuildInfo("player")
+	if type(guild) ~= "string" or type(mine) ~= "string" or Key(mine) ~= Key(guild) then return end
+	revokeHeard[Key(guild)] = { at = at, t = now or Verify.Clock() }
+end
+local StaleHandOver -- (the guild's hand-over, below: a resend heard older than our revocation)
 
 function Verify.Handle(dist, sender, text)
 	if dist == "WHISPER" then return Verify.HandleGuildPoll(sender, text) end
@@ -763,7 +781,10 @@ function Verify.Handle(dist, sender, text)
 		-- (1.6.0) A resend of our own guild's approval heard: our hand-over waiting is given up, and
 		-- none goes for GUILD_WINDOW (HandOver), whether this client takes it or not.
 		if resend then HeardHandOver(resend, now) end
-		if resend and not Verify.CanForwardResend(text, sender) then return false end
+		if resend and not Verify.CanForwardResend(text, sender) then
+			StaleHandOver(resend, text) -- (the review of the hand-over: older than our revocation, answered)
+			return false
+		end
 		local made, rows = body:match("^(%d+)~(.*)$")
 		if not TimeField(made) then
 			stats.bad = stats.bad + 1
@@ -771,6 +792,7 @@ function Verify.Handle(dist, sender, text)
 		end
 		local realm = ns.RealmOf(sender)
 		local count, changed, bad = 0, false, false
+		local words, wordKind, wordAt, wordGuild = 0, nil, nil, nil -- (the words' rows, and the last one's)
 		-- (only while answering on the channel; at most MAX_ROWS received entries)
 		local coverage = pending and not Direct() and {}
 		for row in rows:gmatch("[^;]+") do
@@ -782,6 +804,7 @@ function Verify.Handle(dist, sender, text)
 				if at and guild and gm and by then
 					if Take(k, at, guild, gm, by, now) then changed = true end
 					if coverage then coverage[CoverageKey(k, at, guild, gm, by)] = true end
+					words, wordKind, wordAt, wordGuild = words + 1, k, at, guild
 				else
 					bad = true
 				end
@@ -798,8 +821,12 @@ function Verify.Handle(dist, sender, text)
 		end
 		if pending and not bad then pending.coverage = coverage end
 		-- (1.6.0) One guild's resend (the Watch's, or a guild's hand-over at its guild master's login) is
-		-- no answer to our ask: the login's retry (Verify.Login) still asks for the whole store.
-		if count > 0 and not bad and not resend then snapshots = snapshots + 1 end
+		-- no answer to our ask: the login's retry (Verify.Login) still asks for the whole store. (The review
+		-- of the hand-over) Nor is one guild's word alone, a guildmate's answer with a newer revocation
+		-- (AnswerRevoked) among them; that answer heard gives up ours.
+		local lone = count == 1 and words == 1
+		if lone and wordKind == "R" and not bad then HeardRevocation(wordGuild, wordAt, now) end
+		if count > 0 and not bad and not lone then snapshots = snapshots + 1 end
 		if changed then Changed() end
 		if bad then stats.bad = stats.bad + 1 end
 		return not bad
@@ -1832,6 +1859,68 @@ local function HandOver(guild, why)
 	return true
 end
 
+-- (The review of the hand-over: see the top.) Our newest word on our guild when it is a revocation, by a
+-- verifier we trust: what a stale hand-over, and a guild master's ask that names an older word, are
+-- answered with. And Status's info.
+local function Revocation(guild)
+	local status, info = Verify.Status(guild)
+	local r = status and info.revoked
+	if not r or not Verify.Trusted(r.by) then return nil end
+	return r, info
+end
+
+-- One answer with that revocation, after AnswerWait: its original time, guild master and verifier, from
+-- that verifier over GUILD (Relay.ToOwnGuild), one row with no final semicolon (no resend: a snapshot's
+-- row). Not held back by GUILD_WINDOW, which the stale hand-over just set. One waits at a time (a stale
+-- word heard meanwhile renews it); given up once another client's answer with it, or a newer one, is
+-- heard after the last stale word (HeardRevocation), and again at the send.
+local revoking = nil
+local function AnswerRevoked(guild, why)
+	local key, now = Key(guild), Verify.Clock()
+	local r = Revocation(guild)
+	if not r then return false end
+	if revoking and revoking.key == key and revoking.entry == r then
+		revoking.since = now
+		return true
+	end
+	local item = { key = key, entry = r, since = now, store = ns.rdb }
+	revoking = item
+	local function Current()
+		local mine, heard = OwnGuild(), revokeHeard[key]
+		return revoking == item and ns.rdb == item.store and mine ~= nil and Key(mine) == key
+			and Revocation(mine) == item.entry and not (heard and heard.t >= item.since and heard.at >= item.entry.at)
+	end
+	ns.After(AnswerWait(), "verify guild revocation", function()
+		if not Current() then
+			if revoking == item then revoking = nil end
+			return
+		end
+		local e = item.entry
+		local body = ("GV~%d~S~%d~R,%d,%s,%s,%s"):format(Verify.PROTOCOL, Verify.Clock(), e.at, e.guild, Relative(e.gm), Relative(e.by))
+		local queued = ns.Relay.ToOwnGuild(Relative(e.by), body, "verify guild revoked#" .. key, function(sent)
+			if revoking == item then revoking = nil end
+			if not sent then return end
+			revokeHeard[key] = { at = e.at, t = Verify.Clock() }
+			stats.revocations = stats.revocations + 1
+			ns.Log("verify: <%s>'s revocation (%s, %d) handed to the guild (%s)", e.guild, tostring(e.by), e.at, why)
+		end, { owner = Verify, guard = Current })
+		if not queued and revoking == item then revoking = nil end
+	end)
+	return true
+end
+
+-- A resend of our guild's approval heard, and refused (Verify.Handle): when our revocation is as new or
+-- newer (on the same second a revocation stands), a guildmate that missed it is handing the old approval
+-- over, and every fresh store in the guild would keep it: answered.
+StaleHandOver = function(guild, text)
+	local mine = OwnGuild()
+	if not mine or type(guild) ~= "string" or Key(mine) ~= Key(guild) then return false end
+	local at = tonumber(tostring(text):match("^GV~%d+~S~%d+~A,(%d+),"))
+	local r = Revocation(mine)
+	if not at or not r or r.at < at then return false end
+	return AnswerRevoked(mine, "stale")
+end
+
 -- The guild master's ask to his guild, with his own ask (Verify.Ask: the login's, its retry, the half
 -- hour's), GUILD_ASK_GAP at most: while his guild is not verified here, naming the time of the word he
 -- holds on it, so a guildmate answers only with a newer approval.
@@ -1847,12 +1936,18 @@ function Verify.GuildAsk(now)
 end
 
 -- His ask heard (GUILD: the server stamps the guildmate): for our own guild, from the guild master we see,
--- older than the approval we hold for him.
+-- older than the approval we hold for him. (The review of the hand-over) Or older than our revocation:
+-- answered with that (AnswerRevoked), so a stale hand-over finds it there.
 function Verify.HandleGuildAsk(sender, text)
 	if type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return false end
 	local guild, held = text:match("^GV~1~G~([^~]+)~(%d+)$")
 	local mine = guild and #held <= 10 and OwnGuild()
 	if not mine or Key(mine) ~= Key(guild) then return false end
+	local r, info = Revocation(mine)
+	if r then
+		if not info.gm or not SamePerson(info.gm, ns.FullName(sender)) or r.at <= tonumber(held) then return false end
+		return AnswerRevoked(mine, "asked")
+	end
 	local entry, gm = Handable(mine)
 	if not entry or not SamePerson(gm, ns.FullName(sender)) or entry.at <= tonumber(held) then return false end
 	return HandOver(mine, "asked")

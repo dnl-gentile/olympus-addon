@@ -440,6 +440,23 @@ local function HandOvers(n)
 	return k
 end
 
+-- (The review of the hand-over) The answers with a newer revocation a node sent: one row, no final
+-- semicolon, over GUILD as hop 3 from its verifier.
+local function Revocations(n)
+	local k = 0
+	for _, p in ipairs(n.sent) do
+		if p.dist == "GUILD" and p.msg:find("^RG~P~[^~]+~GV~1~S~%d+~R,%d+,[^,;~]+,[^,;~]+,[^,;~]+$") then k = k + 1 end
+	end
+	return k
+end
+
+-- HC's revocation of GUILD (approved with MASTER) at `at`, as each node heard it then.
+local function Revoked(As, at, ...)
+	for _, n in ipairs({ ... }) do
+		eq(As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~R~%d~%s~%s"):format(at, GUILD, MASTER)), true)
+	end
+end
+
 -- Fails before 1.6.0: nobody but a verifier's client answers his ask, and none is online; he stays
 -- pending (expected verified, got pending) and is shown "GM verification pending" two minutes in.
 test("verify guild hand-over: a fresh-install guild master gets the approval his guildmate holds, no verifier online, before his notice", function()
@@ -634,11 +651,14 @@ test("verify guild hand-over: a newer revocation wins: a guildmate holding one h
 		Play(Advance, As, { mate, master }, 120)
 		eq(#master.sentOf("GV~1~G~"), 1)
 		eq(HandOvers(mate), 0, "a guildmate whose newest word is a revocation hands over nothing")
-		assert(As(master, master.c.Verify.Status, GUILD) ~= "verified")
-		-- The guild master heard the revocation; a guildmate that missed it still holds the approval.
+		-- (The review of the hand-over) It answers his ask with the revocation instead: he holds it now.
+		eq(Revocations(mate), 1, "its answer is the revocation")
+		local status, info = As(master, master.c.Verify.Status, GUILD)
+		assert(status ~= "verified")
+		eq(info.revoked and info.revoked.at, T0 + 60, "the guild master holds the revocation, from his guildmate")
+		-- A guildmate that missed it still holds the approval.
 		local stale = Ready(Node("Stale Mate-Realm", GUILD))
 		Approved(As, T0, stale)
-		eq(As(master, master.c.Verify.Handle, "CHANNEL", HC, revoked), true)
 		As(stale, stale.deliver, "GUILD", MASTER, ("GV~1~G~%s~%d"):format(GUILD, T0 + 60))
 		Play(Advance, As, { stale }, 60)
 		eq(HandOvers(stale), 0, "his ask names the revocation he holds: nothing older answers it")
@@ -647,9 +667,124 @@ test("verify guild hand-over: a newer revocation wins: a guildmate holding one h
 		local delivered = master.c.Relay.Stats().delivered
 		As(master, master.deliver, "GUILD", stale.c.me, row)
 		eq(master.c.Relay.Stats().delivered, delivered + 1, "it reached his Verify (hop 3), not lost on the way")
-		local status, info = As(master, master.c.Verify.Status, GUILD)
+		status, info = As(master, master.c.Verify.Status, GUILD)
 		assert(status ~= "verified", "the newer revocation stands")
 		eq(info.revoked.at, T0 + 60)
+	end)
+end)
+
+-- (The review of the hand-over.) A guildmate that missed a revocation still holds the approval it revoked,
+-- and hands that over. Fails before: nothing answered it, a guild master on a fresh install took the revoked
+-- approval (expected the revocation, got verified), and so did a fresh guildmate, which handed it on later.
+test("verify guild hand-over: a stale hand-over is answered with the newer revocation: a fresh 1.6.0 guild master and a fresh guildmate end revoked", function()
+	World(function(Node, As, Flush, Advance)
+		local stale = Ready(Node("Stale Mate-Realm", GUILD)) -- (away when HC revoked the approval)
+		local aware = Ready(Node("Aware Mate-Realm", GUILD))
+		local fresh = Ready(Node("Fresh Mate-Realm", GUILD)) -- (a new computer)
+		local master = Ready(Node(MASTER, GUILD, { rank = 0 })) -- (a new computer too)
+		local all = { stale, aware, fresh, master }
+		Approved(As, T0, stale, aware)
+		Revoked(As, T0 + 60, aware)
+		Advance(3600)
+		for _, n in ipairs(all) do As(n, n.c.Verify.Login) end
+		Play(Advance, As, all, 120)
+		for _, n in ipairs({ master, fresh, stale }) do
+			local status, info = As(n, n.c.Verify.Status, GUILD)
+			assert(status ~= "verified", n.c.me .. " keeps the revoked approval")
+			eq(info.revoked and info.revoked.at, T0 + 60, n.c.me .. " holds the revocation")
+			eq(info.revoked.by, HC, "its original verifier")
+			eq(info.revoked.gm, MASTER)
+		end
+		eq(master.c.Verify.Stats().guildAsked, 1, "the guild master asked his guild")
+		eq(HandOvers(stale), 1, "the guildmate that missed the revocation handed the old approval over")
+		eq(Revocations(aware), 1, "the guildmate holding the revocation answered with it")
+		eq(#aware.sentOf("RG~P~Max Ran~GV~1~S~"), 1, "named from its verifier, as hop 3 names an origin")
+		eq(#aware.sentOf("RL~P~GV~1~S~"), 0, "nothing of it to a relay")
+		-- One guild's word alone is no answer to the fresh guildmate's own ask: its login's retry still asks.
+		Play(Advance, As, all, fresh.c.Verify.STARTUP_RETRY + fresh.c.Verify.STARTUP_SPREAD, 60)
+		eq(fresh.c.Verify.Stats().asked, 2, "the login's retry asked for the whole store")
+		-- The stale guildmate gone, the guild master asks again (naming the revocation he holds) and the
+		-- fresh guildmate hears a guildmate's ask that holds nothing: the old approval is handed on by nobody.
+		stale.guild = "Olympus Elsewhere"
+		Play(Advance, As, all, master.c.Verify.GUILD_WINDOW, 60)
+		eq(As(master, master.c.Verify.GuildAsk), true)
+		As(fresh, fresh.deliver, "GUILD", MASTER, ("GV~1~G~%s~0"):format(GUILD))
+		Play(Advance, As, all, 60)
+		eq(HandOvers(fresh) + HandOvers(aware), 0, "nobody hands the revoked approval on")
+		assert(As(master, master.c.Verify.Status, GUILD) ~= "verified")
+		assert(As(fresh, fresh.c.Verify.Status, GUILD) ~= "verified")
+	end)
+end)
+
+-- The same at a 1.5.9 guild master's login (handed by the stale guildmate, unasked), his client and a fresh
+-- 1.5.9 guildmate's reading the answer as any snapshot's row. Fails before: he took the revoked approval.
+test("verify guild hand-over: a stale hand-over at a 1.5.9 guild master's login is answered with the newer revocation: he and a fresh 1.5.9 guildmate end revoked", function()
+	World(function(Node, As, Flush, Advance)
+		local stale = Ready(Node("Stale Mate-Realm", GUILD))
+		local aware = Ready(Node("Aware Mate-Realm", GUILD))
+		local fresh = Ready(Node("Fresh Mate-Realm", GUILD, { old = true }))
+		local master = Ready(Node(MASTER, GUILD, { rank = 0, old = true }))
+		Approved(As, T0, stale, aware)
+		Revoked(As, T0 + 60, aware)
+		for _, n in ipairs({ stale, aware }) do As(n, n.c.Verify.Login) end
+		Play(Advance, As, { stale, aware }, stale.c.Verify.GUILD_LOGIN_GAP + 60, 60)
+		As(fresh, fresh.c.Verify.Login)
+		As(master, master.c.Comm.Hello, true); Flush()
+		As(master, master.c.Verify.Login)
+		Play(Advance, As, { stale, aware, fresh, master }, 120)
+		for _, n in ipairs({ master, fresh, stale }) do
+			local status, info = As(n, n.c.Verify.Status, GUILD)
+			assert(status ~= "verified", n.c.me .. " keeps the revoked approval")
+			eq(info.revoked and info.revoked.at, T0 + 60, n.c.me .. " holds the revocation")
+		end
+		eq(HandOvers(stale), 1); assert(Find(stale.logs, "handed to the guild (login)"), "at his login")
+		eq(Revocations(aware), 1)
+		assert(Find(aware.logs, ("<%s>'s revocation (%s, %d) handed to the guild (stale)"):format(GUILD, HC, T0 + 60)),
+			"an answer to the stale hand-over")
+	end)
+end)
+
+test("verify guild hand-over: a guild answers a stale hand-over once, and again for another one heard within GUILD_WINDOW", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local master = Ready(Node(MASTER, GUILD, { rank = 0 }))
+		local aware, all = {}, { master }
+		for i = 1, 8 do
+			aware[i] = Ready(Node(("Aware Mate%02d-Realm"):format(i), GUILD))
+			all[#all + 1] = aware[i]
+		end
+		local stale = Ready(Node("Stale Mate-Realm", GUILD))
+		all[#all + 1] = stale
+		local function Total() local k = 0 for _, n in ipairs(all) do k = k + Revocations(n) end return k end
+		Approved(As, T0, stale, unpack(aware))
+		Revoked(As, T0 + 60, unpack(aware))
+		Advance(3600)
+		-- Everyone logs in at once and hears his ask (each draws the same wait here: the send's guard
+		-- alone keeps the answer to one, and the stale guildmate, hearing it first, gives its own up).
+		for _, n in ipairs(all) do As(n, n.c.Verify.Login) end
+		Play(Advance, As, all, 120)
+		local _, info = As(master, master.c.Verify.Status, GUILD)
+		eq(info.revoked and info.revoked.at, T0 + 60, "the guild master holds the revocation")
+		eq(Total(), 1, "one answer for the whole guild")
+		eq(HandOvers(stale), 0, "the stale guildmate heard the revocation before its turn: it handed nothing over")
+		-- Another guildmate that missed it (just logged in) hands the old approval over within GUILD_WINDOW
+		-- of that answer: answered too, once.
+		local row = ("RG~P~Max Ran~GV~1~S~%d~A,%d,%s,Guild Master,Max Ran;"):format(Now(), T0, GUILD)
+		for _, n in ipairs(all) do As(n, n.deliver, "GUILD", "Second Stale-Realm", row) end
+		Play(Advance, As, all, 60)
+		eq(Total(), 2, "GUILD_WINDOW, which the stale hand-over set, does not hold the answer back")
+		assert(As(master, master.c.Verify.Status, GUILD) ~= "verified")
+		-- A hand-over as new as the revocation's second is stale too (a revocation stands over an approval
+		-- of the same second); a newer approval is no stale one, and nobody answers it.
+		Play(Advance, As, all, 60)
+		row = ("RG~P~Max Ran~GV~1~S~%d~A,%d,%s,Guild Master,Max Ran;"):format(Now(), T0 + 60, GUILD)
+		for _, n in ipairs(all) do As(n, n.deliver, "GUILD", "Second Stale-Realm", row) end
+		Play(Advance, As, all, 60)
+		eq(Total(), 3)
+		row = ("RG~P~Max Ran~GV~1~S~%d~A,%d,%s,Guild Master,Max Ran;"):format(Now(), T0 + 120, GUILD)
+		for _, n in ipairs(all) do As(n, n.deliver, "GUILD", "New Approval-Realm", row) end
+		Play(Advance, As, all, 60)
+		eq(Total(), 3, "a newer approval is taken, not answered")
+		eq(As(master, master.c.Verify.Status, GUILD), "verified")
 	end)
 end)
 
