@@ -460,8 +460,14 @@ test("join reach (1.6.0): nobody left to ask, or every guild full: the screen sa
 		eq(Notice(), L.RECRUIT_JOIN_NOBODY, "said why")
 		assert(Shows(L.RECRUIT_JOIN_NOBODY) and not Shows(L.RECRUIT_JOIN_TIMEOUT), "on the Join page, in place of 'try another member'")
 		w.Advance(R.REASK - 46)
+		-- (Review of this lane: the click asked him again without a search, so one who logged in since
+		-- was never found. A search runs first; its answer, nobody new, asks him again.)
+		local searches = w.searches
 		eq(R.RequestJoin(), true)
-		eq(Open() and Open().data.name, "Kai Ford-Realm", "asked again REASK after the first time")
+		eq(w.searches, searches + 1, "a new search before anyone is asked again")
+		eq(Open(), nil)
+		w.Advance(1 + R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Kai Ford-Realm", "asked again REASK after the first time, once the search found nobody new")
 	end)
 	WithRequester(function(w)
 		R.OnFound({ { name = "Fay Moor-Realm", guild = "Olympus Full" }, { name = "Gil Rowe-Realm", guild = "Olympus Packed" } })
@@ -475,6 +481,46 @@ test("join reach (1.6.0): nobody left to ask, or every guild full: the screen sa
 		eq(Notice(), L.RECRUIT_JOIN_ALL_FULL, "every guild found is full")
 		assert(Shows(L.RECRUIT_JOIN_ALL_FULL))
 		eq(#w.said, 0, "nothing whispered to a full guild")
+	end)
+end)
+
+-- Fails on this lane's first version (review: a click re-asked a member asked REASK ago instead of
+-- searching, so a recruiter who logged in later was never found, and the old members were whispered
+-- again and again): with everyone found asked, a click searches; one asked REASK ago is asked again only
+-- once the search found nobody new.
+test("join reach (1.6.0): with everyone found asked, a click searches first: a member who logged in since is asked before anyone is asked again", function()
+	WithRequester(function(w)
+		local online = { { name = "Kai Ford-Realm", guild = "Olympus Pvp" } }
+		w.OnSearch = function()
+			w.At(1, function()
+				local list = {}
+				for i, p in ipairs(online) do list[i] = p end
+				R.OnFound(list)
+			end)
+		end
+		eq(R.RequestJoin(), true)
+		w.Advance(1 + R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Kai Ford-Realm")
+		Send(Open())
+		w.Advance(45)
+		-- Eleven minutes later another member logs in: /who lists him now, not before.
+		w.Advance(R.REASK + 60)
+		online[2] = { name = "Nora Wade-Realm", guild = "Olympus Pvp" }
+		local searches = w.searches
+		eq(R.RequestJoin(), true)
+		eq(w.searches, searches + 1, "the click searches: nobody found was never asked")
+		eq(Open(), nil, "Kai is not asked again before the search")
+		w.Advance(1 + R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Nora Wade-Realm", "the member who logged in since")
+		Send(Open())
+		eq(#w.said, 2); eq(w.said[2].to, "Nora Wade")
+		-- Nobody new at the next search: then the one asked REASK ago.
+		w.Advance(45)
+		eq(R.RequestJoin(), true)
+		eq(w.searches, searches + 2)
+		w.Advance(1 + R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Kai Ford-Realm", "asked again once the search found nobody new")
+		eq(#w.said, 2, "nothing whispered without the player's Send")
 	end)
 end)
 
@@ -761,5 +807,43 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	for _, s in ipairs(mixed.sends) do eq(s.m.guild, "Olympus Omega", "only the guild nobody reported full") end
 	for _, name in ipairs({ "PvE, recruiters online", "PvE, recruiters offline", "PvP, one recruiter (1.5.9)", "PvP, no recruiter online" }) do
 		eq(results[name].full, 0, name .. ": no request to a full guild")
+	end
+end)
+
+-- Fails on this lane's first version (review): on a realm with more members online than one request
+-- every 45 seconds reaches within REASK (about 14), a click never searched again once everyone found
+-- had been asked, so a member who logged in later was never asked while the others were whispered
+-- three or four times each.
+test("join reach simulation (1.6.0): a member who logs in after everyone found was asked is found by the next search and asked", function()
+	local function Populous(n)
+		local members = {}
+		for i = 1, n do
+			members[i] = { ("Member%02d Test-Realm"):format(i), i % 2 == 0 and "Olympus Alpha" or "Olympus Beta", version = "1.5.9" }
+		end
+		return { guilds = { ["Olympus Alpha"] = 600, ["Olympus Beta"] = 700 }, members = members }
+	end
+	for _, lateAt in ipairs({ 300, 720, 1500 }) do
+		WithRequester(function(w)
+			local world = World(w, Populous(15))
+			local late = { key = "Late Comer-Realm", guild = "Olympus Alpha", printed = {}, got = {}, rank = 3 }
+			local searchesAt
+			w.At(lateAt, function()
+				world.members[#world.members + 1] = late
+				world.byTell["Late Comer"] = late
+				searchesAt = w.searches
+			end)
+			local s = Play(w, world, 2400)
+			local askedAt, count, most = nil, {}, 0
+			for _, x in ipairs(s.sends) do
+				count[x.m] = (count[x.m] or 0) + 1
+				most = math.max(most, count[x.m])
+				if x.m == late and not askedAt then askedAt = math.floor(x.at - 1000) end
+			end
+			Report(("15 members on 1.5.9, one more online at %d s"):format(lateAt), s)
+			print(("           searches after he logged in %d; he was asked %s; most requests to one member %d")
+				:format(w.searches - (searchesAt or w.searches), askedAt and ("at " .. askedAt .. " s") or "never", most))
+			assert(askedAt, "the member online at " .. lateAt .. " s is asked")
+			assert(askedAt <= lateAt + 900, "by the first search once everyone found before him was asked")
+		end)
 	end
 end)

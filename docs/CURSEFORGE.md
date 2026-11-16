@@ -66,7 +66,7 @@ one more?"). No answer? **Try someone else** picks a member you have not asked y
 are highlighted. It is rate limited, so nobody gets spammed. From 1.6.0 it asks a member who
 recruits first, passes over one whose addon says he can't invite (no invite right, or a full
 guild), tells you why when the member asked can't take your request or nobody is left to ask, and
-can ask a member again 10 minutes after the first time.
+searches again before it asks a member a second time, 10 minutes after the first.
 
 **Where to go**: a search also asks one member's addon (an addon whisper, not a chat line) where
 recruits should go, and its census answers: the guild the King opened **the gates** of first,

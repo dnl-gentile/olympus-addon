@@ -39,7 +39,7 @@ local L = ns.L
 -- answers name, then anyone else; passes over one who can't (a request open for him closes with the
 -- reason and the next member is asked); waits for the asked member's answer before its own requests
 -- (JoinNext); ends a sent request's wait when its member can't take it; says why when nobody is
--- left; and asks a member again REASK after the first time once nobody new is left.
+-- left; and asks a member again REASK after the first time once a new search found nobody new.
 
 local Recruit = {}
 ns.Recruit = Recruit
@@ -522,7 +522,8 @@ end
 -- /who found; never one who asked not to be contacted. No guild: the visible route's order,
 -- then anyone found. (1.6.0) No guild: a member who said he recruits first; past the gates, every
 -- guild's named officers and recruiters before its other members; never one who said he can't take
--- a request; and with nobody new left, one asked more than REASK ago.
+-- a request; and with nobody new left, one asked more than REASK ago (the Join button searches first,
+-- RequestJoin).
 function Recruit.NextContact(guild)
 	local route = Recruit.Route()
 	return Next(guild, route, false) or Next(guild, route, true)
@@ -672,7 +673,9 @@ function Recruit.RequestJoin()
 	if not Recruit.SimpleJoin() or join.search or join.settle or ns.ChatLocked() then return false end
 	if join.request and join.request.untilAt > GetTime() then return false end
 	join.probes, join.waited, join.notice = 0, {}, nil
-	local contact = Recruit.NextContact()
+	-- (1.6.0) A member never asked yet; with none, a new search. One asked REASK ago is asked again only
+	-- once that search found nobody new (JoinFound, JoinNext), so a member who logged in since comes first.
+	local contact = Next(nil, Recruit.Route(), false)
 	if contact then
 		local f = Recruit.Prompt(contact)
 		-- (1.6.0) The screen's own choice: an answer saying he can't take it asks the next member.
