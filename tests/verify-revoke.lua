@@ -370,3 +370,51 @@ test("verify revoke: after a purge an answer still carries the newest approvals:
 		assert(#head + #table.concat(block, ";") <= V.REVOKE_BYTES, "the revocations' block within REVOKE_BYTES")
 	end)
 end)
+
+-- The review of 1.6.0. A guild believes its guildmate's hand-over (hop 3, Relay.HandleGuild), from the
+-- origin he writes: any member of a verifier's guild could write one GUILD line naming another verifier,
+-- and the verifier's client took it as that verifier's word and answered every client that asked with it
+-- (since 1.5.4: his answers carry his whole store). A forged revocation took a guild's check away on the
+-- other guilds' clients (and put its master under the overdue hold), a forged approval verified a guild
+-- nobody approved. What a guildmate hands over may reach the verifier's store, never his answers: those
+-- carry a word only as a verifier gave it to his client, first-hand, through a relay or across one, or
+-- his own. Fails before: the other guild's member took the revocation (R, its check gone), and the third
+-- guild's took the approval (verified).
+test("verify revoke: a word a verifier's guildmate hands over may reach his store, never his answers: another guild keeps its check and an unapproved guild stays unverified; a decision across from another verifier is still answered", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local hc = Node(HC, "Olympus Crown")
+		local hub = Node(HUB, "Olympus Hearth")
+		local mate = Node("Plain Member-Realm", "Olympus Crown") -- (any member of the verifier's guild)
+		local far = Member(Node, As, "Embers Ally-Realm", OTHER, hc)
+		local ward = Member(Node, As, "Wardens Ally-Realm", THIRD, hc)
+		eq(As(hc, hc.c.Verify.Approve, OTHER, MASTER), true)
+		Flush(); Advance(10)
+		eq(Checked(As, far, OTHER), true, "(the guild verified)")
+		Advance(3600)
+		-- His guildmate's lines: hop 3 from the other councillor, a revocation of the verified guild and an
+		-- approval of the one nobody approved.
+		As(hc, hc.deliver, "GUILD", mate.c.me, ("RG~P~Hildryn Payne~GV~1~S~%d~R,%d,%s,Guild Master,Hildryn Payne"):format(Now(), Now(), OTHER))
+		As(hc, hc.deliver, "GUILD", mate.c.me, ("RG~P~Hildryn Payne~GV~1~S~%d~A,%d,%s,Guild Master,Hildryn Payne"):format(Now(), Now(), THIRD))
+		local payload = As(hc, hc.c.Verify.Payload)
+		assert(not payload:find(OTHER, 1, true) and not payload:find(THIRD, 1, true), "neither word in his answer: " .. payload)
+		-- The other guilds' members ask; the verifier answers from his store.
+		for _, n in ipairs({ far, ward }) do
+			eq(As(n, n.c.Verify.Ask), true)
+			Flush(); Advance(10); Advance(10)
+			Advance(hc.c.Verify.ANSWER_GAP) -- (one answer each ANSWER_GAP)
+		end
+		eq(far.c.rdb.verify.list[ns.Fold(OTHER)].k, "A", "the other guild's member keeps the approval")
+		eq(Checked(As, far, OTHER), true, "and the check")
+		eq(As(ward, ward.c.Verify.Status, THIRD) ~= "verified", true, "nobody approved the third guild")
+		-- The other councillor approves the third guild: across to this verifier's relay, then in his answer.
+		eq(As(hub, hub.c.Verify.Approve, THIRD, MASTER), true)
+		Flush(); Advance(10)
+		eq(hc.c.rdb.verify.list[ns.Fold(THIRD)].by, HUB, "(the decision came across)")
+		assert(As(hc, hc.c.Verify.Payload):find(THIRD, 1, true), "a decision that came across is answered")
+		local fresh = Member(Node, As, "Wardens Elder-Realm", THIRD, hc)
+		Advance(hc.c.Verify.ANSWER_GAP)
+		eq(As(fresh, fresh.c.Verify.Ask), true)
+		Flush(); Advance(10); Advance(10)
+		eq(Checked(As, fresh, THIRD), true, "a client that missed it has it from the verifier's answer")
+	end)
+end)

@@ -399,7 +399,13 @@ test("verify mesh: a hand-over in the verifier's own guild, heard while a client
 		Flush()
 		for _ = 1, 8 do Advance(6) end
 		eq(verifier.c.rdb.verify.list[ns.Fold(OTHER)] ~= nil, true, "the verifier heard its guild's hand-over")
-		eq(member.c.Verify.Digest() >= verifier.c.Verify.Digest(), true, "the member holds the store")
+		-- (The review of 1.6.0) What its guild handed over (the hub's answer to its guildmate, hop 3) stands in
+		-- the verifier's store and goes in none of its answers (Verify.lua's Take): the member holds every
+		-- row the verifier's answer carries (it held the whole store, that approval too, before).
+		local _, rows = As(verifier, verifier.c.Verify.Payload)
+		eq(rows, verifier.c.Verify.Digest() - 1, "(every row of the store but the approval its guild handed over)")
+		eq(member.c.Verify.Digest() >= rows, true, "the member holds the verifier's answer")
+		eq(member.c.rdb.verify.list[ns.Fold(OTHER)], nil, "not the approval the verifier's guild handed over")
 	end, true)
 end)
 

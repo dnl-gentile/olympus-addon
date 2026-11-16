@@ -71,7 +71,8 @@ local L = ns.L
 --                                                             every half hour): what it holds
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
 --     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first (1.6.0: the newest
---                                      revocations before, in REVOKE_BYTES at most)
+--                                      revocations before, in REVOKE_BYTES at most; none a guildmate
+--                                      handed over, the review of 1.6.0: Take)
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
 -- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
 -- same snapshot row; relays that know the marker can send it to the named guild's reporter.
@@ -522,8 +523,24 @@ end
 -- The words and the starts
 ---------------------------------------------------------------------------
 
--- Keeps a word when it is newer than the guild's (see the top). True when kept.
-local function Take(kind, at, guild, gm, by, now)
+-- (The review of 1.6.0) Whether the hop delivering a word now vouches for the origin it names: never a
+-- guildmate's hand-over (G: a guild believes its guildmate, from the origin he writes, Relay.HandleGuild),
+-- nor a hop the relay does not trust (Relay.HopTrusted: a provisional relay's, an unsigned relay's);
+-- first-hand, a signed relay's hops and across them, and none (a direct call, off Forever) do. Any member
+-- of a verifier's guild wrote one GUILD line naming another verifier as its origin, and the verifier's
+-- answers carried that word to every client that asked (a guild's check taken away, or given unapproved).
+local function Vouched()
+	local R = ns.Relay
+	if type(R) ~= "table" or type(R.Hop) ~= "function" then return true end
+	if R.Hop() == "G" then return false end
+	return type(R.HopTrusted) ~= "function" or R.HopTrusted() ~= false
+end
+
+-- Keeps a word when it is newer than the guild's (see the top). True when kept. (The review of 1.6.0)
+-- `vouched` false: a word taken on a hop that does not vouch for its origin (Vouched), marked so (vouch =
+-- false): it stands here as any word does, and no answer carries it (Payload) nor resends it; the same
+-- word on a hop that does lifts the mark.
+local function Take(kind, at, guild, gm, by, now, vouched)
 	local s = Store()
 	if not s then return false, "store" end
 	local key = Key(guild)
@@ -531,7 +548,10 @@ local function Take(kind, at, guild, gm, by, now)
 	if Valid(old) then
 		if at < old.at then return false, "older" end
 		if at == old.at then
-			if old.k == kind and SamePerson(old.gm, gm) then return false, "same" end
+			if old.k == kind and SamePerson(old.gm, gm) then
+				if vouched ~= false and old.vouch == false and SamePerson(old.by, by) then old.vouch = nil end
+				return false, "same"
+			end
 			-- One second, two words: every client keeps the same one. A revocation stands over an
 			-- approval; between two of a kind, the guild master's name first in order.
 			if old.k == "R" and kind == "A" then return false, "older" end
@@ -539,6 +559,7 @@ local function Take(kind, at, guild, gm, by, now)
 		end
 	end
 	s.list[key] = { k = kind, at = at, guild = guild, gm = gm, by = by, heard = now }
+	if vouched == false then s.list[key].vouch = false end
 	stats.taken = stats.taken + 1
 	return true
 end
@@ -625,7 +646,7 @@ function Verify.Payload(now, coverage)
 	local s = Store()
 	local words, starts = {}, {}
 	for _, e in pairs(s and s.list or {}) do
-		if Valid(e) then words[#words + 1] = e end
+		if Valid(e) and e.vouch ~= false then words[#words + 1] = e end -- (the review of 1.6.0: Take)
 	end
 	table.sort(words, function(a, b)
 		if a.at ~= b.at then return a.at > b.at end
@@ -823,6 +844,7 @@ function Verify.Handle(dist, sender, text)
 		stats.refused = stats.refused + 1
 		return false
 	end
+	local vouched = Vouched() -- (the review of 1.6.0: Take)
 	if kind == "A" or kind == "R" then
 		local at, guild, gm = body:match("^(%d+)~([^~]+)~([^~]+)$")
 		at, guild, gm = TimeField(at), GuildField(guild), NameField(gm, ns.RealmOf(sender))
@@ -830,7 +852,7 @@ function Verify.Handle(dist, sender, text)
 			stats.bad = stats.bad + 1
 			return false
 		end
-		if not Take(kind, at, guild, gm, sender, now) then return false end
+		if not Take(kind, at, guild, gm, sender, now, vouched) then return false end
 		Changed()
 		TellOurs(kind, guild, sender)
 		return true
@@ -862,7 +884,7 @@ function Verify.Handle(dist, sender, text)
 			if k then
 				at, guild, gm, by = TimeField(at), GuildField(guild), NameField(gm, realm), NameField(by, realm)
 				if at and guild and gm and by then
-					if Take(k, at, guild, gm, by, now) then changed = true end
+					if Take(k, at, guild, gm, by, now, vouched) then changed = true end
 					if coverage then coverage[CoverageKey(k, at, guild, gm, by)] = true end
 					words, wordKind, wordAt, wordGuild = words + 1, k, at, guild
 				else
@@ -1089,7 +1111,8 @@ function Verify.ResendApproval(guild, expected)
 	if not Verify.CouncilShown() or Quiet() then return false, "trust" end
 	local status, info = Verify.Status(guild)
 	local entry = status == "verified" and info.entry
-	if not entry or (expected and expected ~= entry) then return false, "none" end
+	-- (The review of 1.6.0) Never one a guildmate handed over (Take: vouch false): only what a verifier said.
+	if not entry or entry.vouch == false or (expected and expected ~= entry) then return false, "none" end
 	local now, key = Verify.Clock(), Key(guild)
 	if (resendPending and resendPending.key == key) or (lastResendKey == key and now - lastResend < Verify.RESEND_GAP) then
 		return false, "busy"
