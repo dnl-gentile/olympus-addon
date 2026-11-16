@@ -262,6 +262,53 @@ test("1.6.0 Church: an invite kept under a linked missionary alt and under the m
 	end
 end)
 
+-- (1.6.0) At one hour, the tied rows stand under one name against a third recruiter's claim of that hour:
+-- that of the row this ledger credits when the link is not known (a 1.5.9 keeper ties nothing), the
+-- earliest of the main's row and the rows tied to it, then the smallest id. Knowing the link then moves
+-- the credit inside the group only, to the main's own row. Under the main's name, a third recruiter named
+-- between the alt and the main took the recruit from a missionary alt's row of his hour (Aaron, Abel,
+-- Aldric), which held him alone, or lost him to the main (Aldric, Cora, Mira), having beaten the alt's
+-- row alone. Fails before: Abel credited in the first and third cases, Aldric in the second.
+test("1.6.0 Church: a missionary alt's rows tied to the main's stand under the name of the row a keeper without the link credits, so knowing the link moves the credit inside the group only", function()
+	for _, case in ipairs({
+		{ alt = "Aaron Moss", third = "Abel Quill", mainAt = -1, alone = "Aaron Moss", wins = A1, why = "alt, third, main, the main's row an hour on" },
+		{ alt = "Mira Wells", third = "Cora Lind", mainAt = -1, alone = "Cora Lind", wins = "Cora Lind", why = "main, third, alt, the main's row an hour on" },
+		{ alt = "Aaron Moss", third = "Abel Quill", mainAt = -2, alone = "Aaron Moss", wins = A1, why = "alt, third, main, all three of one hour" },
+		{ alt = "Mira Wells", third = "Cora Lind", mainAt = -2, alone = A1, wins = A1, why = "main, third, alt, all three of one hour" },
+	}) do
+		local w, c = Cast()
+		for _, name in ipairs({ "Aaron Moss", "Abel Quill", "Cora Lind" }) do
+			w:Client(name)
+			w:Act(c.a1, c.a1.Church.NameMissionary, name)
+		end
+		w:Run(8 * 3600)
+		w:Presence()
+		local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+		Join(w, World.GUILD, "Skew Recruit")
+		local function Report(by, ti)
+			return ("NV~1~w~%s~Skew Recruit-Realm~%s~%s~%s"):format(by, World.GUILD, B36(ti), B36(ti + 1))
+		end
+		-- Before the link: the alt's own row (a missionary's) and the third recruiter's, of one hour.
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.alt, hour - 2)), true)
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.third, hour - 2)), true)
+		-- The alt is Aldric's (both claims heard): another read of the invite is the main's own row.
+		local linked, revision = true, 1
+		c.a1.ns.Alts.Group = function(name)
+			if linked and (Key(name) == Key(A1) or Key(name) == Key(case.alt)) then return { main = A1 } end
+		end
+		c.a1.ns.Alts.Version = function() return revision end
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.alt, hour + case.mainAt)), true)
+		for _, by in ipairs({ A1, case.alt, case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.wins) and "credited" or "taken", case.why .. ", the link known: the row of " .. by)
+		end
+		-- The same ledger, the link not known: every row stands alone. The third recruiter's the same.
+		linked, revision = false, revision + 1
+		for _, by in ipairs({ A1, case.alt, case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.alone) and "credited" or "taken", case.why .. ", the link not known: the row of " .. by)
+		end
+	end
+end)
+
 test("1.1.6 Church: linked invite attribution resolves a confirmed alt from another Forever sub-realm", function()
 	local w, c = Cast()
 	local keeper = c.a1

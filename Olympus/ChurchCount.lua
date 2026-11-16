@@ -1462,21 +1462,24 @@ local function ClaimTie(id, r, recs, mains)
 	return id
 end
 
--- A confirmed claim wins, then the earliest. Equal times use the claim tie keys. (1.6.0) A row tied to
--- the main's own (ClaimTie) is weighed as that row, whose own place it never takes: the two always
--- stand alike against a third claim, whichever order the ledger lists them in. They stand at the
--- earlier of their times (tieAt: the earliest tc among a main's row and the rows tied to it): at the
--- main's row, the later read, a third claim of the alt row's hour took the recruit from them, which the
--- alt's row alone held before 1.6.0, and one of the main row's hour took him on its tie key.
-local function Before(id, r, bid, b, ties, recs, tieAt)
+-- A confirmed claim wins, then the earliest, then the smaller id. (1.6.0) A row tied to the main's own
+-- (ClaimTie) stands with it, the main's row first between them: the two always stand alike against a
+-- third claim, whichever order the ledger lists them in. They stand as their lead (lead: the earliest
+-- of the main's row and the rows tied to it, then the smallest id), the row this ledger credits when the
+-- link is not known (a 1.5.9 keeper ties nothing): knowing the link moves a credit inside the group
+-- only. Weighed as the main's row, a third claim of the alt row's hour took the recruit from them, which
+-- the alt's row alone held before 1.6.0, and at one hour a third recruiter named between the alt and the
+-- main won where he lost to the alt's row alone, or lost where he beat it.
+local function Before(id, r, bid, b, ties, recs, lead)
 	local tie, btie = ties[id] or id, ties[bid] or bid
 	if tie ~= id and recs[tie] then r = recs[tie] end
 	if btie ~= bid and recs[btie] then b = recs[btie] end
 	local conf, bconf = Confirmed(r), Confirmed(b)
 	if conf ~= bconf then return conf end
-	local at, bat = tieAt[tie] or r.tc or 0, tieAt[btie] or b.tc or 0
+	local first, bfirst = lead[tie] or tie, lead[btie] or btie
+	local at, bat = recs[first].tc or 0, recs[bfirst].tc or 0
 	if at ~= bat then return at < bat end
-	if tie ~= btie then return tie < btie end
+	if tie ~= btie then return first < bfirst end
 	return id == tie and bid ~= btie
 end
 
@@ -1494,11 +1497,11 @@ function Count.Credits()
 	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til
 		and (not c.placement or c.placement == Church.State()) then return c end
 	local states, byPerson, winners, G = {}, {}, {}, Gone()
-	local ties, mains, tieAt = {}, {}, {}
+	local ties, mains, lead = {}, {}, {}
 	local placement
 	local til = now + Count.CREDITS_KEEP
-	-- (1.6.0) Two passes: every record's state and tie first, so a tied pair's earlier time (tieAt) is
-	-- known before any claim is weighed against it, whichever order the ledger lists them in.
+	-- (1.6.0) Two passes: every record's state and tie first, so a tied group's lead is known before
+	-- any claim is weighed against it, whichever order the ledger lists them in.
 	for id, r in pairs(recs) do
 		local xc = id:match("^[^:]+:")
 		if xc then
@@ -1522,7 +1525,9 @@ function Count.Credits()
 				local tie = ClaimTie(id, r, recs, mains)
 				if tie ~= id then
 					ties[id], placement = tie, placement or Church.State()
-					tieAt[tie] = math.min(tieAt[tie] or recs[tie].tc or 0, r.tc or 0)
+					local first = lead[tie] or tie
+					local at, fat = r.tc or 0, recs[first].tc or 0
+					lead[tie] = (at < fat or (at == fat and id < first)) and id or first
 				end
 			end
 			states[id] = state
@@ -1536,7 +1541,7 @@ function Count.Credits()
 			local bid = winners[xc]
 			if G[xc] ~= nil then state = "taken"
 			elseif not bid then winners[xc] = id
-			elseif Before(id, r, bid, recs[bid], ties, recs, tieAt) then states[bid], winners[xc] = "taken", id
+			elseif Before(id, r, bid, recs[bid], ties, recs, lead) then states[bid], winners[xc] = "taken", id
 			else state = "taken" end
 			states[id] = state
 		end
