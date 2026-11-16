@@ -8491,6 +8491,38 @@ test("1.6.0 no-player lines: /oly status counts the lines with no lineID, the wh
 	end)
 end)
 
+-- 1.6.0 (the review of the no-player lines fix): a client may send the first whisper to a player who
+-- is not online on to the server (taken, its line a moment later) and refuse the next ones to him
+-- itself for a while, printing nothing (12). The server's line after those calls answers the one it
+-- got; taken as the newest mark, it took a refused try's, and the sent whisper's mark, running QUIET
+-- seconds, kept the player's own whisper's line out of the chat. A sent whisper's mark goes first now.
+-- Fails before: the player's own line 3 s on stayed out.
+test("1.6.0 no-player lines: the server's line after refused tries takes the mark of the whisper the game sent, the refused ones' run out after their grace: the player's own whisper 3 seconds later shows", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local cachedUntil, later = -math.huge, nil
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" or target ~= "Gone Mate" then return 0 end
+			if w.mono <= cachedUntil then return 12 end -- (the client knows he is gone: refused, no line)
+			cachedUntil, later = w.mono + 5, w.mono + 0.3
+			return 0
+		end
+		local function Sync()
+			O.Comm.Whisper("Gone Mate-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		Sync()
+		w.mono = w.mono + 0.1; Sync()
+		w.mono = w.mono + 0.1; Sync()
+		w.mono = later
+		eq(w.Shown("Gone Mate", 2), 0, "the server's line for the whisper it got: out of both windows")
+		w.mono = w.mono + 2.7
+		eq(w.Shown("Gone Mate", 2), 2, "the player's own whisper 3 s on: shown in both")
+		assert(A.StatusLine():find("whispers refused 2, their line during the call 0", 1, true), A.StatusLine())
+	end)
+end)
+
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
 -- channel too, which Forever delivers across every sub-realm to everyone in that channel; the
 -- hidden way by the relay goes on beside it (another lane, another guild), each line taken once.

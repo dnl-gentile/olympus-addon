@@ -464,15 +464,21 @@ local function WatchNotFound()
 end
 
 -- His marks still running (the others dropped): the newest one taken, and returned, when there is one.
+-- (1.6.0) The newest of the whispers the game sent goes first, then the newest it refused itself: the
+-- server never answers a refused one, so a line after its call is likelier the server's answer to one
+-- it got (a client may refuse the next whispers to a name the server just said is gone, and print
+-- nothing), and a refused one's mark runs out by itself a moment later (Accord.Untried).
 local function TakeMark(q, now)
 	local marks = q.marks
 	for i = #marks, 1, -1 do
 		if marks[i].untilAt < now then table.remove(marks, i) end
 	end
-	local n = #marks
-	if n == 0 then return nil end
-	local mark = marks[n]
-	marks[n] = nil
+	local pick = #marks
+	if pick == 0 then return nil end
+	for i = #marks, 1, -1 do
+		if not marks[i].refused then pick = i break end
+	end
+	local mark = table.remove(marks, pick)
 	mark.taken = true
 	return mark
 end
@@ -574,6 +580,7 @@ end
 function Accord.Untried(mark, grace)
 	if type(mark) ~= "table" then return end
 	if grace then
+		mark.refused = true
 		stats.refusedTries = stats.refusedTries + 1
 		if mark.taken then stats.refusedLines = stats.refusedLines + 1 end
 	end
