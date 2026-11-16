@@ -708,7 +708,7 @@ function ChatWindow.LinkClick(link, text, button) -- gp:item-ref
 	return (pcall(SetItemRef, link, text, button)) -- gp:item-ref
 end
 
--- 1.5.4/1.5.8: item names and colours use the same presentation boundary as native chat and
+-- 1.5.4/1.6.0: item names and colours use the same presentation boundary as native chat and
 -- Chattynator (Channels.Relink). The Chat tab keeps a cache of its own because item-data arrival
 -- redraws its existing bubbles; native chat only presents each new line and never rewrites one.
 ChatWindow.itemLooks = {}

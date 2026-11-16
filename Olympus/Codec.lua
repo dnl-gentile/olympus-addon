@@ -432,12 +432,12 @@ Codec.CHAT_MAX = 250
 Codec.CHAT_PARTS = 3
 Codec.CHAT_TIERS = { A = true, C = true, L = true }
 -- (0.9.2: no achievement links, which none of our clients has, and whose data is not numbers.
--- 1.5.9: Forever's other-player profession link, with its own exact validator below.)
+-- 1.6.0: Forever's other-player profession link, with its own exact validator below.)
 local LINK_TYPES = { item = true, spell = true, enchant = true, quest = true, trade = true }
 
 -- A link's data as the game writes it for these types (0.9.2): an id from 1, then at most 31
 -- more fields, each empty or a whole number ("19019::::::::60::" or "5:-1"), 120 bytes at
--- most. An item alone may also carry one player GUID for its crafter (1.5.8), in the client's
+-- most. An item alone may also carry one player GUID for its crafter (1.6.0), in the client's
 -- canonical Player-<server id>-<8 hex digit player id> form. The decimal component is capped
 -- conservatively at 10 digits; neither component may be zero. Anything else (letters, an
 -- empty or zero id, a field the size of a novel) could be a malformed link made to break the
@@ -452,7 +452,7 @@ local function LinkID(field)
 	return field:find("^[1-9]%d?%d?%d?%d?%d?%d?%d?%d?$") ~= nil
 end
 
--- Forever's profession hyperlink (1.5.9), documented as trade:guid:spellID:skillLineID. This is
+-- Forever's profession hyperlink (1.6.0), documented as trade:guid:spellID:skillLineID. This is
 -- deliberately separate from the generic item/spell/enchant/quest grammar: exactly three
 -- nonempty fields, one canonical nonzero Player GUID and two bounded positive decimal IDs.
 local function TradeData(data)

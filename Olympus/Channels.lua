@@ -539,7 +539,7 @@ function Channels.SetGuildNamesShown(shown)
 	return true
 end
 
--- 1.5.9: one presentation boundary for item links in Olympus's own Chat tab, the game's native
+-- 1.6.0: one presentation boundary for item links in Olympus's own Chat tab, the game's native
 -- chat frames and Chattynator. Forever's named quality colours (|cnIQ3:) are not rendered by every
 -- FontString/chat addon. Use this client's item name and normalized quality RGB as a traditional
 -- hex colour; with no usable RGB, remove only an unsupported named colour so the original payload
