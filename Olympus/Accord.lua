@@ -79,6 +79,7 @@ Accord.KEEP = 180 * 86400   -- a kept tag, after it was last received
 Accord.ROWS_MAX = 3000
 Accord.QUIET = 10           -- the server's "No player named" for an asker we just whispered: out of chat this long
 Accord.MARKS_MAX = 64       -- (1.6.0) marks kept for one name (Accord.Tried): the oldest goes first
+Accord.REFUSED_GRACE = 2    -- (1.6.0) a whisper the game refused itself: its line, if any, this soon after the call
 Accord.RETELL_WINDOW = 600  -- I accept tells the askers heard this recently (an older one may have left)
 Accord.TEAM_GRACE = 2 * 86400 -- a client off the team this long drops its BattleTags (a namer's list may lapse a while)
 Accord.GUARD_FIRST, Accord.GUARD_EVERY = 300, 600
@@ -531,10 +532,15 @@ function Accord.Tried(name)
 	if shown then quiet[shown] = q end
 	return mark
 end
--- (1.6.0) The call sent nothing after all (a throttle, an error): that whisper's line never comes,
--- and its mark goes.
-function Accord.Untried(mark)
-	if type(mark) == "table" then mark.untilAt = -math.huge end
+-- (1.6.0) The call sent nothing after all. A throttle or an error (no grace): that whisper's line
+-- never comes, and its mark goes now. The game refused it itself (grace: an offline target, 12, or an
+-- old client's false): the server never got it, so a line for it comes during the call or just after
+-- (if the client prints one at all: nothing in game shows yet whether Forever does), and its mark
+-- runs out `grace` seconds from now, not QUIET: a refusal that printed nothing kept the player's own
+-- whisper's line out of the chat those ten seconds.
+function Accord.Untried(mark, grace)
+	if type(mark) ~= "table" then return end
+	mark.untilAt = grace and math.min(mark.untilAt, Mono() + grace) or -math.huge
 end
 -- The filter, registered the first time a whisper may need it (1.6.0: it opens no window itself;
 -- Comm.SendNow counts the whisper when the game is handed it, Accord.Tried).

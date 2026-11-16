@@ -8331,6 +8331,55 @@ test("1.6.0 no-player lines: the marks of whispers a player received while onlin
 	end)
 end)
 
+-- 1.6.0 (the review of the no-player lines fix): nothing seen in game yet says whether Forever prints
+-- the server's line when the game refuses a whisper to a player who is not online (TargetOffline, 12)
+-- during the call, just after it, or not at all (the server never got that whisper). A refused
+-- whisper's mark kept QUIET seconds, with no line to take it, kept the player's own whisper's line
+-- out of the chat as long. It runs out REFUSED_GRACE seconds after the call now. Fails before: the
+-- player's own line 3 s after a refusal that printed nothing stayed out.
+test("1.6.0 no-player lines: a whisper the game refused (12) keeps its line out during the call or just after it and nothing longer: the player's own whisper to that player 3 seconds later shows, whether the refusal printed a line or not; a whisper the game took keeps its mark QUIET seconds", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local how, seen = nil, {}
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if how == "during" then seen.during = w.Shown(target) end
+			if how == "after" then seen.at = w.mono + 1 end
+			return how and 12 or 0
+		end
+		local function Sync(name)
+			O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		-- Refused, and no line at all: the player's own whisper 3 s later shows.
+		how = "silent"
+		Sync("Silent Keeper")
+		w.mono = w.mono + 3
+		eq(w.Shown("Silent Keeper", 2), 2, "a silent refusal: the player's own line 3 s on shows, in both windows")
+		-- Refused, its line a second after the call: out; the player's own, 3 s after the call: shown.
+		how = "after"
+		Sync("Late Keeper")
+		w.mono = seen.at
+		eq(w.Shown("Late Keeper"), 0, "a refusal's line a second after the call: out")
+		w.mono = w.mono + 2
+		eq(w.Shown("Late Keeper"), 1, "the player's own, 3 s after the call: shown")
+		-- Refused, its line during the call: out; the next: shown.
+		how = "during"
+		Sync("Gone Keeper")
+		eq(seen.during, 0, "a refusal's line during the call: out")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Keeper"), 1, "the next: shown")
+		-- A whisper the game took (0): the server answers it, its mark runs QUIET seconds.
+		how = nil
+		Sync("Taken Keeper")
+		w.mono = w.mono + A.REFUSED_GRACE + 3
+		eq(w.Shown("Taken Keeper"), 0, "a delivered try's line, past the refusal's grace: out")
+		w.mono = w.mono + A.QUIET
+		eq(w.Shown("Taken Keeper"), 1, "QUIET on: shown")
+	end)
+end)
+
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
 -- channel too, which Forever delivers across every sub-realm to everyone in that channel; the
 -- hidden way by the relay goes on beside it (another lane, another guild), each line taken once.
