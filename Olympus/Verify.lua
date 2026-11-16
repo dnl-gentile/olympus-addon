@@ -59,7 +59,9 @@ local L = ns.L
 -- reached no verifier who was away when it was given, and Revoke refused there ("no verification to
 -- revoke") while the clients that heard it kept the check: a verifier now revokes a guild he knows
 -- whether or not his client holds its approval (Verify.Revoke), and an answer carries the
--- revocations first, so a client back after days drops the check of a guild revoked meanwhile.
+-- revocations first, so a client back after days drops the check of a guild revoked meanwhile. Past
+-- MAX the oldest approvals go before any revocation (Verify.Prune): a client that drops one shows no
+-- check for a guild approved long ago, where a revocation dropped first left a check that no longer held.
 --
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
@@ -108,7 +110,7 @@ Verify.POLL_WAIT = 20            -- private replies only count for this long
 Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
-Verify.MAX = 400                 -- words kept (past it: the oldest revocations, then the oldest approvals)
+Verify.MAX = 400                 -- words kept (past it: the oldest approvals, then the oldest revocations; 1.6.0)
 Verify.MAX_STARTS = 600          -- starts kept, and first sightings (past it: the longest unseen go)
 Verify.MAX_ROWS = 240            -- rows in one answer
 -- (1.5.4: room left for the relay's envelope, "RM~P~<verifier>~", around a direct answer.)
@@ -428,9 +430,13 @@ function Verify.Prune(now)
 			kept[#kept + 1] = { key = key, e = e }
 		end
 	end
+	-- (1.6.0, the review of the 1.6.0 fixes: a store at MAX words) Past MAX the oldest approvals go first,
+	-- then the oldest revocations. The revocations went first: once a store held MAX words (132 by 11-13,
+	-- some 13 more a day), the next approval's tick dropped a revocation however recent, and the relay
+	-- passed it to no client back after it, which kept the check of the guild it revoked.
 	if #kept > Verify.MAX then
 		table.sort(kept, function(a, b)
-			if (a.e.k == "R") ~= (b.e.k == "R") then return a.e.k == "R" end
+			if (a.e.k == "R") ~= (b.e.k == "R") then return a.e.k ~= "R" end
 			if a.e.at ~= b.e.at then return a.e.at < b.e.at end
 			return a.key < b.key
 		end)

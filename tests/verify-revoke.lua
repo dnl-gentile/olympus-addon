@@ -120,11 +120,17 @@ end
 -- Approvals a verifier's client holds besides the guild's (a realm group's store held 132 words by
 -- 11-13): each with a guild master of another realm, as on Forever's sub-realms, so its row in an answer
 -- is nearly as long as a real one. An answer carries what fits in Verify.MAX_BYTES, the newest first.
-local function Fill(As, n, from, count)
+-- (kind: "R" for revocations; first: the first guild's number, 1 by default.)
+local function Fill(As, n, from, count, kind, first)
 	for i = 1, count do
-		local at = from + i
-		As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~Olympus Legion %d~Legion Master%d-CAMWOWUS1Realm1PvE"):format(at, i, i))
+		local at, g = from + i, (first or 1) + i - 1
+		As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~%s~%d~Olympus Legion %d~Legion Master%d-CAMWOWUS1Realm1PvE"):format(kind or "A", at, g, g))
 	end
+end
+local function Words(n)
+	local k = 0
+	for _ in pairs(n.c.rdb.verify.list) do k = k + 1 end
+	return k
 end
 
 test("verify revoke: a verifier whose client never held a guild's old approval revokes it, and every client drops the check, 1.5.9 and 1.6.0 alike", function()
@@ -251,5 +257,59 @@ test("verify revoke: a verifier still on 1.5.9 answers the newest words alone (a
 		-- (1.5.9 cannot change: a councillor on 1.6.0 online, or a new revocation, gives it.)
 		eq(Checked(As, back, GUILD), true, "the 1.5.9 verifier's answer left the revocation out")
 		eq(back.c.rdb.verify.list[ns.Fold(GUILD)].k, "A")
+	end)
+end)
+
+-- 1.6.0 (the review of these fixes: a store at Verify.MAX words). Past the cap the oldest approvals go
+-- before any revocation: Prune trimmed the revocations first, so a revocation an hour old went at the
+-- next approval's tick, the relay held no word on the guild, and a client back the next day kept the
+-- check (a realm group's store held 132 words by 11-13, some 13 more a day: 400 by early December).
+-- Fails before: the revocation was gone, and both clients back kept the check.
+test("verify revoke: past the store's cap the oldest approvals go before a revocation, so clients back the next day still drop the check", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local verifier = Node(HC, "Olympus Crown")
+		local V = verifier.c.Verify
+		-- The store at its cap: the guild's approval, and MAX - 1 older ones.
+		Fill(As, verifier, T0 - 5000, V.MAX - 1)
+		As(verifier, V.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		eq(Words(verifier), V.MAX, "(the store at its cap)")
+		local list = verifier.c.rdb.verify.list
+		Advance(DAY)
+		-- The other councillor revoked the guild an hour ago; then a new guild is approved, one word over
+		-- the cap, and the minute's tick trims the store.
+		As(verifier, V.Handle, "CHANNEL", HUB, ("GV~1~R~%d~%s~%s"):format(Now() - 3600, GUILD, MASTER))
+		As(verifier, V.Tick)
+		As(verifier, V.Handle, "CHANNEL", HC, ("GV~1~A~%d~Olympus Fresh~Fresh Master-Realm"):format(Now()))
+		As(verifier, V.Tick)
+		eq(Words(verifier), V.MAX, "the store back at its cap")
+		eq(list[ns.Fold(GUILD)] and list[ns.Fold(GUILD)].k, "R", "the revocation an hour old is still held")
+		eq(list[ns.Fold("Olympus Legion 1")], nil, "the oldest approval went instead")
+		eq(list[ns.Fold("Olympus Legion 2")].k, "A", "(only the oldest)")
+		Advance(DAY)
+		-- Two players back the next day, who heard the approval before: one on 1.6.0, one on 1.5.9.
+		local back = {
+			Member(Node, As, "Vanguard Ally-Realm", GUILD, verifier),
+			Member(Node, As, "Embers Elder-Realm", OTHER, verifier, { old = true }),
+		}
+		for _, n in ipairs(back) do
+			As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		end
+		eq(CountChecked(As, back, GUILD), 2, "each still shows the check it heard")
+		for _, n in ipairs(back) do
+			eq(As(n, n.c.Verify.Ask), true)
+			Flush(); Advance(10); Advance(10)
+			Advance(V.ANSWER_GAP) -- (one answer each ANSWER_GAP)
+		end
+		eq(CountChecked(As, back, GUILD), 0, "clients back still showing the revoked guild's check (of 2)")
+		for _, n in ipairs(back) do eq(n.c.rdb.verify.list[ns.Fold(GUILD)].k, "R", n.c.me) end
+		eq(Checked(As, back[1], "Olympus Fresh"), true, "(the answer carried the newest approval too)")
+		-- The cap still holds when the revocations alone pass it: then the oldest revocations go.
+		Fill(As, verifier, Now() - 2 * V.MAX, V.MAX + 1, "R", 1001)
+		As(verifier, V.Tick)
+		eq(Words(verifier), V.MAX, "never more than MAX words")
+		eq(list[ns.Fold(GUILD)], nil, "the oldest revocation went")
+		eq(list[ns.Fold("Olympus Legion 1001")], nil, "and the next oldest")
+		eq(list[ns.Fold("Olympus Legion 1002")].k, "R", "the newer ones stay")
+		eq(list[ns.Fold("Olympus Fresh")], nil, "(every approval went before them)")
 	end)
 end)
