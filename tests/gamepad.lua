@@ -6111,6 +6111,114 @@ test("gamepad unified recruiting panel: priority, pause, stale actions and both 
 	end
 end)
 
+test("gamepad recruiting review fixes: Skip cancels open and already-deferred whisper returns", function()
+	for _, pad in ipairs({ false, true }) do
+		for _, deferred in ipairs({ false, true }) do
+			local C, ns = Session(pad)
+			local R = ns.Recruit
+			InClick(C, R.Panel.Start)
+			R.Candidates.ObserveWho("SkipReview-Realm", "", "Human")
+			assert(R.Panel.Prompt())
+			local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+			local row = assert(R.Panel.Current())
+			C.Click(draft.buttons[3])
+			local outreach = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH"))
+			if deferred then outreach:Hide() end
+			InClick(C, function() assert(R.Panel.Next(row)) end)
+			C.Advance(0.1)
+			eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "skipped review cannot reopen an invite")
+			eq(C.focus, nil, "no deferred popup takes keyboard focus")
+			eq(R.Candidates.Check(row), nil, "a skipped row cannot be prepared through stale callbacks")
+			eq(#(C.said or {}), 0, "Skip sends no messages")
+			Check(C.ledger, "skip review"); NoErrors(C, "skip review")
+		end
+	end
+end)
+
+test("gamepad recruiting review fixes: unified automatic candidates replenish WHO without Next", function()
+	local C, ns = Session(false)
+	local R = ns.Recruit
+	InClick(C, R.Panel.Start)
+	C.Fire("WHO_LIST_UPDATE"); C.Advance(11)
+	for _, name in ipairs({ "Firstscan", "Secondscan", "Thirdscan" }) do R.Candidates.ObserveWho(name .. "-Realm", "", "Human") end
+	eq(R.Candidates.Remaining(), 3)
+	for i = 1, 3 do
+		R.Panel.Prompt()
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(R.Candidates.Remaining(), 3 - i, "offered candidates no longer count as waiting")
+		local before = #(C.whos or {})
+		C.Click(draft.extraButton)
+		eq(#C.whos, before + 1, "taking the command requests the next WHO range")
+		C.Fire("WHO_LIST_UPDATE")
+		draft:Hide()
+		if C.focus then C.focus:ClearFocus() end
+		C.Advance(16)
+	end
+	eq(#R.Panel.Queue(), 3, "no Next needed to replenish")
+	Check(C.ledger, "unified WHO replenishment"); NoErrors(C, "unified WHO replenishment")
+end)
+
+test("gamepad recruiting review fixes: ordinary outreach replies require review before an invite", function()
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad)
+		local R = ns.Recruit
+		InClick(C, R.Panel.Start)
+		R.Candidates.ObserveWho("Responder-Realm", "", "Human")
+		local candidate = assert(R.Panel.Current())
+		InClick(C, function() assert(R.PromptCandidateWhisper(candidate)) end)
+		C.Click(assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH")).buttons[1])
+		local sent = #(C.said or {})
+		C.Fire("CHAT_MSG_WHISPER", "no thanks", "Responder-Realm")
+		local reply = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "ordinary reply opens review, not an invite")
+		assert(reply.text:GetText():find("no thanks", 1, true), "review includes reply text")
+		local req = assert(R.Panel.Current())
+		eq(req.invitePrepared, nil); eq(req.panelPrompted, true)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil)
+		for _, line in ipairs(R.Panel.Lines()) do
+			if line.id == "recruit-panel-current" then assert(not line.text:find("JOIN", 1, true), line.text) end
+		end
+		reply:Hide(); C.Advance(16)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), nil, "review is offered only once automatically")
+		InClick(C, function() R.Panel.Prepare(req) end)
+		reply = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "manual action still reviews")
+		if pad then
+			InClick(C, function() assert(R.Panel.Next(req)) end)
+			eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "skip does not prepare")
+		else
+			C.Click(reply.buttons[1])
+			assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "explicit review acceptance prepares")
+			eq(req.invitePrepared, true)
+		end
+		eq(#(C.said or {}), sent, "review, prepare and skip send nothing")
+		Check(C.ledger, "ordinary replies"); NoErrors(C, "ordinary replies")
+	end
+end)
+
+test("gamepad recruiting review fixes: canceled moderation warning is paced and shown once", function()
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad)
+		local R = ns.Recruit
+		InClick(C, R.Panel.Start)
+		-- Supply a moderation decision; exercise the actual request, dialog and queue handlers.
+		ns.Moderation.Hidden = function(name)
+			if name == "Warned-Realm" then return { name = name, at = ns.Now(), by = "Moderator", reason = "Test reason" } end
+		end
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Warned-Realm")
+		local warning = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_NETOFF"))
+		local req = assert(R.Panel.Current())
+		eq(req.panelPrompted, true, "displayed warning consumes this automatic prompt")
+		eq(req.invitePrepared, nil, "warning is not an invitation")
+		C.Click(warning.buttons[2])
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Later-Realm")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "warning participates in popup pacing")
+		C.Advance(16); R.Panel.Prompt()
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_NETOFF"), nil, "canceled warning does not return")
+		local nextDraft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "later applicant is not starved")
+		eq(nextDraft.data.req.name, "Later-Realm")
+		Check(C.ledger, "moderation prompt pacing"); NoErrors(C, "moderation prompt pacing")
+	end
+end)
+
 test("gamepad unified recruiting paste polling backs off with closed chat", function()
 	GP.Covers("chat-box")
 	local C, ns = Session(false)

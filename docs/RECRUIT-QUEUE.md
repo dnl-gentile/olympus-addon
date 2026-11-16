@@ -15,6 +15,15 @@ copies and sends the command or uses the game's invitation controls. Preparing i
 evidence of an invitation sent or a player joining. Only the current guild's fresh
 roster confirms a join. A changed or expired candidate cannot be prepared.
 
+Ordinary replies to outreach (including refusals) open a review containing the reply
+text, not a JOIN invite. The panel labels them as replies and requires the review's
+explicit Prepare action. Moderation warnings also count as a displayed prompt for
+the once-per-row and 15-second rules, without counting as prepared invitations.
+Canceling one allows later candidates to proceed. Skip cancels a whisper review's
+return-to-invite callback, including one already queued before the click. Already
+offered or prepared scans no longer count as waiting candidates, so copying their
+commands can replenish WHO results without pressing Next between every popup.
+
 Skip/Next sends no message and does not refer anyone to another recruiter. Skipped
 scans stay suppressed for that scan session. The player's own later JOIN can bring
 them back. Existing duplicate filtering and seven-day decline suppression remain;
@@ -39,6 +48,7 @@ Run from the repository root with Bash and LuaJIT:
 OLYMPUS_TEST_FILTER='gamepad unified recruiting' bash scripts/check.sh
 OLYMPUS_TEST_FILTER='gamepad recruit movement focus' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad blocked diagnostics' luajit tests/run.lua
+OLYMPUS_TEST_FILTER='gamepad recruiting review fixes' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit invite (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (1.5.9)' luajit tests/run.lua
@@ -86,6 +96,18 @@ are removed in a scratch copy, and pass with the fixes.
    Reload/logout normally and verify `OlympusDB.actionsBlocked` in
    `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua` retains the record. Logging does
    not fix the underlying blocked action; send the copied report for diagnosis.
+9. Open a scanned candidate's **Whisper them first** review, then Skip/Next in the
+   panel. No invite draft should return. Closing the review normally should still
+   return to that candidate's draft. Also try Pause while the review is open.
+10. Copy commands from at least three WHO candidates without pressing Next; with
+    at most two unoffered candidates left, copying should request the next WHO
+    range when the native WHO cooldown allows (mouse/keyboard only).
+11. Have a contacted player reply "no thanks". The reply review must show those
+    words, with no invitation prepared. Skip sends nothing; choosing Prepare in
+    the review is the only way to create an invitation for that reply.
+12. Cancel a moderation warning, then queue another applicant. The warning should
+    remain dismissed automatically and the later applicant should be offered
+    after the popup interval; the warned request stays available for manual review.
 
 Offline API models cannot establish live server acceptance, real chat delivery,
 controller navigation quality, or account-policy approval.

@@ -1904,9 +1904,9 @@ local function AcceptRequest(req, confirmed, automatic)
 			on = word.name, at = word.at, by = word.by, reason = word.reason }
 		-- Keep this contextual choice in Olympus's own window in either input mode. The existing
 		-- moderation formatter also preserves the King's stream privacy for free-text reasons.
-		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
+		local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
 			M.When(word), M.ReasonShown(word)), nil, data)
-		return "warning"
+		return shown and "warning" or false
 	end
 	if prepare then
 		local to = NameForCommand(req.name)
@@ -1927,7 +1927,10 @@ end
 
 -- An officer's yes: a current individual net-off word first asks for an explicit choice. It
 -- never declines a guild request, changes a block/ignore list or takes a native invite back.
-function Recruit.Accept(req, automatic) return AcceptRequest(req, nil, automatic) == true end
+function Recruit.Accept(req, automatic)
+	local result = AcceptRequest(req, nil, automatic)
+	return result == true, result == "warning"
+end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 	text = "%s",
@@ -2118,6 +2121,10 @@ local function ReviewReply(req)
 	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_REPLY", caption, nil, req) ~= nil
 	if shown and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", req, "reply") end
 	return shown
+end
+Recruit.ReviewReply = ReviewReply
+function Recruit.IsReply(req)
+	return not req.scanned and req.viaWhisper and not req.handoffIntent and not req.handedIn
 end
 
 local function RetryReply(delay)

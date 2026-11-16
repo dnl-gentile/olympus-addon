@@ -133,7 +133,7 @@ end
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
 function Q.Check(row, live, ignoreQuiet)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or (not ignoreQuiet and Quiet()) or Hidden(row.full)
+	if type(row) ~= "table" or row.panelDone or byName[row.key] ~= row or not Q.Enabled() or (not ignoreQuiet and Quiet()) or Hidden(row.full)
 		or R.Declined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
@@ -399,7 +399,8 @@ end
 function Q.Remaining()
 	local H, n = R.Handoff, 0
 	for _, row in ipairs(rows) do
-		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then n = n + 1 end
+		if not row.prompted and not row.panelPrompted and not row.invitePrepared and not row.passWanted
+			and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then n = n + 1 end
 	end
 	return n
 end

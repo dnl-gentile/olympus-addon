@@ -19,7 +19,11 @@ local function CloseDrafts()
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY",
 		"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_NETOFF" }) do
 		local draft = ns.Dialog.Find(id)
-		if draft then draft:Hide() end
+		if draft then
+			-- Closing the queue's reviews must not schedule a return to the old invite.
+			if draft.data and draft.data.candidate then draft.data.candidate.inviteAfterWhisper = nil end
+			draft:Hide()
+		end
 	end
 end
 
@@ -96,7 +100,8 @@ function P.Status(item)
 	local valid = item.scanned and R.Candidates.Check(item) or (not item.scanned and R.CurrentRequest(item))
 	if not valid then return "stale", L.RECRUIT_PANEL_STALE end
 	if item.invitePrepared then return "prepared", L.RECRUIT_PANEL_PREPARED end
-	return "ready", item.scanned and L.RECRUIT_PANEL_DISCOVERED or L.RECRUIT_PANEL_JOIN
+	return "ready", item.scanned and L.RECRUIT_PANEL_DISCOVERED
+		or (R.IsReply(item) and L.RECRUIT_WHISPER_REVIEW:format(item.guild) or L.RECRUIT_PANEL_JOIN)
 end
 
 function P.Current()
@@ -112,6 +117,7 @@ function P.Current()
 	return current, #queue
 end
 
+-- Returns prepared, displayed: a reply review or warning is displayed but not prepared.
 function P.Prepare(item, automatic)
 	if not item or item ~= P.Current() then return false end
 	local state = P.Status(item)
@@ -123,9 +129,14 @@ function P.Prepare(item, automatic)
 		if not automatic and ns.Focus(draft.editBox) then draft.editBox:HighlightText() end
 		return true
 	end
-	local shown = item.scanned and R.CopyCandidateInvite(item, automatic) or (not item.scanned and R.Accept(item, automatic))
+	-- Ordinary outreach replies need review, even if their text is a refusal. Only the
+	-- review's explicit Prepare click can turn one into an invite draft.
+	if R.IsReply(item) and not item.invitePrepared then return false, R.ReviewReply(item) end
+	local shown, warning
+	if item.scanned then shown = R.CopyCandidateInvite(item, automatic)
+	else shown, warning = R.Accept(item, automatic) end
 	if shown then item.invitePrepared = true; Changed() end
-	return shown == true
+	return shown == true, shown == true or warning == true
 end
 
 -- Automatic copy drafts are local to this recruiter. The existing scan ticker and
@@ -144,12 +155,13 @@ function P.Prompt()
 	for _, item in ipairs(P.Queue()) do
 		if not item.panelPrompted and not item.invitePrepared and P.Status(item) == "ready" then
 			owner, current = saved, item
-			if P.Prepare(item, true) then
+			local prepared, displayed = P.Prepare(item, true)
+			if prepared or displayed then
 				item.panelPrompted = true
 				promptAt = GetTime()
 				return true
 			end
-			-- A moderation warning also owns the screen; do not replace it with a scan.
+			-- A failed preparation remains available for a later retry.
 			return false
 		end
 	end
@@ -197,10 +209,13 @@ function P.Lines()
 		Line("recruit-panel-count", L.RECRUIT_PANEL_COUNT:format(count))
 		if item then
 			local state, detail = P.Status(item)
-			Line("recruit-panel-current", (ns.DisplayName(Name(item)) or Name(item)) .. " — " .. (item.scanned and L.RECRUIT_PANEL_SCAN or "JOIN"))
+			local reply = R.IsReply(item)
+			Line("recruit-panel-current", (ns.DisplayName(Name(item)) or Name(item)) .. " — " .. (item.scanned and L.RECRUIT_PANEL_SCAN
+				or (reply and L.RECRUIT_WHISPER_REVIEW:format(item.guild) or "JOIN")))
 			Line("recruit-panel-detail", detail)
 			if state == "ready" or state == "prepared" then
-				Line("recruit-panel-prepare", L.RECRUIT_WHISPER_PREPARE_BUTTON, function() P.Prepare(item) end)
+				Line("recruit-panel-prepare", reply and not item.invitePrepared and L.RECRUIT_WHISPER_REVIEW:format(item.guild)
+					or L.RECRUIT_WHISPER_PREPARE_BUTTON, function() P.Prepare(item) end)
 			end
 			Line("recruit-panel-next", (item.invitePrepared or state == "joined") and L.RECRUIT_PANEL_NEXT or L.RECRUIT_PANEL_SKIP,
 				function() P.Next(item) end)
