@@ -74,8 +74,8 @@ recruits should go, and its census answers: the guild the King opened **the gate
 then the guilds with the **most free slots**, and a couple of their Lords and Captains online
 (never the King). From 1.6.0 the answer also says whether a request pops up for that member now,
 waits in his list or can't be taken (no invite right, or a full guild), and names first his own
-guild's members who recruit (himself while his recruiting is on, then those whose hello says they
-take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
+guild's members who recruit (himself while his recruiting is on and no instance or chat lockdown
+holds his pop-ups, then those whose hello says they take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
 Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
 one of its members (the gates once a second member's answer agrees: one more is asked), the
 guilds found with `/who` too, and a click asks one of that guild's recruiters (from 1.6.0) or

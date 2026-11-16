@@ -158,6 +158,11 @@ function Recruit.PopupsWait()
 	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance())
 		or ns.ChatLocked() or ns.QuietPresence() or ns.KeyboardFocus() ~= nil or GuildFull()
 end
+-- (The review of 1.6.0) What holds those prompts longer than a recruit's Join screen waits for one
+-- (JOIN_WAIT, 45 s): an instance, a chat lockdown. A fight or typing passes within it.
+local function AwayFromPopups()
+	return (IsInInstance and IsInInstance()) or ns.ChatLocked()
+end
 
 -- Members a J1 went to within ROUTE_FRESH.
 local function AskedLately(now)
@@ -957,7 +962,8 @@ local function Contacts(o, own)
 		out[#out + 1] = Field(ns.DisplayName(full))
 	end
 	if own and o.name == own then
-		if Recruit.IsWhisperRecruiting and Recruit.IsWhisperRecruiting() then Add(ns.me) end
+		-- (The review of 1.6.0) Not ourselves first while our popups wait for an instance's end.
+		if Recruit.IsWhisperRecruiting and Recruit.IsWhisperRecruiting() and not AwayFromPopups() then Add(ns.me) end
 		local peers = ns.Comm.HandoffPeers and ns.Comm.HandoffPeers()
 		for _, m in ipairs(ns.Roster.online or {}) do
 			if TakesRequests(peers, m.name) then Add(m.name) end
@@ -1199,13 +1205,14 @@ end
 -- nor the pop-up interval holds it), "i" we can invite and it waits in our list (the Census, or
 -- Church > Invites), "x" we can't take it (no invite right, or our guild is full). His screen asks one
 -- who recruits first, and tells him at once when the member he asked can't. Clients before 1.6.0 read
--- no guild in it.
+-- no guild in it. (The review of 1.6.0) In an instance or a chat lockdown "i": our popups wait for its end
+-- (AwayFromPopups), and "r" made his screen send us the first request and wait out its whole wait.
 function Recruit.SelfWord()
 	if GuildFull() or not (Recruit.CanInvite and Recruit.CanInvite()) then return "x" end
 	-- (Review of this lane) Never the King: the answers never name him (the most asked of all, Contacts),
 	-- and "r" would put him first for every recruit his answer reached.
 	if ns.IsKingCharacter and ns.IsKingCharacter(ns.me) then return "i" end
-	if Recruiting() and not QueueOnly() and Recruit.PopupWait() <= 0 then return "r" end
+	if Recruiting() and not QueueOnly() and Recruit.PopupWait() <= 0 and not AwayFromPopups() then return "r" end
 	return "i"
 end
 

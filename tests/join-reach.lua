@@ -132,14 +132,16 @@ local function World(w, spec)
 	-- spec.gates: the guild the King opened the gates of, as every member's census holds it (Acts.Gates).
 	world.gates = spec.gates and { guild = spec.gates, at = w.clock + 7200 } or nil
 	local function Short(key) return key:match("^(.-)%-") or key end
+	-- (The review of 1.6.0: m.instance, the member in a dungeon; m.locked, in a chat lockdown.)
 	function world.As(m, fn, ...)
-		local saved = { GetGuildInfo, IsInGuild, CanGuildInvite, GetNumGuildMembers }
+		local saved = { GetGuildInfo, IsInGuild, CanGuildInvite, GetNumGuildMembers, IsInInstance }
 		GetGuildInfo = function() return m.guild end
 		IsInGuild = function() return true end
 		CanGuildInvite = function() return m.invite == true end
 		GetNumGuildMembers = function() local n = world.guilds[m.guild]; return n, n end
+		IsInInstance = function() return m.instance == true end
 		local ok, a, b = pcall(fn, ...)
-		GetGuildInfo, IsInGuild, CanGuildInvite, GetNumGuildMembers = saved[1], saved[2], saved[3], saved[4]
+		GetGuildInfo, IsInGuild, CanGuildInvite, GetNumGuildMembers, IsInInstance = saved[1], saved[2], saved[3], saved[4], saved[5]
 		if not ok then error(a, 0) end
 		return a, b
 	end
@@ -208,7 +210,7 @@ local function World(w, spec)
 			Every = function() return { Cancel = function() end } end,
 			Print = function(msg) m.printed[#m.printed + 1] = tostring(msg) end,
 			Dialog = Dialogs(function() return w.clock end),
-			ChatLocked = function() return false end, QuietPresence = function() return false end,
+			ChatLocked = function() return m.locked == true end, QuietPresence = function() return false end,
 			KeyboardFocus = function() return nil end, Quiet = function() return nil end,
 			Roster = { RankOf = function() return nil end, online = world.Online(m.guild), Fresh = function() return nil end },
 			Data = setmetatable({ AuthorizedRank = function(name, guild) return world.Rank(name, guild) end }, { __index = ns.Data }),
@@ -1177,6 +1179,36 @@ test("join reach simulation (1.6.0): a member who logs in after everyone found w
 				:format(w.searches - (searchesAt or w.searches), askedAt and ("at " .. askedAt .. " s") or "never", most))
 			assert(askedAt, "the member online at " .. lateAt .. " s is asked")
 			assert(askedAt <= lateAt + 900, "by the first search once everyone found before him was asked")
+		end)
+	end
+end)
+
+-- The review of 1.6.0. A recruiter in a dungeon said a request pops up for her now ("r", her recruiting on)
+-- while her popups wait for the dungeon's end (Recruit.PopupsWait): the screen sent her the first request,
+-- and the recruit waited out her 45 s for nothing (the other recruiter's invite after 56 s, 6 s with nobody
+-- in a dungeon). In an instance or a chat lockdown her word says it waits in her list ("i"), and her own
+-- answer names the guild's other recruiter first. Fails before: "r" in the dungeon, she named herself
+-- first, the first request went to her and the invite came after 56 s.
+test("join reach (1.6.0): a recruiter in a dungeon or a chat lockdown says a request waits in her list: the screen asks the guild's other recruiter first, and the invite comes within the first request's wait", function()
+	for _, away in ipairs({ "instance", "locked" }) do
+		WithRequester(function(w)
+			local world = World(w, {
+				guilds = { ["Olympus Alpha"] = 500 },
+				members = {
+					{ "Rae Cole-Realm", "Olympus Alpha", version = "1.6.0", invite = true, recruiting = true, rank = 3 },
+					{ "Lia Ford-Realm", "Olympus Alpha", version = "1.6.0", invite = true, recruiting = true, rank = 1 },
+				},
+			})
+			local rae, lia = world.members[1], world.members[2]
+			rae[away] = true
+			local route = assert(R.ParseRoute(world.As(rae, rae.R.RouteAnswer)))
+			eq(route.self, "i", away .. ": a request waits in her list")
+			eq(route.byName["Olympus Alpha"].contacts[1], "Lia Ford", away .. ": her answer names the other recruiter first")
+			local s = Play(w, world, 300)
+			eq(s.sends[1] and s.sends[1].m, lia, away .. ": the first request to the recruiter whose popups are free")
+			assert(s.inviteAfter and s.inviteAfter < 45, away .. ": invited within the first request's wait: " .. tostring(s.inviteAfter))
+			rae[away] = nil
+			eq(R.ParseRoute(world.As(rae, rae.R.RouteAnswer)).self, "r", away .. " over: a request pops up for her again")
 		end)
 	end
 end)
