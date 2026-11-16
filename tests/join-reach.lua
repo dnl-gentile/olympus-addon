@@ -385,14 +385,22 @@ test("join reach (1.6.0): the Join screen passes over a member who can't invite:
 		eq(w.out[1].to, "Ned Park"); eq(w.out[1].msg, "J1~1", "the search asked one member where to go")
 		eq(R.RequestJoin(), true)
 		eq(Open().data.name, "Ned Park-Realm", "his window opens: nothing said of him yet")
+		-- (Changed in the review of this lane: the click also asks the members the screen would ask next,
+		-- together, so its next choice knows who recruits; it no longer asks them one at a time.)
+		local function Asked(name)
+			for _, o in ipairs(w.out) do if o.to == name and o.msg == "J1~1" then return true end end
+			return false
+		end
+		assert(Asked("Lia Ford") and Asked("Bo Hart"), "the others asked with the click")
 		eq(R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Alpha=500=Lia Ford"), true)
 		eq(R.SaidOf("Ned Park-Realm"), "x")
 		eq(w.printed[1], L.RECRUIT_JOIN_CANT_INVITE:format("Ned Park"))
-		eq(Open(), nil, "closed; the one he names is asked first")
-		eq(w.out[#w.out].to, "Lia Ford"); eq(w.out[#w.out].msg, "J1~1")
+		eq(Open(), nil, "closed; the screen waits for the answers of those just asked")
 		eq(R.JoinStatus(), true, "the screen is still looking")
 		R.OnRoute("Lia Ford-Realm", "J2~y~~0~*=i;Olympus Alpha=500=Lia Ford")
-		eq(Open() and Open().data.name, "Lia Ford-Realm", "she can invite: her window")
+		eq(Open(), nil, "the one he names can invite, but Bo's answer may say he recruits: still waiting")
+		w.Advance(R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Lia Ford-Realm", "no answer from Bo: the one he names, who can invite")
 		eq(#w.said, 0, "no whisper went to the member who can't invite")
 		eq(R.NextContact("Olympus Alpha").name, "Lia Ford-Realm", "never him again")
 		-- A member clicked in the guild list who said he can't: the reason, and no window.
@@ -401,17 +409,15 @@ test("join reach (1.6.0): the Join screen passes over a member who can't invite:
 		eq(R.Prompt({ name = "Ned Park-Realm", guild = "Olympus Alpha" }), nil)
 		eq(#ns.Dialog.shown, before); eq(w.printed[#w.printed], L.RECRUIT_JOIN_CANT_INVITE:format("Ned Park"))
 		-- One we did not ask says nothing of himself: an answer from him is no answer.
-		eq(R.OnRoute("Bo Hart-Realm", "J2~y~~0~*=x"), false)
-		eq(R.SaidOf("Bo Hart-Realm"), nil)
+		eq(R.OnRoute("Cy Lane-Realm", "J2~y~~0~*=x"), false)
+		eq(R.SaidOf("Cy Lane-Realm"), nil)
 		-- Do not contact on a request the screen chose: closed, and the next member asked, as above.
 		eq(R.RequestJoin(), true)
 		eq(Open().data.name, "Lia Ford-Realm")
 		R.OnRoute("Lia Ford-Realm", "J2~n~~0~")
 		eq(w.printed[#w.printed], L.RECRUIT_DNC:format("Lia Ford"))
-		eq(Open(), nil)
-		eq(w.out[#w.out].to, "Bo Hart", "the next member, asked first")
-		w.Advance(R.ROUTE_SETTLE)
-		eq(Open() and Open().data.name, "Bo Hart-Realm", "no answer from him: his window after ROUTE_SETTLE")
+		eq(Open() and Open().data.name, "Bo Hart-Realm", "the next member at once: asked with the first click, he never answered")
+		eq(w.out[#w.out].to, "Bo Hart", "and asked again as his window opens")
 		eq(#w.said, 0)
 	end)
 end)
@@ -539,10 +545,11 @@ test("join reach (1.6.0): a guild that fills up while its window is open closes 
 		eq(Open(), f, "room then: his window stays")
 		w.Advance(5)
 		R.OnRoute("Gil Rowe-Realm", "J2~y~~0~*=x;Olympus Packed=0=")
-		eq(Open(), nil, "closed")
+		eq(f.open, false, "closed")
 		eq(w.printed[#w.printed], L.RECRUIT_JOIN_FULL:format("Olympus Packed"))
 		eq(#w.said, 0)
-		w.Advance(R.ROUTE_SETTLE)
+		-- (Changed in the review of this lane: Hal was asked with the click and never answered, so his
+		-- window opens at once, without another ROUTE_SETTLE.)
 		eq(Open() and Open().data.name, "Hal Byrne-Realm", "a guild with room")
 		-- The Send itself, should a full guild's window still be up: refused, with the reason, nothing sent.
 		R.lastAsk = -1000
@@ -565,7 +572,10 @@ test("join reach (1.6.0): after a search the first request waits for the asked m
 		eq(R.JoinStatus(), true, "the screen says it is still looking")
 		assert(Shows(L.RECRUIT_SEARCHING))
 		R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Beta=700=;Olympus Alpha=500=Rae Cole")
-		eq(Open(), nil); eq(w.out[#w.out].to, "Rae Cole", "the officer named, though another guild has more room")
+		-- (Changed in the review of this lane: then the members it would ask next are asked together, in
+		-- its order: the officer named first, though another guild has more room.)
+		eq(Open(), nil)
+		eq(w.out[#w.out - 1].to, "Rae Cole", "the officer named, first"); eq(w.out[#w.out].to, "Bo Hart")
 		w.Advance(R.ROUTE_SETTLE)
 		eq(Open() and Open().data.name, "Rae Cole-Realm")
 		eq(#w.said, 0)
@@ -597,24 +607,29 @@ test("join reach (1.6.0): failure cases: a window the player closed brings no ne
 		eq(Open(), nil, "a do-not-contact answer for a closed window opens none either")
 		eq(R.JoinStatus(), false)
 	end)
+	-- (Changed in the review of this lane: the members are asked together, the click's own ask counted, no
+	-- longer one at a time.)
 	WithRequester(function(w)
 		local list = {}
 		for i = 1, 7 do list[i] = { name = ("Member %s-Realm"):format(string.char(64 + i)), guild = "Olympus Alpha" } end
 		R.OnFound(list)
+		local function Asks()
+			local n = 0
+			for _, o in ipairs(w.out) do if o.msg == "J1~1" then n = n + 1 end end
+			return n
+		end
+		local before = Asks()
 		eq(R.RequestJoin(), true)
-		eq(Open().data.name, list[1].name)
-		local asks = 0
-		for _, o in ipairs(w.out) do if o.msg == "J1~1" then asks = asks + 1 end end
+		eq(Open().data.name, list[1].name, "the click's window at once")
+		eq(Asks() - before, R.PROBE_MAX, "its own ask and the next members', PROBE_MAX in all")
 		R.OnRoute(list[1].name, "J2~y~~0~*=x;Olympus Alpha=500=")
-		for i = 2, 1 + R.PROBE_MAX do
-			eq(Open(), nil, "member " .. i .. " asked first")
-			eq(w.out[#w.out].to, list[i].name:match("^(.-)%-"))
+		eq(Open(), nil, "the answers of the members asked with the click first")
+		for i = 2, R.PROBE_MAX do
+			eq(Open(), nil, "still waiting before member " .. i .. "'s answer")
 			R.OnRoute(list[i].name, "J2~y~~0~*=x;Olympus Alpha=500=")
 		end
-		eq(Open() and Open().data.name, list[2 + R.PROBE_MAX].name, "past PROBE_MAX the next window opens without waiting")
-		local now = 0
-		for _, o in ipairs(w.out) do if o.msg == "J1~1" then now = now + 1 end end
-		eq(now - asks, R.PROBE_MAX + 1, "PROBE_MAX asks, then the window's own")
+		eq(Open() and Open().data.name, list[R.PROBE_MAX + 1].name, "each answered: past PROBE_MAX the next window opens without asking first")
+		eq(Asks() - before, R.PROBE_MAX + 1, "PROBE_MAX asks, then the window's own")
 		eq(#w.said, 0)
 	end)
 	WithRequester(function(w)
@@ -664,6 +679,58 @@ test("join reach (1.6.0): the King's gates, two answers agreeing, come before a 
 		R.OnRoute("Hart Two-Realm", "J2~y~~0~*=r;Olympus Gates=700=Gil Three;Olympus Other=100=Hart Two")
 		eq(R.Route().gates, nil, "one answer named them: no gates")
 		eq(R.NextContact().name, "Hart Two-Realm", "the member who says he recruits")
+	end)
+end)
+
+-- Fails on this lane's first version (review): the screen learned who recruits only from the one member
+-- it asked at a time, so its "r" pass rarely fired: a recruiter of ordinary rank whom no answer names was
+-- asked no sooner than before. The members it would ask next are now asked together, and one whose own
+-- answer says he recruits is asked first, as soon as that answer comes.
+test("join reach (1.6.0): the members the screen would ask next are asked together; one whose own answer says he recruits is asked first, at once", function()
+	WithRequester(function(w)
+		local list = { { name = "Ann Hale-Realm", guild = "Olympus Alpha" }, { name = "Ben Ives-Realm", guild = "Olympus Alpha" },
+			{ name = "Cal Dunn-Realm", guild = "Olympus Beta" } }
+		w.OnSearch = function() w.At(1, function() R.OnFound(list) end) end
+		eq(R.RequestJoin(), true)
+		w.Advance(1)
+		eq(w.out[1].to, "Ann Hale", "the search asked one member where to go")
+		eq(#w.out, 1, "the others only once her answer says where to go")
+		R.OnRoute("Ann Hale-Realm", "J2~y~~0~*=i;Olympus Alpha=500=;Olympus Beta=100=")
+		eq(Open(), nil, "the members it would ask next first")
+		local asked = {}
+		for _, o in ipairs(w.out) do if o.msg == "J1~1" then asked[#asked + 1] = o.to end end
+		eq(table.concat(asked, ", "), "Ann Hale, Ben Ives, Cal Dunn", "asked together, in the screen's order")
+		eq(R.JoinStatus(), true, "still looking meanwhile")
+		-- Cal's guild is not in his own answer (the census does not confirm it), so no answer names him:
+		-- only his own word moves him first.
+		R.OnRoute("Cal Dunn-Realm", "J2~y~~0~*=r;Olympus Alpha=500=")
+		eq(Open() and Open().data.name, "Cal Dunn-Realm", "he recruits: his window at once, before Ben answered")
+		eq(#w.said, 0)
+	end)
+	-- Every answer in: the window opens then, without waiting out ROUTE_SETTLE; nobody recruits, so the
+	-- screen's own first choice.
+	WithRequester(function(w)
+		local list = { { name = "Ann Hale-Realm", guild = "Olympus Alpha" }, { name = "Ben Ives-Realm", guild = "Olympus Alpha" } }
+		w.OnSearch = function() w.At(1, function() R.OnFound(list) end) end
+		eq(R.RequestJoin(), true)
+		w.Advance(1)
+		R.OnRoute("Ann Hale-Realm", "J2~y~~0~*=x;Olympus Alpha=500=")
+		eq(Open(), nil)
+		R.OnRoute("Ben Ives-Realm", "J2~y~~0~*=i;Olympus Alpha=500=")
+		eq(Open() and Open().data.name, "Ben Ives-Realm", "each answered: at once")
+	end)
+	-- Nobody answers (no Olympus): ROUTE_SETTLE in all after the search, however many it asked meanwhile.
+	WithRequester(function(w)
+		local list = { { name = "Ann Hale-Realm", guild = "Olympus Alpha" }, { name = "Ben Ives-Realm", guild = "Olympus Alpha" } }
+		w.OnSearch = function() w.At(1, function() R.OnFound(list) end) end
+		eq(R.RequestJoin(), true)
+		w.Advance(1 + R.ROUTE_SETTLE - 0.5)
+		eq(Open(), nil)
+		w.Advance(0.5)
+		eq(Open() and Open().data.name, "Ann Hale-Realm", "ROUTE_SETTLE after the search, not one wait per member")
+		local ben = false
+		for _, o in ipairs(w.out) do if o.to == "Ben Ives" and o.msg == "J1~1" then ben = true end end
+		assert(ben, "Ben was asked meanwhile: his answer serves the next choice")
 	end)
 end)
 
@@ -801,6 +868,17 @@ local function PvP(recruiter)
 	return { guilds = { ["Pvp Olympus One"] = 800, ["Pvp Olympus Two"] = 500 }, members = members }
 end
 
+-- PvP (review of this lane): a recruiter of ordinary rank on 1.6.0, fourth in /who's order, whom no census
+-- names and whose guildmates, on 1.5.9, name nobody.
+local function PvPOrdinary()
+	return { guilds = { ["Pvp Olympus One"] = 800, ["Pvp Olympus Two"] = 500 }, members = {
+		{ "Kai Ford-Realm", "Pvp Olympus Two", version = "1.5.9" },
+		{ "Lena Moss-Realm", "Pvp Olympus One", version = "1.5.9" },
+		{ "Milo Shaw-Realm", "Pvp Olympus Two" },
+		{ "Rex Dorn-Realm", "Pvp Olympus One", version = "1.6.0", invite = true, recruiting = true, rank = 3 },
+	} }
+end
+
 -- Every guild full: a recruiter in each and ordinary members, all on 1.6.0 (each guild's own members
 -- say it is full), or one guild's on 1.5.9 (whose answers can't say it: theirs is asked as before).
 local function AllFull(mixed)
@@ -841,6 +919,7 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	Run("PvE, recruiters offline", PvE(false), 900)
 	Run("PvP, one recruiter (1.5.9)", PvP(true), 900)
 	Run("PvP, no recruiter online", PvP(false), 900)
+	Run("PvP, one recruiter (1.6.0, ordinary rank)", PvPOrdinary(), 900)
 	Run("every guild full (1.6.0)", AllFull(false), 900)
 	Run("every guild full (1.5.9 in one)", AllFull(true), 900)
 	Run("the King's gates, a recruiter in another guild", Gates(), 900)
@@ -856,6 +935,10 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	-- PvP: the one recruiter reached at the first request; with none online, said why and asked again later.
 	eq(pvp.invited, 1, "PvP: invited"); eq(pvp.sent, 1, "PvP: at the first request")
 	assert(dry.seen[L.RECRUIT_JOIN_NOBODY], "PvP without a recruiter: said why")
+	-- (Review of this lane) A recruiter nobody names, fourth on /who: asked with the first click's members,
+	-- he is asked first.
+	local ordinary = results["PvP, one recruiter (1.6.0, ordinary rank)"]
+	eq(ordinary.invited, 1, "PvP, ordinary recruiter: invited"); eq(ordinary.sent, 1, "PvP, ordinary recruiter: at the first request")
 	eq(dry.cannotNew, 0, "PvP without a recruiter: never the 1.6.0 member who can't invite")
 	-- Every guild full, said by each guild's own members: no whisper at all, and the screen says why.
 	eq(full.sent, 0, "every guild full: nothing sent")

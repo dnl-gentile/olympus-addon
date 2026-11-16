@@ -83,7 +83,7 @@ local JoinNext          -- (1.6.0) the Join screen's own next request (below)
 
 Recruit.REASK = 600         -- (1.6.0) a member asked this long ago may be asked again once nobody new is left
 Recruit.ROUTE_SETTLE = 3    -- (1.6.0) seconds the Join screen waits for a member's answer before his window opens
-Recruit.PROBE_MAX = 4       -- (1.6.0) members the Join screen asks that way for one click of the player's
+Recruit.PROBE_MAX = 4       -- (1.6.0) members the Join screen asks where to go for one click of the player's, together (ProbeAhead)
 
 -- A name as the server stamps a sender: "Name-Realm".
 local function Key(name) return name and ns.FullName(ns.Normal and ns.Normal(name) or name) or nil end
@@ -361,10 +361,17 @@ function Recruit.OnRoute(sender, text)
 	ns.Log("recruit: route from %s (gates %s, %d guilds%s%s)", key, tostring(claimed), #route.list,
 		route.dnc and ", do not contact" or "", route.self and (", " .. route.self) or "")
 	closed = JoinRecheck() or closed
-	-- (1.6.0) The Join screen's own request closed by this answer, or one waiting for it: the next member.
-	if (closed and join.auto == closed) or join.settle then
+	-- (1.6.0) The Join screen's own request closed by this answer: the next member. An answer the screen
+	-- waits for (JoinNext): its request opens once each such answer came, or at once when the member it
+	-- would ask now recruits.
+	local settle = join.settle
+	if closed and join.auto == closed then
 		join.auto = nil
 		JoinNext()
+	elseif settle and settle.wait[key] then
+		settle.wait[key] = nil
+		local top = next(settle.wait) and Recruit.NextContact()
+		if not next(settle.wait) or (top and SaidOf(Key(top.name)) == "r") then JoinNext() end
 	end
 	ns.Fire("RECRUIT_CHANGED")
 	return true
@@ -454,9 +461,10 @@ local function Asked(name) return Recruit.asked[name] or askedKey[Key(name)] end
 -- (1.6.0) Whom the Join screen may ask: never one who asked not to be contacted, nor one whose own
 -- answer said he can't take a request; one we whispered only once REASK has passed (`again`: no one
 -- new is left), so a realm with few members online is no dead end after everyone was asked once.
+local skipping -- (1.6.0) [Name-Realm] = true: members ProbeAhead already looked at, while it ranks the next
 local function Askable(name, again)
 	local key = Key(name)
-	if dnc[key] or SaidOf(key) == "x" then return false end
+	if dnc[key] or SaidOf(key) == "x" or (skipping and skipping[key]) then return false end
 	local t = Asked(name)
 	return not t or (again == true and ns.Now() - t >= Recruit.REASK)
 end
@@ -627,48 +635,79 @@ local function JoinWait(contact)
 	ns.After(1, "join countdown", Tick)
 end
 
+-- (1.6.0) Members just asked where to go (by the search, or by the screen), whose answer may still come:
+-- put in `wait`, each once a click (join.waited).
+local function Coming(wait)
+	for _, p in ipairs(Recruit.found) do
+		local key = Key(p.name)
+		local asked = key and routeAsked[key]
+		if asked and ns.Now() - asked < Recruit.ROUTE_SETTLE and (routeAnswered[key] or -math.huge) < asked
+			and not join.waited[key] then
+			join.waited[key], wait[key] = true, true
+		end
+	end
+end
+
+-- (1.6.0, review of this lane: the screen learned who recruits only from the one member it asked at a
+-- time, so a recruiter of ordinary rank whom nobody names was reached no sooner than before.) The members
+-- the screen would ask next (NextContact's order) and never asked where to go, asked together: PROBE_MAX
+-- a click at most (join.probes), each put in `wait` when there is one.
+local function ProbeAhead(wait)
+	local route, seen, looked = Recruit.Route(), {}, 0
+	skipping = seen
+	while (join.probes or 0) < Recruit.PROBE_MAX and looked < 4 * Recruit.PROBE_MAX do
+		local c = Next(nil, route, false) or Next(nil, route, true)
+		if not c then break end
+		local key = Key(c.name)
+		seen[key], looked = true, looked + 1
+		if not routeAsked[key] and AskRoute(c.name, true) then
+			join.probes = (join.probes or 0) + 1
+			if wait then join.waited[key], wait[key] = true, true end
+		end
+	end
+	skipping = nil
+end
+
 -- (1.6.0) The Join screen's own next request, after a search or when the member it chose can't take
 -- it (JoinRecheck, a do-not-contact answer): the best member left (NextContact). Until 1.6.0 the
 -- search's window opened at once on the first member /who listed, before the answer of the member
--- it asked where to go (the route, who recruits, which guild is full) came a second later. Now a
--- member whose addon never answered is asked first (AskRoute: at most PROBE_MAX for one click) and
--- his window opens once his answer came or ROUTE_SETTLE passed, so one whose answer says he can't
--- invite is passed over before the player writes to him. Nobody left: the screen says why.
+-- it asked where to go (the route, who recruits, which guild is full) came a second later. Now it
+-- waits for the answers of the members just asked (Coming), then asks together the members it would ask
+-- next and never asked (ProbeAhead, PROBE_MAX a click at most) unless the one it chose recruits, and the
+-- window opens once each answered, once the member it would ask says he recruits (OnRoute), or once
+-- ROUTE_SETTLE passed since it began waiting: one whose answer says he can't invite is passed over before
+-- the player writes to him, and one who recruits among them is asked first. Nobody left: the screen says
+-- why.
 JoinNext = function()
 	join.settle = nil
 	if not Recruit.SimpleJoin() or not JoinVisible() or ns.ChatLocked() or ns.Dialog.missing
 		or ns.Dialog.Find("OLYMPUS_RECRUIT") then return false end
 	local contact = Recruit.NextContact()
 	if not contact then
-		join.notice = NobodyText()
+		join.notice, join.waitUntil = NobodyText(), nil
 		ns.Fire("RECRUIT_CHANGED")
 		return false
 	end
-	-- (Each member waited for once a round, by the timer alone: nothing here compares this computer's
-	-- clock with the timers'.)
-	local key = Key(contact.name)
-	local asked = routeAsked[key]
-	local answered = asked and (routeAnswered[key] or -math.huge) >= asked
+	-- (Each member waited for once a click, by the timer alone.) Answers still coming from members just
+	-- asked first: what they say (the route, whom they name, who recruits, which guild is full) chooses
+	-- whom to ask next. Then, unless the one it chose recruits, the members it would ask next, together.
+	-- ROUTE_SETTLE in all before a window opens, however many waits that takes (join.waitUntil).
+	local wait = {}
 	join.waited = join.waited or {}
-	local waiting = false
-	if not answered and not join.waited[key] then
-		if not asked then
-			if (join.probes or 0) < Recruit.PROBE_MAX and AskRoute(contact.name, true) then
-				join.probes, waiting = (join.probes or 0) + 1, true
-			end
-		elseif ns.Now() - asked <= Recruit.ROUTE_WAIT then
-			waiting = true -- his answer to an ask already sent may still come
-		end
-	end
-	if waiting then
-		local settle = {}
-		join.settle, join.waited[key] = settle, true
-		ns.After(Recruit.ROUTE_SETTLE, "join settle", function()
+	Coming(wait)
+	if not next(wait) and SaidOf(Key(contact.name)) ~= "r" then ProbeAhead(wait) end
+	local now = GetTime()
+	join.waitUntil = join.waitUntil or now + Recruit.ROUTE_SETTLE
+	if next(wait) and join.waitUntil > now then
+		local settle = { wait = wait }
+		join.settle = settle
+		ns.After(join.waitUntil - now, "join settle", function()
 			if join.settle == settle then JoinNext() end
 		end)
 		ns.Fire("RECRUIT_CHANGED")
 		return true
 	end
+	join.waitUntil = nil
 	local f = Recruit.Prompt(contact)
 	if f then join.auto, join.notice = contact, nil end
 	ns.Fire("RECRUIT_CHANGED")
@@ -684,14 +723,20 @@ end
 function Recruit.RequestJoin()
 	if not Recruit.SimpleJoin() or join.search or join.settle or ns.ChatLocked() then return false end
 	if join.request and join.request.untilAt > GetTime() then return false end
-	join.probes, join.waited, join.notice = 0, {}, nil
+	join.probes, join.waited, join.notice, join.waitUntil = 0, {}, nil, nil
 	-- (1.6.0) A member never asked yet; with none, a new search. One asked REASK ago is asked again only
 	-- once that search found nobody new (JoinFound, JoinNext), so a member who logged in since comes first.
 	local contact = Next(nil, Recruit.Route(), false)
 	if contact then
 		local f = Recruit.Prompt(contact)
-		-- (1.6.0) The screen's own choice: an answer saying he can't take it asks the next member.
-		if f then join.auto = contact end
+		-- (1.6.0) The screen's own choice: an answer saying he can't take it asks the next member. The
+		-- window opens at once, as a click's always did; meanwhile the others the screen never asked are
+		-- asked (the window's own ask counted, PROBE_MAX a click), so its next choice, when this member
+		-- can't take it or at the next click, knows who recruits.
+		if f then
+			join.auto, join.probes = contact, 1
+			ProbeAhead(nil)
+		end
 		return f ~= nil
 	end
 	local search = {}
