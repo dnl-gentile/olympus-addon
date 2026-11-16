@@ -1501,3 +1501,217 @@ test("verify: on Forever the King's guild, OLYMPUS PRIME, is exempt and wears th
 	ns.realm, ns.faction = savedRealm, savedFaction
 	if not ok then error(err, 0) end
 end)
+
+-- 1.6.0 (a player's report of 11-15: a guild the staff excommunicated still wore its check). A
+-- verifier revokes a guild whose approval reached other clients but never his own: an answer carries
+-- the newest words a store holds alone, so an old approval reaches no verifier who was away when it
+-- was given, and Revoke said "no verification to revoke" there. Fails before: refused, nothing sent.
+test("verify: 1.6.0 a verifier revokes a guild whose approval his client never held: the census's guild master or the one typed names it", function()
+	World(function(w)
+		local hc = w.Client(HC, HEARTH, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		local outsider = w.Client(LATE, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		w.Census(OTHER, "Corin Ash", 400)
+		w.Census("Olympus", "Some Leader", 900) -- (the King's guild in this harness)
+		-- The other councillor approved the guild while this one was away: its members heard it.
+		hc.online = false
+		w.Deliver({ me = HC2 }, "CHANNEL", ("GV~1~A~%d~%s~%s"):format(T0, GUILD, GM))
+		hc.online = true
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "the members' check")
+		eq(w.As(outsider, outsider.Verify.Mark, GUILD), outsider.Verify.MARK_OK, "another guild's player's check")
+		eq(w.Status(hc, GUILD) ~= "verified", true, "(this councillor's client never heard it)")
+		local function Words(kind)
+			local n = 0
+			for _, s in ipairs(w.sent) do if s.msg:find("^GV~1~" .. kind .. "~") then n = n + 1 end end
+			return n
+		end
+		w.now = T0 + 60
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD), true)
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKED:format(GUILD)), "said so")
+		eq(Words("R"), 1, "one revocation, on the channel")
+		eq(w.sent[#w.sent].logged, true, "logged, as every verifier's word")
+		for _, c in ipairs({ member, outsider, hc }) do
+			eq(w.As(c, c.Verify.Mark, GUILD), "", c.me .. ": no check")
+			local e = c.rdb.verify.list[ns.Fold(GUILD)]
+			eq(e.k, "R"); eq(e.gm, GM, "the census's guild master"); eq(e.by, HC); eq(e.at, T0 + 60)
+		end
+		assert(Find(member.printed, member.L.VERIFY_HEARD_REVOKED:format(GUILD, ns.DisplayName(HC) or HC)), "the guild's members are told")
+		-- Given again (as an approval can be): a newer revocation goes out.
+		w.now = T0 + 120
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD), true)
+		eq(Words("R"), 2)
+		eq(outsider.rdb.verify.list[ns.Fold(GUILD)].at, T0 + 120, "the newer one stands")
+		-- No census guild master and no approval here: the name typed after the guild's names it.
+		outsider.Verify.Handle("CHANNEL", HC2, ("GV~1~A~%d~%s~%s"):format(T0, OTHER, GM2))
+		hc.rdb.guilds[OTHER].leader = nil
+		eq(w.As(hc, hc.Verify.RevokeInput, OTHER), nil)
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_NO_MASTER:format(OTHER)), "told how to name the guild master")
+		eq(Words("R"), 2, "nothing sent without one")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), outsider.Verify.MARK_OK)
+		eq(w.As(hc, hc.Verify.RevokeInput, OTHER .. " Corin Ash"), true)
+		eq(Words("R"), 3)
+		local e = outsider.rdb.verify.list[ns.Fold(OTHER)]
+		eq(e.k, "R"); eq(e.gm, GM2, "the guild master typed")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), "")
+		-- Refused: the King's guild (it needs no verification), a guild nobody knows here, a non-verifier.
+		w.As(hc, hc.Verify.RevokeInput, "Olympus")
+		assert(Find(hc.printed, hc.L.VERIFY_NOTHING:format("Olympus")), "the King's guild")
+		w.As(hc, hc.Verify.RevokeInput, "Distant Olympus")
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_UNKNOWN), "an unknown guild (told where it can be revoked)")
+		w.As(member, member.Verify.RevokeInput, GUILD)
+		assert(Find(member.printed, member.L.VERIFY_ONLY), "only a verifier")
+		eq(Words("R"), 3, "none of them sent anything")
+		eq(w.As(member, member.Verify.Revoke, GUILD), false, "(the call itself, for a non-verifier)")
+	end)
+end)
+
+-- 1.6.0 (the review of these fixes): a name after the guild's must be its guild master as this client
+-- knows him (its word's, or the census's), else nothing is sent. /oly verify revoke takes the longest
+-- known guild name the input starts with, the rest for a guild master's name: "<Guild> II", a guild
+-- unknown here, revoked <Guild> wherever this client held <Guild>'s approval (1.5.9 and 76c0c57e alike),
+-- and with 1.6.0's revocation of an approval not held, wherever the census knew <Guild>. Fails before:
+-- <Guild>'s members lost the check.
+test("verify: 1.6.0 a revocation naming someone other than the guild's known guild master sends nothing (the end of another guild's name)", function()
+	World(function(w)
+		local hc = w.Client(HC, HEARTH, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		local outsider = w.Client(LATE, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		w.Census(OTHER, "Corin Ash", 400)
+		local function Words()
+			local n = 0
+			for _, s in ipairs(w.sent) do if s.msg:find("^GV~1~R~") then n = n + 1 end end
+			return n
+		end
+		-- This councillor's client holds <GUILD>'s approval; <OTHER> was approved while he was away.
+		eq(w.As(hc, hc.Verify.Approve, GUILD, GM), true)
+		hc.online = false
+		w.Deliver({ me = HC2 }, "CHANNEL", ("GV~1~A~%d~%s~%s"):format(T0, OTHER, GM2))
+		hc.online = true
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "(the members' check)")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), outsider.Verify.MARK_OK)
+		w.now = T0 + 60
+		-- "<GUILD> II" and "<OTHER> II", guilds nobody knows here: nothing goes out.
+		w.As(hc, hc.Verify.RevokeInput, GUILD .. " II")
+		eq(Words(), 0, "nothing sent for <Guild> II, where this client holds <Guild>'s approval")
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "<Guild>'s members keep the check")
+		w.As(hc, hc.Verify.RevokeInput, OTHER .. " II")
+		eq(Words(), 0, "nor where it holds none and the census knows the guild master")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), outsider.Verify.MARK_OK)
+		-- He is told which guild that name found, and its guild master.
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_OTHER_MASTER:format(GUILD, ns.DisplayName(GM) or GM, "II")), "<Guild>, its guild master")
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_OTHER_MASTER:format(OTHER, ns.DisplayName(GM2) or GM2, "II")))
+		assert(not Find(hc.printed, hc.L.VERIFY_REVOKED:format(GUILD)) and not Find(hc.printed, hc.L.VERIFY_REVOKED:format(OTHER)), "never said revoked")
+		-- Another guild's guild master typed: nothing either.
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD .. " Corin Ash"), nil)
+		eq(Words(), 0)
+		local ok, why, master = w.As(hc, hc.Verify.Revoke, OTHER, "Bram Hollow")
+		eq(ok, false); eq(why, "other master"); eq(master, GM2, "(the call names the guild master known)")
+		-- Its guild master named, or the guild's name alone, revokes it.
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD .. " bram hollow"), true)
+		eq(Words(), 1)
+		eq(w.As(member, member.Verify.Mark, GUILD), "", "revoked")
+		eq(w.As(hc, hc.Verify.RevokeInput, OTHER), true)
+		eq(Words(), 2)
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), "")
+		eq(outsider.rdb.verify.list[ns.Fold(OTHER)].gm, GM2, "naming its census guild master")
+		-- A revocation held: a name after the guild's is checked the same way.
+		w.As(hc, hc.Verify.RevokeInput, GUILD .. " II")
+		eq(Words(), 2, "nothing sent")
+	end)
+end)
+
+-- 1.6.0 (the review of these fixes: a guild off the network for over a week). A guild no census row and
+-- no word names on a verifier's client (census rows lapse after Data.KEEP, 7 days, and a guild off the
+-- network sends none) can't be revoked from it: it says where it can be, from a verifier's client that
+-- holds the guild's approval, which needs no census row. Fails before: it said to use the guild's exact
+-- name or its guild master's code, and no code finds a guild the census lost.
+test("verify: 1.6.0 a guild a verifier's client no longer knows is revoked from one that holds its approval, census row or not; the other is told so", function()
+	World(function(w)
+		local approver = w.Client(HC, HEARTH, 3)
+		local other = w.Client(HC2, ROGUES, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		local function Words()
+			local n = 0
+			for _, s in ipairs(w.sent) do if s.msg:find("^GV~1~R~") then n = n + 1 end end
+			return n
+		end
+		-- Approved while the other councillor was away; then over a week off the network: no census row left.
+		other.online = false
+		eq(w.As(approver, approver.Verify.Approve, GUILD, GM), true)
+		other.online = true
+		for _, c in ipairs(w.clients) do c.rdb.guilds[GUILD] = nil end
+		w.now = T0 + 8 * DAY
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "(the members' check)")
+		w.As(other, other.Verify.RevokeInput, GUILD)
+		eq(Words(), 0, "nothing sent from a client that doesn't know the guild")
+		assert(Find(other.printed, other.L.VERIFY_REVOKE_UNKNOWN), "told where it can be revoked")
+		assert(not Find(other.printed, other.L.VERIFY_BAD_GUILD), "not approve's words (no code finds a guild the census lost)")
+		-- The approver's client holds the approval: revoked there, with no census row.
+		eq(w.As(approver, approver.Verify.RevokeInput, GUILD), true)
+		eq(Words(), 1)
+		eq(w.As(member, member.Verify.Mark, GUILD), "", "revoked")
+		local e = other.rdb.verify.list[ns.Fold(GUILD)]
+		eq(e.k, "R"); eq(e.gm, GM, "naming the approval's guild master")
+		-- Approving a guild unknown here keeps its own words.
+		w.As(other, other.Verify.ApproveInput, "Distant Olympus")
+		assert(Find(other.printed, other.L.VERIFY_BAD_GUILD))
+	end)
+end)
+
+-- 1.6.0: a guild the moderators took off the network (Moderation.lua) wears no check: the Census draws
+-- no row for it (Data.Summary), and The Watch and its guild master's own line show its verification
+-- without the mark. Net-off revokes nothing: back on, the check is back. Fails before: the mark stayed.
+test("verify: 1.6.0 a guild off the network wears no check (the Census's mark, The Watch, its guild master's line), its verification untouched", function()
+	local M = ns.Moderation
+	local saved = { netoff = ns.rdb.netoff, chat = C_ChatInfo }
+	local ok, err = pcall(World, function(w)
+		M.Reset()
+		ns.rdb.netoff, C_ChatInfo = nil, nil
+		local hc = w.Client(HC, HEARTH, 3)
+		local master = w.Client(GM, GUILD, 0)
+		local member = w.Client(MEMBER, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		eq(w.As(hc, hc.Verify.Approve, GUILD, GM), true)
+		local function Row()
+			for _, line in ipairs(w.As(hc, hc.Verify.CouncilLines)) do
+				if tostring(line.text):find("<" .. GUILD .. ">", 1, true) then return line end
+			end
+		end
+		local function Tip(line)
+			local out = {}
+			line.tooltip({ AddLine = function(_, text) out[#out + 1] = text end })
+			return table.concat(out, "\n")
+		end
+		local function MasterLine() return w.As(master, master.Verify.Lines)[1] end
+		for _, c in ipairs({ hc, master, member }) do eq(w.As(c, c.Verify.Mark, GUILD), c.Verify.MARK_OK, c.me) end
+		assert(Row().text:find(hc.Verify.MARK_OK, 1, true), "The Watch's verified row")
+		assert(MasterLine().text:find(master.Verify.MARK_OK, 1, true), "its guild master's line")
+		-- A High Councillor takes the guild off the network.
+		local at = math.floor(ns.Data.ServerTime() or ns.Now())
+		M.Handle("CHANNEL", HC, ("O1~g~1~%d~%s~%s~excommunicated"):format(at, GUILD, HC))
+		eq(ns.Data.NetOff(GUILD), true, "(the word is held)")
+		for _, c in ipairs({ hc, master, member }) do
+			eq(w.As(c, c.Verify.Mark, GUILD), "", c.me .. ": no check")
+			eq(w.Status(c, GUILD), "verified", c.me .. ": net-off revokes nothing")
+		end
+		local row = Row()
+		assert(row, "still listed for the verifiers, who may revoke it")
+		assert(not row.text:find(hc.Verify.MARK_OK, 1, true), "The Watch's row without the check")
+		assert(Tip(row):find(hc.L.NETOFF_GUILD_OFF, 1, true), "its tooltip says it is off the network")
+		local line = MasterLine()
+		assert(not line.text:find(master.Verify.MARK_OK, 1, true), "the guild master's line without the check")
+		assert(line.text:find(master.L.VERIFY_LINE_VERIFIED, 1, true), "(still says what is true)")
+		-- Back on the network: the check is back where its approval stands.
+		M.Handle("CHANNEL", HC, ("O1~g~0~%d~%s~%s~"):format(at + 1, GUILD, HC))
+		eq(ns.Data.NetOff(GUILD), false)
+		for _, c in ipairs({ hc, master, member }) do eq(w.As(c, c.Verify.Mark, GUILD), c.Verify.MARK_OK, c.me .. ": back") end
+		assert(Row().text:find(hc.Verify.MARK_OK, 1, true))
+		assert(not Tip(Row()):find(hc.L.NETOFF_GUILD_OFF, 1, true))
+	end)
+	ns.rdb.netoff, C_ChatInfo = saved.netoff, saved.chat
+	M.Reset()
+	if not ok then error(err, 0) end
+end)

@@ -61,8 +61,14 @@ L.VERIFY_BAD_GUILD = "No Olympus guild of that name is known here. Use the guild
 L.VERIFY_NO_MASTER = "The census doesn't know <%s>'s guild master yet: give the name after the guild's (/oly verify approve <Guild> <Name>), or the guild master's code."
 L.VERIFY_OTHER_MASTER = "Note: the census names %s as <%s>'s guild master. This approval is for %s and lapses while someone else leads the guild."
 L.VERIFY_NOTHING = "<%s> has no verification to revoke."
+-- (1.6.0) A revocation where this client holds no approval of the guild (Verify.Revoke) names its guild master.
+L.VERIFY_REVOKE_NO_MASTER = "No approval of <%s> is held here and the census doesn't know its guild master: give the name after the guild's (/oly verify revoke <Guild> <Name>)."
+-- (1.6.0) A name after the guild's that is not its guild master as this client knows him (Verify.Revoke): nothing is sent.
+L.VERIFY_REVOKE_OTHER_MASTER = "Not revoked: that name starts with <%s>, a guild known here whose guild master is %s, not %s. Give the guild's name alone to revoke it; a guild unknown here is revoked from a client that holds its approval."
+-- (1.6.0) A revocation of a guild no census row and no word names on this client (Verify.Revoke: "unknown").
+L.VERIFY_REVOKE_UNKNOWN = "No Olympus guild of that name is known here: no census row of it, nor any word on it held. Use the guild's exact name; a guild unknown here can be revoked by a verifier whose client holds its approval, such as the one who approved it."
 L.VERIFY_REFUSED = "Not done: a newer word on <%s> stands."
-L.VERIFY_USAGE = "/oly verify: your guild's verification. Verifiers: /oly verify approve <Guild> [Guild master] | <code>, /oly verify revoke <Guild>, /oly verify list."
+L.VERIFY_USAGE = "/oly verify: your guild's verification. Verifiers: /oly verify approve <Guild> [Guild master] | <code>, /oly verify revoke <Guild> [Guild master] | <code>, /oly verify list."
 L.VERIFY_HEARD_OURS = "Your guild <%s> is now verified by Olympus (approved by %s)."
 L.VERIFY_HEARD_REVOKED = "The verification of your guild <%s> was revoked by %s."
 L.VERIFY_NAV = "Guilds (%d)"
@@ -175,8 +181,11 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.VERIFY_NO_MASTER = "O censo ainda não conhece o mestre de <%s>: dê o nome depois do nome da guilda (/oly verify approve <Guilda> <Nome>), ou o código do mestre da guilda."
 	L.VERIFY_OTHER_MASTER = "Atenção: o censo diz que %s é o mestre de <%s>. Esta aprovação é para %s e fica suspensa enquanto outra pessoa liderar a guilda."
 	L.VERIFY_NOTHING = "<%s> não tem verificação para revogar."
+	L.VERIFY_REVOKE_NO_MASTER = "Nenhuma aprovação de <%s> está guardada aqui e o censo não conhece o mestre dela: dê o nome depois do nome da guilda (/oly verify revoke <Guilda> <Nome>)."
+	L.VERIFY_REVOKE_OTHER_MASTER = "Não revogada: esse nome começa com <%s>, uma guilda conhecida aqui cujo mestre é %s, não %s. Dê só o nome da guilda para revogá-la; uma guilda desconhecida aqui é revogada de um cliente que guarde a aprovação dela."
+	L.VERIFY_REVOKE_UNKNOWN = "Nenhuma guilda do Olympus com esse nome é conhecida aqui: nenhuma linha dela no censo, nem palavra sobre ela guardada. Use o nome exato da guilda; uma guilda desconhecida aqui pode ser revogada por um verificador cujo cliente guarde a aprovação dela, como quem a aprovou."
 	L.VERIFY_REFUSED = "Não feito: vale uma palavra mais nova sobre <%s>."
-	L.VERIFY_USAGE = "/oly verify: a verificação da sua guilda. Verificadores: /oly verify approve <Guilda> [Mestre da guilda] | <código>, /oly verify revoke <Guilda>, /oly verify list."
+	L.VERIFY_USAGE = "/oly verify: a verificação da sua guilda. Verificadores: /oly verify approve <Guilda> [Mestre da guilda] | <código>, /oly verify revoke <Guilda> [Mestre da guilda] | <código>, /oly verify list."
 	L.VERIFY_HEARD_OURS = "A sua guilda <%s> agora está verificada pelo Olympus (aprovada por %s)."
 	L.VERIFY_HEARD_REVOKED = "A verificação da sua guilda <%s> foi revogada por %s."
 	L.VERIFY_NAV = "Guildas (%d)"
