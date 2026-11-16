@@ -617,8 +617,10 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		-- offline notices, the [?] under All, the name rule and the two verification fixes are news too,
 		-- each under its section's mark; the test below names them. And with the author's ask of 11-16: a
 		-- fifth {church} bullet, after the handoffs', for Pause recruiting and Turn off recruiting. And with
-		-- pull request #109 merged, a fourth news: the profession and crafted item links of issue #110.)
-		eq(table.concat(marks, ","), "church,church,church,church,church,guild,guild,guild,news,news,news,news,watch,watch,watch", code .. ": release topics")
+		-- pull request #109 merged, a fourth news: the profession and crafted item links of issue #110. And with
+		-- the Forever chat moderation fixes merged, a fourth {watch}, last: a moderator's sanction on every
+		-- sub-realm name, carried ahead of the chat lines by the relays.)
+		eq(table.concat(marks, ","), "church,church,church,church,church,guild,guild,guild,news,news,news,news,watch,watch,watch,watch", code .. ": release topics")
 		for _, text in ipairs({ raw, title }) do
 			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
 				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
@@ -679,9 +681,10 @@ end
 -- (Accord.Tried), the [?] under All for a line nobody can place (Channels.GroupTag), the name rule's
 -- comparisons (Core.lua), a guild master handed his guild's verification by his guildmates and the
 -- revocations that reach everyone (Verify.lua), and (issue #110, pull request #109) the profession and
--- crafted item links that reach players on 1.6.0 whole (Codec.lua). Each page, tag and line named as that
--- language's player sees it. Fails before: the letter told none of them.
-test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the profession and crafted item links, the name rule, the guild master's verification from his guild and the revocations, each named as shown", function()
+-- crafted item links that reach players on 1.6.0 whole (Codec.lua), and on Forever a chat moderator's
+-- sanction keyed by the player's realm family and carried first by the relays (WatchChat.lua, Relay.lua).
+-- Each page, tag and line named as that language's player sees it. Fails before: the letter told none of them.
+test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the profession and crafted item links, the name rule, the guild master's verification from his guild, the revocations and the chat moderation on Forever, each named as shown", function()
 	local function Client(locale)
 		local saved = GetLocale
 		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
@@ -728,7 +731,9 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		-- (The review of 1.6.0) Handed over by guildmates on 1.6.0 alone (Verify.lua's hand-over is new code: a
 		-- 1.5.9 guildmate holding the approval says nothing over GUILD), as the README says.
 		assert(watch[2]:find("1.6.0", 1, true), code .. ": the guildmates who hand it over, on 1.6.0")
-		eq(#watch, 3, code .. ": the name rule and the two verification fixes")
+		-- (Changed on purpose with the Forever chat moderation fixes merged: a fourth {watch}, on WoW: Forever.)
+		assert(watch[4]:find("WoW: Forever", 1, true), code .. ": the chat moderation's bullet, on WoW: Forever")
+		eq(#watch, 4, code .. ": the name rule, the two verification fixes and the chat moderation")
 	end
 	local english = Client("enUS").L.LETTER_1_6_0
 	for _, words in ipairs({
@@ -742,6 +747,7 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		"Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.",
 		"a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
 		"any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.",
+		"On WoW: Forever, a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines instead of minutes behind them at busy hours.",
 	}) do
 		assert(english:find(words, 1, true), "1.6.0's letter: " .. words)
 	end
@@ -756,4 +762,6 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	assert(roadmap:find("receives that verification from guildmates on 1.6.0 who have it", 1, true), "ROADMAP.md's v1.6.0: from guildmates on 1.6.0")
 	assert(roadmap:find("Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and the Chat tab (#110).", 1, true),
 		"ROADMAP.md's v1.6.0: the profession and crafted item links")
+	assert(roadmap:find("On Forever a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines", 1, true),
+		"ROADMAP.md's v1.6.0: the chat moderation on Forever")
 end)

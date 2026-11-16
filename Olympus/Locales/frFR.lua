@@ -63,6 +63,7 @@ ns.Locale("frFR", {
 - {watch} Les guildes dont le nom se compare seulement à Olympus ou dit qu'elles ne sont pas Olympus ne comptent plus comme guildes Olympus.
 - {watch} Sur WoW: Forever, le maître d'une guilde déjà vérifiée reçoit maintenant cette vérification des membres de sa guilde en 1.6.0 qui l'ont, donc une nouvelle installation ou une approbation manquée n'affiche plus Vérification du maître de guilde en attente, même sans vérificateur en ligne.
 - {watch} Révoquer la vérification d'une guilde atteint maintenant tout le monde : tout vérificateur peut révoquer une approbation que son propre client n'a jamais reçue, ceux qui reviennent après quelques jours d'absence reçoivent la révocation, et une guilde retirée du réseau n'affiche pas la coche des guildes vérifiées.
+- {watch} Sur WoW: Forever, la sourdine d'un modérateur du chat, sa levée ou une ligne supprimée s'applique maintenant au joueur sous le nom de chaque sous-royaume de ses règles, et les relais la transmettent avant les lignes du chat au lieu de plusieurs minutes après aux heures de pointe.
 
 Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
 

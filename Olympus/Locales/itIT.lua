@@ -63,6 +63,7 @@ ns.Locale("itIT", {
 - {watch} Le gilde il cui nome le paragona soltanto a Olympus o dice che non sono Olympus non contano più come gilde di Olympus.
 - {watch} Su WoW: Forever, il capogilda di una gilda già verificata ora riceve quella verifica dai compagni di gilda con la 1.6.0 che ce l'hanno, quindi una nuova installazione o un'approvazione persa non mostra più Verifica del capogilda in sospeso, anche senza verificatori online.
 - {watch} Revocare la verifica di una gilda ora raggiunge tutti: qualsiasi verificatore può revocare un'approvazione che il suo client non ha mai ricevuto, chi torna dopo qualche giorno di assenza riceve la revoca, e una gilda tolta dalla rete non mostra il segno di spunta delle gilde verificate.
+- {watch} Su WoW: Forever, il timeout di un moderatore della chat, la sua revoca o una riga eliminata ora vale per il giocatore con il nome di qualsiasi sottoreame delle sue stesse regole, e i relay lo passano prima delle righe della chat invece che minuti dopo nelle ore di punta.
 
 Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
 

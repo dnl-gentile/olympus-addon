@@ -1444,6 +1444,16 @@ right-clicks it; on a case's page in The Watch the same choices are lines of the
   account's characters on one realm group and faction; the list matches whole words, so a new
   spelling slips through and the moderators' own tools still cover it. Until the author adds the
   approved words to the list, nothing is refused.
+- **On WoW: Forever (1.6.0).** A player is one name across his realm group: a deletion, a timeout,
+  its lift and an Olympus moderators' list match him whatever sub-realm name his lines carry, on
+  every reader's client and on his own (timeouts and lifts saved under a sub-realm's name are filed
+  again under his group's the first time 1.6.0 loads); a reader before 1.6.0 still matches only the
+  name as stamped. A sanction's first word (an Olympus-wide deletion, purge of recent lines, timeout
+  or lift, and the punished player's own word about his guild's) leaves its sender's client in the
+  urgent lane, and a relay whose own client would accept it carries it ahead of the chat lines
+  waiting there, to the other relays first: once for each sanction an hour, at most 6 of one
+  giver's a minute. Its repeats every five minutes, the lists, appeals and every other word wait in
+  line as before.
 - **Limits, plainly.** Clients before 1.1.6 still show a deleted line and a timed-out player's
   lines. The game's own chat windows keep what they already showed under the gamepad UI, with
   Chattynator (its API cannot change a line), with a chat addon that rewrites lines, and for lines

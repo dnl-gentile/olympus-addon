@@ -324,6 +324,7 @@ L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 - {watch} Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.
 - {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
 - {watch} Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.
+- {watch} On WoW: Forever, a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines instead of minutes behind them at busy hours.
 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
@@ -586,6 +587,7 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 - {watch} Guildas cujo nome só se compara ao Olympus ou diz que não é o Olympus deixam de contar como guildas do Olympus.
 - {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda na 1.6.0 que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
 - {watch} Revogar a verificação de uma guilda agora chega a todos: qualquer verificador pode revogar uma aprovação que o próprio cliente nunca recebeu, quem volta depois de alguns dias fora recebe a revogação, e uma guilda tirada da rede não mostra a marca de guilda verificada.
+- {watch} No WoW: Forever, o castigo de um moderador do chat, a retirada dele ou uma linha apagada agora vale para o jogador sob qualquer nome de sub-reino do mesmo conjunto de regras, e os relays levam isso à frente das linhas do chat, em vez de minutos depois delas nos horários de pico.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 

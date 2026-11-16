@@ -63,6 +63,7 @@ ns.Locale({ "esES", "esMX" }, {
 - {watch} Las hermandades cuyo nombre solo las compara con Olympus o dice que no son Olympus ya no cuentan como hermandades de Olympus.
 - {watch} En WoW: Forever, el maestro de una hermandad ya verificada recibe ahora esa verificación de los compañeros de hermandad con la 1.6.0 que la tienen, así que una instalación nueva o una aprobación perdida ya no muestra Verificación del maestro de hermandad pendiente, aunque no haya ningún verificador conectado.
 - {watch} Revocar la verificación de una hermandad ahora llega a todos: cualquier verificador puede revocar una aprobación que su propio cliente nunca recibió, quien vuelve tras unos días fuera recibe la revocación, y una hermandad sacada de la red no muestra la marca de hermandad verificada.
+- {watch} En WoW: Forever, el silencio de un moderador del chat, su levantamiento o una línea borrada ahora se aplica al jugador con el nombre de cualquier subreino de sus mismas reglas, y los relays lo pasan antes que las líneas del chat en lugar de minutos después en las horas punta.
 
 Cierra y vuelve a abrir WoW después de actualizar. Si algo sigue fallando, envía un informe con /oly bug.
 

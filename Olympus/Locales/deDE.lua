@@ -63,6 +63,7 @@ ns.Locale("deDE", {
 - {watch} Gilden, deren Name sie nur mit Olympus vergleicht oder sagt, dass sie nicht Olympus sind, zählen nicht mehr als Olympus-Gilden.
 - {watch} Auf WoW: Forever bekommt der Gildenmeister einer bereits verifizierten Gilde diese Verifizierung jetzt von Gildenmitgliedern mit 1.6.0, die sie haben, sodass eine Neuinstallation oder eine verpasste Genehmigung nicht mehr GM-Verifizierung ausstehend zeigt, auch wenn kein Prüfer online ist.
 - {watch} Der Widerruf einer Gildenverifizierung erreicht jetzt alle: Jeder Prüfer kann eine Genehmigung widerrufen, die sein eigener Client nie erhalten hat, wer nach ein paar Tagen zurückkommt, bekommt den Widerruf, und eine vom Netz genommene Gilde zeigt kein Häkchen einer verifizierten Gilde.
+- {watch} Auf WoW: Forever gilt der Timeout eines Chat-Moderators, seine Aufhebung oder eine gelöschte Zeile jetzt für den Spieler unter dem Namen jedes Teilrealms seines Regelwerks, und die Relays geben sie vor den Chatzeilen weiter statt zu Stoßzeiten Minuten danach.
 
 Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.
 
