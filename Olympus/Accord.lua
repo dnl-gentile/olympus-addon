@@ -118,7 +118,7 @@ local lastLine = { key = false, hide = false, asked = { own = {}, relay = {} } }
 local NOFRAME = {}
 local watchingNotFound, filtering = false, false
 local stats = { asks = 0, heard = 0, told = 0, kept = 0, refused = 0, askNotTeam = 0, lower = 0, gone = 0, wiped = 0,
-	quieted = 0, passed = 0, late = 0 }
+	quieted = 0, passed = 0, late = 0, noLineID = 0, refusedTries = 0, refusedLines = 0 }
 
 local function Mono() return type(GetTime) == "function" and GetTime() or 0 end
 -- A sanction that follows the BattleTag (TagFollow.lua, loaded after this file): its calls, guarded.
@@ -463,16 +463,18 @@ local function WatchNotFound()
 	pcall(ns.RegisterEvent, "CHAT_MSG_SYSTEM", function(text) ns.SafeCall("olympus accord not found", Accord.NotFound, text) end)
 end
 
--- His marks still running (the others dropped): the newest one taken, true, when there is one.
+-- His marks still running (the others dropped): the newest one taken, and returned, when there is one.
 local function TakeMark(q, now)
 	local marks = q.marks
 	for i = #marks, 1, -1 do
 		if marks[i].untilAt < now then table.remove(marks, i) end
 	end
 	local n = #marks
-	if n == 0 then return false end
+	if n == 0 then return nil end
+	local mark = marks[n]
 	marks[n] = nil
-	return true
+	mark.taken = true
+	return mark
 end
 
 -- The same line, kept out of the chat frames QUIET seconds after our whisper to him went (the
@@ -514,7 +516,8 @@ local function Answer(asker, chatFrame, text, ...)
 			return lastLine.hide
 		end
 	end
-	local hide = TakeMark(q, now)
+	if not lineID then stats.noLineID = stats.noLineID + 1 end
+	local hide = TakeMark(q, now) ~= nil
 	if hide then
 		stats.quieted = stats.quieted + 1
 	elseif now - q.last <= Accord.QUIET then
@@ -566,8 +569,14 @@ end
 -- (if the client prints one at all: nothing in game shows yet whether Forever does), and its mark
 -- runs out `grace` seconds from now, not QUIET: a refusal that printed nothing kept the player's own
 -- whisper's line out of the chat those ten seconds.
+-- (/oly status counts these refusals, and how many had their line during the call: what Forever does
+-- with them, for the in-game check.)
 function Accord.Untried(mark, grace)
 	if type(mark) ~= "table" then return end
+	if grace then
+		stats.refusedTries = stats.refusedTries + 1
+		if mark.taken then stats.refusedLines = stats.refusedLines + 1 end
+	end
 	mark.untilAt = grace and math.min(mark.untilAt, Mono() + grace) or -math.huge
 end
 -- The filter, registered the first time a whisper may need it (1.6.0: it opens no window itself;
@@ -1371,9 +1380,9 @@ function Accord.StatusLine()
 	local team = Accord.TeamMember() and (" | team: %d characters, %d BattleTags"):format(Accord.Count(), #Accord.Groups()) or ""
 	local T = TF()
 	local follows = T and T.StatusLine and (" | " .. T.StatusLine()) or ""
-	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d | no-player lines hidden %d, shown %d, late %d%s"):format(state,
+	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d | no-player lines hidden %d, shown %d, late %d, without lineID %d; whispers refused %d, their line during the call %d%s"):format(state,
 		why or "readable", team, stats.asks, stats.heard, stats.told, stats.kept, stats.refused, stats.askNotTeam, stats.lower, stats.gone, stats.wiped,
-		stats.quieted, stats.passed, stats.late, follows)
+		stats.quieted, stats.passed, stats.late, stats.noLineID, stats.refusedTries, stats.refusedLines, follows)
 end
 function Accord.Stats() return stats end
 

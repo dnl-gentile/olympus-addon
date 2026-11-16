@@ -8456,6 +8456,41 @@ test("1.6.0 no-player lines: /oly status counts the lines kept out, those shown 
 	end)
 end)
 
+-- 1.6.0 (the review of the no-player lines fix): nothing seen in game yet says whether Forever's
+-- system lines carry a lineID, or whether the game prints the line of a whisper it refuses during the
+-- call. The fix works either way; /oly status (and /oly bug, its pop-up) now says which, for the
+-- in-game check: the lines with no lineID, the whispers the game refused itself, and how many of those
+-- had their line during the call. Fails before: none of the three in the status line.
+test("1.6.0 no-player lines: /oly status counts the lines with no lineID, the whispers the game refused itself and those whose line came during the call; a throttled try is not a refusal", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local how = "printed"
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if how == "printed" then w.Shown(target) return 12 end
+			if how == "silent" then return 12 end
+			if how == "throttle" then how = "taken" return 3 end
+			return 0
+		end
+		local function Sync(name)
+			O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		Sync("Gone Keeper") -- refused, its line during the call
+		how = "silent"
+		Sync("Quiet Keeper") -- refused, no line
+		how = "throttle"
+		Sync("Busy Mate") -- not now (3), then taken on its retry
+		w.mono = w.mono + 3
+		for _ = 1, 3 do O.Comm.Pump() end
+		w.noLineIDs = true
+		w.mono = w.mono + 1
+		eq(w.Shown("Busy Mate", 2), 0, "the taken whisper's line, with no lineID: out of both windows")
+		assert(A.StatusLine():find("without lineID 1; whispers refused 2, their line during the call 1", 1, true), A.StatusLine())
+	end)
+end)
+
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
 -- channel too, which Forever delivers across every sub-realm to everyone in that channel; the
 -- hidden way by the relay goes on beside it (another lane, another guild), each line taken once.
