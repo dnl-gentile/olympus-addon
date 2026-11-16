@@ -3724,6 +3724,14 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		C.env.C_FriendList.GetNumWhoResults = function() return #contacts, #contacts end
 		C.env.C_FriendList.GetWhoInfo = function(i) return contacts[i] end
 		C.Fire("WHO_LIST_UPDATE")
+		-- (Changed in 1.6.0: the request opened with the search's answer, on the first member /who
+		-- listed, before the answer of the member it asked where to go. It now waits for that answer, or
+		-- ROUTE_SETTLE seconds when none comes, as here: Alice's client never answers.)
+		eq(Draft(), nil, "the screen waits for the asked member's answer first")
+		C.Advance(1)
+		eq(Draft(), nil)
+		assert(Row(L.RECRUIT_SEARCHING), "still looking meanwhile")
+		C.Advance(ns.Recruit.ROUTE_SETTLE - 1)
 		local draft = assert(Draft(), "a completed search prepares one request")
 		eq(draft.data.name, "Alice-Realm")
 		eq(#(C.said or {}), sends, "the game results send no chat")

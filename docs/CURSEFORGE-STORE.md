@@ -71,23 +71,29 @@ doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's o
 find Olympus members online, groups them by guild, and whispers one of them a ready-made
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
-are highlighted. It is rate limited, so nobody gets spammed.
+are highlighted. It is rate limited, so nobody gets spammed. From 1.6.0 it asks a member who
+recruits first, passes over one whose addon says he can't invite (no invite right, or a full
+guild), tells you why when the member asked can't take your request or nobody is left to ask, and
+can ask a member again 10 minutes after the first time.
 
-**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line)
-where recruits should go, and its census answers: the guild the King opened **the gates** of
-first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
-online (never the King). It names only what the census confirms: guilds two members' reports
-agree on, and Lords and Captains two reports name. The screen lists them in that order, each
-once `/who` found one of its members (the gates once a second member's answer agrees: one more
-is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
-found in that guild, or another member it found there. Just before, their addon is asked
-whether they take recruit whispers (again if it never answered). A member who set **do not
-contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
-question closes before anything is sent. It stays **one whisper per click**, in your
-own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
-chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
+**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line) where
+recruits should go, and its census answers: the guild the King opened **the gates** of first,
+then the guilds with the **most free slots**, and a couple of their Lords and Captains online
+(never the King). From 1.6.0 the answer also says whether a request pops up for that member now,
+waits in his list or can't be taken (no invite right, or a full guild), and names first his own
+guild's members who recruit (himself while his recruiting is on, then those whose hello says they
+take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
+Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
+one of its members (the gates once a second member's answer agrees: one more is asked), the
+guilds found with `/who` too, and a click asks one of those officers that `/who` found in that
+guild, or another member it found there. Just before, their addon is asked whether they take
+recruit whispers (again if it never answered). A member who set **do not contact** (`/oly
+nocontact on`) is never offered, however many recruits ask him, and the question closes before
+anything is sent. It stays **one whisper per click**, in your own words (no dues line), 20
+seconds apart. With it goes your request to the same member, so an officer's addon shows it with
+**Invite** and **Decline** instead of a raw whisper; one who recruits by whisper (1.5.9) gets it
+as a **JOIN**: the invite pop-up opens by itself, unless he chose **Queue only**. Members on
+versions before 1.1 just get the whisper, as before.
 
 ## What it does
 

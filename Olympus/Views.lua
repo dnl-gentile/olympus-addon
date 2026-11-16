@@ -3673,12 +3673,16 @@ end
 
 function Views.JoinLines(height)
 	local R = ns.Recruit
-	local searching, left, last, reminder, guilds = R.JoinStatus()
+	-- (1.6.0) `notice`: what the screen learned about the last request (the member recruits, he can't
+	-- invite, the guild is full, nobody is left to ask), under the wait while it runs, in its place after.
+	local searching, left, last, reminder, guilds, notice = R.JoinStatus()
 	local pending = searching or left > 0
 	local status = searching and L.RECRUIT_SEARCHING
 		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
+		or notice
 		or last and L.RECRUIT_JOIN_TIMEOUT
 		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
+	local under = not searching and left > 0 and notice or nil
 	local lines = {
 		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
 			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 210) / 2)) },
@@ -3688,7 +3692,8 @@ function Views.JoinLines(height)
 		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
 			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
 	}
-	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = true } end
+	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = under == nil } end
+	if under then lines[#lines + 1] = { text = under, center = true, gapAfter = true } end
 	lines[#lines + 1] = { text = Gold((reminder and "[x] " or "[ ] ") .. L.RECRUIT_JOIN_REMINDER),
 		center = true, onClick = R.ToggleJoinReminder }
 	lines[#lines + 1] = { text = Gold(guilds and L.RECRUIT_JOIN_HIDE_GUILDS or L.RECRUIT_JOIN_SHOW_GUILDS),

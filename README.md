@@ -130,25 +130,41 @@ you can edit. Click **Send** to whisper it. The screen waits 45 seconds before o
 when the 45 seconds expire, even if you received a whisper reply or closed the Join page.
 Confirm to prepare a new request. **Browse Olympus guilds** opens the optional guild list.
 
+From 1.6.0 the screen asks first a member whose own answer says he recruits, then (after the
+guild of the King's gates) the Lords, Captains and recruiters the answers name, and only then
+anyone else `/who` found. Before it opens a request on its own, after a search or when the member
+it chose can't take it, it may ask that member's addon first and waits up to 3 seconds for the
+answer (4 members a click at most). A member whose answer says he can't invite (no invite right,
+or a full guild) is passed over before you write to him; a request already open for him closes
+with a line saying why, and the next member is asked. When the request already went, the wait ends
+as soon as you may send another and the screen says why. When the member asked recruits, the screen
+says your request goes to his invite queue. When nobody is left to ask, the screen says so (every
+guild found full, or everyone found already asked or unable to take the request); a member asked
+10 minutes ago or more can then be asked again. Members on versions before 1.6.0 say nothing of
+themselves, and are asked as before.
+
 The list uses the game's own `/who`, which returns up to 50 players per search. When there
 are more, each new click searches a range of levels and adds to the list. Replies are
 highlighted. Olympus uses its own editable confirmation window in both input modes.
 
-**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line)
-where recruits should go, and its census answers: the guild the King opened **the gates** of
-first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
-online (never the King). It names only what the census confirms: guilds two members' reports
-agree on, and Lords and Captains two reports name. The screen lists them in that order, each
-once `/who` found one of its members (the gates once a second member's answer agrees: one more
-is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
-found in that guild, or another member it found there. Just before, their addon is asked
-whether they take recruit whispers (again if it never answered). A member who set **do not
-contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
-question closes before anything is sent. It stays **one whisper per click**, in your
-own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
-chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
+**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line) where
+recruits should go, and its census answers: the guild the King opened **the gates** of first,
+then the guilds with the **most free slots**, and a couple of their Lords and Captains online
+(never the King). From 1.6.0 the answer also says whether a request pops up for that member now,
+waits in his list or can't be taken (no invite right, or a full guild), and names first his own
+guild's members who recruit (himself while his recruiting is on, then those whose hello says they
+take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
+Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
+one of its members (the gates once a second member's answer agrees: one more is asked), the
+guilds found with `/who` too, and a click asks one of those officers that `/who` found in that
+guild, or another member it found there. Just before, their addon is asked whether they take
+recruit whispers (again if it never answered). A member who set **do not contact** (`/oly
+nocontact on`) is never offered, however many recruits ask him, and the question closes before
+anything is sent. It stays **one whisper per click**, in your own words (no dues line), 20
+seconds apart. With it goes your request to the same member, so an officer's addon shows it with
+**Invite** and **Decline** instead of a raw whisper; one who recruits by whisper (1.5.9) gets it
+as a **JOIN**: the invite pop-up opens by itself, unless he chose **Queue only**. Members on
+versions before 1.1 just get the whisper, as before.
 
 **A guild's public charter.** On the Realm, **Your guild's public charter** lets its current
 guild master publish a short purpose (48 bytes), client language, raid nights (24 bytes), and
@@ -2704,8 +2720,8 @@ goes where:
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
 | A guild master's Legates and correspondents: names and each correspondent's department | everyone on the Olympus channel; each client saves up to 300 accepted guild lists, including its own, while the source is offline; verified removal or change of master revokes the duty | only from that guild master's client: after a change and every 5 minutes while online |
 | The King's guild's manually appointed Legates (1.2.4): up to 25 names, original issuer and revision, including an empty removal list | everyone on the Olympus channel; retained appointments use compatible historical ids, with current King/High Council issuer verification | only from the King or an actual High Councillor's client after an authorized edit or repeat; no automatic retirement message |
-| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
-| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
+| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered; from 1.6.0 also to each member the screen picks before opening his request, 4 a click at most); J3 with each whisper you send |
+| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King); from 1.6.0 whether a request pops up for you now (your recruiting is on and neither Queue only nor the pop-up interval holds it), waits in your list, or can't be taken (no invite right, or your guild is full), and for your own guild, before its Lords and Captains, yourself while your recruiting is on and the guildmates online whose hello says they take handoffs | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | Who declined a guild invite: a hash of each such player's name (8 hex digits) and when, from the game's decline notice | sent to members of your current guild who use Olympus, through the game's guild addon channel. Your client keeps up to 200 local declines and 200 reports from your guild for 7 days. Received reports only suppress unsolicited invites | when the game reports the decline and your character can invite. A player can still ask to join with **JOIN** |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name; in the Treasurer's part of the ranking, your gold to his characters less each week's up to the dues' amount his addon knew that week, and less all you sent with the dues' note) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
@@ -3068,9 +3084,11 @@ few characters working together can still reach is said plainly further down
   the sealed Olympus channel.
 - **The Join screen** (1.1): outside an Olympus guild the addon hears one message alone, a
   member's answer to its own question, and only from the member it asked in the last minute;
-  a guild it names counts only if it is an Olympus guild. A member answers each recruit once a
-  minute and ten a minute in all. A recruit's request shows only for your own guild, once per
-  ten minutes per recruit, thirty kept at most, six chat lines a minute at most.
+  a guild it names counts only if it is an Olympus guild. (1.6.0) What an answer says of the
+  member who gave it (he recruits, can invite or can't) is about him alone, and whoever it names
+  is still whispered only once the recruit's own `/who` found him in that guild. A member answers
+  each recruit once a minute and ten a minute in all. A recruit's request shows only for your own
+  guild, once per ten minutes per recruit, thirty kept at most, six chat lines a minute at most.
 - **Validation**: every number is range checked, names are length limited, and malformed
   messages are dropped. Decrees are rate limited per sender (one a minute) and in total (6 a
   minute from senders only the census vouches for; since 1.0.0 the King's, his Steward's, the
@@ -3435,8 +3453,11 @@ automatic recruiting pop-ups, up to 24 hours. The interval stays with your guild
 after a reload. You can review the queue at any time. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
-pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
-dropped, recruiting or not, as the game drops his whisper.
+pop-up, invite limit, handoffs and recruiting log. From 1.6.0, while recruiting is on, your addon
+tells a recruit's Join screen that asks where to go that a request pops up for you (unless Queue
+only or the pop-up interval holds it), and names you and your guildmates who take handoffs before
+its Lords and Captains, so new players reach recruiters first. One from a player on your ignore list is dropped, recruiting or not, as the game drops his
+whisper.
 
 **Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
 keeps up to 24 candidates locally for the current session. It learns from friendly visible
