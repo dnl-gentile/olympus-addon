@@ -1493,7 +1493,28 @@ function Channels.Send(tier, text, now, keepMute, to)
 	local room = tier == "A" and ns.splitNames and { kind = own or false, to = to } or nil
 	-- Its id keeps two digits then: a long line's parts within one hundred, so they read as consecutive
 	-- ids everywhere (WatchChat.RefsFor takes a line's parts so: 299 then 200 would be two lines).
-	if (to or from) and nextId % 100 + #parts > 99 then nextId = nextId + 99 - nextId % 100 end
+	local function Fit() if (to or from) and nextId % 100 + #parts > 99 then nextId = nextId + 99 - nextId % 100 end end
+	Fit()
+	-- (1.6.0.1, the review of PR #114) A reader keeps a part's key (its writer, id and text) DedupeWindow,
+	-- 1,320 s, and that id keeps two digits there: a hundred parts in 22 minutes and the next went out on
+	-- the id of the first, so the same short text again ("gz") was dropped by every reader as seen (120 s
+	-- before 1.6.0). A line takes the next ids none of whose parts went out with the same id and text (mine)
+	-- within twice the window (a reader's key counts from its first copy, which may come a window late),
+	-- one turn of the ids at most: past it, the same text that often is a flood and keeps the ids it had.
+	local reuse, turn, first = 2 * DedupeWindow(), (to or from) and 100 or 10000, nextId
+	local function Reused()
+		for i, part in ipairs(parts) do
+			local at = mine[Codec.ChatWireId((nextId + i) % 10000, tier, to, from) .. "#" .. Codec.SanitizeChat(part)]
+			if at and now - at < reuse then return true end
+		end
+		return false
+	end
+	for _ = 1, turn do
+		if not Reused() then first = nil break end
+		nextId = (nextId + 1) % 10000
+		Fit()
+	end
+	if first then nextId = first end
 	-- A queued line can wait several seconds. Recheck the actual server roster, consent and
 	-- moderation immediately before every part leaves; a demoted/offline writer sends no tail.
 	local function SendGuard()
@@ -2573,8 +2594,10 @@ function Channels.Prune(now)
 		table.sort(keys, function(a, b) return a.t < b.t end)
 		for i = 1, n - SEEN_KEEP do seen[keys[i].k] = nil end
 	end
+	-- (1.6.0.1) Our own parts twice as long: Channels.Send takes no id one went out with, with the same
+	-- text, within that time (Admit's check of our own echo still counts the window).
 	for k, t in pairs(mine) do
-		if now - t > window then mine[k] = nil end
+		if now - t > 2 * window then mine[k] = nil end
 	end
 	for k, b in pairs(buckets) do
 		if now - b.t > 60 then buckets[k] = nil end

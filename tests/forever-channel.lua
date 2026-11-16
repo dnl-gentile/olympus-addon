@@ -832,3 +832,110 @@ test("1.6.0's review chat ids: a character's line ids go on from the last one he
 	StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
 	if not ok then error(err, 0) end
 end)
+
+-- 1.6.0.1 (the review of PR #114). A reader keeps a part's key (its writer, id and text)
+-- Channels.DedupeWindow, 1,320 s, and on Forever an [Olympus] line's id keeps two digits
+-- (Codec.ChatWireId): within one session a writer's ids came round to the first after a hundred parts,
+-- so the same short line ("gz") after 99 others within those 22 minutes went out on the id it had gone
+-- out with, and every reader dropped it as seen (ids that go on across a /reload, above, do not help
+-- there). A line now takes the next ids none of whose parts went out with the same text within twice
+-- the window, one turn of the ids at most. Fails before: the second "gz" is a "dup".
+-- A PvE writer of Forever (his [Olympus] lines name his ruleset, two digits of id), Channels.lua and
+-- Comm loaded anew: fn(Say, Read), Say(text) the id the line goes out with, Read(id, text, at) a
+-- 1.6.0 reader's answer for that part (Channels.Admit, its own keys), put back after.
+local function ForeverWriter(fn)
+	local FreshComm = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")
+	local saved = { name = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName, guild = GetGuildInfo,
+		time = GetTime, info = C_ChatInfo,
+		slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+		dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+	local ok, err = pcall(function()
+		local REALM = "CAMWOWUS2Realm1PvE"
+		local WRITER = "Chatty Writer-" .. REALM
+		local clock, ids, sent = 100000, { OlympusNet = 7 }, {}
+		GetGuildInfo = function() return "OLYMPUS FIXTURE", "Lord", 0 end
+		GetTime = function() return clock end
+		GetChannelName = function(name) return ids[name] or 0 end
+		LeaveChannelByName = function(name) ids[name] = nil end
+		JoinChannelByName = function() end
+		local cns = FreshComm()
+		C_ChatInfo.SendAddonMessage = function(_, msg) sent[#sent + 1] = msg return 0 end
+		C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+		cns.me, cns.realm, cns.splitNames = WRITER, REALM, true
+		cns.db, cns.rdb = { addonChat = true, chatWarned = { A = true }, blocked = {} }, { guilds = {} }
+		cns.IsMember = function() return true end
+		cns.OnForever = function() return false end
+		cns.Print, cns.Fire, cns.ShowDialog = function() end, function() end, function() end
+		cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data })
+		local logins = {}
+		cns.On = function(name, f) if name == "LOGIN" then logins[#logins + 1] = f end end
+		assert(loadfile(ADDON .. "Channels.lua"))("Olympus", cns)
+		for _, f in ipairs(logins) do f() end
+		eq(cns.Channels.MyKind(), "pve", "(a PvE writer)")
+		ids[cns.Comm.ChannelSpec()] = ids[cns.Comm.ChannelSpec()] or 6
+		cns.Comm.JoinChannel()
+		local function Say(text)
+			clock = clock + 2
+			local before = #sent
+			eq(cns.Channels.Send("A", text), true, "sent: " .. text)
+			for _ = 1, 10 do cns.Comm.Pump() end
+			for i = before + 1, #sent do
+				local m = ns.Codec.DecodeChat(sent[i])
+				if m and m.text == text then
+					eq(m.from, "pve", "(its id names its writer's ruleset)")
+					return m.id
+				end
+			end
+			error("no line " .. text .. " went out")
+		end
+		local seen, mine = {}, {}
+		local function Read(id, text, at)
+			return ns.Channels.Admit(WRITER, "OLYMPUS FIXTURE", text, at, { level = 0, seen = seen, mine = mine, buckets = {}, stats = {}, id = id })
+		end
+		fn(Say, Read)
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, GetGuildInfo = saved.name, saved.join, saved.leave, saved.guild
+	GetTime, C_ChatInfo = saved.time, saved.info
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+	StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+	if not ok then error(err, 0) end
+end
+
+test("1.6.0.1 chat ids: on Forever the same short line after 99 others within 22 minutes goes out on an id it never went out with, and a reader shows it", function()
+	ForeverWriter(function(Say, Read)
+		local first = Say("gz")
+		local used = { [first] = true }
+		for i = 1, 99 do
+			local id = Say("line " .. i)
+			assert(not used[id], "(each of the hundred ids once: " .. id .. ")")
+			used[id] = true
+		end
+		-- (The hundred ids of the writer's ruleset all went out: the next one is the first's.) A reader that
+		-- showed the first "gz" shows the second, about 200 s later.
+		local again = Say("gz")
+		eq((Read(first, "gz", 50000)), true, "(the first shown)")
+		local shown, why = Read(again, "gz", 50000 + 202)
+		eq(shown, true, "the same text after 99 other lines: " .. tostring(why))
+		assert(again ~= first, "it does not go out on the id it went out with: " .. again)
+		eq(math.floor(again / 100), math.floor(first / 100), "(the ruleset's digit kept)")
+		eq(Say("after"), math.floor(again / 100) * 100 + (again + 1) % 100, "the ids go on from there")
+	end)
+end)
+
+test("1.6.0.1 chat ids: the same text a hundred times within the window goes on its ids after one turn (a flood, dropped as seen as before) and the ids after it go on", function()
+	ForeverWriter(function(Say, Read)
+		local first = Say("gz")
+		local used = { [first] = true }
+		for _ = 2, 100 do
+			local id = Say("gz")
+			assert(not used[id], "(a hundred times, a hundred ids: " .. id .. ")")
+			used[id] = true
+		end
+		local flood = Say("gz")
+		eq(flood, first, "every id went out with it: the line keeps the next id, after one turn")
+		eq(Say("after"), math.floor(first / 100) * 100 + (first + 1) % 100, "the ids go on")
+		eq((Read(first, "gz", 50000)), true)
+		eq(select(2, Read(flood, "gz", 50000 + 202)), "dup", "(a reader drops that one as seen, as before)")
+	end)
+end)
