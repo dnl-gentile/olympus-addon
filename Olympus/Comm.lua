@@ -561,7 +561,8 @@ end
 --   1.4.0, PrivatePresence PP (Private presence on or off, to the player's own guild over GUILD only).
 --   Verify GV (guild verification: a verifier's approval or revocation of a guild and its master,
 --   logged; any member's ask; a verifier's client's answer with the words and the guilds' starts;
---   1.6.0, a guild master's ask to his own guild over GUILD, which a guildmate answers by RG).
+--   1.6.0, a guild master's ask to his own guild over GUILD, which a guildmate answers as the relay's
+--   hop 3 does, below).
 --   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivered
 --   nothing on it at launch: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
 --   the relay's answer to a ping, and 1.4.6 a relay's copy to the other relays); 1.5.4 RW (guild
