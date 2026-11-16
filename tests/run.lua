@@ -434,6 +434,80 @@ test("federation filter: Olympus however it was spelled, but not other words", f
 	eq(crowned[2], true)
 end)
 
+-- 1.6.0 (reported 2026-11-15 on Discord and on CurseForge, asking twice to take the guild out of the addon):
+-- a guild whose name sets Olympus as a comparison counted as an Olympus guild, for "than" is no word
+-- against Olympus (Core.lua's name rule, its 1.6.0 note). Every name here is made up, built like the
+-- reported one. Fails before: every name of the first two lists was an Olympus guild.
+test("federation filter (1.6.0): a name that measures a guild against Olympus or says it is not Olympus is none, glued too; Olympus first, praise, any other word between and the genuine patterns still count; the Horde's words alike; the author's list still lets one in", function()
+	local saved = { faction = ns.faction, inGuild = IsInGuild, guild = GetGuildInfo, approved = ns.IsApprovedGuild, print = ns.Print }
+	local ok, err = pcall(function()
+		ns.faction = "Alliance"
+		-- Measured against Olympus: a "than" right before it or with a word or two of degree, place or whose
+		-- between ("all", "any" and "every" too), any case, any spelling of Olympus, the slip "then" after a
+		-- comparative, and glued.
+		for _, name in ipairs({ "Stronger Than Olympus", "STRONGER THAN OLYMPUS", "stronger than olympus", "More Than Olympus",
+			"Less Than Olympus", "Wiser Than The Olympus", "Way Stronger Than Olympus", "Bigger Than Olimpvs", "Taller Than OLYMPVS",
+			"Stronger Than Ólympus", "Stronger Than 0lympus", "Stronger Than Olympus II", "Stronger Then Olympus",
+			"Stronger Then The Olympus", "StrongerThanOlympus", "MoreThanOlimpvs", "Than Olympus", "Stronger Than Your Olympus",
+			"Stronger Than Ur Olympus", "Stronger Than All Olympus", "Stronger Than Any Olympus", "Stronger Than Every Olympus",
+			"Stronger Than All of Olympus", "Stronger Than Even The Olympus" }) do
+			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
+		end
+		-- Saying it is not Olympus: "not" and its kind, straight, with a word or two of degree, place or whose
+		-- between, or glued; versus and nor.
+		for _, name in ipairs({ "Non Olympus", "Not Even Olympus", "Not Really Olympus", "Not Quite Olympus", "Not Part of Olympus",
+			"Not in Olympus", "Not Your Olympus", "Never Part of Olympus", "NotOlympus", "NonOlympus", "NoOlympus", "NeverOlympus",
+			"NotOlimpvs", "Horde vs Olympus", "Horde Versus Olympus", "Not Horde Nor Olympus" }) do
+			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
+		end
+		-- Still Olympus: Olympus first ("than" after it), praise, any other word between (after "not" or after
+		-- "than": "Older Than Time Olympus"), "then" that is no comparison, a name that only ends in "than", a
+		-- word glued in front that only starts like "no", "not" or "than" (Olympus does not start at the O
+		-- after it: NoobOlympus, NotoriousOlympus, ThanosOlympus), the patterns of the realm's guilds
+		-- (numerals, a word after or before, all caps, accents, misspellings) and "Olympus Fake", the census
+		-- tests' forged guild.
+		for _, name in ipairs({ "Olympus Stronger Than You", "Olympus Than", "None Finer Than Olympus", "Nothing Above Olympus",
+			"Older Than Time Olympus", "Bolder Than Ever Olympus", "Faster Than Light Olympus",
+			"Do Not Anger Olympus", "Do Not Mess With Olympus", "No Mercy Olympus", "Never Ending Olympus", "Olympus Is Not Dead",
+			"And Then Olympus", "EthanOlympus", "Jonathan Olympus", "NoobOlympus", "NotoriousOlympus", "NoobsOfOlympus",
+			"NoonOlympus", "NoOneOlympus", "ThanosOlympus", "Olympus II", "OLYMPUS IV", "Olympus 2", "OlympusII",
+			"Olympus Zeus", "Olympus II Legion", "OLYMPUS PRIME", "Sons of Olympus", "Knights of Olympus", "Order of the Olympus",
+			"Dark Olympus", "Ólympus", "Olympus Élite", "Hijos del Olimpo", "0lympus", "Olimpvs", "Olympus vs Horde", "Olympus Fake" }) do
+			eq(ns.IsFederation(name), true, name)
+		end
+		-- The Horde's banter words follow the same rule.
+		ns.faction = "Horde"
+		eq(ns.IsFederation("Stronger Than Mudhutters"), false); eq(ns.IsFederation("Not Even Greenskins"), false)
+		eq(ns.IsFederation("Mudhutters"), true); eq(ns.IsFederation("Stronger Than Olympus"), false)
+		ns.faction = "Alliance"
+		-- Its members' addon: no Olympus member, told so, and the Join screen; its census reports are refused.
+		IsInGuild, GetGuildInfo = function() return true end, function() return "Stronger Than Olympus", "Member", 3 end
+		eq(ns.InOlympusGuild(), false); eq(ns.IsMember(), false)
+		local printed = {}
+		ns.Print = function(m) printed[#printed + 1] = m end
+		ns.Workshop.Approved()
+		ns.Print = saved.print
+		eq(printed[#printed], ns.L.APPROVED_NOT_MINE:format("Stronger Than Olympus"))
+		IsInGuild, GetGuildInfo = saved.inGuild, saved.guild
+		local savedGuilds = ns.rdb.guilds
+		ns.rdb.guilds = {}
+		local function Report(guild, leader)
+			return { guild = guild, total = 120, online = 9, leader = leader, users = 2, zones = {}, officers = {}, ranks = {}, top = {} }
+		end
+		local taken = ns.Data.Receive(Report("Stronger Than Olympus", "Rival Lead"), "Rival Lead-Realm")
+		local control = ns.Data.Receive(Report("Olympus Stronger Than You", "Proud Lead"), "Proud Lead-Realm")
+		local stored = { rival = ns.rdb.guilds["Stronger Than Olympus"], ours = ns.rdb.guilds["Olympus Stronger Than You"] }
+		ns.rdb.guilds = savedGuilds
+		eq(taken, false, "its report counts for nothing"); eq(stored.rival, nil)
+		eq(control, true, "the same report of an Olympus guild counts"); eq(type(stored.ours), "table")
+		-- The author's signed list still lets a guild of Asmon's Olympus named so in, whatever its name.
+		ns.IsApprovedGuild = function(g) return g == "Stronger Than Olympus" end
+		eq(ns.IsFederation("Stronger Than Olympus"), true); eq(ns.NamedOlympus("Stronger Than Olympus"), false)
+	end)
+	ns.faction, IsInGuild, GetGuildInfo, ns.IsApprovedGuild, ns.Print = saved.faction, saved.inGuild, saved.guild, saved.approved, saved.print
+	if not ok then error(err, 0) end
+end)
+
 test("number formatting", function()
 	eq(ns.FormatNumber(0), "0")
 	eq(ns.FormatNumber(999), "999")
@@ -7256,6 +7330,9 @@ end
 Harness.RelayWorld = RelayWorld -- (1.5.4: the Chat tab's link tests, tests/chat-item-links.lua)
 
 assert(loadfile(ROOT .. "tests/census-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
+-- 1.6.0: a guild named as a comparison with Olympus, with mixed versions (Core.lua's name rule).
+assert(loadfile(ROOT .. "tests/federation-names.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR,
+	fixtures = ROOT .. "tests/fixtures/", WithWho = WithWho })
 assert(loadfile(ROOT .. "tests/census-ask-answer.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.5: the mesh between the signed relays (tests/relay-mesh.lua).
 assert(loadfile(ROOT .. "tests/relay-mesh.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
@@ -63618,6 +63695,31 @@ end)()
 		end
 		-- (1.6.0's: the ad reminder's answer, Recruit.lua's popup.)
 		assert(ns.VERSION ~= "1.6.0" or cited > 0, "an answer marked current (1.6.0) cites the README")
+	end)
+
+	-- 1.6.0 (the review of the name rule, Core.lua's 1.6.0 note): the members of a guild the rule leaves
+	-- out from 1.6.0, its name only comparing the guild with Olympus or saying it is not Olympus, get the
+	-- Join screen, whose "?" answered that guilds with Olympus in the name count, anti-Olympus ones aside.
+	-- The answer names that case, on the Join page's "?" and in the staff's short answer, with an example
+	-- (a made-up name) that the rule leaves out and 1.5.9's counted (tests/fixtures/names-1.5.9.lua); every
+	-- other guild it quotes is approved. Fails before: neither quoted a guild left out.
+	test("1.6.0 answer bank: who can use Olympus, on the Join page's help and in the staff's short answer, names the guilds the rule leaves out from 1.6.0 with an example it leaves out and 1.5.9 counted; every other guild quoted is approved", function()
+		local e = A.Find("feat-who-can-use")
+		local help = A.ExplainText("join")
+		assert(help and help:find("- " .. e.long, 1, true), "the Join page's help carries the answer")
+		local old = setmetatable({}, { __index = ns })
+		assert(loadfile(ROOT .. "tests/fixtures/names-1.5.9.lua"))("Olympus", old)
+		for _, text in ipairs({ e.long, e.text }) do
+			local left = 0
+			for name in text:gmatch("<([^>]+)>") do
+				if not ns.IsApprovedGuild(name) then
+					eq(ns.IsFederation(name), false, name .. ": quoted, not approved, so left out")
+					eq(old.IsFederation(name), true, name .. ": an example of what 1.6.0 leaves out")
+					left = left + 1
+				end
+			end
+			assert(left > 0, "no guild left out from 1.6.0 quoted: " .. text)
+		end
 	end)
 
 	test("1.1.2 Answers: the author, the High Council and the Stewards alone; the list by topic with a search; a click fills the box (after what is typed), never sends and never takes the keyboard; Shift-click the longer answer to copy", function()
