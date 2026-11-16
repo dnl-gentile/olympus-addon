@@ -313,3 +313,60 @@ test("verify revoke: past the store's cap the oldest approvals go before a revoc
 		eq(list[ns.Fold("Olympus Fresh")], nil, "(every approval went before them)")
 	end)
 end)
+
+-- 1.6.0 (the review of these fixes: a purge). An answer carries the newest revocations first, in
+-- Verify.REVOKE_BYTES of it at most, then every other word, the newest first. With every revocation
+-- first, a purge of some 50 guilds or more within REVOKE_KEEP filled an answer (some 98 rows of
+-- Forever's names) and it carried no approval given since; with the newest first alone (1.5.9), a
+-- revocation behind some 98 newer approvals reached no client back after them. Fails before: on the
+-- lane's first fix none of the 100 new approvals arrived; on 76c0c57e none of the 130 revocations.
+test("verify revoke: after a purge an answer still carries the newest approvals: the revocations go first in half of it at most", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local verifier = Node(HC, "Olympus Crown")
+		local V = verifier.c.Verify
+		Fill(As, verifier, T0, 200) -- 200 guilds approved
+		Advance(DAY)
+		Fill(As, verifier, Now() - 500, 130, "R") -- a purge: 130 of them revoked
+		for d = 1, 4 do -- then 100 new guilds approved, over four days
+			Advance(DAY)
+			Fill(As, verifier, Now() - 2000, 25, "A", 476 + 25 * d)
+		end
+		-- Two players back after the purge, who heard the 200 approvals before: one on 1.6.0, one on 1.5.9.
+		local back = {
+			Member(Node, As, "Embers Ally-Realm", OTHER, verifier),
+			Member(Node, As, "Wardens Elder-Realm", THIRD, verifier, { old = true }),
+		}
+		for _, n in ipairs(back) do Fill(As, n, T0, 200) end
+		eq(CountChecked(As, back, "Olympus Legion 130"), 2, "(each shows the check it heard)")
+		for _, n in ipairs(back) do
+			eq(As(n, n.c.Verify.Ask), true)
+			Flush(); Advance(10); Advance(10)
+			Advance(V.ANSWER_GAP) -- (one answer each ANSWER_GAP)
+		end
+		eq(CountChecked(As, back, "Olympus Legion 130"), 0, "the newest revocation: clients back still checked (of 2)")
+		eq(CountChecked(As, back, "Olympus Legion 600"), 2, "the newest approval: clients back checked (of 2)")
+		for _, n in ipairs(back) do
+			local fresh, gone = 0, 0
+			for g = 501, 600 do if Checked(As, n, "Olympus Legion " .. g) then fresh = fresh + 1 end end
+			for g = 1, 130 do
+				local e = n.c.rdb.verify.list[ns.Fold("Olympus Legion " .. g)]
+				if e and e.k == "R" then gone = gone + 1 end
+			end
+			assert(fresh >= 30 and gone >= 30, ("%s: %d of the 100 new approvals, %d of the 130 revocations"):format(n.c.me, fresh, gone))
+		end
+		-- What an answer carries: the revocations' block first, then the newest approvals.
+		local payload = As(verifier, V.Payload)
+		local head, body = payload:match("^(GV~1~S~%d+~)(.*)$")
+		local block, revoked, approved = {}, 0, 0
+		for row in body:gmatch("[^;]+") do
+			if row:sub(1, 2) == "R," then
+				revoked = revoked + 1
+				if approved == 0 then block[#block + 1] = row end
+			else
+				approved = approved + (row:sub(1, 2) == "A," and 1 or 0)
+			end
+		end
+		assert(revoked >= 30 and approved >= 30, ("an answer of both kinds: %d revocations, %d approvals"):format(revoked, approved))
+		assert(#head + #table.concat(block, ";") <= V.REVOKE_BYTES, "the revocations' block within REVOKE_BYTES")
+	end)
+end)

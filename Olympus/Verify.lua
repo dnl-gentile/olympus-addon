@@ -58,10 +58,11 @@ local L = ns.L
 -- (MAX_BYTES: that guild's approval, of 11-05, had 117 newer words by 11-13), so an old approval
 -- reached no verifier who was away when it was given, and Revoke refused there ("no verification to
 -- revoke") while the clients that heard it kept the check: a verifier now revokes a guild he knows
--- whether or not his client holds its approval (Verify.Revoke), and an answer carries the
--- revocations first, so a client back after days drops the check of a guild revoked meanwhile. Past
--- MAX the oldest approvals go before any revocation (Verify.Prune): a client that drops one shows no
--- check for a guild approved long ago, where a revocation dropped first left a check that no longer held.
+-- whether or not his client holds its approval (Verify.Revoke), and an answer carries the newest
+-- revocations first (in REVOKE_BYTES of it at most), so a client back after days drops the check of a
+-- guild revoked meanwhile. Past MAX the oldest approvals go before any revocation (Verify.Prune): a
+-- client that drops one shows no check for a guild approved long ago, where a revocation dropped first
+-- left a check that no longer held.
 --
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
@@ -69,7 +70,8 @@ local L = ns.L
 --   GV~1~Q~<count>~<newest>~<starts>~<digest>                 any member's ask (after login, then
 --                                                             every half hour): what it holds
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
---     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first (1.6.0: revocations first)
+--     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first (1.6.0: the newest
+--                                      revocations before, in REVOKE_BYTES at most)
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
 -- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
 -- same snapshot row; relays that know the marker can send it to the named guild's reporter.
@@ -115,6 +117,7 @@ Verify.MAX_STARTS = 600          -- starts kept, and first sightings (past it: t
 Verify.MAX_ROWS = 240            -- rows in one answer
 -- (1.5.4: room left for the relay's envelope, "RM~P~<verifier>~", around a direct answer.)
 Verify.MAX_BYTES = ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS - 96
+Verify.REVOKE_BYTES = math.floor(Verify.MAX_BYTES / 2) -- (1.6.0) an answer's revocations ahead of its other words, this much of it at most
 Verify.EPOCH = 1767225600        -- 2026-01-01: no word or start is older
 Verify.AHEAD = 300               -- a time further ahead of the server's clock is not taken
 Verify.SHOWN_MAX = 5             -- guilds named in one notice line to the verifiers
@@ -563,7 +566,10 @@ end
 -- a realm group's store held 132 words by 11-13 (the oldest 50 in no answer since 11-07), so a
 -- revocation a few days old fell behind the newer approvals, and a client back after those days kept
 -- the check of the guild it revoked. Revocations are few (REVOKE_KEEP), and a missed approval costs a
--- check where a missed revocation leaves a wrong one.
+-- check where a missed revocation leaves a wrong one. (The review of the 1.6.0 fixes: a purge.) The
+-- newest of them in REVOKE_BYTES (half the answer) at most, then every other word, the newest first:
+-- with every revocation first, a purge of some 50 guilds or more within REVOKE_KEEP filled the answer,
+-- and no approval given since reached a client back after it.
 function Verify.Payload(now, coverage)
 	now = now or Verify.Clock()
 	local s = Store()
@@ -572,7 +578,6 @@ function Verify.Payload(now, coverage)
 		if Valid(e) then words[#words + 1] = e end
 	end
 	table.sort(words, function(a, b)
-		if (a.k == "R") ~= (b.k == "R") then return a.k == "R" end
 		if a.at ~= b.at then return a.at > b.at end
 		return Key(a.guild) < Key(b.guild)
 	end)
@@ -596,9 +601,20 @@ function Verify.Payload(now, coverage)
 		if coverage and not coverage[key] then covered = false end
 		return true
 	end
-	for _, e in ipairs(words) do
-		if not Add(("%s,%d,%s,%s,%s"):format(e.k, e.at, e.guild, Relative(e.gm), Relative(e.by)),
-			coverage and CoverageKey(e.k, e.at, e.guild, e.gm, e.by)) then break end
+	local function Word(e) -- its row, and its coverage key
+		return ("%s,%d,%s,%s,%s"):format(e.k, e.at, e.guild, Relative(e.gm), Relative(e.by)),
+			coverage and CoverageKey(e.k, e.at, e.guild, e.gm, e.by)
+	end
+	local ahead = {}
+	for i, e in ipairs(words) do
+		if e.k == "R" then
+			local row, key = Word(e)
+			if bytes + #row + (#out > 0 and 1 or 0) > Verify.REVOKE_BYTES or not Add(row, key) then break end
+			ahead[i] = true
+		end
+	end
+	for i, e in ipairs(words) do
+		if not ahead[i] and not Add(Word(e)) then break end
 	end
 	for _, x in ipairs(starts) do
 		if not Add(("T,%d,%s,%s"):format(x.e.at, x.e.guild, Relative(type(x.e.by) == "string" and x.e.by or ns.FullName(ns.me))),
