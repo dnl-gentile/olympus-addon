@@ -201,8 +201,9 @@ local function World(fn)
 				ChannelName = function() return "OlympusChannel" end, Audience = function() return "everyone" end,
 				IsPublic = function() return true end, DropLine = function() end, PeerCount = function() return 1 end,
 				CancelQueued = function() return 0 end,
-				Send = function(dist, msg, key, plain, logged, done, options)
-					w.wire[#w.wire + 1] = { from = cl, dist = dist, msg = msg, key = key, logged = logged, done = done, options = options }
+				Send = function(dist, msg, key, urgent, logged, done, options)
+					w.wire[#w.wire + 1] = { from = cl, dist = dist, msg = msg, key = key, urgent = urgent == true, logged = logged, done = done,
+						options = options }
 					return true
 				end,
 				SendChat = function(msg, done, line, guard)
@@ -1051,6 +1052,50 @@ test("watch: chat moderation (1.6.0, Forever): a moderator's timeout counts unde
 		eq(w.As(D, D.WC.Silenced, "Troll-CAMWOWUS2Realm7PvE"), true, "an old save's timeout counts under the reader's stamp")
 		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvE"), true, "and its moderators' list")
 		eq(s.timeouts["troll-camwowus2realm1pve"], nil, "filed again under the family")
+	end)
+end)
+
+-- (1.6.0, the moderators' report of 2026-11-16) What a relay carries ahead of the chat lines in its chat lane
+-- (Relay.lua's FirstSanction) is what its own WatchChat calls a sanction from whoever may give it, the
+-- check every reader makes (TakeAction, TakeSelf), applying and spending nothing.
+test("watch: chat moderation (1.6.0): the words a relay carries first are a sanction itself from whoever may give it (WatchChat.SanctionWord): a moderator's timeout, a member's own word on his guild's; never the moderators' list, an appeal, a stranger's word or one he passes on; a sanction's first word leaves urgent, its repeat as before", function()
+	World(function(w)
+		local G, A, B, D, Y1 = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local Mo = w.Client("Modder", Y, 3)
+		assert(w.As(Co, Co.WC.SetMod, Mo.name, true))
+		w.epoch = w.epoch + 3
+		w.Run()
+		local function Job(prefix)
+			for i = #w.wire, 1, -1 do if w.wire[i].msg:sub(1, #prefix) == prefix then return w.wire[i] end end
+		end
+		assert(w.As(Mo, Mo.WC.Timeout, B.name, 1800, "spam"))
+		local job = assert(Job("MD~1~T~O~"), "the timeout queued")
+		eq(job.urgent, true, "a sanction's first word leaves urgent")
+		local word = job.msg
+		w.Run()
+		local key, actor = w.As(D, D.WC.SanctionWord, word, Mo.name)
+		assert(key, "a moderator's timeout is a sanction"); eq(actor, Mo.name)
+		eq(w.As(D, D.WC.SanctionWord, word, Y1.name), nil, "the same word from a stranger is nobody's")
+		local passed = word:gsub("~%-~spam$", "~" .. Mo.name .. "~spam")
+		eq(w.As(D, D.WC.SanctionWord, passed, Y1.name), nil, "nor passed on by him")
+		eq(w.As(D, D.WC.SanctionWord, w.Sent("MD~1~O~")[1].msg, Co.name), nil, "the moderators' list goes in line")
+		eq(w.As(D, D.WC.SanctionWord, ("MD~1~A~%d~%s~5~T~let me speak"):format(w.epoch, Mo.name), B.name), nil, "an appeal too")
+		-- A guild's timeout: the player's own word on the channel (S), a member's of the guild it names.
+		assert(w.As(A, A.WC.Timeout, D.name, 300, ""))
+		w.Run()
+		local own = assert(w.Sent("MD~1~S~T~")[1], "D's own word").msg
+		assert(w.As(B, B.WC.SanctionWord, own, D.name), "a member's own word is a sanction (his guildmate's roster says so)")
+		eq(w.As(B, B.WC.SanctionWord, own, Y1.name), nil, "not from someone outside the guild it names")
+		-- Its repeat (WatchChat.REPEAT later) as before: not urgent.
+		w.epoch = w.epoch + Mo.WC.REPEAT + 1
+		local queued = #w.wire
+		w.As(Mo, Mo.WC.Tick)
+		local again
+		for i = queued + 1, #w.wire do if w.wire[i].msg == word then again = w.wire[i] end end
+		assert(again, "the timeout repeated")
+		eq(again.urgent, false, "its repeat as before")
 	end)
 end)
 

@@ -4,8 +4,9 @@
 local ns, test, eq, extra = ...
 
 -- A relay with `n` reporters registered (each its own guild), its clock and timers run by hand.
-local function BusyRelay(n)
-	local R, _, sent = extra.RelayWorld("Hildryn Payne-CAMWOWUS2Realm1PvE", "Olympus II")
+-- (1.6.0) relayFile: another release's Relay.lua (tests/fixtures/).
+local function BusyRelay(n, relayFile)
+	local R, _, sent = extra.RelayWorld("Hildryn Payne-CAMWOWUS2Realm1PvE", "Olympus II", relayFile)
 	local timers = {}
 	R.After = function(_, _, fn) timers[#timers + 1] = fn end
 	for i = 1, n do
@@ -767,5 +768,111 @@ test("chat delivery (1.5.5, Forever): another guild's officer and master speak i
 		end)
 		ns.rdb.guilds, GetGuildInfo, ns.db.chatMute = saved, savedInfo, savedMute
 		if not ok then error(err, 0) end
+	end)
+end)
+
+-- (1.6.0, the moderators' report of 2026-11-16: "it simply doesn't mute them".) A chat moderator's
+-- sanction (WatchChat's MD action, a logged word) rode the relay's chat lane behind every chat line
+-- waiting there, at the lane's pace, and a whisper that waited Relay.CHAT_LANE_TTL was let go: at a busy
+-- hour a timeout reached a registrant minutes late or never, while the player's lines kept coming.
+-- The relay's WatchChat says which word is a sanction from a sender it trusts (WatchChat.SanctionWord,
+-- its own tests in tests/watch-chat.lua); here its verdict for the moderator alone.
+local MODERATOR = "Mod Erator-CAMWOWUS2Realm2PvE"
+local function Sanction(seq, op)
+	return ("MD~1~%s~O~%d~1800000000~-~Troll Player-CAMWOWUS2Realm2PvE~%s~-~-~spam"):format(op or "T", seq, (op or "T") == "T" and "1800000300" or "-")
+end
+local TRUSTED = { ["Mod Erator"] = true, ["Second Mod"] = true }
+local function Verdict(R)
+	R.WatchChat = { SanctionWord = function(text, sender)
+		local op, seq = tostring(text):match("^MD~1~([DPTU])~O~(%d+)~")
+		local who = ns.ShortName(sender)
+		if op and TRUSTED[who] then return who:lower() .. "#" .. seq .. "#" .. op, sender end
+	end }
+end
+-- When each reporter was first whispered a word holding `needle`, in seconds from now, over `pumps`.
+local function Arrivals(R, sent, Run, needle, pumps)
+	local at, seen, t0 = {}, #sent, R.clock
+	Run(pumps, function()
+		for i = seen + 1, #sent do
+			local s = sent[i]
+			local k = s.target and tonumber(s.target:match("^Rep Number(%d+)"))
+			if k and not at[k] and s.msg:find(needle, 1, true) then at[k] = R.clock - t0 end
+		end
+		seen = #sent
+	end)
+	return at
+end
+local function Spread(at, n)
+	local got, last, first = 0, 0, math.huge
+	for i = 1, n do if at[i] then got, last, first = got + 1, math.max(last, at[i]), math.min(first, at[i]) end end
+	return got, last, first
+end
+
+test("chat delivery (1.6.0): a moderator's timeout through a relay with 90 registrants whose chat lane holds seven lines (630 whispers) reaches every registrant within a minute, ahead of the lines; the lines still all go", function()
+	WithMember(function()
+		local n = 90
+		local R, sent, Run = BusyRelay(n)
+		Verdict(R)
+		for k = 1, 7 do Say(R, k) end
+		R.Relay.HandleIn("WHISPER", MODERATOR, "RL~L~" .. Sanction(4242))
+		local at = Arrivals(R, sent, Run, "~" .. Sanction(4242), 600)
+		local got, last, first = Spread(at, n)
+		eq(got, n, ("every registrant takes the timeout (the first after %d s, the last after %d s)"):format(first, last))
+		assert(last <= 60, ("the first registrant took it after %d s, the last after %d s"):format(first, last))
+		local lines = LinesByReporter(R, sent, n)
+		local missing = 0
+		for i = 1, n do for k = 1, 7 do if not lines[i][Line(k)] then missing = missing + 1 end end end
+		eq(missing, 0, "no line lost to the timeout ahead of it")
+	end)
+end)
+
+test("chat delivery (1.6.0): what goes first stays bounded: a word the relay's WatchChat calls no sanction (the moderators' list, a stranger's timeout) waits in line; a sanction goes first once (the same word again in line) and Relay.SANCTION_PER_MIN of one actor's a minute; its copy to a mesh peer goes ahead of its reporters', and one that came across goes first there too", function()
+	WithMember(function()
+		local n = 12
+		local R, sent, Run = BusyRelay(n)
+		Verdict(R)
+		local other = "Max Ran-CAMWOWUS2Realm1PvE"
+		R.Relay.HandleAck("WHISPER", other, "RY~")
+		eq(R.Relay.HandleMesh("WHISPER", other, "RJ~1~0~0"), true, "the other relay joined")
+		for k = 1, 3 do Say(R, k) end
+		local function First() return R.Relay.ChatLanes().first end
+		eq(First(), 0)
+		R.Relay.HandleIn("WHISPER", "Council Lor-CAMWOWUS2Realm2PvE", "RL~L~MD~1~O~1800000000~1~1~" .. MODERATOR)
+		R.Relay.HandleIn("WHISPER", "Some Stranger-CAMWOWUS2Realm2PvE", "RL~L~" .. Sanction(7001))
+		eq(First(), 0, "neither the list nor a stranger's timeout goes first")
+		R.Relay.HandleIn("WHISPER", MODERATOR, "RL~L~" .. Sanction(7002))
+		eq(First(), n + 1, "the moderator's timeout first: to the mesh peer and to each reporter")
+		R.Relay.HandleIn("WHISPER", MODERATOR, "RL~L~" .. Sanction(7002))
+		eq(First(), n + 1, "the same word again waits in line")
+		for seq = 7003, 7003 + R.Relay.SANCTION_PER_MIN - 1 do R.Relay.HandleIn("WHISPER", MODERATOR, "RL~L~" .. Sanction(seq, "U")) end
+		eq(First(), R.Relay.SANCTION_PER_MIN * (n + 1), "his first SANCTION_PER_MIN in a minute go first, the next in line")
+		-- Another moderator's, as another relay crossed it here: first too, to this relay's reporters.
+		R.Relay.HandleAcross("WHISPER", other, "RX~L~Second Mod-CAMWOWUS2Realm4PvE~" .. Sanction(8001))
+		eq(First(), R.Relay.SANCTION_PER_MIN * (n + 1) + n, "a sanction that came across goes first here too")
+		local order = {}
+		Run(400, nil)
+		for _, x in ipairs(sent) do
+			if x.msg:find("~" .. Sanction(7002), 1, true) and not order[1] then order[1] = x end
+		end
+		assert(order[1] and order[1].msg:sub(1, 5) == "RX~L~" and ns.ShortName(order[1].target) == "Max Ran",
+			"the timeout's first copy goes to the mesh peer: " .. tostring(order[1] and order[1].msg))
+		eq(R.Relay.ChatWaiting(), 0, "everything went")
+	end)
+end)
+
+-- (1.6.0) A relay still on 1.5.9 knows no sanction: the timeout waits behind the lines, as before (its
+-- registrants take it as late as they did). A 1.6.0 moderator's own client sends it urgent all the same,
+-- and a 1.6.0 relay it crosses to carries it first there.
+test("chat delivery (1.6.0): a relay still on 1.5.9 keeps a moderator's timeout behind the seven lines waiting in its chat lane, as before", function()
+	WithMember(function()
+		local n = 90
+		local R, sent, Run = BusyRelay(n, extra.addon:match("^(.*)Olympus/$") .. "tests/fixtures/relay-1.5.9.lua")
+		Verdict(R)
+		for k = 1, 7 do Say(R, k) end
+		R.Relay.HandleIn("WHISPER", MODERATOR, "RL~L~" .. Sanction(4243))
+		local at = Arrivals(R, sent, Run, "~" .. Sanction(4243), 600)
+		local got, last, first = Spread(at, n)
+		eq(got, n, "every registrant takes it in the end")
+		assert(first > 200, ("behind the lines: the first registrant took it after %d s, the last after %d s"):format(first, last))
 	end)
 end)
