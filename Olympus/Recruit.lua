@@ -635,6 +635,12 @@ local function JoinWait(contact)
 	ns.After(1, "join countdown", Tick)
 end
 
+-- (1.6.0) Whether `key`'s answer came within ROUTE_FRESH: what it said of him still holds.
+local function AnsweredLately(key)
+	local at = routeAnswered[key]
+	return at ~= nil and ns.Now() - at <= Recruit.ROUTE_FRESH
+end
+
 -- (1.6.0) Members just asked where to go (by the search, or by the screen), whose answer may still come:
 -- put in `wait`, each once a click (join.waited).
 local function Coming(wait)
@@ -651,7 +657,9 @@ end
 -- (1.6.0, review of this lane: the screen learned who recruits only from the one member it asked at a
 -- time, so a recruiter of ordinary rank whom nobody names was reached no sooner than before.) The members
 -- the screen would ask next (NextContact's order) and never asked where to go, asked together: PROBE_MAX
--- a click at most (join.probes), each put in `wait` when there is one.
+-- a click at most (join.probes), each put in `wait` when there is one. (Review of this lane: a member's
+-- word lasts ROUTE_FRESH, so one asked longer ago than that is asked again, as one never asked: his "x"
+-- no longer counted and his window opened again, for his fresh "x" to close it.)
 local function ProbeAhead(wait)
 	local route, seen, looked = Recruit.Route(), {}, 0
 	skipping = seen
@@ -660,7 +668,8 @@ local function ProbeAhead(wait)
 		if not c then break end
 		local key = Key(c.name)
 		seen[key], looked = true, looked + 1
-		if not routeAsked[key] and AskRoute(c.name, true) then
+		local asked = routeAsked[key]
+		if (not asked or (ns.Now() - asked >= Recruit.ROUTE_FRESH and not AnsweredLately(key))) and AskRoute(c.name, true) then
 			join.probes = (join.probes or 0) + 1
 			if wait then join.waited[key], wait[key] = true, true end
 		end
@@ -728,6 +737,14 @@ function Recruit.RequestJoin()
 	-- once that search found nobody new (JoinFound, JoinNext), so a member who logged in since comes first.
 	local contact = Next(nil, Recruit.Route(), false)
 	if contact then
+		-- (1.6.0, review of this lane) One whose answer is older than ROUTE_FRESH is asked again, and his
+		-- window opens once his answer came (JoinNext): an "x" of his no longer counted, and his window
+		-- opened again only for his fresh "x" to close it.
+		local key = Key(contact.name)
+		if routeAnswered[key] and not AnsweredLately(key) and JoinVisible() and not ns.Dialog.missing
+			and not ns.Dialog.Find("OLYMPUS_RECRUIT") then
+			return JoinNext()
+		end
 		local f = Recruit.Prompt(contact)
 		-- (1.6.0) The screen's own choice: an answer saying he can't take it asks the next member. The
 		-- window opens at once, as a click's always did; meanwhile the others the screen never asked are

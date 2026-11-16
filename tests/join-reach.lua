@@ -734,6 +734,38 @@ test("join reach (1.6.0): the members the screen would ask next are asked togeth
 	end)
 end)
 
+-- Fails on this lane's first version (review): a member's own word lasts ROUTE_FRESH, as long as REASK. One
+-- who said "x" was never whispered, so ten minutes later he counted as never asked: his window opened
+-- again and his fresh "x" closed it again, with the same line. One whose answer is older than ROUTE_FRESH
+-- is now asked again before his window opens.
+test("join reach (1.6.0): a member whose answer is older than ROUTE_FRESH is asked again before his window opens; one who still can't invite is passed over without a word", function()
+	WithRequester(function(w)
+		R.OnFound({ { name = "Ned Park-Realm", guild = "Olympus Alpha" }, { name = "Lia Ford-Realm", guild = "Olympus Alpha" } })
+		R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Alpha=500=")
+		eq(R.SaidOf("Ned Park-Realm"), "x")
+		eq(R.RequestJoin(), true)
+		eq(Open().data.name, "Lia Ford-Realm", "he can't invite: passed over")
+		Send(Open())
+		local function AsksTo(name)
+			local n = 0
+			for _, o in ipairs(w.out) do if o.to == name and o.msg == "J1~1" then n = n + 1 end end
+			return n
+		end
+		w.Advance(R.ROUTE_FRESH + 60)
+		eq(R.SaidOf("Ned Park-Realm"), nil, "his word is old now")
+		local printed, asks = #w.printed, AsksTo("Ned Park")
+		eq(R.RequestJoin(), true)
+		eq(Open(), nil, "no window for him before his answer")
+		eq(AsksTo("Ned Park"), asks + 1, "asked again")
+		R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Alpha=500=")
+		eq(Open(), nil)
+		eq(#w.printed, printed, "no window of his to close: nothing said")
+		w.Advance(R.ROUTE_SETTLE)
+		eq(Open() and Open().data.name, "Lia Ford-Realm", "then the one asked REASK ago")
+		eq(#w.said, 1)
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The simulation: a fresh unguilded character on the Join page asks the members /who lists, as a
 -- player does: Request to join, reads the request four seconds, Send, waits; Request again when the
@@ -908,12 +940,15 @@ end
 -- saying "No invite yet? Try another member.", and a full army ended the same way.
 test("join reach simulation (1.6.0): a fresh character asks from the Join page with recruiters online and offline, on a PvP realm and with every guild full", function()
 	local results = {}
-	local function Run(name, spec, seconds)
+	local function Run(name, spec, seconds, lat)
+		local saved = LAT
+		LAT = lat or saved
 		WithRequester(function(w)
 			local s = Play(w, World(w, spec), seconds)
 			Report(name, s)
 			results[name] = s
 		end)
+		LAT = saved
 	end
 	Run("PvE, recruiters online", PvE(true), 900)
 	Run("PvE, recruiters offline", PvE(false), 900)
@@ -923,6 +958,9 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	Run("every guild full (1.6.0)", AllFull(false), 900)
 	Run("every guild full (1.5.9 in one)", AllFull(true), 900)
 	Run("the King's gates, a recruiter in another guild", Gates(), 900)
+	-- Slow whispers (review of this lane): 2.5 seconds each way, longer than ROUTE_SETTLE for an answer.
+	Run("PvE, recruiters online, slow whispers", PvE(true), 900, 2.5)
+	Run("PvE, recruiters offline, slow whispers", PvE(false), 900, 2.5)
 	local on, off, pvp, dry = results["PvE, recruiters online"], results["PvE, recruiters offline"],
 		results["PvP, one recruiter (1.5.9)"], results["PvP, no recruiter online"]
 	local full, mixed = results["every guild full (1.6.0)"], results["every guild full (1.5.9 in one)"]
@@ -947,6 +985,12 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	for _, s in ipairs(mixed.sends) do eq(s.m.guild, "Olympus Omega", "only the guild nobody reported full") end
 	-- (Review of this lane) The King's gates first: a member's own word that he recruits elsewhere does not
 	-- draw the recruit away from the guild two answers confirm.
+	-- (Review of this lane) Slow whispers: a member's answer comes after his window opened, and closes it
+	-- before the player sends; once known, a member who can't invite gets no request, ten minutes later
+	-- too.
+	local slowOn, slowOff = results["PvE, recruiters online, slow whispers"], results["PvE, recruiters offline, slow whispers"]
+	eq(slowOn.invited, 1, "slow whispers: invited")
+	eq(slowOff.cannotNew, 0, "slow whispers, recruiters offline: no request to a 1.6.0 member who can't invite")
 	local gates = results["the King's gates, a recruiter in another guild"]
 	eq(gates.invited, 1, "gates: invited"); eq(gates.invitedInto, "Olympus Gates", "into the gates' guild")
 	for _, name in ipairs({ "PvE, recruiters online", "PvE, recruiters offline", "PvP, one recruiter (1.5.9)", "PvP, no recruiter online" }) do

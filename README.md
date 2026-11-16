@@ -136,16 +136,17 @@ and recruiters the answers name, and only then anyone else `/who` found. Each cl
 addons of the members it would ask next, together (4 a click at most, each once): a click's request
 opens at once and their answers choose the next one. When the screen opens a request on its own,
 after a search or when the member it chose can't take it, it waits for those answers (3 seconds at
-most) and asks first one whose answer says he recruits. A member whose answer says he can't invite
-(no invite right, or a full guild) is passed over before you write to him; a request already open
-for him closes with a line saying why, and the next member is asked. When the request already went,
-the wait ends as soon as you may send another and the screen says why. When the member asked
-recruits, the screen says your request goes to his invite queue. When nobody is left to ask, the
-screen says so (every guild found full, or everyone found already asked or unable to take the
-request). Once everyone found was asked, **Request again** searches with `/who` first: a member who
-logged in since is asked before anyone else, and a member asked 10 minutes ago or more is asked
-again only when that search found nobody new. Members on versions before 1.6.0 say nothing of
-themselves, and are asked as before.
+most) and asks first one whose answer says he recruits. An answer counts for 10 minutes: a member
+whose answer is older is asked again before a request to him opens. A member whose answer says he
+can't invite (no invite right, or a full guild) is passed over before you write to him; a request
+already open for him closes with a line saying why, and the next member is asked. When the request
+already went, the wait ends as soon as you may send another and the screen says why. When the
+member asked recruits, the screen says your request goes to his invite queue. When nobody is left
+to ask, the screen says so (every guild found full, or everyone found already asked or unable to
+take the request). Once everyone found was asked, **Request again** searches with `/who` first: a
+member who logged in since is asked before anyone else, and a member asked 10 minutes ago or more
+is asked again only when that search found nobody new. Members on versions before 1.6.0 say nothing
+of themselves, and are asked as before.
 
 The list uses the game's own `/who`, which returns up to 50 players per search. When there
 are more, each new click searches a range of levels and adds to the list. Replies are
