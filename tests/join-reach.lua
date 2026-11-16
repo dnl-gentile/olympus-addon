@@ -798,6 +798,34 @@ test("join reach (1.6.0): the line that the member asked recruits shows while hi
 	end)
 end)
 
+-- Fails on this lane's first version (review): a wait cut to the 20 seconds between two requests kept its
+-- reminder at 45 seconds, 25 seconds after the page already offered Request again. (WithRequester turns
+-- reminders off; this one turns them on, as they are by default.)
+test("join reach (1.6.0): with reminders on, a wait the member's answer cut short brings its reminder when it ends, once", function()
+	WithRequester(function(w)
+		ns.db.joinReminderOff = nil
+		local function Retries()
+			local n = 0
+			for _, f in ipairs(ns.Dialog.shown) do if f.which == "OLYMPUS_RECRUIT_RETRY" then n = n + 1 end end
+			return n
+		end
+		R.OnFound({ { name = "Ned Park-Realm", guild = "Olympus Alpha" }, { name = "Rae Cole-Realm", guild = "Olympus Alpha" } })
+		eq(R.RequestJoin(), true)
+		eq(Open().data.name, "Ned Park-Realm")
+		Send(Open())
+		w.Advance(2)
+		R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Alpha=500=")
+		local _, left = R.JoinStatus()
+		eq(left, 18, "the wait ends with the 20 seconds between two requests")
+		w.Advance(17.5)
+		eq(Retries(), 0, "not before the wait ends")
+		w.Advance(0.5)
+		eq(Retries(), 1, "the reminder when the wait ends")
+		w.Advance(30)
+		eq(Retries(), 1, "once: not again at 45 seconds")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The simulation: a fresh unguilded character on the Join page asks the members /who lists, as a
 -- player does: Request to join, reads the request four seconds, Send, waits; Request again when the

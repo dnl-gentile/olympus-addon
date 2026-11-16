@@ -80,6 +80,7 @@ local selfSaid = {}     -- (1.6.0) [Name-Realm] = { word, t }: what their own an
 local ownNamed = {}     -- (1.6.0) [guild] = { contacts, t }: whom a 1.6.0 member /who found in it named for it, recruiters first
 local lastRoute = -math.huge
 local JoinNext          -- (1.6.0) the Join screen's own next request (below)
+local ScheduleJoinReminder -- the retry reminder when a request's wait ends (below)
 
 Recruit.REASK = 600         -- (1.6.0) a member asked this long ago may be asked again once nobody new is left
 Recruit.ROUTE_SETTLE = 3    -- (1.6.0) seconds the Join screen waits for a member's answer before his window opens
@@ -307,7 +308,13 @@ local function JoinRecheck()
 	if request and request.untilAt > GetTime() then
 		why = Unable(request.contact)
 		if why then
-			request.untilAt = math.min(request.untilAt, math.max(GetTime(), Recruit.lastAsk + ASK_COOLDOWN))
+			-- (Review of this lane) Its reminder with it: armed for the whole wait, it came 25 seconds after
+			-- the page offered Request again. (The first one armed finds the request reminded.)
+			local cut = math.min(request.untilAt, math.max(GetTime(), Recruit.lastAsk + ASK_COOLDOWN))
+			if cut < request.untilAt then
+				request.untilAt = cut
+				if join.reminder then ScheduleJoinReminder(request, join.reminder) end
+			end
 			join.notice = why
 		elseif SaidOf(Key(request.contact.name)) == "r" then
 			join.notice = RecruitsLine(request.contact)
@@ -606,7 +613,7 @@ local function JoinBusy()
 	return ns.ChatLocked() or ns.QuietPresence() or ns.Quiet() or (InCombatLockdown and InCombatLockdown())
 end
 
-local function ScheduleJoinReminder(request, reminder)
+ScheduleJoinReminder = function(request, reminder)
 	local function Remind()
 		if join.reminder ~= reminder or join.request ~= request or request.reminded
 			or not Recruit.SimpleJoin() or ns.Dialog.missing then return end
