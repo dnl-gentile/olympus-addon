@@ -417,7 +417,7 @@
       "notes": "1.6.0: the Census offer's ads come every 30 minutes (5 before). An interval a player saved before 1.6.0 is kept until he changes it; the popup's Less often takes 5 straight to 30. The popup never opens in combat, an instance or while typing.",
       "sources": [
         "Recruit.lua RemindAnnouncement, LessOften, TurnOffReminder",
-        "README.md:3501-3520"
+        "README.md:3559-3578"
       ]
     },
     {
