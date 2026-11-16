@@ -2236,10 +2236,10 @@ few characters working together can still reach is said plainly further down
   complete.
 - **No escape codes from anyone** (0.9.2): every message from another player loses its "|"
   codes (colours, textures, links) and control bytes before anything reads it, so nobody can
-  put a texture, a fake link or a fake line on your screen. Chat keeps only item, spell and
-  quest links shaped the way the game makes them. Text the addon builds for Discord pings
-  nobody. The offline tests send hostile messages for each of these rules and check they
-  are refused.
+  put a texture, a fake link or a fake line on your screen. Chat keeps only item, spell,
+  enchant, quest and (1.6.0) profession links shaped the way the game makes them. Text the
+  addon builds for Discord pings nobody. The offline tests send hostile messages for each of
+  these rules and check they are refused.
 - **Channels**: [Captains]/[Lords] lines count only if the sender's rank is verified like
   decrees; everyone else can use [Olympus] only. Sent with Blizzard's logged addon-message
   function (lines sent any other way are dropped); rate limited per sender and per channel, and

@@ -303,7 +303,8 @@ Long live the King. Long live Olympus.]==]
 -- Forever alt linked by its plain name, the handoffs, the Join screen asking recruiters first, the
 -- offline notices of Olympus's own whispers alone, the [?] of a line nobody can place, the name rule's
 -- comparisons, a guild master handed his guild's verification and the revocations that reach
--- everyone. In every shipped language.
+-- everyone; and (issue #110, pull request #109) profession and crafted item links that arrive whole.
+-- In every shipped language.
 L.LETTER_1_6_0_TITLE = "The Recruiter's Record"
 L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
@@ -318,6 +319,7 @@ L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 - {news} An Olympus chat line no longer shows twice when a relay's copy arrives late. At busy hours the relays stay linked, pass each line to the other relays first and share the wait fairly between guilds.
 - {news} Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.
 - {news} In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?], and hovering a writer's name says when he plays another ruleset, whose guilds can't invite you.
+- {news} Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and in the Chat tab.
 - {watch} Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.
 - {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
 - {watch} Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.
@@ -578,6 +580,7 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 - {news} Uma linha do chat do Olympus não aparece mais duas vezes quando a cópia de um relay chega atrasada. Nos horários de pico, os relays continuam ligados entre si, passam cada linha primeiro aos outros relays e dividem a espera de forma justa entre as guildas.
 - {news} Só ficam escondidos os avisos de jogador offline causados pelos sussurros do próprio Olympus: se você mesmo sussurrar um jogador offline, ainda vê o aviso do jogo.
 - {news} No chat do Olympus, em Todos, uma linha cujo autor tem conjunto de regras desconhecido (versões antes da 1.5.9) aparece marcada com [?], e passar o mouse no nome de quem escreveu diz quando ele joga em outro conjunto de regras, cujas guildas não podem te convidar.
+- {news} Links de profissão e de itens fabricados enviados no chat do Olympus agora chegam inteiros a quem está na 1.6.0, clicáveis no chat do jogo e na aba Chat.
 - {watch} Guildas cujo nome só se compara ao Olympus ou diz que não é o Olympus deixam de contar como guildas do Olympus.
 - {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda na 1.6.0 que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
 - {watch} Revogar a verificação de uma guilda agora chega a todos: qualquer verificador pode revogar uma aprovação que o próprio cliente nunca recebeu, quem volta depois de alguns dias fora recebe a revogação, e uma guilda tirada da rede não mostra a marca de guilda verificada.

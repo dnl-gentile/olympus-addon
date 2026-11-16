@@ -615,8 +615,9 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
 		-- (Changed on purpose with the fixes merged for the release: the handoffs, the Join screen, the
 		-- offline notices, the [?] under All, the name rule and the two verification fixes are news too,
-		-- each under its section's mark; the test below names them.)
-		eq(table.concat(marks, ","), "church,church,church,church,guild,guild,guild,news,news,news,watch,watch,watch", code .. ": release topics")
+		-- each under its section's mark; the test below names them. And with pull request #109 merged, a
+		-- fourth news: the profession and crafted item links of issue #110.)
+		eq(table.concat(marks, ","), "church,church,church,church,guild,guild,guild,news,news,news,news,watch,watch,watch", code .. ": release topics")
 		for _, text in ipairs({ raw, title }) do
 			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
 				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
@@ -669,9 +670,10 @@ end
 -- recruiters first (Recruit.SelfWord), the offline notices kept out for Olympus's own whispers alone
 -- (Accord.Tried), the [?] under All for a line nobody can place (Channels.GroupTag), the name rule's
 -- comparisons (Core.lua), a guild master handed his guild's verification by his guildmates and the
--- revocations that reach everyone (Verify.lua). Each page, tag and line named as that language's player
--- sees it. Fails before: the letter told none of them.
-test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the name rule, the guild master's verification from his guild and the revocations, each named as shown", function()
+-- revocations that reach everyone (Verify.lua), and (issue #110, pull request #109) the profession and
+-- crafted item links that reach players on 1.6.0 whole (Codec.lua). Each page, tag and line named as that
+-- language's player sees it. Fails before: the letter told none of them.
+test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the profession and crafted item links, the name rule, the guild master's verification from his guild and the revocations, each named as shown", function()
 	local function Client(locale)
 		local saved = GetLocale
 		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
@@ -708,7 +710,10 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		local tag = "[" .. L.CHATWIN_GROUP_UNKNOWN .. "]"
 		assert(news[3]:find(tag, 1, true) and news[3]:find(L.CHATWIN_GROUP_ALL, 1, true) and news[3]:find("1.5.9", 1, true),
 			code .. ": the tag under All as shown: " .. tag .. ", " .. L.CHATWIN_GROUP_ALL)
-		eq(#news, 3, code .. ": the chat's news")
+		-- (Issue #110, pull request #109) The profession and crafted item links: the Chat tab named as shown,
+		-- and only for players on 1.6.0 (an older client keeps a profession link's token as text).
+		assert(news[4]:find(L.TAB_CHAT, 1, true) and news[4]:find("1.6.0", 1, true), code .. ": the links' news, the Chat tab as shown: " .. L.TAB_CHAT)
+		eq(#news, 4, code .. ": the chat's news")
 		-- The guild master's line his guild's verification now takes away, as his Census shows it.
 		local pending = assert(L.VERIFY_LINE_MASTER_GRACE:match("^(.-)%s*:"), code)
 		assert(watch[2]:find(pending, 1, true) and watch[2]:find("WoW: Forever", 1, true), code .. ": the guild master's line as shown: " .. pending)
@@ -725,6 +730,7 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		"The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.",
 		"Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.",
 		"In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?]",
+		"Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and in the Chat tab.",
 		"Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.",
 		"a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
 		"any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.",
@@ -740,4 +746,6 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	assert(roadmap:find(". On Forever a guild master whose guild is already verified now receives that verification", 1, true),
 		"ROADMAP.md's v1.6.0: the guild's hand-over, on Forever")
 	assert(roadmap:find("receives that verification from guildmates on 1.6.0 who have it", 1, true), "ROADMAP.md's v1.6.0: from guildmates on 1.6.0")
+	assert(roadmap:find("Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and the Chat tab (#110).", 1, true),
+		"ROADMAP.md's v1.6.0: the profession and crafted item links")
 end)
