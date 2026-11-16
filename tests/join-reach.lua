@@ -1212,3 +1212,23 @@ test("join reach (1.6.0): a recruiter in a dungeon or a chat lockdown says a req
 		end)
 	end
 end)
+
+-- The review of 1.6.0. docs/CURSEFORGE.md keeps the README's privacy table in step, row for row; the answer's
+-- (J2) row was written apart for 1.6.0 and said what the member can do in other words ("whether you
+-- recruit"), never that the answer says whether a request pops up for him now. Fails before: the two rows
+-- differed.
+test("join reach (1.6.0): the README's and the CurseForge page's privacy tables give the answer's (J2) row in the same words", function()
+	local root = ADDON:match("^(.*)Olympus/$") or "./"
+	local function Row(file)
+		local f = assert(io.open(root .. file, "r"))
+		local text = f:read("*a")
+		f:close()
+		local rows = {}
+		for row in ("\n" .. text):gmatch("\n(| The answer %(J2%)[^\n]*)") do rows[#rows + 1] = row end
+		eq(#rows, 1, file .. ": one J2 row")
+		return rows[1]
+	end
+	local readme = Row("README.md")
+	assert(readme:find("whether a request pops up for you now", 1, true), "(the README's row says what the answer says of the member)")
+	eq(Row("docs/CURSEFORGE.md"), readme, "the CurseForge page's J2 row is the README's")
+end)
