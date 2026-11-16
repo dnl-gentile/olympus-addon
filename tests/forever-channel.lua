@@ -758,3 +758,77 @@ test("1.5.9's review one channel on Forever: the King's key rotation (the Throne
 	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER" }) do assert(L[k]:find("nobody moves channel", 1, true), k) end
 	InEveryLanguage({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" })
 end)
+
+-- The review of 1.6.0. A reader keeps a chat line's key (its writer, id and text) Channels.DedupeWindow,
+-- 1,320 s from 1.6.0 (120 s before), and an [Olympus] line's id keeps two digits on Forever
+-- (Codec.ChatWireId): the ids started again at random at every load, so after a /reload or a relog one
+-- same short line in a hundred ("gz", "lol") within those 22 minutes drew an id already used and was
+-- dropped as seen by every reader (its writer still saw it). A character's ids go on from the last one he
+-- sent now (ns.db.chatNextId). Fails before: the reload's draw that lands on the first line's id (here
+-- forced), the same text ten minutes later is a "dup".
+test("1.6.0's review chat ids: a character's line ids go on from the last one he sent across a /reload, so the same short line ten minutes later is shown again, never dropped as seen", function()
+	local FreshComm = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")
+	local saved = { name = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName, guild = GetGuildInfo,
+		time = GetTime, info = C_ChatInfo, random = math.random,
+		slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+		dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+	local ok, err = pcall(function()
+		local db = { addonChat = true, chatWarned = { A = true }, blocked = {} } -- (one account's saved variables)
+		local clock, ids, sent = 100000, { OlympusNet = 7 }, {}
+		GetGuildInfo = function() return "OLYMPUS FIXTURE", "Lord", 0 end
+		GetTime = function() return clock end
+		GetChannelName = function(name) return ids[name] or 0 end
+		LeaveChannelByName = function(name) ids[name] = nil end
+		JoinChannelByName = function() end
+		-- A session of the writer's: Channels.lua loaded anew (`draw`: what its load's random start draws) and
+		-- its login run, over the account's saved variables.
+		local function Session(draw)
+			local cns = FreshComm()
+			C_ChatInfo.SendAddonMessage = function(_, msg) sent[#sent + 1] = msg return 0 end
+			C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+			cns.me, cns.db, cns.rdb = "Chatty Writer-Realm", db, { guilds = {} }
+			cns.IsMember = function() return true end
+			cns.OnForever = function() return false end
+			cns.Print, cns.Fire, cns.ShowDialog = function() end, function() end, function() end
+			cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data })
+			local logins = {}
+			cns.On = function(name, f) if name == "LOGIN" then logins[#logins + 1] = f end end
+			math.random = function(a, b) if draw and a == 0 and b == 9999 then return draw end return saved.random(a, b) end
+			assert(loadfile(ADDON .. "Channels.lua"))("Olympus", cns)
+			math.random = saved.random
+			for _, f in ipairs(logins) do f() end
+			ids[cns.Comm.ChannelSpec()] = ids[cns.Comm.ChannelSpec()] or 6
+			cns.Comm.JoinChannel()
+			return cns
+		end
+		-- The id of the line `text` this session sends.
+		local function Say(cns, text)
+			local before = #sent
+			eq(cns.Channels.Send("A", text), true, "sent: " .. text)
+			for _ = 1, 10 do cns.Comm.Pump() end
+			for i = before + 1, #sent do
+				local m = ns.Codec.DecodeChat(sent[i])
+				if m and m.text == text then return m.id end
+			end
+			error("no line " .. text .. " went out")
+		end
+		local first = Say(Session(), "gz")
+		-- A /reload: the load's draw lands on the line before the first one's id (one in a hundred on Forever).
+		local second = Say(Session((first - 1) % 10000), "gz")
+		eq(second, (first + 1) % 10000, "the ids go on from the last one sent")
+		-- A reader that showed the first: the second, ten minutes later, is another line.
+		local C = ns.Channels
+		assert(C.DedupeWindow() > 600, "(a line's key is kept longer than ten minutes: " .. C.DedupeWindow() .. " s)")
+		local seen, mine = {}, {}
+		local function Read(id, at) return C.Admit("Chatty Writer-Realm", "OLYMPUS FIXTURE", "gz", at, { level = 0, seen = seen, mine = mine, buckets = {}, stats = {}, id = id }) end
+		eq((Read(first, 10000)), true, "(the first line shown)")
+		local shown, why = Read(second, 10000 + 600)
+		eq(shown, true, "the same text ten minutes later after a reload: " .. tostring(why))
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, GetGuildInfo = saved.name, saved.join, saved.leave, saved.guild
+	GetTime, C_ChatInfo, math.random = saved.time, saved.info, saved.random
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+	StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+	if not ok then error(err, 0) end
+end)

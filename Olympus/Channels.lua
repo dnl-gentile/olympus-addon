@@ -408,8 +408,17 @@ local function Store(tier)
 	return list
 end
 
+-- (The review of 1.6.0) A character's ids go on from the last one he sent, across a /reload or a relog
+-- (ns.db.chatNextId, by character; LOGIN below): a reader keeps a line's key, its writer, id and text,
+-- DedupeWindow (1,320 s), and an [Olympus] line's id keeps two digits on Forever (Codec.ChatWireId). Drawn
+-- again at random at each load, one same short line in a hundred ("gz", "lol") after a /reload drew an id
+-- that line had already used, and every reader dropped it as seen.
 local function NextId()
 	nextId = (nextId + 1) % 10000
+	if type(ns.db) == "table" and type(ns.me) == "string" then
+		if type(ns.db.chatNextId) ~= "table" then ns.db.chatNextId = {} end
+		ns.db.chatNextId[ns.me] = nextId
+	end
 	return nextId
 end
 
@@ -2558,6 +2567,9 @@ ns.On("INIT", function()
 end)
 
 ns.On("LOGIN", function()
+	-- (The review of 1.6.0: NextId) The ids this character sent go on.
+	local last = type(ns.db.chatNextId) == "table" and tonumber(ns.db.chatNextId[ns.me]) or nil
+	if last and last == math.floor(last) and last >= 0 and last < 10000 then nextId = last end
 	ns.Every(60, "chat housekeeping", Channels.Prune)
 	-- Our pinned line again for late logins (1.1), every PIN_RESEND while it lasts; after a
 	-- /reload too (Konig's review: its setter can still take it down).
