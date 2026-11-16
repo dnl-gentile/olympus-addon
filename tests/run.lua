@@ -63586,6 +63586,37 @@ end)()
 		assert(check:find("luajit scripts/answers.lua --check", 1, true), "check.sh")
 	end)
 
+	-- The review of 1.6.0: an answer written for the release being made cites the README as it stands, by
+	-- whole paragraphs (a README.md:<first>-<last> source opens after a blank line or at the top, on a line
+	-- with text, and closes before a blank line or at the end). Older answers' line numbers drift as the
+	-- README grows, and are not checked. Fails before: the ad reminder's answer cited README.md:3496-3515,
+	-- five lines above its section once the README grew, from the middle of the handoffs' paragraph to
+	-- before Less often and Turn off.
+	test("1.6.0 answer bank: an answer marked current for this version cites the README by whole paragraphs, as the README stands", function()
+		local gen = dofile(ROOT .. "scripts/answers.lua")
+		local bank = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
+		local lines = {}
+		for line in (ReadFile(ROOT .. "README.md"):gsub("\r", "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+		local function Blank(i) return lines[i] == nil or not lines[i]:find("%S") end
+		local cited = 0
+		for _, a in ipairs(bank.answers) do
+			if a.status == "current (" .. ns.VERSION .. ")" then
+				for _, source in ipairs(a.sources or {}) do
+					local first, last = tostring(source):match("^README%.md:(%d+)%-(%d+)$")
+					first, last = tonumber(first), tonumber(last)
+					if first then
+						cited = cited + 1
+						assert(first <= last and last <= #lines, ("%s: %s is past the README's %d lines"):format(a.id, source, #lines))
+						assert(not Blank(first) and Blank(first - 1), ("%s: %s opens inside a paragraph: %s"):format(a.id, source, lines[first]))
+						assert(not Blank(last) and Blank(last + 1), ("%s: %s closes inside a paragraph, before: %s"):format(a.id, source, tostring(lines[last + 1])))
+					end
+				end
+			end
+		end
+		-- (1.6.0's: the ad reminder's answer, Recruit.lua's popup.)
+		assert(ns.VERSION ~= "1.6.0" or cited > 0, "an answer marked current (1.6.0) cites the README")
+	end)
+
 	test("1.1.2 Answers: the author, the High Council and the Stewards alone; the list by topic with a search; a click fills the box (after what is typed), never sends and never takes the keyboard; Shift-click the longer answer to copy", function()
 		WithUI(function()
 			local UI = LoadUI()
