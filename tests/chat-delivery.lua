@@ -501,7 +501,14 @@ test("chat delivery (1.5.5): the relay's readers of the server's \"No player nam
 		local R = extra.RelayWorld("Plain Reporter-CAMWOWUS2Realm7PvE", "Olympus II")
 		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
 		local line = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Max Ran")
-		eq(R.Relay.QuietLine(nil, "CHAT_MSG_SYSTEM", line), true, "a plain line for a relay: kept out of the chat")
+		-- (Changed on purpose, 1.6.0: only a line one of our whispers caused stays out of the chat, and
+		-- this asked about a relay's line with no whisper to him at all. In a full run it passed on the
+		-- quiet seconds an earlier test's whisper to the same relay left behind; alone it failed. Our
+		-- ping to him goes first now, refused: he is offline.)
+		C_ChatInfo.SendAddonMessage = function(_, _, dist) return dist == "WHISPER" and 12 or 0 end
+		R.Comm.Whisper("Max Ran", "RL~P~RP~", nil, true)
+		for _ = 1, 5 do R.Comm.Pump() end
+		eq(R.Relay.QuietLine(nil, "CHAT_MSG_SYSTEM", line), true, "a plain line for a relay we whispered: kept out of the chat")
 		local checked = 0
 		local ok, err = pcall(function()
 			issecretvalue = function(v) if v == line then checked = checked + 1 return true end return false end

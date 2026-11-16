@@ -97,6 +97,7 @@ Church.HEARD_MAX = 500
 Church.KEEPER_EVERY, Church.MEMBER_EVERY = 300, 600 -- presence
 Church.FRESH_FACTOR = 2.2
 Church.PROBE_GAP, Church.PROBE_WAIT, Church.PROBE_REPLY_GAP = 120, 60, 3
+Church.PROBE_AWAY = 600        -- (1.6.0) a signed Apostle the server says is not online: not probed again this long
 Church.ASK_GAP = 600           -- an audience client asks for pages this often at most
 Church.ASK_AFTER, Church.ASK_SPREAD = 40, 40
 Church.ASKED_WINDOW = 600      -- pages are taken from a keeper this long after we asked him
@@ -1447,7 +1448,7 @@ end
 
 -- A Forever relay may never hear a keeper on another relay. Ask one signed Apostle directly
 -- when an outbox or open ranking has no keeper. The answer carries only a request ID and scope.
-local probe = { at = -math.huge, seq = 0, replyAt = -math.huge, replied = {} }
+local probe = { at = -math.huge, seq = 0, replyAt = -math.huge, replied = {}, away = {} }
 local function ProbeScope()
 	local R, group = ns.Relay, ns.group
 	if not (R and R.On and R.On()) or not ns.IsMember() or Off() then return nil end
@@ -1462,6 +1463,12 @@ local function SignedKeeper(name)
 	return row and row.signed and not Church.IsKing(name)
 		and ns.ForeverFamily(ns.RealmOf(name)) == ns.group
 end
+-- (1.6.0) Named by the server's "No player named" line, or refused by the game as not online (12),
+-- PROBE_AWAY ago or less (Church.NotFound).
+local function Away(name, now)
+	local at = probe.away[Key(name) or ""]
+	return at ~= nil and now - at < Church.PROBE_AWAY
+end
 
 function Church.FindKeeper()
 	local scope, now = ProbeScope(), Now()
@@ -1472,12 +1479,14 @@ function Church.FindKeeper()
 	for i = 0, #signers - 1 do
 		local j = (first + i - 1) % #signers + 1
 		local name = signers[j].n
-		if not Same(name, ns.me) and SignedKeeper(name) then
+		if not Same(name, ns.me) and SignedKeeper(name) and not Away(name, now) then
 			probe.next, probe.at, probe.seq = j % #signers + 1, now, probe.seq + 1
 			local q = { k = Key(name), id = B36(Clock()) .. B36(probe.seq), untilAt = now + Church.PROBE_WAIT }
 			probe.pending = q
 			local text = ("NK~1~q~%s~%s~%s"):format(q.id, scope, guild)
-			return ns.Comm.Whisper(name, text, nil, false, false, function(ok)
+			return ns.Comm.Whisper(name, text, nil, false, false, function(ok, why)
+				-- (1.6.0) The game refused it: he is not online (TargetOffline, 12).
+				if not ok and why == 12 then probe.away[q.k] = Now() end
 				if probe.pending ~= q then return end
 				if ok then q.sent, q.untilAt = true, Now() + Church.PROBE_WAIT else probe.pending = nil end
 			end, { owner = Church, guard = function()
@@ -1530,10 +1539,11 @@ local function TakeKeeperProbe(sender, text)
 	return accepted
 end
 
--- Heard lately with a role this client's book confirms (presence alone grants nothing).
+-- Heard lately with a role this client's book confirms (presence alone grants nothing). (1.6.0) Not
+-- once the server said he is not online, until his next presence (Church.NotFound).
 function Church.Online(name)
 	local h = heard[Key(name) or ""]
-	if not h then return false end
+	if not h or (h.gone and h.gone >= h.t) then return false end
 	local role = Church.Role(h.name)
 	if not AUDIENCE_ROLES[role or ""] then return false end
 	return Now() - h.t <= Church.PresenceEvery(role) * Church.FRESH_FACTOR, h
@@ -1541,6 +1551,34 @@ end
 
 -- Every name heard, as kept (ChurchCount's witnesses, /oly church status).
 function Church.Heard() return heard end
+
+-- 1.6.0 (the review of the "No player named" lines in members' chats): a keeper counted online up to
+-- KEEPER_EVERY * FRESH_FACTOR after his last presence, so every outbox and ranking ask went on
+-- whispering one who had logged off, and FindKeeper's probe tried a signed Apostle every PROBE_GAP
+-- in turn however long he had been away: each whisper a line the server printed (Accord.QuietLine
+-- keeps it out of the chat). The server's line for a name heard: not online until his next presence
+-- (Church.Online); for a signed Apostle: not probed for PROBE_AWAY. Read as Treasury and the relay
+-- read it, a secret line never. True when it named one.
+function Church.NotFound(text)
+	if type(text) ~= "string" or ns.Secret("church not found", text) then return false end
+	local T = ns.Treasury
+	local pattern = type(T) == "table" and type(T.NotFoundPattern) == "function" and T.NotFoundPattern()
+	local who = type(pattern) == "string" and text:match(pattern)
+	if type(who) ~= "string" then return false end
+	who = who:gsub("^'", ""):gsub("'$", ""):lower()
+	local function Is(name)
+		return (ns.TellName(name) or ""):lower() == who or (ns.DisplayName(name) or ""):lower() == who
+	end
+	local now, hit = Now(), false
+	for _, h in pairs(heard) do
+		if Is(h.name) then h.gone, hit = now, true end
+	end
+	for _, row in ipairs(Church.SignedApostles()) do
+		local k = Key(row.n)
+		if k and Is(row.n) then probe.away[k], hit = now, true end
+	end
+	return hit
+end
 
 -- The keepers online (by their presence) and this client when it is one, in the desk's order:
 -- the Head, the Apostles by name, the author. Never the King's client.
@@ -1944,4 +1982,6 @@ ns.On("LOGIN", function()
 	loginAt = Now()
 	sessionAt = loginAt
 	if ns.Every then ns.Every(Church.TICK, "church tick", Church.Tick) end
+	-- (1.6.0) The server's "No player named" lines (Church.NotFound).
+	pcall(ns.RegisterEvent, "CHAT_MSG_SYSTEM", function(text) ns.SafeCall("church not found", Church.NotFound, text) end)
 end)

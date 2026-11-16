@@ -625,7 +625,8 @@ function Builds.Prompt(now)
 		if n >= budget then break end
 		prompted[e.key] = now
 		promptTimes[#promptTimes + 1] = now
-		-- (Gone offline since: the server's "No player named" kept out of his chat, as the relay's.)
+		-- (Gone offline since: the server's "No player named" stays out of his chat, as the relay's:
+		-- 1.6.0, Comm.SendNow's Accord.Tried marks the ask when it goes; R.Quiet registers the filter.)
 		if type(R) == "table" and type(R.Quiet) == "function" then R.Quiet(e.name) end
 		if W.AskUpdate(e.name) then n = n + 1 end
 	end

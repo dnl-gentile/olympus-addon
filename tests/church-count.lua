@@ -2164,6 +2164,93 @@ test("Church keeper discovery: an unreachable signed Apostle yields to the next 
 	eq(w:As(c.m1, c.m1.Church.KeepersOnline, false)[1].name, A2)
 end)
 
+-- 1.6.0 (the review of the "No player named" lines in members' chats): a keeper counted online up to
+-- KEEPER_EVERY * FRESH_FACTOR after his last presence, so every outbox went on whispering one who
+-- had logged off, and the keeper probe tried each signed Apostle in turn, every PROBE_GAP, however
+-- long he had been away: the server printed a line for each whisper. Its line for a name heard
+-- counts him offline until his next presence, and a signed Apostle it names is not probed for
+-- PROBE_AWAY. (This world prints no server lines: the client reads the one given here as the
+-- game hands it, CHAT_MSG_SYSTEM, registered at login.)
+local function ServerSaysNotOnline(w, cl, name)
+	local saved = rawget(_G, "ERR_CHAT_PLAYER_NOT_FOUND_S")
+	ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+	local ok, err = pcall(function()
+		local read = cl.events and cl.events.CHAT_MSG_SYSTEM -- (none registered: the line goes to no reader)
+		if read then w:As(cl, function() read(ERR_CHAT_PLAYER_NOT_FOUND_S:format(cl.c.TellName(name))) end) end
+	end)
+	ERR_CHAT_PLAYER_NOT_FOUND_S = saved
+	if not ok then error(err, 0) end
+end
+
+test("Church keeper not found (1.6.0): the server's no-player line for a keeper heard leaves him out of the keepers online until his next presence: the witness's evidence goes to the keeper still online alone; another name's line changes nothing", function()
+	local w, c = Cast()
+	Login(w, c.wes)
+	local function Online()
+		local out = {}
+		for _, k in ipairs(w:As(c.wes, c.wes.Church.KeepersOnline, false)) do out[#out + 1] = k.name end
+		table.sort(out)
+		return table.concat(out, ",")
+	end
+	eq(Online(), A1 .. "," .. A2, "both Apostles heard")
+	c.a1.online = false -- he logs off: his last presence still counts for minutes
+	ServerSaysNotOnline(w, c.wes, "Somebody Else-Realm")
+	eq(Online(), A1 .. "," .. A2, "another name's line: nothing changes")
+	-- A line the client keeps secret (a chat lockdown) is never read.
+	local line = "No player named '" .. w:As(c.wes, c.wes.c.TellName, A1) .. "' is currently playing."
+	local savedSecret = rawget(_G, "issecretvalue")
+	issecretvalue = function(v) return v == line end
+	local read = c.wes.Church.NotFound and w:As(c.wes, c.wes.Church.NotFound, line)
+	issecretvalue = savedSecret
+	eq(Online(), A1 .. "," .. A2, "a secret line: never read")
+	ServerSaysNotOnline(w, c.wes, A1)
+	eq(Online(), A2, "the keeper the server named: out")
+	eq(read, false, "(Church.NotFound said the secret line named nobody)")
+	WitnessInvite(w, c, "Gone Rec")
+	w:Run(15)
+	eq(SentTo(w, c.wes, c.a1, "w"), 0, "no evidence to him")
+	eq(SentTo(w, c.wes, c.a2, "w"), 1, "the evidence to the keeper online")
+	-- Back: his next presence counts him online again.
+	c.a1.online = true
+	w:Act(c.a1, c.a1.Church.SendPresence, true)
+	eq(Online(), A1 .. "," .. A2, "back with his next presence")
+end)
+
+test("Church keeper not found (1.6.0): a signed Apostle the server named, or the game refused as not online (12), is not probed again for PROBE_AWAY; the next one is; past it he is tried again", function()
+	local w, c = KeeperProbeWorld()
+	Login(w, c.m1)
+	c.a1.online, c.a2.online = false, false
+	local ask = function() return w:Act(c.m1, c.m1.Count.Ask, "m", "m", nil, true) end
+	local function Probes()
+		local out = {}
+		for _, q in ipairs(w:Sent(c.m1, "NK", "WHISPER", "q")) do out[#out + 1] = q.target end
+		return table.concat(out, ",")
+	end
+	local G = c.m1.Church.PROBE_GAP
+	eq(select(2, ask()), "no keeper")
+	eq(Probes(), A1, "the first signed Apostle probed")
+	ServerSaysNotOnline(w, c.m1, A1)
+	w:Run(G); ask()
+	eq(Probes(), A1 .. "," .. A2, "the next one")
+	w:Run(G); ask()
+	eq(Probes(), A1 .. "," .. A2 .. "," .. A2, "the one the server named is skipped: the other again")
+	-- The game refuses the next probe to the other at once, as not online (TargetOffline, 12): the same.
+	local whisper = c.m1.c.Comm.Whisper
+	c.m1.c.Comm.Whisper = function(target, msg, key, urgent, logged, done, opts)
+		if Key(target) ~= Key(A2) then return whisper(target, msg, key, urgent, logged, done, opts) end
+		w.sent[#w.sent + 1] = { from = c.m1, dist = "WHISPER", msg = msg, target = target, at = w.clock }
+		if done then done(false, 12) end
+		return true
+	end
+	w:Run(G); ask()
+	eq(Probes(), A1 .. "," .. A2 .. "," .. A2 .. "," .. A2, "the other probed, refused")
+	w:Run(G); ask()
+	eq(Probes(), A1 .. "," .. A2 .. "," .. A2 .. "," .. A2, "both away: no probe")
+	-- PROBE_AWAY after the line: the first one tried again (the other is still away).
+	w:Run(c.m1.Church.PROBE_AWAY - 4 * G + 1); ask()
+	eq(Probes(), A1 .. "," .. A2 .. "," .. A2 .. "," .. A2 .. "," .. A1, "past PROBE_AWAY: the first one tried again")
+	c.m1.c.Comm.Whisper = whisper
+end)
+
 test("Church evidence retries: a delayed whisper is not repeated while queued and a failed send reaches the same keeper", function()
 	local w, c = Cast()
 	c.a2.online = false

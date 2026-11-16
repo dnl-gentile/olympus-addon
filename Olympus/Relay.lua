@@ -44,7 +44,9 @@ ns.Relay = Relay
 -- with no relay answered yet pings every relay at once (Sweep), is held for the first answer
 -- (Flush, from HandleAck) and goes to whoever answered; the pick is made among the relays that
 -- answered (VERIFIED_FOR) while any did. The server's "No player named X" for each ping to an
--- offline relay is kept out of the chat (Accord.Quiet) and still read (NotFound).
+-- offline relay is kept out of the chat (Accord.Quiet; 1.6.0: by Comm.SendNow's Accord.Tried, one
+-- line for each whisper the game is handed, Accord.Quiet only registering the filter) and still read
+-- (NotFound).
 --
 -- 1.5.4 (the presentation): a relay served whoever whispered it, so any build of the addon, changed
 -- or not, could register as a guild's reporter and take every guild's feed. Now a client identifies
@@ -460,8 +462,9 @@ local function Envelope(kind, text)
 end
 
 -- A relay not answered lately is pinged once; no answer in PING_WAIT leaves it out.
--- The server's "No player named X" for a whisper to someone offline: kept out of the chat for the
--- Accord's quiet window (Accord.Quiet, gated there); NotFound still reads the event.
+-- The server's "No player named X" for a whisper to someone offline: (1.6.0) kept out of the chat by
+-- Comm.SendNow's Accord.Tried, one line for each whisper when the game is handed it; this registers
+-- the Accord's filter before the first (Accord.Quiet, gated there). NotFound still reads the event.
 local function Quiet(name)
 	local A = ns.Accord
 	if type(A) == "table" and type(A.Quiet) == "function" then ns.SafeCall("relay quiet", A.Quiet, name) end
@@ -3265,11 +3268,15 @@ ns.Comm.RelayPieces({ RL = true, RM = true, RG = true, RX = true, RW = true, RU 
 
 -- Only shield errors correlated with a recent addon send, not all errors about a known relay
 -- or reporter. The relay still reads the event to manage its next delivery attempt.
-function Relay.QuietLine(_, _, text) -- gp:system-filters
+-- (1.6.0) The line's own values go with it: the Accord's filter keeps one line out for each of our
+-- whispers and tells one line from the next by its lineID, else by who asks in which chat window
+-- (this filter as the relay's: Accord.QuietLineForRelay).
+function Relay.QuietLine(frame, event, text, ...) -- gp:system-filters
 	if not ns.Gate.Allowed("system-filters") or not Relay.On() then return false end
 	if ns.Secret("relay quiet line", text) then return false end
 	local A = ns.Accord
-	return type(A) == "table" and type(A.QuietLine) == "function" and A.QuietLine(nil, nil, text) == true
+	local ask = type(A) == "table" and (A.QuietLineForRelay or A.QuietLine) or nil
+	return type(ask) == "function" and ask(frame, event, text, ...) == true
 end
 local filtering
 local function QuietLines() -- gp:system-filters!hook
