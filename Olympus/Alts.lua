@@ -667,6 +667,10 @@ function Alts.Handle(dist, sender, text)
 		local k = byPlain and byPlain[Plain(sender)]
 		if k and type(claims[k]) == "table" then prior = claims[k] end
 	end
+	-- Its group is the held claim's too. Looked up through the copy's own stamp and the names it gives
+	-- alone, a copy first heard under a stamp that names no name of the group held (the main's "-", a new
+	-- alt alone, names plain, an alt's own "-") found none, was taken as it came, and took the group with it.
+	if type(prior) == "table" and type(prior.name) == "string" then all[#all + 1] = prior.name end
 	if type(prior) == "table" and OffAmong(all) then
 		claim = Frozen(prior, claim)
 		stats.frozen = stats.frozen + 1
