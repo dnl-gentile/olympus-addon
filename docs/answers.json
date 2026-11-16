@@ -420,8 +420,8 @@
       "notes": "1.6.0: the Census offer's ads come every 30 minutes (5 before). An interval a player saved before 1.6.0 is kept until he changes it; the popup's Less often takes 5 straight to 30. The popup never opens in combat, an instance or while typing. The author's ask of 11-16: its own Turn off became Turn off recruiting (only ad reminders, or all of recruiting) beside Pause recruiting (15 minutes to 4 hours, Resume in Church > Invites), as on every recruiting popup that opens by itself.",
       "sources": [
         "Recruit.lua RemindAnnouncement, LessOften, TurnOff, Recruit.Pause",
-        "README.md:3577-3591",
-        "README.md:3593-3613"
+        "README.md:3587-3601",
+        "README.md:3603-3623"
       ]
     },
     {
