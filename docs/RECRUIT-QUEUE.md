@@ -24,6 +24,13 @@ return-to-invite callback, including one already queued before the click. Alread
 offered or prepared scans no longer count as waiting candidates, so copying their
 commands can replenish WHO results without pressing Next between every popup.
 
+Pending JOINs retry independently of the nearby-player scan after typing, combat,
+an open draft or popup pacing delays them. Pause/off still suppresses popups; Start
+resumes pending requests. An explicit JOIN after an ordinary reply upgrades that
+reply once instead of being lost to the duplicate-request cooldown. Repeated JOINs
+remain deduplicated. Copy the command from the popup rather than inserting a name
+link into chat; diagnosing a Blizzard error still requires its Report a bug output.
+
 Skip/Next sends no message and does not refer anyone to another recruiter. Skipped
 scans stay suppressed for that scan session. The player's own later JOIN can bring
 them back. Existing duplicate filtering and seven-day decline suppression remain;
@@ -49,6 +56,7 @@ OLYMPUS_TEST_FILTER='gamepad unified recruiting' bash scripts/check.sh
 OLYMPUS_TEST_FILTER='gamepad recruit movement focus' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad blocked diagnostics' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad recruiting review fixes' luajit tests/run.lua
+OLYMPUS_TEST_FILTER='gamepad JOIN popup recovery' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit invite (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (1.5.9)' luajit tests/run.lua
@@ -108,6 +116,15 @@ are removed in a scratch copy, and pass with the fixes.
 12. Cancel a moderation warning, then queue another applicant. The warning should
     remain dismissed automatically and the later applicant should be offered
     after the popup interval; the warned request stays available for manual review.
+13. With recruiting on and nearby scanning off, receive JOIN while typing or in
+    combat. After closing chat/leaving combat, the command popup should appear
+    without a second whisper, subject to the popup interval. An existing draft
+    must not be replaced, and movement focus must remain untouched. Pause and resume
+    with a JOIN waiting; Start should resume it.
+14. Have a contacted player send an ordinary reply followed by JOIN. The reply
+    should become one invite request and offer the copy/paste command; repeating
+    JOIN must not create another popup or duplicate row. Check both the unified
+    panel and the Census/Advanced recruiting mode.
 
 Offline API models cannot establish live server acceptance, real chat delivery,
 controller navigation quality, or account-policy approval.

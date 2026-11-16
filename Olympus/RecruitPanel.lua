@@ -39,6 +39,7 @@ function P.Start()
 	CloseDrafts()
 	if R.Candidates then R.Candidates.SetEnabled(true) end
 	Changed()
+	R.PromptReplies()
 	return true
 end
 
@@ -140,7 +141,7 @@ function P.Prepare(item, automatic)
 end
 
 -- Automatic copy drafts are local to this recruiter. The existing scan ticker and
--- incoming JOIN events drive them; no added timer, transport message or native invite.
+-- incoming JOIN retries drive them; no transport message or native invite.
 -- Never replace an open draft, steal typing focus, or repeatedly prompt the same row.
 function P.Prompt()
 	local saved = R.Preference()

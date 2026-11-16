@@ -4865,7 +4865,7 @@ test("gamepad whisper recruiting: deliberate outreach and native invite copy in 
 		eq(draft:IsShown(), false, "the queue ignores invisible and already contacted units")
 		InClick(C, function() eq(R.PromptOutreach(), false, "recent contacts are not offered again") end)
 		C.Fire("CHAT_MSG_WHISPER", " Interested if you raid Tuesdays |cffaabbcc ", "Newbie-Realm")
-		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "Newbie-Realm")
+		C.Fire("CHAT_MSG_WHISPER", "Could you tell me more?", "Newbie-Realm")
 		eq(#R.requests, 1, "the contacted player's ordinary reply queues one request")
 		local reply = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"), "a direct reply shows the invite action")
 		assert(reply.text:GetText():find("Interested if you raid Tuesdays ||cffaabbcc", 1, true), "reply content is shown safely")
@@ -6108,6 +6108,75 @@ test("gamepad unified recruiting panel: priority, pause, stale actions and both 
 		assert(Row("recruit-no-invite"))
 		Check(C.ledger, "unified recruiting"); NoErrors(C, "unified recruiting")
 		NoErrors(reload, "unified recruiting reload")
+	end
+end)
+
+test("gamepad JOIN popup recovery: retry without scanning through typing, combat, drafts and resume", function()
+	for _, pad in ipairs({ false, true }) do
+		local C, ns = Session(pad)
+		local R, P = ns.Recruit, ns.Recruit.Panel
+		InClick(C, P.Start)
+		R.Candidates.SetEnabled(false)
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		local function Later(seconds) C.now = C.now + seconds; C.Advance(seconds) end
+		local chat = C.env.ChatFrame1EditBox
+		chat:Show(); C.focus = chat
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "TypedJoin-Realm")
+		Later(3); eq(Draft(), nil, "does not interrupt typing")
+		chat:Hide(); C.focus = nil
+		Later(3)
+		local first = assert(Draft(), "queued JOIN retries with nearby scanning off")
+		eq(first.editBox:GetText(), "/ginvite TypedJoin"); eq(C.focus, nil)
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "SecondJoin-Realm")
+		Later(16); eq(Draft(), first, "never replaces an open draft")
+		first:Hide(); C.combat = true
+		Later(3); eq(Draft(), nil, "waits through combat")
+		C.combat = false; C.Switch(not pad)
+		Later(3); eq(assert(Draft()).editBox:GetText(), "/ginvite SecondJoin")
+		eq(C.focus, nil, "recovery does not steal movement focus")
+		Draft():Hide()
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "PacedJoin-Realm")
+		Later(3); eq(Draft(), nil, "respects popup spacing")
+		Later(13); eq(assert(Draft()).editBox:GetText(), "/ginvite PacedJoin")
+		P.Pause(); C.Fire("CHAT_MSG_WHISPER", "JOIN", "PausedJoin-Realm")
+		Later(20); eq(Draft(), nil, "pause suppresses retries")
+		InClick(C, P.Start); R.Candidates.SetEnabled(false)
+		Later(3); eq(assert(Draft()).editBox:GetText(), "/ginvite PausedJoin", "Start restarts pending JOINs")
+		Draft():Hide(); Later(20); eq(Draft(), nil, "no repeated popup for prepared requests")
+		eq(#(C.said or {}), 0, "no messages sent")
+		Check(C.ledger, "JOIN retry"); NoErrors(C, "JOIN retry")
+	end
+end)
+
+test("gamepad JOIN popup recovery: explicit JOIN upgrades an ordinary reply once", function()
+	for _, panel in ipairs({ false, true }) do
+		local C, ns = Session(false)
+		local R = ns.Recruit
+		InClick(C, function()
+			if panel then R.Panel.Start() else R.EnableWhisperRecruiting(); R.Candidates.SetEnabled(true) end
+		end)
+		R.Candidates.ObserveWho("ChangedMind-Realm", "", "Human")
+		local candidate
+		R.Candidates.EachRow(function(row) candidate = row end)
+		InClick(C, function() assert(R.PromptCandidateWhisper(candidate)) end)
+		C.Click(assert(ns.Dialog.Find("OLYMPUS_RECRUIT_OUTREACH")).buttons[1])
+		R.Candidates.SetEnabled(false)
+		C.Fire("CHAT_MSG_WHISPER", "maybe later", "ChangedMind-Realm")
+		local review = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY"))
+		local req = assert(R.requests[1])
+		C.Fire("CHAT_MSG_WHISPER", "  join  ", "ChangedMind-Realm")
+		eq(#R.requests, 1, "upgrade reuses the request")
+		eq(R.requests[1], req); eq(req.handoffIntent, "guild", "JOIN is not discarded by reply deduplication")
+		eq(review:IsShown(), false, "superseded reply no longer blocks its invite")
+		C.now = C.now + 21; C.Advance(21)
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(draft.editBox:GetText(), "/ginvite ChangedMind"); eq(C.focus, nil)
+		draft:Hide()
+		C.Fire("CHAT_MSG_WHISPER", "JOIN OLYMPUS", "ChangedMind-Realm")
+		C.now = C.now + 21; C.Advance(21)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "repeated JOIN cannot spam popups")
+		eq(#R.requests, 1)
+		Check(C.ledger, "JOIN reply upgrade"); NoErrors(C, "JOIN reply upgrade")
 	end
 end)
 

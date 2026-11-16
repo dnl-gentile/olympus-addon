@@ -1629,14 +1629,33 @@ end
 
 -- `viaWhisper`: in the recruiting queue (Church > Invites), not the Census. `joinScreen`: sent from
 -- the Join Olympus screen (a J3), in either one.
-local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen)
+local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen, intent)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	-- (1.5.9) A player who declined this client's invite: only his own JOIN, which clears that first,
 	-- comes in; a reply to our whisper does not.
 	if Recruit.Declined(sender) then return false end
 	local now = ns.Now()
 	Prune(now)
-	if requestAt[sender] then return false end
+	if requestAt[sender] then
+		-- An explicit JOIN is new intent, not a duplicate of an earlier conversation.
+		-- Upgrade the existing reply once; repeated JOINs still obey the same throttle.
+		if intent then
+			for _, req in ipairs(Recruit.requests) do
+				if req.name == sender and req.guild == own and req.viaWhisper and not req.handoffIntent
+					and not req.handedIn and not req.invitePrepared then
+					req.text, req.t, req.handoffIntent = text, now, intent
+					req.joinScreen = joinScreen or req.joinScreen
+					req.panelDone, req.panelPrompted, req.popupShown = nil, nil, nil
+					requestAt[sender] = now
+					local review = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_REPLY", req)
+					if review then review:Hide() end
+					ns.Fire("RECRUIT_CHANGED")
+					return true, req
+				end
+			end
+		end
+		return false
+	end
 	requestAt[sender] = now
 	for i, r in ipairs(Recruit.requests) do
 		if r.name == sender then table.remove(Recruit.requests, i) break end
@@ -1713,7 +1732,7 @@ function Recruit.OnJoinRequest(dist, sender, text)
 		return (AddRequest(sender, own, level, class, said, nil, true))
 	end
 	said = type(said) == "string" and ns.Codec.SanitizeChat(ns.Cut(said, 180)) or ""
-	local accepted, req = AddRequest(sender, own, level, class, said ~= "" and said or nil, true, true)
+	local accepted, req = AddRequest(sender, own, level, class, said ~= "" and said or nil, true, true, "guild")
 	if Recruit.Handoff then
 		Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(sender) .. " join screen")
 	end
@@ -2146,7 +2165,17 @@ PromptReply = function()
 	-- The streamlined mode shares one local popup scheduler for JOINs and scans.
 	-- It never offers a pending player to another guild member.
 	if (Recruit.Preference() or {}).panelQueue then
+		if not Recruiting() or Recruit.IsPaused() then return end
+		Prune(ns.Now())
 		if Recruit.Panel then Recruit.Panel.Prompt() end
+		-- JOINs must retry independently of the optional nearby-player scan. Typing,
+		-- combat, another draft or the popup interval may have postponed the first try.
+		for _, pending in ipairs(Recruit.requests) do
+			if pending.guild == recruitingGuild and not pending.panelDone and not pending.panelPrompted
+				and not pending.invitePrepared and ns.Roster.RankOf(pending.name) == nil then
+				return RetryReply(2)
+			end
+		end
 		return
 	end
 	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
@@ -2193,6 +2222,15 @@ PromptReply = function()
 		end
 	end
 	Later()
+end
+
+function Recruit.PromptReplies()
+	if not Recruiting() or Recruit.IsPaused() then return end
+	for _, pending in ipairs(Recruit.requests) do
+		if not pending.panelDone and not pending.panelPrompted and not pending.invitePrepared then
+			return RetryReply(2)
+		end
+	end
 end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
@@ -2373,13 +2411,14 @@ function Recruit.OnWhisper(text, sender)
 				if shown ~= "" then
 					-- (1.5.9) His JOIN after a decline: he comes back by his own choice.
 					if keyword == "JOIN" or keyword == "JOIN OLYMPUS" then ClearDeclined(key) end
-					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true)
+					local intent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
+					local accepted, req = AddRequest(key, recruitingGuild, nil, nil, shown, true, nil, intent)
 					if Recruit.Handoff then
 						Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(key)
 							.. (keyword == "JOIN OLYMPUS" and " olympus" or keyword == "JOIN" and "" or " reply"))
 					end
 					if accepted then
-						req.handoffIntent = keyword == "JOIN OLYMPUS" and "federation" or keyword == "JOIN" and "guild" or nil
+						req.handoffIntent = intent
 						PromptReply()
 					end
 				end
