@@ -8422,6 +8422,33 @@ test("1.6.0 no-player lines: with no lineID, identical lines in one frame each t
 	end)
 end)
 
+-- 1.6.0 (the review of the no-player lines fix): /oly status counted the lines kept out and those
+-- shown within QUIET of our last whisper to that player, and nothing of a line naming him that came
+-- later: the one case where Olympus's own whispers' lines would still show (the server answering past
+-- QUIET) left no trace for an in-game check. It counts such a line as late, up to LATE after our last
+-- whisper. Fails before: no "late" in the status line.
+test("1.6.0 no-player lines: /oly status counts the lines kept out, those shown within QUIET of our last whisper to that player, and those naming him past QUIET (late, up to LATE)", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		C_ChatInfo.SendAddonMessage = function() return 0 end
+		O.Comm.Whisper("Slow Mate-Realm", "X1~sync", nil, false, false)
+		for _ = 1, 3 do O.Comm.Pump() end
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Mate"), 0, "its line within QUIET: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Mate"), 1, "a second one within QUIET: shown")
+		w.mono = w.mono + A.QUIET + 10
+		eq(w.Shown("Slow Mate", 2), 2, "one 20 s after our whisper: shown, and counted late once (two windows, one line)")
+		assert(A.StatusLine():find("no-player lines hidden 1, shown 1, late 1", 1, true), A.StatusLine())
+		w.mono = w.mono + A.LATE
+		eq(w.Shown("Slow Mate"), 1, "one past LATE: shown, not counted")
+		eq(w.Shown("Never Whispered"), 1, "a name we never whispered: shown, not counted")
+		local s = A.Stats()
+		eq(s.quieted, 1); eq(s.passed, 1); eq(s.late, 1)
+	end)
+end)
+
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
 -- channel too, which Forever delivers across every sub-realm to everyone in that channel; the
 -- hidden way by the relay goes on beside it (another lane, another guild), each line taken once.

@@ -80,6 +80,7 @@ Accord.ROWS_MAX = 3000
 Accord.QUIET = 10           -- the server's "No player named" for an asker we just whispered: out of chat this long
 Accord.MARKS_MAX = 64       -- (1.6.0) marks kept for one name (Accord.Tried): the oldest goes first
 Accord.REFUSED_GRACE = 2    -- (1.6.0) a whisper the game refused itself: its line, if any, this soon after the call
+Accord.LATE = 60           -- (1.6.0) a line naming one we whispered this recently, past QUIET: counted late (/oly status)
 Accord.RETELL_WINDOW = 600  -- I accept tells the askers heard this recently (an older one may have left)
 Accord.TEAM_GRACE = 2 * 86400 -- a client off the team this long drops its BattleTags (a namer's list may lapse a while)
 Accord.GUARD_FIRST, Accord.GUARD_EVERY = 300, 600
@@ -108,7 +109,8 @@ local pending = {} -- [Fold(name)] = { name }: an answer waiting for its delay (
 -- [lower(name as the server writes it)] = { marks = { { untilAt (GetTime) }, ... }, oldest first;
 -- last = GetTime of our last whisper to him }: one mark for each whisper of ours the game was handed
 -- (1.6.0, Accord.Tried), the not-found line that whisper may still cause, until its own QUIET is
--- out; his name's forms share one entry.
+-- out; his name's forms share one entry, kept LATE seconds after our last whisper (/oly status
+-- counts his lines hidden, shown within QUIET of it, and late, past it).
 local quiet = {}
 -- The line the chat windows are asking about now, its answer, and (1.6.0, a line with no lineID) who
 -- asked it: [the filter: "own" or "relay"][the chat window, or NOFRAME] = true.
@@ -116,7 +118,7 @@ local lastLine = { key = false, hide = false, asked = { own = {}, relay = {} } }
 local NOFRAME = {}
 local watchingNotFound, filtering = false, false
 local stats = { asks = 0, heard = 0, told = 0, kept = 0, refused = 0, askNotTeam = 0, lower = 0, gone = 0, wiped = 0,
-	quieted = 0, passed = 0 }
+	quieted = 0, passed = 0, late = 0 }
 
 local function Mono() return type(GetTime) == "function" and GetTime() or 0 end
 -- A sanction that follows the BattleTag (TagFollow.lua, loaded after this file): its calls, guarded.
@@ -517,6 +519,8 @@ local function Answer(asker, chatFrame, text, ...)
 		stats.quieted = stats.quieted + 1
 	elseif now - q.last <= Accord.QUIET then
 		stats.passed = stats.passed + 1
+	elseif now - q.last <= Accord.LATE then
+		stats.late = stats.late + 1 -- (the player's own whisper, or the server answering ours past QUIET)
 	end
 	lastLine.key, lastLine.hide = key, hide
 	wipe(lastLine.asked.own); wipe(lastLine.asked.relay)
@@ -570,7 +574,7 @@ end
 -- Comm.SendNow counts the whisper when the game is handed it, Accord.Tried).
 function Accord.Quiet(name)
 	local now = Mono()
-	for who, q in pairs(quiet) do if now - q.last > Accord.QUIET then quiet[who] = nil end end
+	for who, q in pairs(quiet) do if now - q.last > Accord.LATE then quiet[who] = nil end end
 	if filtering or not ns.Gate.Allowed("system-filters") then return end
 	-- (The global, as FarkleTable's filter: every supported client has it, and Forever's
 	-- ChatFrameUtil has no AddMessageEventFilter; that one only where the global is gone.)
@@ -1367,9 +1371,9 @@ function Accord.StatusLine()
 	local team = Accord.TeamMember() and (" | team: %d characters, %d BattleTags"):format(Accord.Count(), #Accord.Groups()) or ""
 	local T = TF()
 	local follows = T and T.StatusLine and (" | " .. T.StatusLine()) or ""
-	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d | no-player lines hidden %d, shown %d%s"):format(state,
+	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d | no-player lines hidden %d, shown %d, late %d%s"):format(state,
 		why or "readable", team, stats.asks, stats.heard, stats.told, stats.kept, stats.refused, stats.askNotTeam, stats.lower, stats.gone, stats.wiped,
-		stats.quieted, stats.passed, follows)
+		stats.quieted, stats.passed, stats.late, follows)
 end
 function Accord.Stats() return stats end
 
