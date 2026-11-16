@@ -1565,3 +1565,58 @@ test("verify: 1.6.0 a verifier revokes a guild whose approval his client never h
 		eq(w.As(member, member.Verify.Revoke, GUILD), false, "(the call itself, for a non-verifier)")
 	end)
 end)
+
+-- 1.6.0: a guild the moderators took off the network (Moderation.lua) wears no check: the Census draws
+-- no row for it (Data.Summary), and The Watch and its guild master's own line show its verification
+-- without the mark. Net-off revokes nothing: back on, the check is back. Fails before: the mark stayed.
+test("verify: 1.6.0 a guild off the network wears no check (the Census's mark, The Watch, its guild master's line), its verification untouched", function()
+	local M = ns.Moderation
+	local saved = { netoff = ns.rdb.netoff, chat = C_ChatInfo }
+	local ok, err = pcall(World, function(w)
+		M.Reset()
+		ns.rdb.netoff, C_ChatInfo = nil, nil
+		local hc = w.Client(HC, HEARTH, 3)
+		local master = w.Client(GM, GUILD, 0)
+		local member = w.Client(MEMBER, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		eq(w.As(hc, hc.Verify.Approve, GUILD, GM), true)
+		local function Row()
+			for _, line in ipairs(w.As(hc, hc.Verify.CouncilLines)) do
+				if tostring(line.text):find("<" .. GUILD .. ">", 1, true) then return line end
+			end
+		end
+		local function Tip(line)
+			local out = {}
+			line.tooltip({ AddLine = function(_, text) out[#out + 1] = text end })
+			return table.concat(out, "\n")
+		end
+		local function MasterLine() return w.As(master, master.Verify.Lines)[1] end
+		for _, c in ipairs({ hc, master, member }) do eq(w.As(c, c.Verify.Mark, GUILD), c.Verify.MARK_OK, c.me) end
+		assert(Row().text:find(hc.Verify.MARK_OK, 1, true), "The Watch's verified row")
+		assert(MasterLine().text:find(master.Verify.MARK_OK, 1, true), "its guild master's line")
+		-- A High Councillor takes the guild off the network.
+		local at = math.floor(ns.Data.ServerTime() or ns.Now())
+		M.Handle("CHANNEL", HC, ("O1~g~1~%d~%s~%s~excommunicated"):format(at, GUILD, HC))
+		eq(ns.Data.NetOff(GUILD), true, "(the word is held)")
+		for _, c in ipairs({ hc, master, member }) do
+			eq(w.As(c, c.Verify.Mark, GUILD), "", c.me .. ": no check")
+			eq(w.Status(c, GUILD), "verified", c.me .. ": net-off revokes nothing")
+		end
+		local row = Row()
+		assert(row, "still listed for the verifiers, who may revoke it")
+		assert(not row.text:find(hc.Verify.MARK_OK, 1, true), "The Watch's row without the check")
+		assert(Tip(row):find(hc.L.NETOFF_GUILD_OFF, 1, true), "its tooltip says it is off the network")
+		local line = MasterLine()
+		assert(not line.text:find(master.Verify.MARK_OK, 1, true), "the guild master's line without the check")
+		assert(line.text:find(master.L.VERIFY_LINE_VERIFIED, 1, true), "(still says what is true)")
+		-- Back on the network: the check is back where its approval stands.
+		M.Handle("CHANNEL", HC, ("O1~g~0~%d~%s~%s~"):format(at + 1, GUILD, HC))
+		eq(ns.Data.NetOff(GUILD), false)
+		for _, c in ipairs({ hc, master, member }) do eq(w.As(c, c.Verify.Mark, GUILD), c.Verify.MARK_OK, c.me .. ": back") end
+		assert(Row().text:find(hc.Verify.MARK_OK, 1, true))
+		assert(not Tip(Row()):find(hc.L.NETOFF_GUILD_OFF, 1, true))
+	end)
+	ns.rdb.netoff, C_ChatInfo = saved.netoff, saved.chat
+	M.Reset()
+	if not ok then error(err, 0) end
+end)

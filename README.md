@@ -91,7 +91,8 @@ who may not have the addon yet; **Copy the list** opens it in a window to copy f
 `/oly verify approve <Guild> [Guild master]` or `<code>`; `/oly verify revoke <Guild>` takes one
 back, even where the verifier's own client never received that approval (1.6.0: the guild master's name
 follows the guild's only when the census doesn't know it). A revocation takes the guild's check off every
-client that receives it. The verifiers are told once of each pending guild (and
+client that receives it; a guild the moderators take off the network shows no check either, but its
+approval stands until a verifier revokes it. The verifiers are told once of each pending guild (and
 of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
 verified, on the guild's same clock. Past its 7 days an unverified guild is overdue. Member-facing popups, chat warnings and Census

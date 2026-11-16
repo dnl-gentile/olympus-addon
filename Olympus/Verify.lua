@@ -49,14 +49,17 @@ local L = ns.L
 -- ns.VERIFY_GATE (Core.lua) is off, and ns.GuildSanctioned(guild), the one predicate a feature
 -- would ask, says yes while it is.
 --
--- (1.6.0, a player's report of 11-15: a guild the staff excommunicated still wore its check.) A
--- verifier's revocation takes the check away on each client that holds it (the guild stays in the
--- Census, unmarked). An answer carries only the newest words a store holds (MAX_BYTES: that guild's
--- approval, of 11-05, had 117 newer words by 11-13), so an old approval reached no verifier who was
--- away when it was given, and Revoke refused there ("no verification to revoke") while the clients
--- that heard it kept the check: a verifier now revokes a guild he knows whether or not his client
--- holds its approval (Verify.Revoke), and an answer carries the revocations first, so a client back
--- after days drops the check of a guild revoked meanwhile.
+-- (1.6.0, a player's report of 11-15: a guild the staff excommunicated still wore its check.) What
+-- takes the check away, on each client that holds the word: a verifier's revocation (the guild stays
+-- in the Census, unmarked); the moderators' net-off of the guild (Moderation.lua: no census row, and
+-- its verification shows unmarked in The Watch and on its guild master's line; net-off revokes
+-- nothing, so the check is back once the word lapses or is lifted); a release's removal by name
+-- (ns.REMOVED_BUILTIN: no Olympus guild). An answer carries only the newest words a store holds
+-- (MAX_BYTES: that guild's approval, of 11-05, had 117 newer words by 11-13), so an old approval
+-- reached no verifier who was away when it was given, and Revoke refused there ("no verification to
+-- revoke") while the clients that heard it kept the check: a verifier now revokes a guild he knows
+-- whether or not his client holds its approval (Verify.Revoke), and an answer carries the
+-- revocations first, so a client back after days drops the check of a guild revoked meanwhile.
 --
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
@@ -280,6 +283,14 @@ function Verify.GuildMaster(guild)
 	local leader = type(g) == "table" and g.leader or nil
 	if type(leader) ~= "string" or leader == "" or leader == "?" then return nil end
 	return ns.FullName(leader, g.realm or ns.realm)
+end
+
+-- (1.6.0) A guild the moderators took off the network (Moderation.lua, Data.NetOff) wears no check,
+-- whatever its verification (Verify.Mark, The Watch, its guild master's line). Its verification is
+-- untouched: the check is back where its approval stands once the word lapses or is lifted.
+local function OffNetwork(guild)
+	local D = ns.Data
+	return type(guild) == "string" and type(D) == "table" and type(D.NetOff) == "function" and D.NetOff(guild) == true
 end
 
 ---------------------------------------------------------------------------
@@ -1292,7 +1303,7 @@ function Verify.Lines(now)
 	if not guild or status == "exempt" then return {} end
 	local text, tip
 	if status == "verified" then
-		text, tip = Verify.MARK_OK .. L.VERIFY_LINE_VERIFIED, StatusText(guild, status, info)
+		text, tip = (OffNetwork(guild) and "" or Verify.MARK_OK) .. L.VERIFY_LINE_VERIFIED, StatusText(guild, status, info)
 	elseif info.waiting then
 		text, tip = Grey(L.VERIFY_LINE_WAITING), StatusText(guild, status, info)
 	elseif status == "pending" then
@@ -1544,6 +1555,7 @@ function Verify.CouncilLines(now)
 				tt:AddLine(L.VERIFY_COUNCIL_SEEN:format(Verify.Duration(now - r.info.since)), 0.7, 0.7, 0.7)
 				if r.info.gm then tt:AddLine(L.VERIFY_COUNCIL_CODE:format(Verify.Code(r.guild, r.info.gm) or "?"), 0.7, 0.7, 0.7) end
 				tt:AddLine(StateText(r), late and 1 or 0.7, late and 0.4 or 0.7, late and 0.4 or 0.7, true)
+				if OffNetwork(r.guild) then tt:AddLine(L.NETOFF_GUILD_OFF, 1, 0.4, 0.4, true) end -- (1.6.0)
 				tt:AddLine(L.VERIFY_COUNCIL_CLICK, 0.25, 1, 0.25, true)
 			end,
 			onClick = function() SelectGuild(r.guild) end,
@@ -1554,12 +1566,15 @@ function Verify.CouncilLines(now)
 	lines[#lines + 1] = { header = true, text = L.VERIFY_COUNCIL_VERIFIED, right = Grey(#verified) }
 	for _, r in ipairs(verified) do
 		local e = r.info.entry
+		-- (1.6.0) Off the network: listed (a verifier may revoke it here), without the check.
+		local off = OffNetwork(r.guild)
 		lines[#lines + 1] = {
-			indent = 1, text = Verify.MARK_OK .. "<" .. r.guild .. ">  " .. Shown(e.gm),
+			indent = 1, text = (off and "" or Verify.MARK_OK) .. "<" .. r.guild .. ">  " .. Shown(e.gm),
 			right = Grey(L.VERIFY_COUNCIL_BY:format(By(e.by), date("%Y-%m-%d", e.at))),
 			tooltip = function(tt)
 				tt:AddLine("<" .. r.guild .. ">", 1, 0.82, 0)
 				tt:AddLine(L.VERIFY_COUNCIL_MASTER:format(Shown(e.gm)), 1, 1, 1)
+				if off then tt:AddLine(L.NETOFF_GUILD_OFF, 1, 0.4, 0.4, true) end
 				tt:AddLine(L.VERIFY_COUNCIL_REVOKE_CLICK, 1, 0.4, 0.4, true)
 			end,
 			onClick = function() SelectGuild(r.guild) end,
@@ -1584,13 +1599,16 @@ end
 -- (1.5.9, the author's: "a Olympus Prime aparece como não validada... Ela é a guilda principal, não
 -- precisa de validação para ela, mas bota o checkzinho para ela e pronto") The King's guild, which
 -- needs no verification (Verify.Exempt), wears the same mark, whoever its guild master is today.
+-- (1.6.0) None for a guild off the network (OffNetwork), whose row the Census does not draw either.
 function Verify.Mark(guild)
+	if OffNetwork(guild) then return "" end
 	local status = Verify.Status(guild)
 	if status == "verified" or status == "exempt" then return Verify.MARK_OK end
 	if status == "overdue" and Verify.Trusted(ns.me) then return Verify.MARK_LATE end
 	return ""
 end
 function Verify.Tooltip(tt, guild)
+	if OffNetwork(guild) then return end
 	local status = Verify.Status(guild)
 	if status == "verified" or status == "exempt" then
 		tt:AddLine(L.VERIFY_MARK_VERIFIED, 0.25, 1, 0.25)
