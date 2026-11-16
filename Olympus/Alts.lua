@@ -137,22 +137,6 @@ local function Claims()
 	return c
 end
 
--- A character's claim: this account's own from its saved links (the confirmations themselves),
--- anyone else's as last heard. { name, role = "M"|"A"|"-", links = { names }, guild }.
-local function ClaimOf(name)
-	local key = Key(name)
-	local a = Account()
-	local link = a.links[key]
-	if type(link) == "table" then return { name = link.name, role = "A", links = { link.main }, guild = a.guilds[key], own = true } end
-	for _, e in pairs(a.links) do
-		if type(e) == "table" and Key(e.main) == key then
-			return { name = e.main, role = "M", links = AccountAlts(e.main), guild = a.guilds[key], own = true }
-		end
-	end
-	local c = Claims()[key]
-	return type(c) == "table" and c or nil
-end
-
 local function Has(list, name)
 	local key = Key(name)
 	for _, n in ipairs(list or {}) do if Key(n) == key then return true end end
@@ -215,6 +199,56 @@ local function Same(a, b)
 	if type(a) ~= "string" or type(b) ~= "string" then return false end
 	return Key(a) == Key(b) or (InFamily(a) and InFamily(b) and Plain(a) == Plain(b))
 end
+-- A character's claim: this account's own from its saved links (the confirmations themselves),
+-- anyone else's as last heard. { name, role = "M"|"A"|"-", links = { names }, guild }. (The review of
+-- 1.6.0) On a Forever ruleset this account's own character by its plain name too: a route's other stamp
+-- on it (a relay's, a whisper's) named a copy of its own claim, which the saved links say better.
+local function ClaimOf(name)
+	local key = Key(name)
+	local a = Account()
+	local lk = LinkKey(name)
+	local link = lk and a.links[lk]
+	if type(link) == "table" then return { name = link.name, role = "A", links = { link.main }, guild = a.guilds[lk], own = true } end
+	for _, e in pairs(a.links) do
+		if type(e) == "table" and Same(e.main, name) then
+			return { name = e.main, role = "M", links = AccountAlts(e.main), guild = a.guilds[Key(e.main)], own = true }
+		end
+	end
+	local c = Claims()[key]
+	return type(c) == "table" and c or nil
+end
+-- (The review of 1.6.0) The plain names of this account's linked characters within our Forever family:
+-- a copy of one's claim under another route's stamp is no claimant (Alts.Handle leaves them out by name).
+local function OwnPlain()
+	local out = {}
+	for _, e in pairs(Account().links) do
+		if type(e) == "table" then
+			if InFamily(e.name) then out[Plain(e.name)] = true end
+			if InFamily(e.main) then out[Plain(e.main)] = true end
+		end
+	end
+	return out
+end
+-- (The review of 1.6.0) Of two copies of one claim the newer: its time (the account's revision), then the
+-- later heard, then the key, so every pass picks the same one.
+local function Newer(c, key, d, dkey)
+	local at, dat = tonumber(c.at) or 0, tonumber(d.at) or 0
+	if at ~= dat then return at > dat end
+	local h, dh = tonumber(c.heard) or 0, tonumber(d.heard) or 0
+	if h ~= dh then return h > dh end
+	return key < dkey
+end
+-- (The review of 1.6.0) A character's claim as this client holds it: this account's own (ClaimOf); on a
+-- Forever ruleset anyone else's newest copy under any route's stamp (byPlain: Groups); else as named.
+local function HeldClaim(name, byPlain)
+	local c = ClaimOf(name)
+	if c and c.own then return c end
+	if byPlain and InFamily(name) then
+		local k = byPlain[Plain(name)]
+		if k then return Claims()[k] end
+	end
+	return c
+end
 -- (1.6.0) An offer this account's links answer already: its character linked to that offer's main. 1.5.x
 -- kept "/oly alt add First Surname" under the main's own sub-realm, which no alt on another one could
 -- answer, so players linked theirs by the full name; that offer, now found by its plain name, asked the
@@ -246,19 +280,19 @@ end
 
 -- The group a main's claim confirms: the main and each alt that names it back. (1.6.0) An alt the
 -- claim names plain (Wire, past one message's room with its sub-realm) is the one claim of our Forever
--- family with that plain name (byPlain), never one of two.
+-- family with that plain name (byPlain), never one of two. (The review of 1.6.0) On a Forever ruleset each
+-- name the claim gives is that character's newest copy (HeldClaim), whatever sub-realm the claim's stamp
+-- gave it, and names the main back by any stamp of his (Same): one character, one member.
 local function GroupOfMain(main, byPlain)
 	if not main or main.role ~= "M" or not OfOurGroup(main.name) then return nil end
+	local function Mark(name) return byPlain and InFamily(name) and Plain(name) or Key(name) end
 	local members = { { name = main.name, guild = main.guild } }
-	local seen = { [Key(main.name)] = true }
+	local seen = { [Mark(main.name)] = true }
 	for _, alt in ipairs(main.links) do
-		local c = ClaimOf(alt)
-		if not c and byPlain and InFamily(alt) then
-			local k = byPlain[Plain(alt)]
-			c = k and Claims()[k] or nil
-		end
-		if c and c.role == "A" and c.links[1] and Key(c.links[1]) == Key(main.name) and OfOurGroup(c.name) and not seen[Key(c.name)] then
-			seen[Key(c.name)] = true
+		local c = HeldClaim(alt, byPlain)
+		if c and c.role == "A" and c.links[1] and (Key(c.links[1]) == Key(main.name) or (byPlain and Same(c.links[1], main.name)))
+			and OfOurGroup(c.name) and not seen[Mark(c.name)] then
+			seen[Mark(c.name)] = true
 			members[#members + 1] = { name = c.name, guild = c.guild }
 		end
 	end
@@ -266,19 +300,35 @@ local function GroupOfMain(main, byPlain)
 	return { main = main.name, members = members }
 end
 
--- Every confirmed group, rebuilt after any change (the census asks often).
+-- Every confirmed group, rebuilt after any change (the census asks often). (The review of 1.6.0) On a
+-- Forever ruleset a claim's copies come under each route's stamp: over GUILD the sub-realm the sender's
+-- hello named (Alts.Handle), by whisper and in the own guild's hand-over the reader's own (Comm gives a bare
+-- sender ours), through a relay the relay's (Relay.HandleIn). Each was a claimant of its own: phantom
+-- groups of the main and the alts on one sub-realm (Duplicates took a character too many off the army's
+-- total for each), and two claims to every plain name, so a keeper of another guild found few of the alts.
+-- A name is one across the family: the copies of a character's claim are one claim, the newest (byPlain,
+-- every role); a main and the alts it names are taken through it, and every copy's key finds the group.
+-- This account's own characters' copies are left out: its saved links say them (ClaimOf).
 local function Groups()
 	if cache and cache.version == version and cache.rdb == ns.rdb and cache.db == ns.db and cache.group == ns.group and cache.realm == ns.realm then return cache end
 	local forever = Family()
 	cache = { version = version, rdb = ns.rdb, db = ns.db, group = ns.group, realm = ns.realm, groups = {},
 		of = {}, short = forever and {} or nil }
-	local mains, byPlain = {}, forever and {} or nil
-	for key, c in pairs(Claims()) do
-		if type(c) == "table" and c.role == "M" then mains[key] = true end
-		if byPlain and type(c) == "table" and c.role == "A" and type(c.name) == "string" and InFamily(c.name) then
-			local p = Plain(c.name)
-			if byPlain[p] == nil then byPlain[p] = key elseif byPlain[p] ~= key then byPlain[p] = false end
+	local claims = Claims()
+	local mains, byPlain, copies = {}, forever and {} or nil, forever and {} or nil
+	local own = forever and OwnPlain() or nil
+	for key, c in pairs(claims) do
+		if type(c) == "table" then
+			if byPlain and type(c.name) == "string" and InFamily(c.name) then
+				local p = Plain(c.name)
+				copies[p] = copies[p] or {}
+				copies[p][#copies[p] + 1] = key
+				if not own[p] and (not byPlain[p] or Newer(c, key, claims[byPlain[p]], byPlain[p])) then byPlain[p] = key end
+			elseif c.role == "M" then mains[key] = true end
 		end
+	end
+	for _, key in pairs(byPlain or {}) do
+		if claims[key].role == "M" then mains[key] = true end
 	end
 	cache.byPlain = byPlain
 	for _, e in pairs(Account().links) do
@@ -292,6 +342,7 @@ local function Groups()
 			for _, m in ipairs(g.members) do
 				local full = Key(m.name)
 				cache.of[full] = g
+				for _, k in ipairs(copies and InFamily(m.name) and copies[Plain(m.name)] or {}) do cache.of[k] = g end
 				if cache.short then
 					local short = ns.Fold(ns.ShortName(m.name))
 					local prior = cache.short[short]
@@ -322,15 +373,11 @@ end
 -- (1.6.0) The main a character's own claim names (role A), as last heard: its word alone, which links
 -- nothing (Group needs its main's claim too). The Church's witness reports an alt's recruit on it, and
 -- the keeper, who asks both claims, decides (ChurchCount.Pair). On Forever the guild log gives the name
--- plain: then the one claim of our family with that plain name, never one of two.
+-- plain: then the one claim of our family with that plain name. (The review of 1.6.0) Its newest copy
+-- under any route's stamp (HeldClaim).
 function Alts.ClaimedMain(name)
 	if type(name) ~= "string" or name == "" then return nil end
-	local c = ClaimOf(name)
-	if not c and InFamily(name) then
-		local byPlain = Groups().byPlain
-		local k = byPlain and byPlain[Plain(name)]
-		c = k and Claims()[k] or nil
-	end
+	local c = HeldClaim(name, Groups().byPlain)
 	if type(c) ~= "table" or c.role ~= "A" or type(c.links) ~= "table" or type(c.links[1]) ~= "string" or not OfOurGroup(c.name) then return nil end
 	return c.links[1]
 end
@@ -602,10 +649,18 @@ function Alts.Handle(dist, sender, text)
 	end
 	local claim = { name = sender, role = role, links = names, guild = guild, at = at, heard = ns.Now() }
 	-- A name of its group, or of what it names now, is off: the links freeze (added to, never dropped).
+	-- (The review of 1.6.0) On a Forever ruleset a copy under a stamp first heard now freezes on the newest
+	-- copy held under the others, which it may follow as the claim (Groups): else it dropped names.
 	local all = { sender }
 	for _, n in ipairs(names) do all[#all + 1] = n end
-	if type(old) == "table" and OffAmong(all) then
-		claim = Frozen(old, claim)
+	local prior = old
+	if type(prior) ~= "table" and family and InFamily(sender) then
+		local byPlain = Groups().byPlain
+		local k = byPlain and byPlain[Plain(sender)]
+		prior = k and claims[k] or nil
+	end
+	if type(prior) == "table" and OffAmong(all) then
+		claim = Frozen(prior, claim)
 		stats.frozen = stats.frozen + 1
 		ns.Log("alt links of %s frozen: a linked name is off (net-off)", sender)
 	end

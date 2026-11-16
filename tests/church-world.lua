@@ -29,12 +29,15 @@ World.Key = Key
 
 -- A world: opts.apostles (names, signed), opts.head (the Head, World.HEAD, signed as an Apostle
 -- marked Head, "*"; false: none), opts.listAt (the signed list's time), opts.stamp (1.6.0: Forever's
--- stamp on a guildmate's GUILD word, the reader's own sub-realm: Stamped, below).
+-- stamp on a guildmate's GUILD word, the reader's own sub-realm: Stamped, below), opts.live (the review
+-- of 1.6.0: every route's stamp on Forever's live realms, Stamped; the relay's sub-realm, or true while no
+-- signed relay answers).
 function World.New(opts)
 	opts = opts or {}
 	local w = setmetatable({ clock = World.EPOCH, clients = {}, byKey = {}, seen = {}, pending = {}, sent = {}, timers = {}, alts = {}, off = {},
 		gm = {}, ranks = {}, council = {}, census = {}, log = {}, members = {} }, World)
 	w.stamp = opts.stamp == true
+	w.live = opts.live
 	w.council[Key(World.HEAD)] = true
 	w.council[Key("Dela Moss")] = true
 	w.council[Key(World.COUNCILLOR)] = true
@@ -279,12 +282,14 @@ end
 -- Who hears one message: the channel, the guild, or the one name (online, and a member). (1.6.0)
 -- w.lost: message types the channel hands to nobody, still sent: WoW: Forever, where another client's
 -- word reaches another guild only through one relay's trickle (Relay.lua), at its worst.
+-- (The review of 1.6.0) w.live == true: no signed relay answers (Relay.Out), and a channel word reaches the
+-- sender's own guild alone, which his own client hands it over GUILD (Relay.lua's OwnGuild).
 local function Recipients(w, e)
 	local out = {}
 	if e.dist == "CHANNEL" and w.lost and w.lost[e.msg:sub(1, 2)] then return out end
 	for _, cl in ipairs(w.clients) do
 		if cl ~= e.from and cl.online and cl.guild and ns.IsFederation(cl.guild) then
-			if e.dist == "CHANNEL" or (e.dist == "GUILD" and cl.guild == e.from.guild)
+			if (e.dist == "CHANNEL" and (w.live ~= true or cl.guild == e.from.guild)) or (e.dist == "GUILD" and cl.guild == e.from.guild)
 				or (e.dist == "WHISPER" and Key(e.target) == cl.key) then out[#out + 1] = cl end
 		end
 	end
@@ -295,12 +300,22 @@ end
 -- with the reader's own sub-realm, never his (measured: Comm.PeerRealm, Layers.lua, tests/hop-forever.lua).
 -- w.stamp (World.New's opts.stamp): a GUILD word between two sub-realms of one Forever family reaches its
 -- reader so stamped. Otherwise every sender as he is.
+-- (The review of 1.6.0) w.live (World.New's opts.live): every route's stamp there. The server sends a GUILD
+-- or WHISPER sender's bare name (a member's /oly bug dump on a live ruleset: every GUILD sender bare), to
+-- which the reader's Comm gives his own sub-realm (its OnAddonMessage); a channel word reaches the other
+-- guilds through a relay, whose client stamps its own sub-realm on the word's origin (Relay.HandleIn:
+-- w.live, that sub-realm), or, while no signed relay answers (w.live == true), only the sender's guild,
+-- handed over under his plain name (OwnGuild), which the reader's Comm gives his own sub-realm.
 local function Stamped(w, e, cl)
 	local sender = e.from.name
-	if not w.stamp or e.dist ~= "GUILD" then return sender end
 	local here, there = cl.ns and cl.ns.realm, ns.RealmOf(sender)
 	local family = type(here) == "string" and ns.ForeverFamily(here) or nil
-	if family and there and there ~= here and ns.ForeverFamily(there) == family then return ns.ShortName(sender) .. "-" .. here end
+	if not (family and there and ns.ForeverFamily(there) == family) then return sender end
+	if w.live then
+		if e.dist == "CHANNEL" and w.live ~= true then return ns.ShortName(sender) .. "-" .. w.live end
+		return ns.ShortName(sender) .. "-" .. here
+	end
+	if w.stamp and e.dist == "GUILD" and there ~= here then return ns.ShortName(sender) .. "-" .. here end
 	return sender
 end
 

@@ -377,6 +377,100 @@ test("1.6.0 Church alts: a Church group's claims over GUILD, stamped with each r
 	eq(GroupsOn(w2, eda2), 1)
 end)
 
+-- The main a client holds for a character's group, by the name the guild log gives (plain) or as
+-- named; its key (World.Key), whatever sub-realm that client's copy of the claim names.
+local function MainKeyOn(w, k, name)
+	local g = (w:As(k, k.Alts.Group, name)) or (w:As(k, k.Alts.GroupByGuildName, Plain(name)))
+	return g and Key(g.main) or nil
+end
+
+-- The review of 1.6.0. On Forever's live realms each route stamps a claim its own way (World.New's live):
+-- over GUILD and by whisper the sender comes bare, and the reader's Comm gives him its own sub-realm (Alts.
+-- Handle files a GUILD copy under the one his hello named); through a relay he comes under the relay's
+-- sub-realm; with no signed relay, his guild has the channel's copy under his plain name. Alts filed each
+-- copy as a claimant of its own: phantom groups of the main and the alts on one sub-realm (Alts.Duplicates
+-- took 12 off the army's total for the 8 alts at a keeper of the main's guild), and at a keeper of another
+-- guild every plain name matched two claims, so six of eight alts were linked nowhere. A name is one across
+-- the family: a claim's copies are one claim, the newest. Fails before: through a relay on Realm3, three
+-- groups and 12 at Eda, one and 2 with two of eight found at Bera, two and 10 at Tobin; with no signed
+-- relay, two groups and 6 at Eda and Tobin.
+test("1.6.0 Church alts (Forever's live stamps): a claim's copies under each route's stamp are one claim: one group on every client, the army's total eight short, each alt found by its plain name; with no signed relay, the main's guild's four", function()
+	for _, live in ipairs({ R3, true }) do
+		-- Eda (a keeper) on Realm2 and Tobin on Realm3 in the main's guild, Olympus Ember; Bera (a keeper) on
+		-- Realm3 in Olympus Vale, where three of the alts are.
+		local w = World.New({ apostles = { MAIN, "Eda Marsh-" .. R2, "Bera Stone-" .. R3 }, live = live })
+		local eda = MakeClient(w, "Eda Marsh-" .. R2, { guild = G1 })
+		local bera = MakeClient(w, "Bera Stone-" .. R3, { guild = G2 })
+		local tobin = MakeClient(w, "Tobin Reed-" .. R3, { guild = G1 })
+		local acct = NewAccount()
+		AddChar(w, acct, MAIN, G1, 0)
+		local guilds = { G1, G1, G2, G2, G2, G1, G3, G1 }
+		local alts = {}
+		for i, n in ipairs(EIGHT) do alts[i] = A[n]; AddChar(w, acct, A[n], guilds[i]) end
+		w:Run(60)
+		w:Presence()
+		local sm = Login(w, acct, MAIN)
+		for _, a in ipairs(alts) do Slash(w, sm, "add " .. Plain(a)) end
+		for _, a in ipairs(alts) do Confirm(w, acct, a) end
+		sm = Login(w, acct, MAIN)
+		w:Run(61)
+		Logout(w, acct)
+		w:Run(30)
+		local counted = { [G1:lower()] = true, [G2:lower()] = true, [G3:lower()] = true }
+		local route = live == true and "no signed relay" or "a relay on Realm3"
+		-- With no signed relay a claim said on the channel reaches its own guild alone: the main's guildmates
+		-- hold his group with the four alts there (Ardo Flint, Gale, Frost and Heath), Bera nothing of his.
+		local want = live == true and { [eda] = 4, [tobin] = 4, [bera] = 0 } or { [eda] = 8, [tobin] = 8, [bera] = 8 }
+		for _, k in ipairs({ eda, bera, tobin }) do
+			local where = (" on %s, %s"):format(k.name, route)
+			eq(GroupsOn(w, k), want[k] > 0 and 1 or 0, "one group" .. where)
+			eq(w:As(k, k.Alts.Duplicates, counted), want[k], "the army's total short by the alts it holds" .. where)
+			local found = 0
+			for _, a in ipairs(alts) do
+				if MainKeyOn(w, k, a) == Key(MAIN) then found = found + 1 end
+				-- (The name as this client's guild log gives it, under its own sub-realm, finds the same group.)
+				local asRead = MainKeyOn(w, k, Plain(a) .. "-" .. k.ns.realm)
+				eq(asRead == nil or asRead == Key(MAIN), true, a .. " as read" .. where)
+			end
+			eq(found, want[k], "the alts found by their plain names" .. where)
+			eq(MainKeyOn(w, k, MAIN), want[k] > 0 and Key(MAIN) or nil, "the main" .. where)
+		end
+	end
+end)
+
+-- (The review of 1.6.0) Those copies are one claim, the newest: while a linked name is off (net-off) the
+-- links freeze on every client (added to, never dropped), so a copy under a stamp first heard then (the
+-- relay now another sub-realm's) freezes on the copies held under the others, or the newest claim dropped
+-- the names. (Before the merge Ardo Flint stayed linked, in three groups: each copy a claimant of its own.
+-- Merged without the freeze on the newest copy, he was dropped.)
+test("1.6.0 Church alts (Forever's live stamps): while a linked name is off, a claim's copy under a stamp first heard drops none of the names the claim's other copies hold", function()
+	local R4 = "CAMWOWUS1Realm4PvE"
+	local w = World.New({ apostles = { MAIN, "Eda Marsh-" .. R2 }, live = R3 })
+	local eda = MakeClient(w, "Eda Marsh-" .. R2, { guild = G1 })
+	local acct = NewAccount()
+	AddChar(w, acct, MAIN, G1, 0)
+	for _, n in ipairs({ "flint", "gale", "crest" }) do AddChar(w, acct, A[n], G1) end
+	w:Run(60)
+	w:Presence()
+	local sm = Login(w, acct, MAIN)
+	for _, n in ipairs({ "flint", "gale", "crest" }) do Slash(w, sm, "add " .. Plain(A[n])) end
+	for _, n in ipairs({ "flint", "gale", "crest" }) do Confirm(w, acct, A[n]) end
+	sm = Login(w, acct, MAIN)
+	w:Run(61)
+	local at = tonumber(LastClaim(w, sm):match("^AL~(%d+)~"))
+	Logout(w, acct)
+	w:Run(30)
+	eq(MainKeyOn(w, eda, A.flint), Key(MAIN), "linked")
+	-- Ardo Gale is off on Eda's client; the main's claim without Ardo Flint comes through a relay on Realm4.
+	eda.ns.Moderation.Character = function(n) return Key(n) == Key(A.gale) and { name = A.gale } or nil end
+	w:Run(120)
+	w:As(eda, eda.Alts.Handle, "CHANNEL", Plain(MAIN) .. "-" .. R4,
+		("AL~%d~M~%s~%s,%s"):format(at + 100, G1, A.gale, A.crest))
+	eq(MainKeyOn(w, eda, A.flint), Key(MAIN), "frozen: Ardo Flint still linked")
+	eq(GroupsOn(w, eda), 1)
+	eq(w:As(eda, eda.Alts.Duplicates, { [G1:lower()] = true }), 3, "the main and his three alts, one player")
+end)
+
 ---------------------------------------------------------------------------
 -- The credit: an Apostle main, keepers of both versions, witnesses in three guilds
 ---------------------------------------------------------------------------
@@ -385,12 +479,13 @@ end)
 -- Cass (1.5.9); the witnesses Wren (Olympus Ember), Tobin (Olympus Vale) and Ola (an officer of Olympus
 -- Dawn, whom the census vouches for). Ardo Frost was named a missionary under the main before 1.6.0.
 -- opts: noEda (no other 1.6.0 keeper in the main's guild), keepersAway (none at all there), officers
--- (Ardo Heath and Ardo Marsh officers of Olympus Ember), lost (no alt claim reaches anyone on the channel).
+-- (Ardo Heath and Ardo Marsh officers of Olympus Ember), lost (no alt claim reaches anyone on the channel),
+-- live (the review of 1.6.0: Forever's live stamps, World.New's live).
 local function ChurchWorld(opts)
 	opts = opts or {}
 	local apostles = { MAIN, "Bera Stone-" .. R3, "Dara Holt-" .. R3, "Cass Vale-" .. R1 }
 	if not opts.noEda then table.insert(apostles, 2, "Eda Marsh-" .. R2) end
-	local w = World.New({ apostles = apostles })
+	local w = World.New({ apostles = apostles, live = opts.live })
 	if opts.lost then w.lost = { AL = true } end
 	local K = {}
 	local away = opts.keepersAway
@@ -615,6 +710,39 @@ test("1.6.0 Church alts: with no other 1.6.0 keeper in the main's guild, a guild
 	eq(StateOf(w, sm, "Nova Recruit", MAIN), "credited", "the main's own keeper vouches for his guildmate")
 	eq(StateOf(w, K.bera, "Nova Recruit", MAIN), "credited")
 	eq(StateOf(w, K.dara, "Nova Recruit", MAIN), "credited", "a 1.5.9 keeper, by the catch-up")
+end)
+
+-- The review of 1.6.0. The same under Forever's live stamps (World.New's live: a relay on Realm3): the
+-- witness in the main's guild held Ardo Flint and Ardo Heath, on the main's own sub-realm, in two groups (the
+-- claims' copies under the relay's stamp and under his own were each a claimant: a phantom group of the main
+-- and those two), found neither by the log's plain name and reported neither recruit. Fails before: both
+-- still pending at the keeper after some four hours with the main online, 4 of the 6 joins.
+test("1.6.0 Church alts (Forever's live stamps): with no other 1.6.0 keeper in the main's guild, the recruits of linked alts in three guilds count for the main once he is online, those of the alts on his own sub-realm too", function()
+	local w, K, W, acct = ChurchWorld({ noEda = true, live = R3 })
+	LinkAll(w, acct, { "flint", "gale", "brook", "crest", "frost", "glen", "heath" })
+	Logout(w, acct)
+	w:Run(700)
+	local recruits = {
+		{ "flint", G1, "Nova Recruit-" .. R2, true }, { "gale", G1, "Lark Recruit-" .. R3, false },
+		{ "brook", G2, "Moth Recruit-" .. R1, true }, { "crest", G2, "Pike Recruit-" .. R2, false },
+		{ "glen", G3, "Tern Recruit-" .. R1, true }, { "heath", G1, "Rook Recruit-" .. R2, true },
+	}
+	for _, r in ipairs(recruits) do Recruit(w, acct, A[r[1]], r[2], r[3], { short = r[4] }) end
+	Logout(w, acct)
+	w:Run(700)
+	local sm = Login(w, acct, MAIN)
+	local all = { sm, K.bera, K.dara, K.cass }
+	for _ = 1, 6 do
+		w:Run(1800)
+		w:Presence()
+		w:Tick()
+		Converge(w, all, 1)
+	end
+	Fresh(w, all)
+	for _, r in ipairs(recruits) do eq(StateOf(w, K.bera, Plain(r[3]), MAIN), "credited", r[1] .. "'s recruit on Bera") end
+	eq(Joins(w, K.bera, MAIN), 6, "joins on Bera")
+	eq(Joins(w, sm, MAIN), 6, "joins on the main's own client")
+	Twice(w, all)
 end)
 
 test("1.6.0 Church alts: a missionary main's linked alts on other sub-realms count for her on every keeper, her Apostle takes his quarter, her Mine page shows them", function()
