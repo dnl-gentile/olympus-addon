@@ -26,7 +26,9 @@ local FIXTURES = addonDir .. "tests/fixtures/"
 local function Full(short) return short .. "-" .. home end
 
 -- Olympus's dialogs as one member sees them: shown, found, closed. The invite popup runs its OnShow,
--- and its edit box keeps the command written there (box.text).
+-- and its edit box keeps the command written there (box.text). (The review of 1.6.0) Each time its box
+-- takes the keyboard (SetFocus), f.tookFocus notes the box that held it then (the world's
+-- GetCurrentKeyBoardFocus; false: none).
 local function Dialogs(defs)
 	local shown, D = {}, {}
 	function D.Find(which, data)
@@ -47,7 +49,8 @@ local function Dialogs(defs)
 		function box.GetText(self) return self.text end
 		function box.SetScript() end
 		function box.HighlightText() end
-		function box.SetFocus() end
+		f.tookFocus = {}
+		function box.SetFocus() f.tookFocus[#f.tookFocus + 1] = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus() or false end
 		function box.HasFocus() return false end
 		f.editBox = box
 		shown[#shown + 1] = f
@@ -780,6 +783,93 @@ test("recruit handoff sides (1.6.0, regression): a scanned player's popup still 
 			local f = master.D.Find(DRAFT)
 			return f ~= nil and f.data.candidate ~= nil and f.data.candidate.full == found
 		end), "the scanned player's popup came back after the JOIN's")
+	end)
+end)
+
+-- The review of 1.6.0. While another invite popup was up, the scanned player's popup "Whisper them
+-- first" asks back looked again every 2 seconds and then opened as if clicked: it took the keyboard. The
+-- claimed player's command (or his own JOIN's) closes as soon as it is pasted in the game's chat box
+-- (WatchPaste), Enter not pressed yet: the scanned player's popup took the keyboard from the chat box within
+-- 2 seconds, Enter went to it, and the pasted /ginvite was never sent (the claimed player counted as taken
+-- to chat: his command never opened again). It waits while the player types (Recruit.PopupsWait), and
+-- takes the keyboard from no other box. Fails before: back within 2 seconds, its box focused while the chat
+-- box held the keyboard.
+local function BackFor(master, found)
+	local f = master.D.Find(DRAFT)
+	return f ~= nil and f.data.candidate ~= nil and f.data.candidate.full == found and f or nil
+end
+local function TookFrom(f, box)
+	for _, from in ipairs(f.tookFocus) do if from == box then return true end end
+	return false
+end
+test("recruit handoff sides (1.6.0, regression): the scanned player's popup Whisper them first asks back waits while the chat box holds the claimed player's pasted invite, and never takes the keyboard from it", function()
+	WithWorld(function(world)
+		local origin = Member(world, "Ashen Vale", "Horde")
+		local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+		Accepting(world, master)
+		local found = Full("Scan Find")
+		As(world, master, function()
+			assert(PageLine(world, master, "recruit-candidate-toggle"), "the scan's switch").onClick()
+			master.R.Candidates.ObserveWho(found, "", "Orc")
+		end)
+		local applicant = Full("Zoë Fírè")
+		JoinAndPass(world, origin, applicant)
+		assert(Run(world, 40, function() return master.D.Find(CLAIM) ~= nil end), "the claim question")
+		local review
+		world.beforeSend = function(p)
+			if p.op ~= "N" or review then return end
+			As(world, master, function()
+				master.timers["recruit candidates"].fn()
+				local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+				draft.def.OnAlt(draft, draft.data)
+				draft:Hide()
+				review = assert(master.D.Find(SCAN), "his whisper review")
+			end)
+		end
+		assert(ClaimShown(world, master))
+		Run(world, 3)
+		As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+		Run(world, 5)
+		local cmd = assert(InviteFor(master, applicant), "the claimed player's command is up")
+		-- Ctrl+C: the game's chat box opens with the keyboard; Ctrl+V: the command is in it, and its popup
+		-- closes on the paste, before Enter.
+		local chatBox = { name = "ChatFrame1EditBox" }
+		As(world, master, function() cmd.def.extra.onClick(cmd, cmd.data) end)
+		master.focus = chatBox
+		cmd:Hide()
+		eq(Run(world, 10, function() return BackFor(master, found) ~= nil end), false, "not back while the chat box holds the pasted invite")
+		master.focus = nil -- (Enter: the invite goes, the chat box closes)
+		assert(Run(world, 5, function() return BackFor(master, found) ~= nil end), "back once the chat box closed")
+		eq(TookFrom(BackFor(master, found), chatBox), false, "never took the keyboard from the chat box")
+	end)
+end)
+
+test("recruit handoff sides (1.6.0, regression): the scanned player's popup Whisper them first asks back waits while the chat box holds his own JOIN's pasted invite, and never takes the keyboard from it", function()
+	WithWorld(function(world)
+		local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+		local found, own = Full("Scan Find"), Full("Own Walker")
+		As(world, master, function()
+			assert(PageLine(world, master, "recruit-candidate-toggle"), "the scan's switch").onClick()
+			master.R.Candidates.ObserveWho(found, "", "Orc")
+			master.timers["recruit candidates"].fn()
+			local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+			draft.def.OnAlt(draft, draft.data)
+			draft:Hide()
+		end)
+		local review = assert(master.D.Find(SCAN), "his whisper review")
+		As(world, master, function() master.R.OnWhisper("JOIN", own) end)
+		Run(world, 3)
+		As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+		Run(world, 1)
+		local draft = assert(InviteFor(master, own), "the JOIN's popup came first")
+		local chatBox = { name = "ChatFrame1EditBox" }
+		As(world, master, function() draft.def.extra.onClick(draft, draft.data) end)
+		master.focus = chatBox
+		draft:Hide() -- (pasted: WatchPaste closes it; Enter not pressed yet)
+		eq(Run(world, 10, function() return BackFor(master, found) ~= nil end), false, "not back while the chat box holds the pasted invite")
+		master.focus = nil
+		assert(Run(world, 5, function() return BackFor(master, found) ~= nil end), "back once the chat box closed")
+		eq(TookFrom(BackFor(master, found), chatBox), false, "never took the keyboard from the chat box")
 	end)
 end)
 
