@@ -550,6 +550,37 @@ test("chat delivery (1.6.0, Forever): a line from the public channel and its rel
 	end)
 end)
 
+-- The review of 1.6.0: while no relay answers its sender, Relay.Out holds a line's relay copy up to
+-- Relay.HOLD_FOR before it goes to a relay's lane; the channel's copy came at once. A copy held that long
+-- and then through two relays' lanes is still one line, ours as much as anyone's. Fails before: the
+-- window was 720 s, and the copy 1,250 s later was a new line.
+test("chat delivery (1.6.0, Forever): a line's relay copy its sender's client held while no relay answered, then two relays' lanes, comes 1,250 s after the channel's copy: one line, shown once, ours too", function()
+	ForeverGuild(function()
+		local C, Codec = ns.Channels, ns.Codec
+		-- (Relay.lua's numbers, read from it: this test's ns loads no Relay, and Channels takes the same
+		-- ones then.)
+		local f = assert(io.open(extra.addon .. "Relay.lua", "rb"))
+		local source = f:read("*a")
+		f:close()
+		local hold = tonumber(source:match("\nRelay%.HOLD_FOR = (%d+)"))
+		local ttl = tonumber(source:match("\nRelay%.CHAT_LANE_TTL = (%d+)"))
+		local line = Codec.EncodeChat("A", "OLYMPUS GODS", 4311, "WA", "held while no relay answered")
+		local _, why = C.Receive("CHANNEL", "Quiet Member", line, 30000)
+		eq(why, "muted", "the channel's copy, his name bare: taken")
+		local late = hold + 2 * ttl + 50
+		eq(late, 1250, "held HOLD_FOR, then two relays' lanes")
+		_, why = C.Receive("CHANNEL", "Quiet Member-CAMWOWUS2Realm3PvE", line, 30000 + late)
+		eq(why, "dup", "the relay's copy, held and then through two lanes: the same line")
+		-- Our own line (we are a made-up name here; ForeverGuild puts its own back).
+		ns.me = "Madeup Speaker-CAMWOWUS2Realm1PvE"
+		local mine = { ["4312#my held words"] = 30000 }
+		local ok, reason = C.Admit("Madeup Speaker-CAMWOWUS1Realm5PvE", "OLYMPUS GODS", "my held words", 30000 + late,
+			{ tier = "A", id = 4312, mine = mine, seen = {}, buckets = {} })
+		eq(ok, false); eq(reason, "own", "our own line, back as late")
+		C.Prune(30000 + C.DedupeWindow() + 1) -- (forgotten, for the tests after)
+	end)
+end)
+
 -- 1.6.0 (the same window, longer): past 1,000 line keys every key went at the next prune, and every copy
 -- still on its way showed its line again. Past Channels' cap the oldest go now. Fails before: after
 -- 1,100 lines and a prune, a copy of the first line was a new line.

@@ -23,11 +23,14 @@ local FAIR_SHARE = 10            -- once a channel is half full, no sender gets 
 -- its sender's relay's chat lane and, for another relay's guilds, in that relay's lane too (each up to
 -- Relay.CHAT_LANE_TTL), its sender's own queue (30 s) and the hand-on to the guild before that. Kept
 -- 120 s, a relay copy that waited longer showed the line a second time (a member's /oly bug on 1.5.9:
--- lines repeated minutes apart, one copy counted as heard twice in 141 lines shown).
+-- lines repeated minutes apart, one copy counted as heard twice in 141 lines shown). (The review of
+-- 1.6.0) And while no relay answers its sender, his Relay.Out holds the relay copy up to
+-- Relay.HOLD_FOR before the lanes: kept 720 s, a held copy could still come after it (1,320 s now).
 local function DedupeWindow()
 	local R = ns.Relay
 	local ttl = type(R) == "table" and tonumber(R.CHAT_LANE_TTL) or 300
-	return math.max(120, 2 * ttl + 120)
+	local hold = type(R) == "table" and tonumber(R.HOLD_FOR) or 600
+	return math.max(120, 2 * ttl + hold + 120)
 end
 Channels.DedupeWindow = DedupeWindow
 local SEEN_KEEP = 5000           -- line keys kept at most (the oldest go first)
