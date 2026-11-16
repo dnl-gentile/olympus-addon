@@ -281,6 +281,12 @@ local function Unable(contact)
 	return nil
 end
 
+-- (1.6.0) The Join screen's line while the wait for a member who recruits runs: an invite should come.
+-- (Review of this lane: it holds while the wait runs alone, JoinStatus.)
+local function RecruitsLine(contact)
+	return L.RECRUIT_JOIN_RECRUITS:format(ns.DisplayName(Key(contact.name)) or contact.name, contact.guild or "?")
+end
+
 -- (1.6.0, players' reports, 11-14 and 11-15: "I made an alt and have requested invites to a dozen people
 -- and no one has responded") What the answers just said of the member about to be asked, and of the
 -- one asked last. The request about to go to one who can't take it is closed before the player sends
@@ -304,8 +310,7 @@ local function JoinRecheck()
 			request.untilAt = math.min(request.untilAt, math.max(GetTime(), Recruit.lastAsk + ASK_COOLDOWN))
 			join.notice = why
 		elseif SaidOf(Key(request.contact.name)) == "r" then
-			join.notice = L.RECRUIT_JOIN_RECRUITS:format(ns.DisplayName(Key(request.contact.name)) or request.contact.name,
-				request.contact.guild or "?")
+			join.notice = RecruitsLine(request.contact)
 		end
 	end
 	return closed
@@ -583,8 +588,12 @@ end
 -- answer before his window opens (JoinNext) counts as the search.
 function Recruit.JoinStatus()
 	local left = join.request and math.max(0, math.ceil(join.request.untilAt - GetTime())) or 0
+	-- (Review of this lane) That the member asked recruits holds while his wait runs; once it is over with
+	-- no invite, the screen says so (Views.JoinLines), as before 1.6.0.
+	local notice = join.notice
+	if notice and left == 0 and join.request and notice == RecruitsLine(join.request.contact) then notice = nil end
 	return join.search ~= nil or join.settle ~= nil, left, join.request and join.request.contact, JoinReminderOn(),
-		join.guilds == true, join.notice
+		join.guilds == true, notice
 end
 
 function Recruit.ToggleJoinGuilds()
@@ -620,9 +629,7 @@ local function JoinWait(contact)
 	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
 	join.request, join.auto, join.notice = request, nil, nil
 	-- (1.6.0) A member who said he recruits: the screen says an invite should come.
-	if SaidOf(Key(contact.name)) == "r" then
-		join.notice = L.RECRUIT_JOIN_RECRUITS:format(ns.DisplayName(Key(contact.name)) or contact.name, contact.guild or "?")
-	end
+	if SaidOf(Key(contact.name)) == "r" then join.notice = RecruitsLine(contact) end
 	if JoinReminderOn() then
 		join.reminder = join.reminder or {}
 		ScheduleJoinReminder(request, join.reminder)

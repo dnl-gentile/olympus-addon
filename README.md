@@ -141,12 +141,12 @@ whose answer is older is asked again before a request to him opens. A member who
 can't invite (no invite right, or a full guild) is passed over before you write to him; a request
 already open for him closes with a line saying why, and the next member is asked. When the request
 already went, the wait ends as soon as you may send another and the screen says why. When the
-member asked recruits, the screen says your request goes to his invite queue. When nobody is left
-to ask, the screen says so (every guild found full, or everyone found already asked or unable to
-take the request). Once everyone found was asked, **Request again** searches with `/who` first: a
-member who logged in since is asked before anyone else, and a member asked 10 minutes ago or more
-is asked again only when that search found nobody new. Members on versions before 1.6.0 say nothing
-of themselves, and are asked as before.
+member asked recruits, the screen says your request goes to his invite queue while his 45 seconds
+run. When nobody is left to ask, the screen says so (every guild found full, or everyone found
+already asked or unable to take the request). Once everyone found was asked, **Request again**
+searches with `/who` first: a member who logged in since is asked before anyone else, and a member
+asked 10 minutes ago or more is asked again only when that search found nobody new. Members on
+versions before 1.6.0 say nothing of themselves, and are asked as before.
 
 The list uses the game's own `/who`, which returns up to 50 players per search. When there
 are more, each new click searches a range of levels and adds to the list. Replies are

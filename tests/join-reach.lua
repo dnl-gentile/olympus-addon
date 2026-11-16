@@ -766,6 +766,38 @@ test("join reach (1.6.0): a member whose answer is older than ROUTE_FRESH is ask
 	end)
 end)
 
+-- Fails on this lane's first version (review): the line saying that the member asked recruits stayed once
+-- his wait was over and no invite had come, where "No invite yet? Try another member." belongs.
+test("join reach (1.6.0): the line that the member asked recruits shows while his wait runs; after it, the screen says no invite came", function()
+	local line = L.RECRUIT_JOIN_RECRUITS:format("Rae Cole", "Olympus Alpha")
+	WithRequester(function(w)
+		R.OnFound({ { name = "Rae Cole-Realm", guild = "Olympus Alpha" }, { name = "Ned Park-Realm", guild = "Olympus Alpha" } })
+		R.OnRoute("Rae Cole-Realm", "J2~y~~0~*=r;Olympus Alpha=500=Rae Cole")
+		eq(R.RequestJoin(), true)
+		eq(Open().data.name, "Rae Cole-Realm")
+		Send(Open())
+		assert(Shows(L.RECRUIT_JOIN_WAITING:format(45)) and Shows(line), "while the wait runs: the wait, the line under it")
+		w.Advance(44)
+		assert(Shows(L.RECRUIT_JOIN_WAITING:format(1)) and Shows(line))
+		w.Advance(2)
+		assert(Shows(L.RECRUIT_JOIN_TIMEOUT), "no invite yet: try another member")
+		assert(not Shows(line), "no longer that an invite should come")
+		eq(Notice(), nil)
+	end)
+	-- His answer came after the request went (JoinRecheck): the same.
+	WithRequester(function(w)
+		R.OnFound({ { name = "Rae Cole-Realm", guild = "Olympus Alpha" } })
+		eq(R.RequestJoin(), true)
+		Send(Open())
+		w.Advance(1)
+		R.OnRoute("Rae Cole-Realm", "J2~y~~0~*=r;Olympus Alpha=500=Rae Cole")
+		eq(Notice(), line)
+		assert(Shows(line))
+		w.Advance(45)
+		assert(Shows(L.RECRUIT_JOIN_TIMEOUT) and not Shows(line), "after the wait: no invite yet")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The simulation: a fresh unguilded character on the Join page asks the members /who lists, as a
 -- player does: Request to join, reads the request four seconds, Send, waits; Request again when the

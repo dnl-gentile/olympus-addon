@@ -3674,7 +3674,8 @@ end
 function Views.JoinLines(height)
 	local R = ns.Recruit
 	-- (1.6.0) `notice`: what the screen learned about the last request (the member recruits, he can't
-	-- invite, the guild is full, nobody is left to ask), under the wait while it runs, in its place after.
+	-- invite, the guild is full, nobody is left to ask), under the wait while it runs, in its place after
+	-- (that he recruits, while the wait runs alone: Recruit.JoinStatus).
 	local searching, left, last, reminder, guilds, notice = R.JoinStatus()
 	local pending = searching or left > 0
 	local status = searching and L.RECRUIT_SEARCHING
