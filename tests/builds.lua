@@ -787,7 +787,10 @@ test("1.5.4 modified builds prompt: every 30 minutes the author's relay client a
 		eq(asked["Gone Four-Realm"], nil, "never one not online"); eq(asked["Clean Three-Realm"], nil, "never an unmarked one")
 		eq(#w.whispered, 2, "nothing else")
 		eq(w.whispered[1].key:sub(1, 10), "askupdate:", "his usual ask (Workshop.AskUpdate)")
-		eq(#w.quieted, 2, "an offline answer kept out of his chat")
+		-- (Changed on purpose, 1.6.0: Relay.Quiet only registers the filter for the server's no-player
+		-- line; Comm.SendNow's Accord.Tried keeps that line out when the ask goes, which this stand-in
+		-- Comm never reaches: tests/run.lua's no-player lines and relay tests check it.)
+		eq(#w.quieted, 2, "the no-player line's filter asked for before each ask")
 		-- Within the 30 minutes: nothing again, whoever is online.
 		w.clock = w.clock + 600
 		B.Heard("Rep One-Realm")
@@ -867,7 +870,7 @@ test("1.5.9 outdated clients: the author's relay client gives each client it ser
 			eq(asked[ns.FullName("Old Four")], 1, "the 1.5.4 client"); eq(asked[ns.FullName("Old Six")], 1, "the 1.5.6 one")
 			eq(#w.whispered, 2, "never the up to date one, nor a test build")
 			eq(w.whispered[1].key:sub(1, 10), "askupdate:", "his usual notice (Workshop.AskUpdate)")
-			eq(#w.quieted, 2, "an offline answer kept out of his chat")
+			eq(#w.quieted, 2, "the no-player line's filter asked for before each notice (see above)")
 			-- Once a day at most, a /reload or a new session too (kept in ns.db.outdatedAsked).
 			w.clock = w.clock + W.UPDATE_GAP + 1
 			W.Reset()

@@ -7444,22 +7444,25 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		local O, odeliver, osent, _, opump, osentOf = RelayWorld("Orig Inal-Realm", "Olympus II")
-		local quieted, timers, dones = {}, {}, {}
-		-- (1.5.4: Comm opens the quiet window again when each whisper actually goes, so a name is
-		-- quieted when the relay hands its whisper in and again when it leaves. What matters here is
-		-- whose lines stay out of the chat, in order: each name once, as the relay first quieted it.)
+		local quieted, marked, timers, dones = {}, {}, {}, {}
+		-- (Changed on purpose, 1.6.0: what keeps a whisper's no-player line out of the chat is the mark
+		-- Comm.SendNow gives it when the game is handed it, Accord.Tried, one per whisper, in order;
+		-- Accord.Quiet only registers the filter, which the relay still asks for before its whispers,
+		-- each name once, as it first did. This counted only those Quiet calls, and passed with no
+		-- whisper marked at all.)
 		O.Accord = { Quiet = function(n)
 			n = ns.TellName(n)
 			for _, q in ipairs(quieted) do if q == n then return end end
 			quieted[#quieted + 1] = n
-		end }
+		end, Tried = function(n) marked[#marked + 1] = ns.TellName(n) return {} end, Untried = function() end }
 		O.After = function(_, _, fn) timers[#timers + 1] = fn end
 		-- Held, every relay pinged at once, each ping's name quieted.
 		eq(O.Comm.Send("CHANNEL", "X1~one", "k1", false, false, function(sent) dones[#dones + 1] = sent end), true)
 		opump()
 		local pings = osentOf("RL~P~RP~")
 		eq(#pings, 2); eq(pings[1].target, "Hildryn Payne"); eq(pings[2].target, "Max Ran")
-		eq(table.concat(quieted, ","), "Hildryn Payne,Max Ran", "the server's no-player line for each ping out of the chat")
+		eq(table.concat(marked, ","), "Hildryn Payne,Max Ran", "each ping marked as the game was handed it: its no-player line out of the chat")
+		eq(table.concat(quieted, ","), "Hildryn Payne,Max Ran", "the filter asked for before them")
 		eq(#osentOf("RL~P~X1~"), 0, "held"); eq(O.Relay.Stats().pending, 1); eq(O.Relay.Stats().sure, false)
 		eq(#timers, 3, "the two pings' waits and the hold")
 		-- The same key again takes the first's place; another waits behind it; no second ping meanwhile.
@@ -7472,15 +7475,15 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		eq(O.Comm.Send("CHANNEL", "X1~three"), true)
 		eq(O.Relay.Stats().pending, 2); eq(#dones, 1); eq(dones[1], false, "the dropped one's callback")
 		O.Relay.PENDING_MAX = 40
-		-- The first answer: what waits goes to that relay, in order, quieted too.
-		wipe(quieted)
+		-- The first answer: what waits goes to that relay, in order, each whisper marked too.
+		wipe(quieted); wipe(marked)
 		odeliver("WHISPER", "Max Ran-Realm", "RY~")
 		opump()
 		local out = osentOf("RL~P~X1~")
 		eq(#out, 2); eq(out[1].msg, "RL~P~X1~two"); eq(out[1].target, "Max Ran"); eq(out[2].msg, "RL~P~X1~three"); eq(out[2].target, "Max Ran")
-		-- (1.5.4) Our presentation to the relay that answered (RI, ahead of what waited) is quieted too,
-		-- a name already recorded once above.
-		eq(table.concat(quieted, ","), "Max Ran", "both messages' name quieted (each name once, see above)")
+		-- (1.5.4) Our presentation to the relay that answered (RI, ahead of what waited) is marked too.
+		eq(table.concat(marked, ","), "Max Ran,Max Ran,Max Ran", "our presentation and both messages, each marked as it went")
+		eq(table.concat(quieted, ","), "Max Ran", "the filter asked for (each name once, see above)")
 		eq(#osentOf("RI~"), 1, "(1.5.4) presented once, to the relay that answered")
 		eq(O.Relay.Stats().pending, 0); eq(O.Relay.Stats().sure, true); eq(O.Relay.Pick(), "Max Ran", "the one that answered, while any did")
 		-- The next message goes straight out, no new ping (it answered within DEAD_FOR).
@@ -7511,13 +7514,17 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		eq(O.Relay.Stats().pending, 1)
 		O.Relay.Reset()
 		eq(O.Relay.Stats().pending, 0)
-		-- The relay's hop 2 to a reporter is quieted too (a reporter gone offline since).
-		local R, rdeliver = RelayWorld("Hildryn Payne-Realm", "Olympus II")
-		local rquiet = {}
-		R.Accord = { Quiet = function(n) rquiet[#rquiet + 1] = n end }
+		-- The relay's hop 2 to a reporter is marked too (a reporter gone offline since).
+		local R, rdeliver, _, _, rpump, rsentOf = RelayWorld("Hildryn Payne-Realm", "Olympus II")
+		local rquiet, rmarked = {}, {}
+		R.Accord = { Quiet = function(n) rquiet[#rquiet + 1] = n end,
+			Tried = function(n) rmarked[#rmarked + 1] = ns.TellName(n) return {} end, Untried = function() end }
 		rdeliver("WHISPER", "Zed Far-Realm", "RL~P~RR~Olympus Zeus")
 		rdeliver("WHISPER", "Orig Inal-Realm", "RL~P~X1~hello")
-		eq(table.concat(rquiet, ","), "Zed Far-Realm", "the reporter's name quieted before hop 2")
+		eq(table.concat(rquiet, ","), "Zed Far-Realm", "the filter asked for before hop 2")
+		rpump()
+		eq(#rsentOf("RM~"), 1, "hop 2, to the reporter")
+		eq(table.concat(rmarked, ","), "Zed Far", "hop 2 marked as the game was handed it")
 	end)
 	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild = saved.channel, saved.member, saved.guild, saved.inGuild
 	C_ChatInfo = nil

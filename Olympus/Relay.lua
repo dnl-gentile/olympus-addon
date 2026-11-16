@@ -44,7 +44,9 @@ ns.Relay = Relay
 -- with no relay answered yet pings every relay at once (Sweep), is held for the first answer
 -- (Flush, from HandleAck) and goes to whoever answered; the pick is made among the relays that
 -- answered (VERIFIED_FOR) while any did. The server's "No player named X" for each ping to an
--- offline relay is kept out of the chat (Accord.Quiet) and still read (NotFound).
+-- offline relay is kept out of the chat (Accord.Quiet; 1.6.0: by Comm.SendNow's Accord.Tried, one
+-- line for each whisper the game is handed, Accord.Quiet only registering the filter) and still read
+-- (NotFound).
 --
 -- 1.5.4 (the presentation): a relay served whoever whispered it, so any build of the addon, changed
 -- or not, could register as a guild's reporter and take every guild's feed. Now a client identifies
@@ -449,8 +451,9 @@ local function Envelope(kind, text)
 end
 
 -- A relay not answered lately is pinged once; no answer in PING_WAIT leaves it out.
--- The server's "No player named X" for a whisper to someone offline: kept out of the chat for the
--- Accord's quiet window (Accord.Quiet, gated there); NotFound still reads the event.
+-- The server's "No player named X" for a whisper to someone offline: (1.6.0) kept out of the chat by
+-- Comm.SendNow's Accord.Tried, one line for each whisper when the game is handed it; this registers
+-- the Accord's filter before the first (Accord.Quiet, gated there). NotFound still reads the event.
 local function Quiet(name)
 	local A = ns.Accord
 	if type(A) == "table" and type(A.Quiet) == "function" then ns.SafeCall("relay quiet", A.Quiet, name) end
