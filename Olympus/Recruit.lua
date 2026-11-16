@@ -1198,6 +1198,9 @@ end
 -- no guild in it.
 function Recruit.SelfWord()
 	if GuildFull() or not (Recruit.CanInvite and Recruit.CanInvite()) then return "x" end
+	-- (Review of this lane) Never the King: the answers never name him (the most asked of all, Contacts),
+	-- and "r" would put him first for every recruit his answer reached.
+	if ns.IsKingCharacter and ns.IsKingCharacter(ns.me) then return "i" end
 	if Recruiting() and not QueueOnly() and Recruit.PopupWait() <= 0 then return "r" end
 	return "i"
 end

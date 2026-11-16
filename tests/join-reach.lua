@@ -365,6 +365,35 @@ test("join reach (1.6.0): mixed versions: a 1.5.9 requester reads a 1.6.0 answer
 	end)
 end)
 
+-- Fails on this lane's first version (review): the King's own answer could say he recruits, and the screen
+-- then asked him first for every recruit whose question reached him, while the answers never name him (the
+-- most asked of all). His own word says at most that he can invite. (The King here is a stand-in name.)
+test("join reach (1.6.0): the King's own answer never says he recruits, so the screen does not ask him first", function()
+	WithRequester(function(w)
+		local world = World(w, {
+			guilds = { ["Olympus Alpha"] = 500 },
+			members = {
+				{ "Rex Crown-Realm", "Olympus Alpha", version = "1.6.0", invite = true, recruiting = true, rank = 0 },
+				{ "Rae Cole-Realm", "Olympus Alpha", version = "1.6.0", invite = true, recruiting = true },
+			},
+		})
+		local king, rae = world.members[1], world.members[2]
+		local function IsKing(name) return type(name) == "string" and ns.ShortName(name) == "Rex Crown" end
+		king.ns.IsKingCharacter, rae.ns.IsKingCharacter = IsKing, IsKing
+		eq(R.ParseRoute(world.As(king, king.R.RouteAnswer)).self, "i", "he can invite, and says no more")
+		eq(R.ParseRoute(world.As(rae, rae.R.RouteAnswer)).self, "r", "another member who recruits says so")
+		-- The recruit's screen: the King's answer comes first (/who lists him first); the member he names next.
+		R.OnFound({ { name = king.key, guild = "Olympus Alpha" }, { name = rae.key, guild = "Olympus Alpha" } })
+		eq(w.out[1].to, "Rex Crown")
+		w.Advance(2 * LAT + 0.1)
+		eq(R.SaidOf(king.key), "i")
+		eq(R.NextContact().name, rae.key, "not the King first")
+		-- No invite right: "x", as anyone's.
+		king.invite = false
+		eq(R.ParseRoute(world.As(king, king.R.RouteAnswer)).self, "x")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The requester's side.
 ---------------------------------------------------------------------------
