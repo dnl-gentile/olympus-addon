@@ -63,6 +63,8 @@ L.VERIFY_OTHER_MASTER = "Note: the census names %s as <%s>'s guild master. This 
 L.VERIFY_NOTHING = "<%s> has no verification to revoke."
 -- (1.6.0) A revocation where this client holds no approval of the guild (Verify.Revoke) names its guild master.
 L.VERIFY_REVOKE_NO_MASTER = "No approval of <%s> is held here and the census doesn't know its guild master: give the name after the guild's (/oly verify revoke <Guild> <Name>)."
+-- (1.6.0) A name after the guild's that is not its guild master as this client knows him (Verify.Revoke): nothing is sent.
+L.VERIFY_REVOKE_OTHER_MASTER = "Not revoked: that name starts with <%s>, a guild known here whose guild master is %s, not %s. Give the guild's name alone to revoke it; a guild unknown here is revoked from a client that holds its approval."
 L.VERIFY_REFUSED = "Not done: a newer word on <%s> stands."
 L.VERIFY_USAGE = "/oly verify: your guild's verification. Verifiers: /oly verify approve <Guild> [Guild master] | <code>, /oly verify revoke <Guild> [Guild master] | <code>, /oly verify list."
 L.VERIFY_HEARD_OURS = "Your guild <%s> is now verified by Olympus (approved by %s)."
@@ -178,6 +180,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.VERIFY_OTHER_MASTER = "Atenção: o censo diz que %s é o mestre de <%s>. Esta aprovação é para %s e fica suspensa enquanto outra pessoa liderar a guilda."
 	L.VERIFY_NOTHING = "<%s> não tem verificação para revogar."
 	L.VERIFY_REVOKE_NO_MASTER = "Nenhuma aprovação de <%s> está guardada aqui e o censo não conhece o mestre dela: dê o nome depois do nome da guilda (/oly verify revoke <Guilda> <Nome>)."
+	L.VERIFY_REVOKE_OTHER_MASTER = "Não revogada: esse nome começa com <%s>, uma guilda conhecida aqui cujo mestre é %s, não %s. Dê só o nome da guilda para revogá-la; uma guilda desconhecida aqui é revogada de um cliente que guarde a aprovação dela."
 	L.VERIFY_REFUSED = "Não feito: vale uma palavra mais nova sobre <%s>."
 	L.VERIFY_USAGE = "/oly verify: a verificação da sua guilda. Verificadores: /oly verify approve <Guilda> [Mestre da guilda] | <código>, /oly verify revoke <Guilda> [Mestre da guilda] | <código>, /oly verify list."
 	L.VERIFY_HEARD_OURS = "A sua guilda <%s> agora está verificada pelo Olympus (aprovada por %s)."

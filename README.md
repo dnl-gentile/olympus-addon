@@ -90,7 +90,8 @@ members, time left and code, overdue ones first; a click approves it or whispers
 who may not have the addon yet; **Copy the list** opens it in a window to copy from) or with
 `/oly verify approve <Guild> [Guild master]` or `<code>`; `/oly verify revoke <Guild>` takes one
 back, even where the verifier's own client never received that approval (1.6.0: the guild master's name
-follows the guild's only when the census doesn't know it). A revocation takes the guild's check off every
+follows the guild's only when the census doesn't know it; a name that isn't the guild master known there
+sends nothing, as it may be the end of another guild's name). A revocation takes the guild's check off every
 client that receives it; a guild the moderators take off the network shows no check either, but its
 approval stands until a verifier revokes it. The verifiers are told once of each pending guild (and
 of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild

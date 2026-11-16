@@ -891,19 +891,33 @@ end
 -- guild as this client knows it (FindGuild), naming the guild master given, else the census's; a
 -- revocation held already is given again, newer, as Approve gives an approval again. A revocation
 -- stands over any approval of the guild, whoever its guild master (Verify.Status). Never the King's
--- guild, which needs none (Verify.Exempt). ok, or why not.
+-- guild, which needs none (Verify.Exempt). (The review of the 1.6.0 fixes.) A guild master given must be
+-- the one known here for the guild, its word's or the census's: RevokeInput takes the longest known guild
+-- name the input starts with and the rest for that name, so "<Guild> II", a guild unknown here, revoked
+-- <Guild> with "II" for its guild master (1.5.9 too, where this client held <Guild>'s approval). ok, or
+-- false and why not (and with "other master", the guild master known).
 function Verify.Revoke(guild, gm)
 	if not Verify.Trusted(ns.me) or not ns.IsMember() then return false, "trust" end
 	local s = Store()
 	local e = s and type(guild) == "string" and s.list[Key(guild)]
-	if Valid(e) and e.k == "A" then return Say("R", e.guild, e.gm) end
-	if not Valid(e) then
+	local held = Valid(e)
+	if not held then
 		local known = type(guild) == "string" and Verify.FindGuild(guild)
 		if not known or Key(known) ~= Key(guild) then return false, "unknown" end
 		e = { guild = known }
 	end
+	local given = type(gm) == "string" and gm ~= ""
+	local typed = given and NameField(gm) or nil
+	if given then
+		local census = Verify.GuildMaster(e.guild)
+		local master = e.gm or census
+		if master and not (typed and (SamePerson(typed, e.gm) or SamePerson(typed, census))) then
+			return false, "other master", master
+		end
+	end
+	if held and e.k == "A" then return Say("R", e.guild, e.gm) end
 	if Verify.Exempt(e.guild) then return false, "none" end
-	gm = e.gm or ((type(gm) == "string" and gm ~= "") and NameField(gm)) or Verify.GuildMaster(e.guild)
+	gm = e.gm or typed or Verify.GuildMaster(e.guild)
 	if not gm then return false, "revoke master" end
 	return Say("R", e.guild, gm)
 end
@@ -1004,10 +1018,11 @@ function Verify.ResendApproval(guild, expected)
 	return true
 end
 
-local function SayWhy(why, guild)
+local function SayWhy(why, guild, master, typed)
 	if why == "trust" then return ns.Print(L.VERIFY_ONLY) end
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
 	if why == "revoke master" then return ns.Print(L.VERIFY_REVOKE_NO_MASTER:format(guild)) end -- (1.6.0)
+	if why == "other master" then return ns.Print(L.VERIFY_REVOKE_OTHER_MASTER:format(guild, Shown(master), tostring(typed or ""))) end -- (1.6.0)
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)
@@ -1160,14 +1175,15 @@ function Verify.ApproveInput(input)
 end
 
 -- /oly verify revoke <Guild> [Guild master] | <code> (1.6.0: the guild master's name, or his code as
--- approve takes it, only where this client holds no approval of the guild and the census names none).
+-- approve takes it, only where this client holds no approval of the guild and the census names none;
+-- a name that is not the guild master known here sends nothing, Verify.Revoke).
 function Verify.RevokeInput(input)
 	if not Verify.Trusted(ns.me) then return ns.Print(L.VERIFY_ONLY) end
 	local guild, gm = Verify.FindGuild(input)
 	if not guild then guild, gm = Verify.FromCode(input) end
 	if not guild then guild, gm = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", ""), nil end
-	local ok, why = Verify.Revoke(guild, gm)
-	if not ok then return SayWhy(why, guild) end
+	local ok, why, master = Verify.Revoke(guild, gm)
+	if not ok then return SayWhy(why, guild, master, gm) end
 	ns.Print(L.VERIFY_REVOKED:format(guild))
 	return true
 end
