@@ -147,6 +147,13 @@ function Q.Check(row, live, claimed)
 	if not live and not row.guid and row.who and GetTime() - row.who < WHO_TTL then return true end
 end
 
+-- (The review of 1.6.0) A scanned player still on the scan's list: his row kept, the scan on, he neither
+-- hidden nor declined; whatever holds the popups a moment (a fight, an instance, Busy: Check's Quiet).
+-- A popup asked back for him waits while he is (Recruit's InviteAfterWhisper).
+function Q.Listed(row)
+	return type(row) == "table" and byName[row.key] == row and Q.Enabled() and not Hidden(row.full) and not R.ScanDeclined(row.full)
+end
+
 -- (1.5.8) A scanned player another member may still invite instead: current, and his command
 -- not yet taken to chat here. `claimed`: as Q.Check's.
 function Q.Passable(row, claimed)

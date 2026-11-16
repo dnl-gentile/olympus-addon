@@ -1504,14 +1504,17 @@ end
 -- mark stays until then, so a full scan list keeps his row (RecruitCandidates' Add). (The review of
 -- 1.6.0) And while the automatic popups wait for the player (Recruit.PopupsWait: while he types, for one):
 -- another popup closes as soon as its command is pasted in the chat box, before Enter, and this one took
--- the keyboard from the chat box, so Enter never sent the pasted /ginvite.
+-- the keyboard from the chat box, so Enter never sent the pasted /ginvite. As long as he is on the scan's
+-- list (Candidates.Listed): a fight, an instance or Busy makes him not current a moment (Candidates.Check),
+-- and the first look then gave his popup up for good.
 local AFTER_WHISPER_RETRY = 2
 local function InviteAfterWhisper(candidate)
 	if not candidate.inviteAfterWhisper then return end
 	local D = ns.Dialog
 	local open = D and not D.missing and D.Find and D.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
 	local other = open and not (type(open.data) == "table" and open.data.candidate == candidate)
-	if (other or Recruit.PopupsWait()) and Recruit.Candidates and Recruit.Candidates.Check(candidate) then
+	local C = Recruit.Candidates
+	if C and C.Listed(candidate) and (other or Recruit.PopupsWait() or not C.Check(candidate)) then
 		ns.After(AFTER_WHISPER_RETRY, "invite after whisper", function() InviteAfterWhisper(candidate) end)
 		return
 	end

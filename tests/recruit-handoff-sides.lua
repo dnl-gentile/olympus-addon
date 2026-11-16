@@ -873,6 +873,53 @@ test("recruit handoff sides (1.6.0, regression): the scanned player's popup Whis
 	end)
 end)
 
+-- The review of 1.6.0. While it waited, it gave up at the first look that found the scanned player not
+-- current (Candidates.Check), which a fight, an instance or Busy makes so for a moment: three seconds of a
+-- fight, and his popup never came back, though he stayed on the scan's list (his row popped once, so the
+-- scan never pops him again: Church > Invites alone). It waits while he is on the list. Fails before:
+-- after the fight (or the instance), no popup within a minute.
+for _, busy in ipairs({ "combat", "instance" }) do
+	test("recruit handoff sides (1.6.0, regression): the scanned player's popup Whisper them first asks back still comes back after " .. (busy == "combat" and "a fight" or "an instance") .. " during its wait", function()
+		WithWorld(function(world)
+			local origin = Member(world, "Ashen Vale", "Horde")
+			local master = Member(world, "Brann Holt", "Horde", nil, 0, true)
+			Accepting(world, master)
+			local found = Full("Scan Find")
+			As(world, master, function()
+				assert(PageLine(world, master, "recruit-candidate-toggle"), "the scan's switch").onClick()
+				master.R.Candidates.ObserveWho(found, "", "Orc")
+			end)
+			local applicant = Full("Zoë Fírè")
+			JoinAndPass(world, origin, applicant)
+			assert(Run(world, 40, function() return master.D.Find(CLAIM) ~= nil end), "the claim question")
+			local review
+			world.beforeSend = function(p)
+				if p.op ~= "N" or review then return end
+				As(world, master, function()
+					master.timers["recruit candidates"].fn()
+					local draft = assert(master.D.Find(DRAFT), "the scanned player's popup")
+					draft.def.OnAlt(draft, draft.data)
+					draft:Hide()
+					review = assert(master.D.Find(SCAN), "his whisper review")
+				end)
+			end
+			assert(ClaimShown(world, master))
+			Run(world, 3)
+			As(world, master, function() review:Hide(); review.def.OnHide(review, review.data) end)
+			Run(world, 1)
+			assert(InviteFor(master, applicant), "the claimed player's command is up")
+			-- Three seconds of it while that command is up; then he takes the command to chat.
+			master[busy] = true
+			Run(world, 3)
+			master[busy] = nil
+			local cmd = assert(InviteFor(master, applicant))
+			As(world, master, function() cmd.def.extra.onClick(cmd, cmd.data) end)
+			cmd:Hide()
+			assert(Run(world, 60, function() return BackFor(master, found) ~= nil end), "the scanned player's popup came back")
+		end)
+	end)
+end
+
 -- (Failure case) A scanned player who is no longer current by then does not come back.
 test("recruit handoff sides (1.6.0): a scanned player's popup asked back by Whisper them first does not come back once the scan is off", function()
 	WithWorld(function(world)
