@@ -8272,6 +8272,65 @@ test("1.6.0 no-player lines: three whispers refused to a keeper who logged off k
 	end)
 end)
 
+-- 1.6.0 (the review of the no-player lines fix): a whisper the game delivered gets no line, and the
+-- fix's first build kept one count per name whose deadline each whisper moved on, so the marks of
+-- whispers a player had received while online lived as long as the addon went on whispering him
+-- after he left, and his own lines stayed out of the chat with them. Each whisper's mark runs out
+-- QUIET after its own call now. Both of the server's ways with a whisper to a player who is not
+-- online: refused at once, its line during the call (S1), or taken, its line a moment later (S2).
+-- Fails before: the player's own whisper to him, 30 s after he left, said nothing (1.6.0's first
+-- build: every line naming him within QUIET of any whisper of ours stayed out).
+test("1.6.0 no-player lines: the marks of whispers a player received while online run out by themselves: he logs off, the addon goes on whispering him every few seconds, and the player's own whisper to him 30 seconds later shows; every line of the addon's whispers stays out", function()
+	NoPlayerWorld(function(w)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		for _, mode in ipairs({ "S1", "S2" }) do
+			local name = mode == "S1" and "Steady Mate" or "Other Mate"
+			local offline, later, addon = false, {}, { lines = 0, shown = 0 }
+			local function AddonLine()
+				addon.lines = addon.lines + 1
+				addon.shown = addon.shown + w.Shown(name)
+			end
+			C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+				if dist ~= "WHISPER" or target ~= name or not offline then return 0 end
+				if mode == "S1" then AddonLine() return 12 end
+				later[#later + 1] = w.mono + 0.3
+				return 0
+			end
+			-- The clock moves on `dt` seconds, and the server's lines due meanwhile come.
+			local function Step(dt)
+				local to = w.mono + dt
+				while later[1] and later[1] <= to do
+					w.mono = table.remove(later, 1)
+					AddonLine()
+				end
+				w.mono = to
+			end
+			local function Sync()
+				O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+				for _ = 1, 3 do O.Comm.Pump() end
+			end
+			for _ = 1, 15 do Sync(); Step(4) end -- online a minute: each sync delivered, no line
+			offline = true
+			local own = {}
+			for i = 1, 15 do
+				Sync()
+				if i == 8 then -- ~30 s after he left, the player whispers him himself: its line 0.3 s on
+					Step(2); w.mono = w.mono + 0.3; own[#own + 1] = w.Shown(name); Step(1.7)
+				else
+					Step(4)
+				end
+			end
+			Step(30)
+			own[#own + 1] = w.Shown(name) -- and once more, 30 s after the addon's last whisper
+			eq(addon.lines, 15, mode .. ": a line for each whisper after he left")
+			eq(addon.shown, 0, mode .. ": every one of them out of the chat")
+			eq(own[1], 1, mode .. ": the player's own whisper 30 s after he left: its line shows")
+			eq(own[2], 1, mode .. ": and later, as ever")
+		end
+	end)
+end)
+
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
 -- channel too, which Forever delivers across every sub-realm to everyone in that channel; the
 -- hidden way by the relay goes on beside it (another lane, another guild), each line taken once.
