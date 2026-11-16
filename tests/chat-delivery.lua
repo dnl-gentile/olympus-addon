@@ -313,7 +313,7 @@ test("chat delivery (1.6.0): three lines the relay's own client heard in the pub
 			seen = #sent
 		end
 		for k = 1, 3 do
-			-- The channel's copy first, its speaker named bare as Forever's channel names him; the relay's after.
+			-- The channel's copy first, its speaker named bare (the "First-Surname" forms: a test below); the relay's after.
 			eq(R.ChatHall.OnChannel(Line(k), ("Speaker Number%d"):format(k), "", "5. OlympusNet", "", "", 0, 5, "OlympusNet"), true)
 			Say(R, k)
 		end
@@ -394,6 +394,51 @@ test("chat delivery (1.6.0): two lines the relay's own client heard in the publi
 		eq(R.Relay.Stats().chatLost, 0, "none lost")
 		eq(R.Relay.Stats().heardInChannel, 2)
 	end)
+end)
+
+-- The review of 1.6.0. The suite's model of Forever's client (tests/gamepad.lua, tests/chat-rulesets.lua,
+-- tests/ruleset-labels.lua) has the channel name a line's sender "First-Surname", as the game's functions
+-- name players there (Core.lua's ns.Normal), while the lane keys a line's copies by the name the server
+-- stamps on the relay's whisper ("First Surname-Realm"). Relay.HeardInChannel cut "First-Surname" at its
+-- hyphen: the two keys never met, no copy waited as carried and none was let go, as on 1.5.9. The three
+-- forms are one sender now. Fails before: "First-Surname", with or without a realm, 0 copies carried
+-- after the first pump and 0 let go after the run (the bare form 268 and 268).
+test("chat delivery (1.6.0, Forever): a line the relay's own client heard in the public channel is carried whatever form of its sender's name the channel gives (\"First-Surname\", with a realm, or bare): its copies wait behind the lines only the relays carry, and those past Relay.CARRIED_FOR are let go", function()
+	local savedSplit = ns.splitNames
+	local ok, err = pcall(function()
+		ns.splitNames = true -- (as on Forever: the relay's ns.Normal is Core.lua's, which reads the addon's ns)
+		for _, form in ipairs({ "Speaker-Number%d", "Speaker-Number%d-CAMWOWUS2Realm3PvE", "Speaker Number%d" }) do
+			WithMember(function()
+				local n = 92
+				local R, sent, Run = BusyRelay(n)
+				R.Comm.ChannelName = function() return "OlympusNet" end
+				R.Comm.ChannelIndex = function() return 5 end
+				assert(loadfile(extra.addon .. "ChatHall.lua"))("Olympus", R)
+				for k = 1, 3 do
+					eq(R.ChatHall.OnChannel(Line(k), form:format(k), "", "5. OlympusNet", "", "", 0, 5, "OlympusNet"), true, form)
+					Say(R, k)
+				end
+				for k = 4, 6 do Say(R, k) end
+				Run(1)
+				local carried = R.Relay.ChatLanes().carried
+				assert(carried > 0, ("%s: the copies of the lines the channel carried wait as carried: %d"):format(form, carried))
+				Run(3000)
+				local got = LinesByReporter(R, sent, n)
+				local carriedSent = 0
+				for i = 1, n do
+					for k = 4, 6 do eq(got[i][Line(k)], 1, form .. ": line " .. k .. " (only the relays carry it) reached Rep Number" .. i) end
+					for k = 1, 3 do carriedSent = carriedSent + (got[i][Line(k)] or 0) end
+				end
+				local late = R.Relay.Stats().chatLate
+				assert(late > 0, ("%s: copies past Relay.CARRIED_FOR let go: %d sent, %d let go"):format(form, carriedSent, late))
+				eq(carriedSent + late, 3 * n, form .. ": each copy of theirs went or was let go, counted")
+				eq(R.Relay.Stats().chatLost, 0, form)
+				eq(R.Relay.Stats().heardInChannel, 3, form)
+			end)
+		end
+	end)
+	ns.splitNames = savedSplit
+	if not ok then error(err, 0) end
 end)
 
 test("chat delivery (1.5.5): a reporter whose queue is full of other words still hands every relayed chat line to its guild", function()

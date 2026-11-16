@@ -2185,12 +2185,13 @@ function Relay.ChatOldest()
 end
 -- (1.6.0) A chat line this relay's client heard in the public channel (ChatHall.lua), by its sender as
 -- the channel names him: its whispers still waiting in the lane go after the lines only the relays
--- carry (OnlyFront). True when noted.
+-- carry (OnlyFront). True when noted. (The review of 1.6.0) As the server writes him first (ns.Normal):
+-- a "First-Surname" cut at its hyphen never met the lane's "First Surname-Realm".
 function Relay.HeardInChannel(sender, text)
 	if not Relay.On() or not Relay.IsRelay(ns.me) or type(sender) ~= "string" or type(text) ~= "string"
 		or text:sub(1, 3) ~= "M1~" then return false end
 	local now = Now()
-	local line = Lower(ns.ShortName(sender)) .. "|" .. text
+	local line = Lower(ns.ShortName(ns.Normal(sender))) .. "|" .. text
 	if carriedCount >= Relay.CARRIED_MAX then
 		for k, t in pairs(carried) do
 			if now - t >= Relay.CHAT_LANE_TTL then carried[k], carriedCount = nil, carriedCount - 1 end
