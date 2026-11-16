@@ -59,7 +59,7 @@ ns.Locale({ "esES", "esMX" }, {
 - {news} Solo se ocultan los avisos de jugador desconectado que causan los susurros del propio Olympus: si tú susurras a un jugador desconectado, sigues viendo el aviso del juego.
 - {news} En el chat de Olympus, en Todos, una línea cuyo autor tiene reglas desconocidas (versiones anteriores a la 1.5.9) aparece marcada con [?], y al pasar el ratón por el nombre de quien escribe se indica cuándo juega con otras reglas, cuyas hermandades no pueden invitarte.
 - {watch} Las hermandades cuyo nombre solo las compara con Olympus o dice que no son Olympus ya no cuentan como hermandades de Olympus.
-- {watch} En WoW: Forever, el maestro de una hermandad ya verificada recibe ahora esa verificación de los compañeros de hermandad que la tienen, así que una instalación nueva o una aprobación perdida ya no muestra Verificación del maestro de hermandad pendiente, aunque no haya ningún verificador conectado.
+- {watch} En WoW: Forever, el maestro de una hermandad ya verificada recibe ahora esa verificación de los compañeros de hermandad con la 1.6.0 que la tienen, así que una instalación nueva o una aprobación perdida ya no muestra Verificación del maestro de hermandad pendiente, aunque no haya ningún verificador conectado.
 - {watch} Revocar la verificación de una hermandad ahora llega a todos: cualquier verificador puede revocar una aprobación que su propio cliente nunca recibió, quien vuelve tras unos días fuera recibe la revocación, y una hermandad sacada de la red no muestra la marca de hermandad verificada.
 
 Cierra y vuelve a abrir WoW después de actualizar. Si algo sigue fallando, envía un informe con /oly bug.

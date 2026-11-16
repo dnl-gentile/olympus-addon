@@ -59,7 +59,7 @@ ns.Locale("itIT", {
 - {news} Vengono nascosti solo gli avvisi di giocatore offline causati dai sussurri di Olympus stesso: se sussurri tu a un giocatore offline, vedi ancora l'avviso del gioco.
 - {news} Nella chat di Olympus, in Tutti, una riga il cui autore ha regole sconosciute (versioni precedenti alla 1.5.9) è segnata con [?], e passando il mouse sul nome di chi scrive si vede quando gioca con altre regole, le cui gilde non possono invitarti.
 - {watch} Le gilde il cui nome le paragona soltanto a Olympus o dice che non sono Olympus non contano più come gilde di Olympus.
-- {watch} Su WoW: Forever, il capogilda di una gilda già verificata ora riceve quella verifica dai compagni di gilda che ce l'hanno, quindi una nuova installazione o un'approvazione persa non mostra più Verifica del capogilda in sospeso, anche senza verificatori online.
+- {watch} Su WoW: Forever, il capogilda di una gilda già verificata ora riceve quella verifica dai compagni di gilda con la 1.6.0 che ce l'hanno, quindi una nuova installazione o un'approvazione persa non mostra più Verifica del capogilda in sospeso, anche senza verificatori online.
 - {watch} Revocare la verifica di una gilda ora raggiunge tutti: qualsiasi verificatore può revocare un'approvazione che il suo client non ha mai ricevuto, chi torna dopo qualche giorno di assenza riceve la revoca, e una gilda tolta dalla rete non mostra il segno di spunta delle gilde verificate.
 
 Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.

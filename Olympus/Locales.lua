@@ -319,7 +319,7 @@ L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 - {news} Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.
 - {news} In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?], and hovering a writer's name says when he plays another ruleset, whose guilds can't invite you.
 - {watch} Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.
-- {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
+- {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
 - {watch} Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.
 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
@@ -579,7 +579,7 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 - {news} Só ficam escondidos os avisos de jogador offline causados pelos sussurros do próprio Olympus: se você mesmo sussurrar um jogador offline, ainda vê o aviso do jogo.
 - {news} No chat do Olympus, em Todos, uma linha cujo autor tem conjunto de regras desconhecido (versões antes da 1.5.9) aparece marcada com [?], e passar o mouse no nome de quem escreveu diz quando ele joga em outro conjunto de regras, cujas guildas não podem te convidar.
 - {watch} Guildas cujo nome só se compara ao Olympus ou diz que não é o Olympus deixam de contar como guildas do Olympus.
-- {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
+- {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda na 1.6.0 que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
 - {watch} Revogar a verificação de uma guilda agora chega a todos: qualquer verificador pode revogar uma aprovação que o próprio cliente nunca recebeu, quem volta depois de alguns dias fora recebe a revogação, e uma guilda tirada da rede não mostra a marca de guilda verificada.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.

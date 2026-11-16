@@ -59,7 +59,7 @@ ns.Locale("deDE", {
 - {news} Nur die Offline-Hinweise, die das Flüstern von Olympus selbst auslöst, werden ausgeblendet: Wenn du selbst einen Spieler anflüsterst, der offline ist, siehst du den Hinweis des Spiels weiterhin.
 - {news} Im Olympus-Chat unter Alle ist eine Zeile, deren Schreiber ein unbekanntes Regelwerk hat (Versionen vor 1.5.9), mit [?] markiert, und fährst du mit der Maus über den Namen, steht dort, wenn er auf einem anderen Regelwerk spielt, dessen Gilden dich nicht einladen können.
 - {watch} Gilden, deren Name sie nur mit Olympus vergleicht oder sagt, dass sie nicht Olympus sind, zählen nicht mehr als Olympus-Gilden.
-- {watch} Auf WoW: Forever bekommt der Gildenmeister einer bereits verifizierten Gilde diese Verifizierung jetzt von Gildenmitgliedern, die sie haben, sodass eine Neuinstallation oder eine verpasste Genehmigung nicht mehr GM-Verifizierung ausstehend zeigt, auch wenn kein Prüfer online ist.
+- {watch} Auf WoW: Forever bekommt der Gildenmeister einer bereits verifizierten Gilde diese Verifizierung jetzt von Gildenmitgliedern mit 1.6.0, die sie haben, sodass eine Neuinstallation oder eine verpasste Genehmigung nicht mehr GM-Verifizierung ausstehend zeigt, auch wenn kein Prüfer online ist.
 - {watch} Der Widerruf einer Gildenverifizierung erreicht jetzt alle: Jeder Prüfer kann eine Genehmigung widerrufen, die sein eigener Client nie erhalten hat, wer nach ein paar Tagen zurückkommt, bekommt den Widerruf, und eine vom Netz genommene Gilde zeigt kein Häkchen einer verifizierten Gilde.
 
 Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.

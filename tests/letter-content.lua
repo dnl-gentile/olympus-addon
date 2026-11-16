@@ -712,6 +712,9 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		-- The guild master's line his guild's verification now takes away, as his Census shows it.
 		local pending = assert(L.VERIFY_LINE_MASTER_GRACE:match("^(.-)%s*:"), code)
 		assert(watch[2]:find(pending, 1, true) and watch[2]:find("WoW: Forever", 1, true), code .. ": the guild master's line as shown: " .. pending)
+		-- (The review of 1.6.0) Handed over by guildmates on 1.6.0 alone (Verify.lua's hand-over is new code: a
+		-- 1.5.9 guildmate holding the approval says nothing over GUILD), as the README says.
+		assert(watch[2]:find("1.6.0", 1, true), code .. ": the guildmates who hand it over, on 1.6.0")
 		eq(#watch, 3, code .. ": the name rule and the two verification fixes")
 	end
 	local english = Client("enUS").L.LETTER_1_6_0
@@ -723,7 +726,7 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		"Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.",
 		"In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?]",
 		"Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.",
-		"a guild master whose guild is already verified now gets that verification from guildmates who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
+		"a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
 		"any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.",
 	}) do
 		assert(english:find(words, 1, true), "1.6.0's letter: " .. words)
@@ -736,4 +739,5 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	-- Forever alone), as the letter and the README say; the ROADMAP's line said it of every realm.
 	assert(roadmap:find(". On Forever a guild master whose guild is already verified now receives that verification", 1, true),
 		"ROADMAP.md's v1.6.0: the guild's hand-over, on Forever")
+	assert(roadmap:find("receives that verification from guildmates on 1.6.0 who have it", 1, true), "ROADMAP.md's v1.6.0: from guildmates on 1.6.0")
 end)
