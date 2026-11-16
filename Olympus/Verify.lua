@@ -55,7 +55,8 @@ local L = ns.L
 -- approval, of 11-05, had 117 newer words by 11-13), so an old approval reached no verifier who was
 -- away when it was given, and Revoke refused there ("no verification to revoke") while the clients
 -- that heard it kept the check: a verifier now revokes a guild he knows whether or not his client
--- holds its approval (Verify.Revoke).
+-- holds its approval (Verify.Revoke), and an answer carries the revocations first, so a client back
+-- after days drops the check of a guild revoked meanwhile.
 --
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
@@ -63,7 +64,7 @@ local L = ns.L
 --   GV~1~Q~<count>~<newest>~<starts>~<digest>                 any member's ask (after login, then
 --                                                             every half hour): what it holds
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
---     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first
+--     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first (1.6.0: revocations first)
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
 -- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
 -- same snapshot row; relays that know the marker can send it to the named guild's reporter.
@@ -541,6 +542,11 @@ end
 -- A verifier's client's answer: every word it holds, the newest first, then the starts (the
 -- unverified guilds' first, the oldest first), bounded. And how many rows; with coverage supplied,
 -- whether that received snapshot contains every row this answer would actually send.
+-- (1.6.0) The revocations before the approvals: an answer holds some 80 rows of Forever's names, and
+-- a realm group's store held 132 words by 11-13 (the oldest 50 in no answer since 11-07), so a
+-- revocation a few days old fell behind the newer approvals, and a client back after those days kept
+-- the check of the guild it revoked. Revocations are few (REVOKE_KEEP), and a missed approval costs a
+-- check where a missed revocation leaves a wrong one.
 function Verify.Payload(now, coverage)
 	now = now or Verify.Clock()
 	local s = Store()
@@ -549,6 +555,7 @@ function Verify.Payload(now, coverage)
 		if Valid(e) then words[#words + 1] = e end
 	end
 	table.sort(words, function(a, b)
+		if (a.k == "R") ~= (b.k == "R") then return a.k == "R" end
 		if a.at ~= b.at then return a.at > b.at end
 		return Key(a.guild) < Key(b.guild)
 	end)

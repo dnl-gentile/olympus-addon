@@ -201,3 +201,55 @@ test("verify revoke: on 1.5.9 a councillor holding no approval of the guild appr
 		for _, n in ipairs(clients) do eq(n.c.rdb.verify.list[ns.Fold(GUILD)].k, "R", n.c.me) end
 	end)
 end)
+
+test("verify revoke: an answer carries the revocations first, so a client back days later drops the check of a guild revoked meanwhile", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local verifier = Node(HC, "Olympus Crown")
+		As(verifier, verifier.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		Fill(As, verifier, T0 + 10, 40)
+		As(verifier, verifier.c.Verify.Handle, "CHANNEL", HC, ("GV~1~R~%d~%s~%s"):format(T0 + 100, GUILD, MASTER))
+		-- Five days of approvals after the revocation: more than one answer carries.
+		Advance(5 * DAY)
+		Fill(As, verifier, Now() - 1000, 150)
+		local _, rows = As(verifier, verifier.c.Verify.Payload)
+		assert(rows < 151, "an answer is bounded: " .. rows .. " of 151 words")
+		Advance(DAY)
+		-- Two players back after six days away, who heard the approval before: one on 1.6.0, one on 1.5.9.
+		local back = {
+			Member(Node, As, "Vanguard Ally-Realm", GUILD, verifier),
+			Member(Node, As, "Embers Elder-Realm", OTHER, verifier, { old = true }),
+		}
+		for _, n in ipairs(back) do
+			As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		end
+		eq(CountChecked(As, back, GUILD), 2, "each still shows the check it heard")
+		for _, n in ipairs(back) do
+			eq(As(n, n.c.Verify.Ask), true)
+			Flush(); Advance(10); Advance(10)
+			Advance(verifier.c.Verify.ANSWER_GAP) -- (one answer each ANSWER_GAP)
+		end
+		eq(CountChecked(As, back, GUILD), 0, "clients back still showing the revoked guild's check (of 2)")
+		for _, n in ipairs(back) do eq(n.c.rdb.verify.list[ns.Fold(GUILD)].k, "R", n.c.me) end
+		assert(back[1].c.Verify.Digest() >= 60, "the answers still carried the newest approvals")
+		eq(Checked(As, back[1], "Olympus Legion 150"), true)
+	end)
+end)
+
+test("verify revoke: a verifier still on 1.5.9 answers the newest words alone (a revocation older than they are stays behind)", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local old = Node(HC, "Olympus Crown", { old = true })
+		As(old, old.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		Fill(As, old, T0 + 10, 40)
+		As(old, old.c.Verify.Handle, "CHANNEL", HC, ("GV~1~R~%d~%s~%s"):format(T0 + 100, GUILD, MASTER))
+		Advance(5 * DAY)
+		Fill(As, old, Now() - 1000, 150)
+		Advance(DAY)
+		local back = Member(Node, As, "Vanguard Ally-Realm", GUILD, old)
+		As(back, back.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~%s~%s"):format(T0, GUILD, MASTER))
+		eq(As(back, back.c.Verify.Ask), true)
+		Flush(); Advance(10); Advance(10)
+		-- (1.5.9 cannot change: a councillor on 1.6.0 online, or a new revocation, gives it.)
+		eq(Checked(As, back, GUILD), true, "the 1.5.9 verifier's answer left the revocation out")
+		eq(back.c.rdb.verify.list[ns.Fold(GUILD)].k, "A")
+	end)
+end)
