@@ -382,7 +382,8 @@ test("1.6.0 issue #110: a profession link and a crafted item's link one player t
 			local C = ns.Channels
 			local saved = { me = ns.me, split = ns.splitNames, realm = ns.realm, ready = ns.Comm.ChannelReady, room = ns.Comm.ChatRoom,
 				send = ns.Comm.SendChat, guild = GetGuildInfo, frame = DEFAULT_CHAT_FRAME, windows = ns.db.chatWindows,
-				warned = ns.db.chatWarned, looks = C.itemLooks, asked = C.itemsAsked, tip = GameTooltip.SetHyperlink }
+				warned = ns.db.chatWarned, looks = C.itemLooks, asked = C.itemsAsked, tip = GameTooltip.SetHyperlink,
+				roster = ns.Roster.byName }
 			local ok, err = pcall(KeepSendGap, function()
 				ns.me, ns.splitNames, ns.realm = "Tester Surname-Realm", true, "Realm"
 				GetGuildInfo = function() return GUILD, "Member", 3 end
@@ -392,6 +393,9 @@ test("1.6.0 issue #110: a profession link and a crafted item's link one player t
 				ns.Comm.SendChat = function(msg, done) sent[#sent + 1] = msg; done(true); return true end
 				ns.db.addonChat, ns.db.chatMute, ns.db.chatWindows, ns.db.chatWarned = true, {}, nil, { A = true }
 				C.itemLooks, C.itemsAsked = {}, {} -- (the game chat's own item data, fresh)
+				-- The other player, a guildmate in this client's roster (a line for our guild comes from our roster,
+				-- Channels.VerifiedLevel).
+				ns.Roster.byName = { [ns.FullName("Gg Hh-Realm")] = 3 }
 				local game = { lines = {} }
 				function game.AddMessage(self, text) self.lines[#self.lines + 1] = text end
 				DEFAULT_CHAT_FRAME = game
@@ -410,8 +414,10 @@ test("1.6.0 issue #110: a profession link and a crafted item's link one player t
 				eq(Said(1), shown, "his own line: the links live, the item as his client has it")
 				eq(Said(2), badShown, "his own malformed link: text")
 				-- The other player: his game chat shows both links whole and live, the malformed one as text.
-				eq((C.Receive("CHANNEL", "Gg Hh-Realm", sent[1], t + 20)), true, "shown")
-				eq((C.Receive("CHANNEL", "Gg Hh-Realm", sent[2], t + 30)), true, "shown")
+				local got1, why1 = C.Receive("CHANNEL", "Gg Hh-Realm", sent[1], t + 20)
+				eq(got1, true, "shown: " .. tostring(why1))
+				local got2, why2 = C.Receive("CHANNEL", "Gg Hh-Realm", sent[2], t + 30)
+				eq(got2, true, "shown: " .. tostring(why2))
 				local heard = Said(3)
 				eq(heard, shown, "the profession link byte for byte, the item with its crafter and this client's name and colour")
 				for _, link in ipairs({ TRADE, CRAFTED_HEX }) do
@@ -446,6 +452,7 @@ test("1.6.0 issue #110: a profession link and a crafted item's link one player t
 			ns.me, ns.splitNames, ns.realm, ns.Comm.ChannelReady, ns.Comm.ChatRoom = saved.me, saved.split, saved.realm, saved.ready, saved.room
 			ns.Comm.SendChat, GetGuildInfo, DEFAULT_CHAT_FRAME, ns.db.chatWindows = saved.send, saved.guild, saved.frame, saved.windows
 			ns.db.chatWarned, C.itemLooks, C.itemsAsked, GameTooltip.SetHyperlink = saved.warned, saved.looks, saved.asked, saved.tip
+			ns.Roster.byName = saved.roster
 			if not ok then error(err, 0) end
 		end)
 	end)
