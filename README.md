@@ -117,6 +117,19 @@ In **The Watch → Guilds → Verified guilds**, click a guild and choose **Rese
 the one decision already held, with the original verifier, guild master and date. It doesn't
 restart verification or the grace period. A newer decision takes precedence. On Forever an updated
 relay forwards the resend to the named guild's reporter through the existing verification route.
+From 1.6.0 on Forever a guild master's own guild also hands him its approval: a guildmate whose
+client holds it from a verifier, naming the guild master the census shows now, sends that one
+decision over guild chat as the resend does (its original verifier and date: nothing is approved
+anew). It goes when his client asks (with its verification ask, while the guild shows unverified
+there, and again when a guildmate on 1.6.0 comes online) and, to a guild master on an older
+version, at his login and about every half hour while he plays; a guild gets one every 5 minutes
+at most, and none from a client in quiet presence. A guildmate whose newest decision on the guild
+is a newer revocation answers such a hand-over, or the ask, with that revocation. So a new
+installation, or an approval given while he was away, no longer leaves him on **GM verification
+pending** while a guildmate who holds it is online, even with no verifier online. A 1.5.9 client
+that takes a hand-over counts it as the answer to its own verification ask and skips its login's
+retry: it receives the other guilds' decisions at its next half-hourly ask (or sooner, from a
+guildmate's answered ask handed to the guild).
 Guild rows in The Watch open actions to review verification, copy the exact spelling, or hide
 the row and its verifier reminders on this installation. **Manage hidden guilds** restores a row.
 **Check current guild master** requests a fresh native roster scan from this client for its own
@@ -2669,6 +2682,10 @@ guildmate who updated. The rules a relay applies (that date, a switch that pause
 published versions) are not a private module: the author's client hands them to the relays in
 game, the relays pass them to one another and keep the newest, and `/oly relay admitted` on a relay
 lists whom it serves, whom it refused and why, and the rules in force.
+The server answers a whisper to a player who just went offline with a "No player named" line in
+the chat. With mouse and keyboard the addon keeps out of your chat only the lines its own whispers
+cause (1.6.0): one for each whisper it sent, within 10 seconds of it. A whisper you send yourself
+to someone offline still shows the game's notice.
 
 The addon itself talks only in game, through the game's own addon messages: it has no server of
 its own, and nothing it sends leaves the game. One exception is the Olympus Companion app, only if
@@ -2712,6 +2729,7 @@ goes where:
 | A guild verification (launch): a verifier's approval or revocation of a guild and its guild master (the guild's and his name, the time; your name, as on every message) | everyone on the Olympus channel (logged) | only from the King's, a High Councillor's or the author's client, when they approve or revoke. Kept in your saved variables: an approval until revoked or replaced, a revocation 30 days (400 in all at most: past it the oldest approvals go first, 1.6.0) |
 | A verification ask: how many verifications and guild starts your client holds, the newest one's time and a sum of the starts (no names) | everyone on the Olympus channel | after login, then every half hour; never in quiet presence |
 | A verifier's answer: the verifications it holds (guild, guild master, time, who approved), as many as fit: since 1.6.0 the newest revocations first, in half of it at most, then the newest of the rest; and each guild's start (the first time a verifier's client saw it) | everyone on the Olympus channel | only from a verifier's client, when a client that holds less asks, at most every 3 minutes; never in quiet presence. Kept: a guild's start 90 days after it was last seen, your own client's first sighting of each guild 30 days |
+| A guild's own verification handed over (1.6.0, WoW: Forever): a guild master's ask (his guild and the time of the decision his client holds on it); a guildmate's hand-over, the approval of your guild its client holds as its verifier gave it (guild, guild master, time, verifier), or a newer revocation | your guild alone (guild chat) | the ask with the guild master's verification ask while his guild shows unverified on his client, every 4 minutes at most; a hand-over when he asks, at the login of a guild master on an older version and every half hour at most while he plays, one a guild every 5 minutes; never in quiet presence |
 | Your zone, layer, guild rank and guild (layer announcements) | everyone on the Olympus channel | only if you share: officers and one member in eight announce, every 10 minutes and when their layer changes |
 | A layer hop ask: the zone you are in and the layer you want; or a King-layer discovery question: the map and current crown lease, but no claimed destination layer | Olympus channel, or your guild on Forever; a same-sub-realm hop on Forever can then privately ask up to three recognized members of sister guilds | when you ask to hop or explicitly click the King's unknown-layer line |
 | An answer to an ask for your layer (it tells the asker you are on it), including a direct sighting when an active asker is discovering the King's layer | the asker alone (a whisper; a direct sighting is never broadcast by itself) | only if you share your zone and layer and said yes to layer help (1.1: off until you answer, on the first-open page or with `/oly layerhelp on`; `/oly layerhelp off` stops it); direct sightings require two independent answers, last only for that request and are withdrawn on opt-out while it remains active |
