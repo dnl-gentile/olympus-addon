@@ -39,6 +39,12 @@ local L = ns.L
 -- (Verify.VerifierHere). Elsewhere (ForeverPvP today) every guild waits, pending: no deadline, no notice to
 -- its guild master, no hold. The signed list that brings the first verifier there starts it with a fresh
 -- GRACE from the moment it arrives (Verify.ListTaken, Verify.HoldFrom).
+-- (1.6.0.1, the dev: "Bota aí mais 2 semanas") On Forever's realm groups but PvE (ForeverPvP, ForeverRP,
+-- ForeverRPPvP: Verify.OtherForeverGroup) the guilds there cannot verify properly yet, and they showed
+-- overdue. Until OTHER_GROUPS_WAIT_UNTIL (2026-11-30 00:00 UTC) every guild there waits as where nobody
+-- can verify: pending, no deadline, no notice to its guild master, no hold, nothing overdue on the
+-- verifiers' list. An approval still verifies. From then on a deadline there counts from it at the
+-- earliest (GRACE more for every guild). ForeverPvE and the beta's groups are as they were.
 --
 -- The verifiers (the King, the High Council, the author) see the pending and overdue guilds in The
 -- Watch (Guilds), are told once of each new pending guild (and of each new guild master to check),
@@ -133,6 +139,7 @@ ns.Verify = Verify
 Verify.PROTOCOL = 1
 Verify.GRACE = 7 * 86400         -- a guild's grace, from its start (1.5.4: 7 days, where it was 48 hours)
 Verify.RESET_AT = 1794193200     -- (1.5.4) no deadline counts from before: 2026-11-09 00:00 BRT (03:00 UTC), the release night
+Verify.OTHER_GROUPS_WAIT_UNTIL = 1795996800 -- (1.6.0.1) Forever's groups but PvE wait until 2026-11-30 00:00 UTC (see the top)
 Verify.REMIND_LEFT = 12 * 3600   -- the verifiers are reminded of a pending guild this long before its deadline
 Verify.NOTICE_AFTER = 90         -- the session's notices wait this long after login (roster and census in)
 Verify.TICK = 60                 -- the guilds seen and the notices, every minute
@@ -317,6 +324,14 @@ function Verify.HoldFrom()
 	return s and tonumber(s.holdFrom) or nil
 end
 
+-- (1.6.0.1) Whether this client's realm group is one of Forever's but PvE (ForeverPvP, ForeverRP,
+-- ForeverRPPvP), by its realm's family (ns.ForeverFamily, as ns.OnForever reads it): their guilds wait
+-- until OTHER_GROUPS_WAIT_UNTIL (Verify.Status). The beta's groups and any other realm have no family.
+function Verify.OtherForeverGroup()
+	local family = type(ns.ForeverFamily) == "function" and ns.ForeverFamily(ns.realm or ns.CurrentRealm()) or nil
+	return type(family) == "string" and family:lower() ~= "foreverpve"
+end
+
 -- A guild's census row, by its name in any case.
 local function Row(guild)
 	local guilds = ns.rdb and ns.rdb.guilds
@@ -396,14 +411,17 @@ function Verify.Status(guild, now)
 	if since > now then since = now end
 	info.since, info.shared = since, shared
 	-- (1.5.5) Nobody here who can verify (Verify.VerifierHere): no deadline runs, the guild waits.
-	if not Verify.VerifierHere(now) then
+	-- (1.6.0.1) Nor on Forever's groups but PvE before OTHER_GROUPS_WAIT_UNTIL.
+	local other = Verify.OtherForeverGroup()
+	if not Verify.VerifierHere(now) or (other and now < Verify.OTHER_GROUPS_WAIT_UNTIL) then
 		info.waiting, info.deadline, info.left = true, now + Verify.GRACE, Verify.GRACE
 		return "pending", info
 	end
 	-- (1.5.4) The deadline alone counts from RESET_AT at the earliest (see the top): since stays the
 	-- guild's start, as it is kept and relayed. (1.5.5) And from the first verifier's arrival here, when
-	-- one came after the rest (Verify.HoldFrom).
-	info.deadline = math.max(since, Verify.RESET_AT, Verify.HoldFrom() or Verify.RESET_AT) + Verify.GRACE
+	-- one came after the rest (Verify.HoldFrom). (1.6.0.1) And there from the end of their wait.
+	info.deadline = math.max(since, Verify.RESET_AT, Verify.HoldFrom() or Verify.RESET_AT,
+		other and Verify.OTHER_GROUPS_WAIT_UNTIL or Verify.RESET_AT) + Verify.GRACE
 	info.left = info.deadline - now
 	if info.left > 0 then return "pending", info end
 	return "overdue", info
@@ -418,7 +436,8 @@ end
 
 -- Whether an overdue guild's master's own powers wait (ns.VERIFY_HOLD, Core.lua): Data.AuthorizedRank,
 -- GuildCharter, Nominees, Decree and Bank ask it. Never the King's guild, nor (1.5.5) where nobody can
--- verify (Verify.Status: no guild is overdue there). Asked often: kept a second.
+-- verify, nor (1.6.0.1) on Forever's groups but PvE before their wait ends (Verify.Status: no guild is
+-- overdue there). Asked often: kept a second.
 function ns.MasterHeld(guild)
 	if ns.VERIFY_HOLD ~= true or type(guild) ~= "string" or guild == "" then return false end
 	local now = Verify.Clock()

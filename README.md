@@ -99,7 +99,9 @@ approval (the one who approved it, for one) or still lists it in The Watch can r
 of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
 verified, on the guild's same clock. Past its 7 days an unverified guild is overdue. Member-facing popups, chat warnings and Census
-notices are temporarily paused; the guild master still receives the verification reminder.
+notices are temporarily paused; the guild master still receives the verification reminder. (1.6.0.1) On WoW: Forever's PvP, RP
+and RP-PvP realms every guild waits, pending, until 30 November 2026 (`Verify.OTHER_GROUPS_WAIT_UNTIL`), with nothing asked
+of its guild master and nothing overdue; an approval still verifies, and from then each unverified guild there has its 7 days.
 The guild stays on the verifiers' list, marked overdue; and its guild master's own
 powers in Olympus wait for his verification (others take him as an officer: his public card, his
 Legates and correspondents, his guild decrees and his guild bank grant wait too). Nothing is taken

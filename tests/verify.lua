@@ -1715,3 +1715,110 @@ test("verify: 1.6.0 a guild off the network wears no check (the Census's mark, T
 	M.Reset()
 	if not ok then error(err, 0) end
 end)
+
+-- 1.6.0.1 (the dev, 2026-11-16: "os outros servidores sem ser o PVE, a gente precisa estender
+-- indefinidamente a validação aí, porque tá botando como overdue [...] Bota aí mais 2 semanas"). On
+-- Forever's realm groups but PvE the guilds cannot verify properly yet: until 2026-11-30 00:00 UTC
+-- (Verify.OTHER_GROUPS_WAIT_UNTIL) every guild there waits as where nobody can verify, and from then on
+-- its deadline counts from the end of the wait at the earliest. Fails before: a day past the deadline
+-- 1.6.0 counted, the guild is overdue there, its guild master is told and held, and the verifiers' list
+-- marks it overdue.
+local WAIT = 1795996800 -- 2026-11-30 00:00 UTC
+local PVE, PVP, RP, RPPVP = "CAMWOWUS2Realm1PvE", "CAMWOWUS2Realm7PvP", "CAMWOWUS2Realm3RP", "CAMWOWUS1Realm9RPPvP"
+
+-- A guild master and a High Councillor (of another guild) playing on `realm`, both guilds seen on the
+-- 1.5.4 release night (RESET_AT, the start shared) as on the live realm groups.
+local function OnRealm(w, realm)
+	local gm = w.Client(GM, GUILD, 0)
+	local hc = w.Client(HC, HEARTH, 3)
+	for _, c in ipairs({ gm, hc }) do c.realm = realm end
+	w.Census(GUILD, "Bram Hollow", 120)
+	w.Census(OTHER, "Corin Ash", 40)
+	w.now = RESET_AT
+	for _, c in ipairs({ gm, hc }) do w.As(c, c.Verify.Observe) end
+	w.As(hc, hc.Verify.SendSnapshot)
+	return gm, hc
+end
+
+test("verify: 1.6.0.1 on Forever's PvP and RP realm groups a guild past its deadline waits until 2026-11-30 (pending, its guild master told nothing and not held, nothing overdue for the verifiers); an approval still verifies; then GRACE from the end of the wait", function()
+	for _, realm in ipairs({ PVP, RP }) do
+		World(function(w)
+			local gm, hc = OnRealm(w, realm)
+			eq(gm.VERIFY_HOLD, true, "(the hold on, as Core.lua ships it)")
+			-- His session, a day past the deadline 1.6.0 counted (RESET_AT + GRACE: 11-16).
+			w.now = RESET_AT + GRACE + DAY
+			w.As(gm, gm.Verify.Login); w.As(hc, hc.Verify.Login)
+			w.now = w.now + gm.Verify.NOTICE_AFTER
+			eq(w.As(gm, gm.Verify.VerifierHere), true, realm .. ": (a verifier here: the wait alone holds the deadline)")
+			eq(w.As(gm, gm.Verify.Tick), false, realm .. ": no notice at his login")
+			assert(not Find(gm.printed, "GM verification"), realm .. ": no chat line: " .. table.concat(gm.printed, " | "))
+			eq(#gm.copies, 0, realm .. ": no window")
+			w.As(hc, hc.Verify.Tick)
+			local remind = hc.L.VERIFY_COUNCIL_REMIND:match("^(.-)%%s")
+			assert(not Find(hc.printed, remind), realm .. ": no deadline reminder for the verifiers")
+			for _, at in ipairs({ RESET_AT + GRACE + DAY, WAIT - 1 }) do
+				w.now = at
+				local when = realm .. " at " .. at
+				for _, c in ipairs({ gm, hc }) do
+					for _, guild in ipairs({ GUILD, OTHER }) do
+						local status, info = w.Status(c, guild)
+						eq(status, "pending", when .. ", " .. c.me .. ", <" .. guild .. ">: not overdue")
+						eq(info.waiting, true, when .. ": it waits, as where nobody can verify")
+					end
+				end
+				eq(w.As(gm, gm.Verify.Mine), nil, when .. ": nothing asked of its guild master")
+				eq(w.As(gm, gm.MasterHeld, GUILD), false, when .. ": his powers not held")
+				local line = w.As(gm, gm.Verify.Lines)[1]
+				assert(line and line.text:find(gm.L.VERIFY_LINE_WAITING, 1, true), when .. ": his Census line says verification waits")
+				eq(w.As(hc, hc.Verify.Mark, GUILD), "", when .. ": no overdue mark for the verifiers")
+				local rows = 0
+				for _, l in ipairs(w.As(hc, hc.Verify.CouncilLines)) do
+					if tostring(l.text):find("<" .. GUILD .. ">", 1, true) or tostring(l.text):find("<" .. OTHER .. ">", 1, true) then rows = rows + 1 end
+					assert(not tostring(l.text):find(hc.Verify.MARK_LATE, 1, true), when .. ": no overdue row: " .. tostring(l.text))
+					assert(not tostring(l.right):find("overdue", 1, true), when .. ": no overdue state: " .. tostring(l.right))
+				end
+				eq(rows, 2, when .. ": both still on the verifiers' list")
+			end
+			-- A verifier approves one: it is verified, and stays so after the wait.
+			w.As(hc, hc.Verify.Approve, GUILD)
+			eq(w.Status(gm, GUILD), "verified", realm .. ": an approval still verifies")
+			eq(w.Status(hc, GUILD), "verified")
+			eq(w.As(gm, gm.Verify.Mark, GUILD), gm.Verify.MARK_OK, realm .. ": with its check")
+			-- The wait over: GRACE from its end for the guild still unverified, then overdue.
+			w.now = WAIT
+			local status, info = w.Status(gm, OTHER)
+			eq(status, "pending", realm .. ": pending when the wait ends"); eq(info.waiting, nil, realm .. ": a deadline runs")
+			eq(info.deadline, WAIT + GRACE, realm .. ": GRACE from the end of the wait"); eq(info.left, GRACE)
+			w.now = WAIT + GRACE - 1
+			eq(w.Status(hc, OTHER), "pending", realm .. ": a second before")
+			w.now = WAIT + GRACE
+			eq(w.Status(hc, OTHER), "overdue", realm .. ": GRACE past the wait")
+			eq(w.Status(gm, GUILD), "verified", realm .. ": the approval stands")
+			eq(gm.Verify.OTHER_GROUPS_WAIT_UNTIL, WAIT, "(the wait's end, as this test counts it)")
+		end)
+	end
+end)
+
+test("verify: 1.6.0.1 ForeverPvE keeps its deadlines (overdue past them, its guild master told and held); only Forever's other groups wait, by the realm's family", function()
+	World(function(w)
+		local c = w.Client(MEMBER, GUILD, 3)
+		local want = { [PVE] = false, [PVP] = true, [RP] = true, [RPPVP] = true, CAMWOWEU1Realm2PvE = false,
+			ClassicBetaPvP = false, Realm = false }
+		for realm, other in pairs(want) do
+			c.realm = realm
+			eq(c.Verify.OtherForeverGroup(), other, realm)
+		end
+	end)
+	World(function(w)
+		local gm, hc = OnRealm(w, PVE)
+		for _, at in ipairs({ RESET_AT + GRACE + DAY, WAIT + DAY }) do
+			w.now = at
+			local status, info = w.Status(gm, GUILD)
+			eq(status, "overdue", at .. ": overdue past its deadline, as before")
+			eq(info.deadline, RESET_AT + GRACE, at .. ": its deadline unmoved by the other groups' wait")
+			eq(select(3, w.As(gm, gm.Verify.Mine)), "overdue", at .. ": its guild master's notice")
+			eq(w.As(gm, gm.MasterHeld, GUILD), true, at .. ": his powers held")
+			eq(w.As(hc, hc.Verify.Mark, GUILD), hc.Verify.MARK_LATE, at .. ": the verifiers' overdue mark")
+		end
+	end)
+end)

@@ -404,9 +404,11 @@ test("1.5.5 roles: no verification hold where nobody can verify: on ForeverPvP n
 			Take(PVP_A_NAMES, PVP_A)
 			As("Bram Hollow-" .. PVP_REALM, GUILD, 0)
 			ns.rdb.guilds[GUILD] = { leader = "Bram Hollow", realm = PVP_REALM, total = 120, online = 10, t = 0 }
-			clock.now = V.RESET_AT + 3600
+			-- (1.6.0.1: on Forever's groups but PvE every guild waits until OTHER_GROUPS_WAIT_UNTIL, whoever can
+			-- verify there, tests/verify.lua; this 1.5.5 rule is seen after that wait, past every deadline it set.)
+			clock.now = V.OTHER_GROUPS_WAIT_UNTIL + 3600
 			V.Observe(clock.now)
-			clock.now = V.RESET_AT + V.GRACE + 2 * DAY -- (past every deadline the 1.5.4 reset set)
+			clock.now = V.OTHER_GROUPS_WAIT_UNTIL + V.GRACE + 2 * DAY -- (past every deadline the 1.5.4 reset and the wait set)
 			eq(V.VerifierHere(), false, "no King, no councillor")
 			local status, info = V.Status(GUILD)
 			eq(status, "pending"); eq(info.waiting, true)
