@@ -209,7 +209,12 @@ channels; the same charter and Join controls work for each side.
   Scoped snapshots restore a new client's count immediately. Complete, newer coverage may raise
   or lower it. Legacy caches that lost their PvE/PvP origin are preserved separately and labelled
   as excluded, without clearing guild verification or its deadline. A complete set of correctly
-  scoped direct reports can substantiate an existing saved view.
+  scoped direct reports can substantiate an existing saved view. While no newer report of another
+  guild reaches your addon, the saved count stays past its day instead of losing a guild at a time
+  (1.6.0): the header's hover says why, the **all servers** total gives the date of its oldest part
+  once that is more than a day old (*8,726 all servers (as of 05/17)*), the census page shows the
+  saved count's date (**This server as of**) and `/oly bug`'s census line marks it *saved*, with its
+  age. Once anything newer arrives, a guild unheard for a day leaves the count as before.
 - **The census in numbers**: a click on the header's count (from any tab) opens a page of its own
   in the Census tab: characters, people, linked alts, online now, the guilds counted (and how many
   report right now), the army's average level (each guild's, weighted by its size), every server
