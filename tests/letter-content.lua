@@ -643,6 +643,27 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 	assert(english:find("An Olympus chat line no longer shows twice when a relay's copy arrives late.", 1, true))
 end)
 
+-- (The review of 1.6.0) A claimed player's command opens over an ad window and a scanned player's whisper
+-- window (Recruit.lua's PromptReply), never over the scan's own invite popup, which it waits behind (they
+-- share one dialog): every language's letter said "an ad or scan popup", its search window. Fails before:
+-- no language's handoffs bullet named the whisper window.
+local HANDOFF_OVER_1_6_0 = { enUS = "even over an ad window or a scanned player's whisper window",
+	ptBR = "mesmo por cima da janela de um anúncio ou da janela de sussurro para um jogador da busca",
+	deDE = "auch über einem Anzeigenfenster oder dem Flüsterfenster für einen bei der Suche gefundenen Spieler",
+	esES = "incluso sobre una ventana de anuncio o la ventana para susurrar a un jugador de la búsqueda",
+	esMX = "incluso sobre una ventana de anuncio o la ventana para susurrar a un jugador de la búsqueda",
+	frFR = "même par-dessus une fenêtre d'annonce ou la fenêtre pour chuchoter à un joueur de la recherche",
+	itIT = "anche sopra una finestra di annuncio o la finestra per sussurrare a un giocatore della ricerca",
+	ruRU = "даже поверх окна объявления или окна шёпота игроку из поиска" }
+
+-- The ROADMAP's line of a version (the store page's Recent versions take it, scripts/curseforge-page.lua).
+local function RoadmapLine(version)
+	local f = assert(io.open(ROOT .. "ROADMAP.md", "r"))
+	local text = f:read("*a")
+	f:close()
+	return assert(("\n" .. text):match("\n%- v" .. version:gsub("%.", "%%.") .. " ([^\n]+)"), "ROADMAP.md: v" .. version)
+end
+
 -- 1.6.0, the fixes merged for the release, in every shipped language: a Forever alt added by its plain
 -- name and the main logged in again (Alts.lua), the handoffs (RecruitHandoff.lua), the Join screen asking
 -- recruiters first (Recruit.SelfWord), the offline notices kept out for Olympus's own whispers alone
@@ -678,8 +699,9 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		local church, guild, news, watch = Bullets(raw, "church"), Bullets(raw, "guild"), Bullets(raw, "news"), Bullets(raw, "watch")
 		-- The alt's bullet: still the link's command, and now Forever's plain name and the main logged in again.
 		assert(church[1]:find("/oly alt add", 1, true) and church[1]:find("WoW: Forever", 1, true), code .. ": the alt's bullet tells Forever's link")
-		-- The handoffs, by the Invites section's own heading.
+		-- The handoffs, by the Invites section's own heading, and the windows a claimed player's command opens over.
 		eq(church[4]:sub(1, #L.RECRUIT_SECTION_HANDOFFS), L.RECRUIT_SECTION_HANDOFFS, code .. ": the handoffs' bullet opens with their section as shown")
+		assert(church[4]:find(HANDOFF_OVER_1_6_0[code], 1, true), code .. ": the windows it opens over: " .. HANDOFF_OVER_1_6_0[code])
 		-- The Join screen, by its page's title.
 		assert(guild[3]:find(L.RECRUIT_JOIN_TITLE, 1, true), code .. ": the Join page as shown: " .. L.RECRUIT_JOIN_TITLE)
 		-- The [?] under All, the tag and the view as shown, and the versions that send no ruleset.
@@ -695,7 +717,7 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	local english = Client("enUS").L.LETTER_1_6_0
 	for _, words in ipairs({
 		"On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.",
-		"Handoffs: a claimed player's invite command opens at once, even with an ad or scan popup open.",
+		"Handoffs: a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window.",
 		"The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.",
 		"The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.",
 		"Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.",
@@ -706,4 +728,8 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	}) do
 		assert(english:find(words, 1, true), "1.6.0's letter: " .. words)
 	end
+	-- (The review of 1.6.0) The ROADMAP's line, which the store page shows, says it as the letter does.
+	local roadmap = RoadmapLine("1.6.0")
+	assert(roadmap:find("a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window;", 1, true),
+		"ROADMAP.md's v1.6.0: the windows a claimed player's command opens over")
 end)
