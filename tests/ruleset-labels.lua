@@ -7,8 +7,10 @@
 -- carries "[?] " under All (Channels.GroupTag), and in the Chat tab a writer's name says on hover when
 -- he plays another ruleset or nobody can place him, and that whispers and guild invites stay within
 -- one ruleset (Channels.RulesetNote). Everything else a player meets of a guild keeps to his own
--- ruleset already (whispers, the Join page, guild cards, handoffs, the census). Invented names
--- throughout. Loaded by tests/run.lua.
+-- ruleset already (whispers, the Join page, guild cards, handoffs, the census). A line of the reader's
+-- own ruleset that nobody can place carries [?] too (1.6.0's review: a writer before 1.5.9, not a
+-- guildmate, on a server the roster does not span, his guild in no census), until its server is
+-- learned. Invented names throughout. Loaded by tests/run.lua.
 local ns, test, eq, extra = ...
 local WithWindow, ADDON_DIR, FreshComm, ROOT = extra.WithWindow, extra.ADDON_DIR, extra.FreshComm, extra.ROOT
 local L = ns.L
@@ -23,6 +25,8 @@ local OUR_GUILDS = { GUILD, "Olympus Spearline", "Olympus Hilltop" } -- guilds o
 local PVE_SIDS = { "4401", "4402", "4403", "4404", "4405", "4406", "4407", "4408", "4409" }
 local PVE_LISTED = { "Olympus Meadowgate", "Olympus Harvestmoon" }  -- in the PvE family's look (the author's)
 local PVE_UNLISTED = { "Olympus Lanternfall", "Olympus Orchardine" } -- PvE guilds no look here lists yet
+local PVP_OUTSIDE = { "6107", "6108", "6109" }                   -- PvP sub-realms none of his guild plays on
+local PVP_UNLISTED = { "Olympus Flintmoor", "Olympus Thornwatch" } -- PvP guilds our census does not list
 
 local function Guid(sid, n) return ("Player-%s-%08X"):format(sid, n) end
 -- A line as a client before 1.5.9 writes it (1.5.8's own Codec: a plain id, no ruleset).
@@ -254,6 +258,64 @@ test("ruleset labels (1.6.0): a line marked [?] takes its ruleset's tag once two
 	end)
 end)
 
+-- 1.6.0's review: a line of the reader's own ruleset can be one nobody can place too. A PvP player on 1.5.8,
+-- not of the reader's guild, on a PvP server none of his guild plays on, his guild in no census here, reads
+-- exactly as an older PvE recruiter does: [?], and his name says only that he may be on other servers. His
+-- server learned (two later writers' word), his lines are ours, the kept ones too (Channels.LineKind reads
+-- the server again); his guild in our census, his next lines are, but a kept one stays [?] until its server
+-- is named (it was kept unknown, Channels.SenderKind's census is read as a line comes).
+local FLINT = "Flintmoor raids tonight"
+local THORN = "Thornwatch needs a healer"
+test("ruleset labels (1.6.0): a line of our own ruleset from a version before 1.5.9 that nobody can place carries [?] too (not of our guild, on a server our roster does not span, his guild in no census), and his name says only that he may be on other servers; once two writers of 1.5.9 or later name his server, his lines show bare, the Chat tab's kept ones too; once our census lists his guild, his next lines do", function()
+	AsPvpMember(function(printed, errors)
+		local Hear = HallWorld()
+		eq(Hear("Flint-Moorward", Guid(PVP_OUTSIDE[1], 1), Old(PVP_UNLISTED[1], 31, FLINT)), true)
+		eq(Hear("Thorn-Keepwell", Guid(PVP_OUTSIDE[2], 2), Old(PVP_UNLISTED[2], 32, THORN)), true)
+		eq(#errors, 0, table.concat(errors, " | "))
+		local flint, thorn = ns.rdb.chat.A[1], ns.rdb.chat.A[2]
+		eq(flint.text, FLINT); eq(thorn.text, THORN)
+		eq(C.LineRoom(flint), nil, "(nobody can place him: All alone)")
+		eq(TagOf(Printed(printed, FLINT)), "UNKNOWN", "a PvP player nobody can place: [?], as any other: " .. Printed(printed, FLINT))
+		eq(TagOf(Printed(printed, THORN)), "UNKNOWN")
+		eq(C.RulesetNote("A", flint), L.CHATWIN_RULESET_UNKNOWN, "his name: nobody can place him, never another ruleset's servers")
+		InTab(function(_, f)
+			local b = Bubbles(f)
+			eq(TagOf(b[FLINT].who:GetText()), "UNKNOWN", b[FLINT].who:GetText())
+			local tip = Hover(b[FLINT])
+			assert(Has(tip, L.CHATWIN_RULESET_UNKNOWN), "nobody can place him: " .. tip)
+			-- Under PvP, his own ruleset's view, a line nobody can place shows in none (1.5.9: All alone).
+			Pick(f, L.CHATWIN_GROUP_PVP)
+			eq(Bubbles(f)[FLINT], nil, "All alone")
+			Pick(f, L.CHATWIN_GROUP_ALL)
+		end)
+		-- Two writers of 1.5.9 or later on his server: it is PvP's now, and so are his lines.
+		Hear("Flint-Second", Guid(PVP_OUTSIDE[1], 3), New(PVP_UNLISTED[1], 33, "Flintmoor word one", "pvp"))
+		Hear("Flint-Third", Guid(PVP_OUTSIDE[1], 4), New(PVP_UNLISTED[1], 34, "Flintmoor word two", "pvp"))
+		eq(TagOf(Printed(printed, "Flintmoor word one")), nil, "a later writer of ours: no tag")
+		eq(C.GroupTag("A", flint), "", "his kept line: ours now, no tag")
+		eq(C.RulesetNote("A", flint), nil, "and no note")
+		eq(TagOf(Printed(printed, FLINT)), "UNKNOWN", "(what the game's chat printed stays as it was)")
+		Hear("Flint-Moorward", Guid(PVP_OUTSIDE[1], 1), Old(PVP_UNLISTED[1], 35, "Flintmoor again"))
+		eq(TagOf(Printed(printed, "Flintmoor again")), nil, "his next line: no tag")
+		-- Our census lists the other one's guild: his next line is ours; his kept line, its server named by
+		-- nobody yet, keeps [?].
+		ns.rdb.guilds[PVP_UNLISTED[2]] = { guild = PVP_UNLISTED[2], total = 20, online = 4, zones = {}, t = ns.Now() }
+		Hear("Thorn-Keepwell", Guid(PVP_OUTSIDE[2], 2), Old(PVP_UNLISTED[2], 36, "Thornwatch again"))
+		eq(TagOf(Printed(printed, "Thornwatch again")), nil, "his guild in our census: no tag")
+		eq(C.GroupTag("A", thorn), Tag("UNKNOWN"), "his kept line: [?] still")
+		InTab(function(_, f)
+			local b = Bubbles(f)
+			eq(TagOf(b[FLINT].who:GetText()), nil, "the Chat tab: his kept line without a tag now")
+			assert(not Has(Hover(b[FLINT]), L.CHATWIN_RULESET_UNKNOWN), "no note once placed")
+			eq(TagOf(b[THORN].who:GetText()), "UNKNOWN")
+			Pick(f, L.CHATWIN_GROUP_PVP)
+			assert(Bubbles(f)[FLINT], "his kept line under PvP now")
+			Pick(f, L.CHATWIN_GROUP_ALL)
+		end)
+		eq(#errors, 0, table.concat(errors, " | "))
+	end)
+end)
+
 test("ruleset labels (1.6.0): no [?] and no note where nothing is compared: off Forever, on a realm of no Forever ruleset, on [Captains] and [Lords], without the line, on our own line or one sent to our ruleset; nor on another room's bubble drawn while the tab shows [Olympus]", function()
 	AsPvpMember(function()
 		local unknown = { t = 1000, sender = "Nobody Placed-" .. REALM, guild = "Olympus Nowhere", text = "who knows", kind = false }
@@ -304,13 +366,18 @@ test("ruleset labels (1.6.0): no [?] and no note where nothing is compared: off 
 end)
 
 -- The report's situation on several clients: a PvP reader of this build under All (the default) hears,
--- through the channel's text, PvE recruiters and members of our other PvP guilds on 1.5.8 (1.5.8's own Codec) and on 1.5.9
--- or later, in three waves (1.5.8, then the later writers, two of them on each of two PvE servers, then
--- 1.5.8 again). Counted in the game's chat and the Chat tab: each PvE line labelled with its ruleset,
--- marked [?], or bare (read as ours); each PvP line bare, or marked. A 1.5.9 reader shows what the
--- candidate did (Channels.lua and ChatWindow.lua unchanged since 1.5.9); a reader before 1.5.9 knows no
--- ruleset and shows every line bare, which no later version can change.
-test("ruleset labels (1.6.0), simulated: a PvP reader under All hears 18 PvE recruiters (12 on 1.5.8, 6 on 1.5.9 or later) and 15 PvP members (10 on 1.5.8, 5 later); no PvE line shows bare, in the game's chat or the Chat tab; every PvP line does", function()
+-- through the channel's text, PvE recruiters, members of our other PvP guilds, and PvP players of guilds no
+-- census here lists on PvP servers his roster does not span, on 1.5.8 (1.5.8's own Codec) and on 1.5.9 or
+-- later, in three waves (1.5.8, then the later writers, two of them on each of two PvE servers and two on
+-- one of those PvP servers, then 1.5.8 again). Counted in the game's chat and the Chat tab: each PvE line
+-- labelled with its ruleset, marked [?], or bare (read as ours); each PvP line bare, marked [?], or under
+-- another ruleset's tag. (1.6.0's review: the first version of this test put every PvP writer on one of the
+-- roster's servers or in a guild of our census, so every PvP line showed bare; a PvP line nobody can place
+-- is marked [?] as any other, until its server is learned: the game's chat keeps what it printed, the Chat
+-- tab reads the server again.) A 1.5.9 reader shows what the candidate did (Channels.lua and ChatWindow.lua
+-- unchanged since 1.5.9); a reader before 1.5.9 knows no ruleset and shows every line bare, which no later
+-- version can change.
+test("ruleset labels (1.6.0), simulated: a PvP reader under All hears 18 PvE recruiters (12 on 1.5.8, 6 on 1.5.9 or later), 15 PvP members of guilds our census lists on our servers (10 on 1.5.8, 5 later) and 9 PvP players of guilds no census lists on servers our roster does not span (7 on 1.5.8, 2 later on one server); no PvE line shows bare, in the game's chat or the Chat tab; every line of the 15 does; of the 9, a line of 1.5.8 shows [?] until two later writers name its server, and none another ruleset's tag", function()
 	local minuteBefore = #(FloodMinute().A or {})
 	AsPvpMember(function(printed, errors)
 		local Hear = HallWorld()
@@ -322,25 +389,35 @@ test("ruleset labels (1.6.0), simulated: a PvP reader under All hears 18 PvE rec
 			Hear(writer .. "-Sim" .. n, Guid(sid, n), kindWord and New(guild, n, text, kindWord) or Old(guild, n, text))
 		end
 		local pveGuilds = { PVE_LISTED[1], PVE_LISTED[2], PVE_UNLISTED[1], PVE_UNLISTED[2] }
-		-- Wave 1: 6 PvE recruiters and 5 PvP members on 1.5.8.
+		-- Wave 1: 6 PvE recruiters, 5 PvP members and 4 PvP players of guilds no census lists (two on server
+		-- 6107, one each on 6108 and 6109) on 1.5.8.
 		for i = 1, 6 do Say("Pve", PVE_SIDS[i], pveGuilds[(i - 1) % 4 + 1], "pve") end
 		for i = 1, 5 do Say("Pvp", OUR_SIDS[(i - 1) % #OUR_SIDS + 1], OUR_GUILDS[i % 2 + 2], "pvp") end
+		for i, sid in ipairs({ PVP_OUTSIDE[1], PVP_OUTSIDE[1], PVP_OUTSIDE[2], PVP_OUTSIDE[3] }) do
+			Say("Pvpout", sid, PVP_UNLISTED[(i - 1) % 2 + 1], "out")
+		end
 		-- Wave 2: 6 PvE recruiters on 1.5.9 or later (two on server 4401, two on 4402, one each on 4403, 4404),
-		-- 5 PvP members on 1.6.0.
+		-- 5 PvP members on 1.6.0, and two PvP players of a guild no census lists on 1.5.9 or later, on 6107.
 		for _, sid in ipairs({ PVE_SIDS[1], PVE_SIDS[1], PVE_SIDS[2], PVE_SIDS[2], PVE_SIDS[3], PVE_SIDS[4] }) do
 			Say("Pvenew", sid, PVE_UNLISTED[1], "pve", "pve")
 		end
 		for i = 1, 5 do Say("Pvpnew", OUR_SIDS[i], OUR_GUILDS[i % 2 + 2], "pvp", "pvp") end
+		for _ = 1, 2 do Say("Pvpoutnew", PVP_OUTSIDE[1], PVP_UNLISTED[1], "out", "pvp") end
 		-- Wave 3: 6 more PvE recruiters on 1.5.8 (servers 4401 and 4402, learned; 4403 and 4404, one word
-		-- each; 4407 and 4408, none) and 5 more PvP members on 1.5.8.
+		-- each; 4407 and 4408, none), 5 more PvP members on 1.5.8, and 3 more PvP players of guilds no census
+		-- lists on 1.5.8 (6107, learned; 6108 and 6109, none).
 		for i, sid in ipairs({ PVE_SIDS[1], PVE_SIDS[2], PVE_SIDS[3], PVE_SIDS[4], PVE_SIDS[7], PVE_SIDS[8] }) do
 			Say("Pveold", sid, pveGuilds[i % 4 + 1], "pve")
 		end
 		for i = 1, 5 do Say("Pvpold", OUR_SIDS[(i + 1) % #OUR_SIDS + 1], OUR_GUILDS[(i + 1) % 2 + 2], "pvp") end
+		for i, sid in ipairs({ PVP_OUTSIDE[1], PVP_OUTSIDE[2], PVP_OUTSIDE[3] }) do
+			Say("Pvpoutold", sid, PVP_UNLISTED[i % 2 + 1], "out")
+		end
 		eq(#errors, 0, table.concat(errors, " | "))
-		eq(#lines, 33)
+		eq(#lines, 42)
 		local function Count(tagOf)
-			local c = { pve = { labelled = 0, unknown = 0, bare = 0, other = 0 }, pvp = { bare = 0, unknown = 0, other = 0 } }
+			local c = { pve = { labelled = 0, unknown = 0, bare = 0, other = 0 }, pvp = { bare = 0, unknown = 0, other = 0 },
+				out = { bare = 0, unknown = 0, other = 0 } }
 			for _, l in ipairs(lines) do
 				local tag = tagOf(l.text)
 				local row = c[l.ruleset]
@@ -364,8 +441,10 @@ test("ruleset labels (1.6.0), simulated: a PvP reader under All hears 18 PvE rec
 			tab = Count(function(text) return TagOf(assert(b[text], "in the Chat tab: " .. text).who:GetText()) end)
 		end)
 		local function Say2(where, c)
-			return ("%s: PvE lines %d: [PvE] %d, [?] %d, bare %d, other %d; PvP lines %d: bare %d, [?] %d, other %d"):format(where,
-				18, c.pve.labelled, c.pve.unknown, c.pve.bare, c.pve.other, 15, c.pvp.bare, c.pvp.unknown, c.pvp.other)
+			return ("%s: PvE lines %d: [PvE] %d, [?] %d, bare %d, other %d; PvP lines %d: bare %d, [?] %d, other %d; "
+				.. "PvP lines of unlisted guilds off our servers %d: bare %d, [?] %d, other %d"):format(where,
+				18, c.pve.labelled, c.pve.unknown, c.pve.bare, c.pve.other, 15, c.pvp.bare, c.pvp.unknown, c.pvp.other,
+				9, c.out.bare, c.out.unknown, c.out.other)
 		end
 		print("    simulated, a PvP reader under All: " .. Say2("the game's chat", chat))
 		print("    simulated, a PvP reader under All: " .. Say2("the Chat tab", tab))
@@ -376,7 +455,14 @@ test("ruleset labels (1.6.0), simulated: a PvP reader under All hears 18 PvE rec
 			-- two servers the later writers named; the other 4 nobody can place.)
 			eq(c.pve.labelled, 14, where .. ": [PvE]"); eq(c.pve.unknown, 4, where .. ": [?]")
 			eq(c.pvp.bare, 15, where .. ": our lines bare")
+			eq(c.out.other, 0, where .. ": a PvP line under another ruleset's tag")
 		end
+		-- (Of the 9: the 2 later writers' lines say PvP; wave 3's line on 6107, learned by then, is placed by its
+		-- server; the other 6 of 1.5.8 nobody could place when they came, and the game's chat printed them so.
+		-- The Chat tab reads the server again: wave 1's two lines on 6107 are ours there now, and only the 4 on
+		-- 6108 and 6109, servers nobody named, keep [?].)
+		eq(chat.out.unknown, 6, "the game's chat: [?]"); eq(chat.out.bare, 3, "the game's chat: bare")
+		eq(tab.out.unknown, 4, "the Chat tab: [?]"); eq(tab.out.bare, 5, "the Chat tab: bare")
 	end)
 	eq(#(FloodMinute().A or {}), minuteBefore, "the flood guard's minute as it was, for the tests after")
 end)
@@ -410,4 +496,29 @@ test("ruleset labels (1.6.0): the [?] tag and the name's notes in every language
 		end
 		assert(Has(l.CHATWIN_RULESET_UNKNOWN, "1.5.9"), code .. ": the version that started saying it")
 	end
+end)
+
+-- The README and the CurseForge page tell of the [?] in the same words (the store page cuts the Chat tab's
+-- section, scripts/curseforge-page.lua). 1.6.0's review: "there only a line of your own ruleset shows without
+-- a tag" read as if every line of one's own ruleset did; a line of it that nobody can place is marked too.
+local function Page(path)
+	local f = assert(io.open(ROOT .. path))
+	local s = f:read("*a")
+	f:close()
+	return (s:gsub("%s+", " "))
+end
+local function RulesetBullet(path)
+	return assert(Page(path):match("On Forever, %[Olympus%] has a ruleset dropdown(.-)`chat rulesets:` line"), path .. ": the ruleset dropdown's bullet")
+end
+test("ruleset labels (1.6.0): the README and the CurseForge page say, in the same words, that a line nobody can place is marked [?] even when its writer plays the reader's own ruleset, and that a line shows without a tag only when Olympus places it on his own", function()
+	local bullets = {}
+	for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local bullet = RulesetBullet(path)
+		for _, phrase in ipairs({ "one nobody can place shows under **All** alone, marked **[?]** (1.6.0), even when its writer plays your own ruleset",
+			"there a line shows without a tag only when Olympus places it on your own ruleset" }) do
+			assert(bullet:find(phrase, 1, true), path .. ": " .. phrase)
+		end
+		bullets[#bullets + 1] = bullet
+	end
+	eq(bullets[1], bullets[2], "the same words on both pages")
 end)
