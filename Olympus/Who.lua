@@ -504,14 +504,18 @@ end
 -- The answer's Olympus players, each once.
 local function Read(onlyCandidates)
 	local candidates = ns.Recruit and ns.Recruit.Candidates
+	local filters = ns.Recruit and ns.Recruit.Filters
 	if candidates and not candidates.Enabled() then candidates = nil end
-	if onlyCandidates and not candidates then return end
+	if onlyCandidates and not candidates and not (filters and filters.HasRequests()) then return end
 	local shown, total = Counts()
 	if onlyCandidates then shown = math.min(shown, Who.MAX) end
 	local rows, byName = {}, {}
 	for i = 1, shown do
 		local name, guild, level, class, zone, race, raceName = Info(i)
-		if candidates and i <= Who.MAX and name and name ~= "" then candidates.ObserveWho(name, guild, race) end
+		if i <= Who.MAX and name and name ~= "" then
+			if filters then filters.UpdateRequest(name, level, class) end
+			if candidates then candidates.ObserveWho(name, guild, race, level, class) end
+		end
 		if not onlyCandidates and name and name ~= "" then Saw(name, guild) end
 		if not onlyCandidates and name and name ~= "" and not byName[name] and ns.IsFederation(guild) then
 			local gname, gRealm = Who.GuildName(guild)

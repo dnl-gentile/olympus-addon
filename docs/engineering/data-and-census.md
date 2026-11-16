@@ -51,6 +51,16 @@ There is no Blizzard web-API census fetch or mandatory external census companion
 
 Current `Data` constants distinguish three ages: `FRESH` is 15 minutes, `TOTAL_KEEP` is 24 hours, and `KEEP` is seven days. An old row can remain visible while its online population no longer contributes to live totals. Retention, freshness and trust are different questions; consult the specific aggregate function rather than adding every retained row yourself.
 
+A newer count-only global snapshot can supersede a detailed guild report's totals.
+`Data.Summary` keeps valid same-scope roster details beside that row as `rosterDetails`,
+with `rosterObserved` and `rosterFresh`. The aggregate's `g` remains count-only.
+`Views` makes presentation copies to show the GM, Captains and rank names/counts without
+mutating either report or granting the aggregate permission authority. The directory's
+original age controls presence: a newer total cannot make an old online claim current.
+Names may remain for seven days; expired, future-dated, foreign-ruleset or foreign-faction
+details cannot fill a missing directory. A count-only client that never received a detailed
+report still shows “not reported yet”; WHO cannot reveal guild ranks.
+
 The report store is bounded (`MAX_GUILDS` is currently 300). Other safeguards include source claims, corroborating observations, disputes, distribution validation and scope checks. These make bad input harder to accept; they do not turn a distributed client census into a server-certified count.
 
 Counts also have different meanings:

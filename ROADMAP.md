@@ -77,6 +77,12 @@
   late clients through the King and the High Council; duty letters from the King for every office; seven
   languages; the army's key in a form only 1.4.0 reads; the send queue holds through throttles and lockdowns.
 
+- v1.6.0 Local Church recruiting with one queue, movement-safe copy/paste prompts, reliable JOIN retries,
+  and saved level/class filters for both scanned candidates and JOIN requests. Unknown details wait
+  for a deliberate check; matching requests continue without handoffs or unwanted guildmate messages.
+  Keeps retained GM, Captain and rank details visible when newer census totals arrive, with their original age.
+  Adds blocked-action diagnostics and a complete engineering guide with a module map.
+
 ## Next (after the base is proven in game)
 - **Compact reply cards after sending** - keep the existing reply composer, but render a sent reply in
   Olympus Chat with a short, visually separate quote card above the new message (WhatsApp-style)

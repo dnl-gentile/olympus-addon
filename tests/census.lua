@@ -714,6 +714,69 @@ test("census scope: a validated scoped snapshot restores an empty login immediat
 	eq(late.D.Summary().characters, 900); eq(late.D.Summary().snapshot, nil)
 end)
 
+test("census directory: newer totals retain another guild's GM, Captains and ranks without granting authority", function()
+	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvE"
+	local relay = "Council-" .. realm
+	w.ns.group, w.ns.realm = "ForeverPvE", realm
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	w.ns.UI = { Refresh = function() end }
+	w.ns.Who.SearchGuild = function() return true end
+	assert(loadfile(ROOT .. "Olympus/Views.lua"))("Olympus", w.ns)
+	local V = w.ns.Views
+	local detail = { total = 90, online = 10, t = w.clock - 30, st = w.clock - 30, from = realm, realm = realm,
+		leader = "KnownGM", leaderOnline = true, leaderClass = "WA", leaderLevel = 60,
+		officers = { { name = "KnownCaptain", online = true, class = "MA", level = 40 } },
+		ranks = { { name = "Guild Master", count = 1 }, { name = "Captain", count = 1 } } }
+	w.ns.rdb.guilds["OLYMPUS DAWN"] = detail
+	local wire = ("CG~2~S~%d~ForeverPvE~Alliance~Olympus Dawn,100,12,400,%d;Olympus Empty,80,5,200,%d"):format(w.clock, w.clock, w.clock)
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, wire))
+	local function Header(lines, guild)
+		for _, line in ipairs(lines) do if line.id == V.GuildId(guild) then return line end end
+	end
+	local function Player(lines, name)
+		for _, line in ipairs(lines) do if line.player == name then return line end end
+	end
+	local before = w.D.Summary()
+	eq(before.characters, 180, "latest counts win independently of the older roster")
+	local lines = V.RealmLines()
+	assert(Header(lines, "Olympus Dawn").text:find("KnownGM", 1, true), "GM survives the count-only update")
+	Header(lines, "Olympus Dawn").onClick()
+	lines = V.RealmLines()
+	assert(Player(lines, "KnownGM") and Player(lines, "KnownCaptain"), "expanded guild shows its leadership")
+	local rank, age
+	for _, line in ipairs(lines) do
+		if line.text == "2. Captain" then rank = line end
+		if line.text and line.text:find("Guild details last reported", 1, true) then age = line end
+	end
+	assert(rank and age, "rank counts and detail age remain visible")
+	assert(Header(lines, "Olympus Empty").right:find(w.ns.L.NONE_REPORTED, 1, true), "unknown GM is not reported offline")
+	for _, summary in ipairs({ before, w.D.Summary() }) do
+		for _, entry in ipairs(summary.guilds) do
+			eq(entry.g.leader, nil); eq(entry.g.officers, nil); eq(entry.g.ranks, nil, "rendering never mutates aggregate authority")
+		end
+	end
+	-- New totals cannot renew the directory's online claim or observation time.
+	detail.st = w.clock - w.D.FRESH - 1
+	local entry
+	for _, e in ipairs(w.D.Summary().guilds) do if e.name == "Olympus Dawn" then entry = e end end
+	local online, days, dim, at = V.PresenceNow(entry, detail.leader, true, 0)
+	eq(online, nil); eq(days, nil); eq(dim, true); eq(at, detail.st)
+	assert(Player(V.RealmLines(), "KnownCaptain"), "stale names remain available within retention")
+	for _, invalid in ipairs({ "expired", "ruleset", "faction", "future" }) do
+		detail.st, detail.from, detail.realm, detail.faction = w.clock - 30, realm, realm, "Alliance"
+		if invalid == "expired" then detail.st = w.clock - w.D.KEEP - 1
+		elseif invalid == "ruleset" then detail.from, detail.realm = "CAMWOWUS1Realm8PvP", "CAMWOWUS1Realm8PvP"
+		elseif invalid == "faction" then detail.faction = "Horde"
+		else detail.st = w.clock + 10 end
+		eq(Player(V.RealmLines(), "KnownCaptain"), nil, invalid .. " details cannot fill the directory")
+	end
+	detail.st, detail.from, detail.realm, detail.faction = w.clock - 10, realm, realm, "Alliance"
+	detail.leader, detail.officers = "NewGM", {}
+	lines = V.RealmLines()
+	assert(Player(lines, "NewGM")); eq(Player(lines, "KnownGM"), nil); eq(Player(lines, "KnownCaptain"), nil,
+		"a replacement detailed report can remove old leadership")
+end)
+
 test("census Top Levels: fresh same-scope player details survive a newer count-only snapshot", function()
 	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvP"
 	local relay = "Council-" .. realm

@@ -6031,6 +6031,164 @@ if not H then
 end
 
 
+test("gamepad recruiting filters: visible settings, validation, persistence and input switches", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, { saved = saved })
+		local R, U = ns.Recruit, ns.UI
+		local F = R.Filters
+		ns.ChurchView.page = "invites"; assert(U.SelectTab("church")); U.Refresh()
+		local function Row(id)
+			U.Refresh()
+			for _, row in ipairs(U.SelfTestView().rows) do
+				if row:IsShown() and row.line and row.line.id == id then return row end
+			end
+		end
+		local function Click(id) C.Click(assert(Row(id), id)) end
+		eq(R.IsWhisperRecruiting(), false)
+		Click("recruit-filter-level")
+		local editor = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_FILTER_LEVELS"))
+		editor.editBox:SetText("40-20"); C.Click(editor.buttons[1])
+		assert(editor:IsShown(), "invalid range keeps the editor open")
+		eq(select(1, F.Settings()), nil)
+		editor.editBox:SetText("20-40"); C.Click(editor.buttons[1])
+		eq(editor:IsShown(), false)
+		Click("recruit-filter-none"); Click("recruit-filter-class-MAGE")
+		eq(F.Allows({ level = 20, class = "MAGE" }), true)
+		eq(F.Allows({ level = 40, class = "MA" }), true)
+		eq(F.Allows({ level = 19, class = "MAGE" }), false)
+		eq(F.Allows({ level = 41, class = "MAGE" }), false)
+		eq(F.Allows({ level = 30, class = "WARRIOR" }), false)
+		eq(F.Allows({ level = 30 }), false, "unknown class does not bypass an active filter")
+		for _, bad in ipairs({ "0-40", "20.5-40", "1-999", "abc", "-1", "40-20" }) do
+			eq(F.SetLevels(bad), false, bad)
+		end
+		eq(R.IsWhisperRecruiting(), false, "configuration never starts recruiting")
+		eq(#(C.whos or {}), 0, "configuration never queries WHO")
+		C.Switch(not initialPad); C.Advance(1)
+		Click("recruit-filter-level"); assert(ns.Dialog.Find("OLYMPUS_RECRUIT_FILTER_LEVELS")):Hide()
+		C.Switch(initialPad); C.Advance(1)
+		local again, nextNS = Session(initialPad, { saved = saved })
+		local low, high, classes = nextNS.Recruit.Filters.Settings()
+		eq(low, 20); eq(high, 40); eq(classes.MAGE, true); eq(classes.WARRIOR, nil)
+		eq(nextNS.Recruit.IsWhisperRecruiting(), false)
+		Click("recruit-filter-all"); assert(F.SetLevels(""))
+		eq(F.Allows({}), true, "default all allows unknown metadata, preserving the old JOIN flow")
+		local stale = assert(Row("recruit-filter-class-MAGE")).line.onClick
+		C.env.CanGuildInvite = function() return false end
+		stale(); eq(select(3, F.Settings()), nil, "old controls cannot edit after losing invite rights")
+		Check(C.ledger, "recruit filters"); NoErrors(C, "recruit filters"); NoErrors(again, "filter reload")
+	end
+end)
+
+test("gamepad recruiting filters: live units, WHO, unknowns and an open draft", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { saved = Answered() })
+		local R = ns.Recruit; local F, Q, P = R.Filters, R.Candidates, R.Panel
+		-- Same native return shapes as UnitLevel/UnitClass, with per-unit data for this scenario.
+		local oldLevel, oldClass = C.env.UnitLevel, C.env.UnitClass
+		C.env.UnitLevel = function(unit) local u = C.units[unit]; if u and u.level then return u.level end; return oldLevel(unit) end
+		C.env.UnitClass = function(unit) local u = C.units[unit]; if u and u.class then return u.class, u.class, 1 end; return oldClass(unit) end
+		assert(F.SetLevels("20-40")); assert(F.SetClasses({ MAGE = true }))
+		C.units.target = { name = "Match", realm = "Realm", guid = "Player-1-700", level = 20, class = "MAGE" }
+		C.units.nameplate1 = { name = "TooLow", realm = "Realm", guid = "Player-1-701", level = 19, class = "MAGE" }
+		C.units.nameplate2 = { name = "WrongClass", realm = "Realm", guid = "Player-1-702", level = 30, class = "WARRIOR" }
+		C.units.nameplate3 = { name = "Unknown", realm = "Realm", guid = "Player-1-703", level = -1, class = "MAGE" }
+		ns.EVERY_SPREAD = 0
+		InClick(C, function() assert(P.Start()) end)
+		eq(#P.Queue(), 1); local first = assert(P.Current()); eq(first.name, "Match")
+		eq(Q.Remaining(), 1)
+		eq(Q.SearchQuery(1), "20-29"); eq(Q.SearchQuery(2), "30-39"); eq(Q.SearchQuery(3), "40-40")
+		C.Advance(15.1)
+		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		eq(draft.editBox:GetText(), "/ginvite Match"); eq(draft.editBox:HasFocus(), false)
+		assert(F.SetClasses({ PRIEST = true }))
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "changing filters closes an excluded draft")
+		eq(P.Current(), nil, "an excluded current scan does not stick in the queue")
+		eq(R.CopyCandidateInvite(first), false, "stale Prepare cannot bypass new filters")
+		local who = {
+			{ fullName = "WhoMatch-Realm", fullGuildName = "", raceStr = "Human", level = 40, filename = "PRIEST" },
+			{ fullName = "WhoLow-Realm", fullGuildName = "", raceStr = "Human", level = 19, filename = "PRIEST" },
+			{ fullName = "WhoClass-Realm", fullGuildName = "", raceStr = "Human", level = 30, filename = "MAGE" },
+			{ fullName = "WhoUnknown-Realm", fullGuildName = "", raceStr = "Human" },
+		}
+		C.env.C_FriendList.GetNumWhoResults = function() return #who, #who end
+		C.env.C_FriendList.GetWhoInfo = function(i) return who[i] end
+		C.Fire("WHO_LIST_UPDATE")
+		eq(#P.Queue(), 1, "WHO forwards native level/class to the same filter")
+		eq(assert(P.Current()).name, "WhoMatch")
+		C.units.target.level, C.units.target.class = 30, "PRIEST"
+		C.Fire("PLAYER_TARGET_CHANGED")
+		assert(Q.Check(first), "fresh matching native metadata requalifies a retained row")
+		C.units.target.level = 50
+		eq(Q.Check(first), nil, "preparation rereads a live unit's level")
+		C.Switch(not initialPad); C.Advance(1); C.Switch(initialPad); C.Advance(1)
+		Check(C.ledger, "filtered observations"); NoErrors(C, "filtered observations")
+	end
+end)
+
+test("gamepad recruiting filters: JOIN checks without scanning and later matching requests", function()
+	for _, legacy in ipairs({ false, true }) do
+		local C, ns = Session(false, { saved = Answered() })
+		local R = ns.Recruit; local F, P = R.Filters, R.Panel
+		assert(F.SetLevels("20-40")); assert(F.SetClasses({ MAGE = true }))
+		assert(R.EnableWhisperRecruiting()); R.Preference(true).panelQueue = not legacy or nil
+		-- Legacy pacing uses server time; the model advances that separately from timers.
+		local function Draft() return ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") end
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Unknown-Realm")
+		local req = assert(R.requests[1]); eq(Draft(), nil)
+		eq((P.Status(req)), "filtered"); eq(R.Candidates.Enabled(), false)
+		eq(R.Accept(req), false, "manual Prepare also respects the filters")
+		C.Advance(3)
+		eq(Draft(), nil, "unknown JOIN cannot auto-invite")
+		InClick(C, function() assert(F.CheckRequest(req)) end)
+		eq(C.whos[#C.whos], 'n-"Unknown"')
+		local who = { { fullName = "Unknown-Realm", fullGuildName = "", raceStr = "Human", level = 30, filename = "MAGE" } }
+		C.env.C_FriendList.GetNumWhoResults = function() return #who, #who end
+		C.env.C_FriendList.GetWhoInfo = function(i) return who[i] end
+		C.Fire("WHO_LIST_UPDATE"); C.Advance(3)
+		eq(assert(Draft()).editBox:GetText(), "/ginvite Unknown", "checked JOIN resumes without scanning")
+		assert(F.SetLevels("35-40")); eq(Draft(), nil, "new level filter closes an excluded JOIN draft")
+		C.now = C.now + 21; C.Advance(21)
+		R.OnJoinRequest("WHISPER", "Low-Realm", ("J3~%s~10~MAGE"):format(C.units.player.guild))
+		eq(Draft(), nil)
+		assert(R.OnJoinRequest("WHISPER", "Good-Realm", ("J3~%s~40~MAGE"):format(C.units.player.guild)), "matching J3 accepted")
+		C.Advance(3)
+		eq(assert(Draft(), "matching JOIN draft, legacy=" .. tostring(legacy)).editBox:GetText(), "/ginvite Good", "filtered JOIN does not starve a matching request")
+		Draft():Hide(); C.now = C.now + 21; C.Advance(21)
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Upgrade-Realm"); eq(Draft(), nil)
+		R.OnJoinRequest("WHISPER", "Upgrade-Realm", ("J3~%s~38~MAGE"):format(C.units.player.guild))
+		C.Advance(3)
+		eq(assert(Draft()).editBox:GetText(), "/ginvite Upgrade", "J3 metadata can complete the earlier text JOIN")
+		Draft():Hide()
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Upgrade-Realm"); C.now = C.now + 21; C.Advance(21)
+		eq(Draft(), nil, "metadata arrival never disables duplicate suppression")
+		Check(C.ledger, "JOIN filters"); NoErrors(C, "JOIN filters")
+	end
+end)
+
+test("gamepad recruiting filters: gamepad JOIN observation, pause and no selected classes", function()
+	local C, ns = Session(true, { saved = Answered() })
+	local R = ns.Recruit; local F, P = R.Filters, R.Panel
+	assert(F.SetLevels("60")); assert(F.SetClasses({ WARRIOR = true }))
+	assert(R.EnableWhisperRecruiting()); R.Preference(true).panelQueue = true
+	C.Fire("CHAT_MSG_WHISPER", "JOIN", "Seen-Realm")
+	local req = assert(R.requests[1])
+	InClick(C, function() eq(F.CheckRequest(req), false) end)
+	C.units.target = { name = "Seen", realm = "Realm", guid = "Player-1-800" }
+	C.Fire("PLAYER_TARGET_CHANGED"); C.Advance(3)
+	local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+	assert(P.Pause()); eq(draft:IsShown(), false)
+	assert(F.SetClasses({})); C.Advance(16)
+	assert(P.Start()); C.Advance(16)
+	for _, item in ipairs(P.Queue()) do eq(F.Allows(item), false) end
+	assert(F.SetClasses(nil)); assert(F.SetLevels(""))
+	C.Fire("CHAT_MSG_WHISPER", "JOIN", "New-Realm"); C.Advance(3)
+	assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "reset defaults permits later JOINs")
+	C.Switch(false); C.Advance(1); C.Switch(true); C.Advance(1)
+	Check(C.ledger, "gamepad JOIN filters"); NoErrors(C, "gamepad JOIN filters")
+end)
+
 test("gamepad unified recruiting panel: priority, pause, stale actions and both input switches", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local saved = Answered()

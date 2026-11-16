@@ -47,6 +47,29 @@ The paste watcher retains its 0.01-second check while chat is open and uses
 watch. Closing the draft or switching to gamepad stops it. Reading pasted text only
 closes the draft; it never sends a command or proves that an invitation succeeded.
 
+## Level and class filters (1.6.0)
+
+The main recruiting page shows filters before Start. Set a level range such as
+`20-40`, one level such as `60`, or leave the level box blank for all levels. Endpoints
+are inclusive. Reversed ranges and values above the client's maximum are rejected.
+Select individual classes, Select all classes, or Clear class selection. No selected
+classes means nobody qualifies. Defaults allow every level and class.
+
+These settings belong to this character and guild and survive reloads. They apply
+to both scanned candidates and JOIN requests, in the unified queue and Advanced.
+Manual Prepare and copying an old draft recheck the same filters. Changing settings
+closes an excluded invite draft. Ordinary replies still get a review, but preparing
+an invitation from that review must pass the filters.
+
+A plain JOIN whisper contains no level or class. With a restrictive filter, it stays
+in the queue with an explanation until those details are known. **Check level/class
+with WHO** makes one deliberate, cooldown-limited search with scanning off or on.
+Targeting or mousing over that player can also supply details, including in gamepad
+mode, where Olympus does not initiate WHO. A Join Olympus request can supply its
+self-reported level/class; it is not server-certified. An incomplete update does not
+erase previously known details. Excluded requests never block later matching popups.
+Level filters narrow WHO search ranges; class filtering is applied to returned results.
+
 ## Offline checks
 
 Run from the repository root with Bash and LuaJIT:
@@ -57,6 +80,7 @@ OLYMPUS_TEST_FILTER='gamepad recruit movement focus' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad blocked diagnostics' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad recruiting review fixes' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='gamepad JOIN popup recovery' luajit tests/run.lua
+OLYMPUS_TEST_FILTER='gamepad recruiting filters' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit invite (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (1.5.9)' luajit tests/run.lua
@@ -125,6 +149,15 @@ are removed in a scratch copy, and pass with the fixes.
     should become one invite request and offer the copy/paste command; repeating
     JOIN must not create another popup or duplicate row. Check both the unified
     panel and the Census/Advanced recruiting mode.
+
+15. Set levels 20–40 and select Mage. Check a level-20 and level-40 Mage, a level-19
+    Mage and a Warrior. Only matching candidates should get a command. Reload and
+    confirm the selections persist; try an invalid range and confirm it is rejected.
+16. With scanning off, receive plain JOIN from a matching player. It must wait for
+    required details. Use Check level/class with WHO, or target/mouseover the player.
+    A later matching JOIN should still prompt when an earlier request is excluded.
+    Change the filter with a draft open; an excluded command must close. Reset all
+    levels/classes and confirm the original unfiltered JOIN behavior returns.
 
 Offline API models cannot establish live server acceptance, real chat delivery,
 controller navigation quality, or account-policy approval.

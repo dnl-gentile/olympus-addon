@@ -13,6 +13,13 @@ reminders; its setting survives reloads. Ads remain optional and handoffs stay r
 The previous controls are available through **Advanced**, which explicitly restores
 the earlier workflow. See [recruiting queue checks](docs/RECRUIT-QUEUE.md) for testing.
 
+**Olympus 1.6.0** adds visible level-range and class filters under Church → Invites.
+They apply to scanned candidates and JOIN requests, including manual preparation.
+Unknown required details wait for a deliberate WHO check or a target/mouseover observation.
+Filters survive reloads; all levels and classes are allowed by default.
+Newer census totals also preserve retained GM, Captain and rank details for other guilds,
+with the roster report's age shown separately. See [1.6.0 release notes](docs/RELEASE-1.6.0.md).
+
 **The whole Olympus army in one window, inside World of Warcraft: Forever.**
 
 Olympus is Asmongold's guild for *World of Warcraft: Forever*: Alliance, PvP ruleset, a

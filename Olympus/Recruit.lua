@@ -706,6 +706,12 @@ function Recruit.Preference(create)
 	return RecruitmentPreference(recruitingGuild, create)
 end
 
+-- Filters can be configured before Start without enabling recruiting or scanning.
+function Recruit.FilterPreference(create)
+	local guild = EligibleRecruitingGuild()
+	if guild then return RecruitmentPreference(guild, create) end
+end
+
 -- (1.5.9) The ads reminder's interval and channels, which Church > Invites shows and sets recruiting
 -- on or off (they run only while it is on). (Review of 1.5.9) Kept in a record of their own, for
 -- this character (ChoiceKey) and his guild, so a choice made before recruiting was ever on is kept
@@ -1733,6 +1739,9 @@ function Recruit.OnJoinRequest(dist, sender, text)
 	end
 	said = type(said) == "string" and ns.Codec.SanitizeChat(ns.Cut(said, 180)) or ""
 	local accepted, req = AddRequest(sender, own, level, class, said ~= "" and said or nil, true, true, "guild")
+	-- The player's text whisper can arrive before its J3 metadata. Updating that
+	-- existing row must not reset duplicate suppression or mark it prompted.
+	if Recruit.Filters then Recruit.Filters.UpdateRequest(sender, level, class) end
 	if Recruit.Handoff then
 		Recruit.Handoff.Log(accepted and "JOIN" or "JOINDROP", Recruit.Handoff.Tag(sender) .. " join screen")
 	end
@@ -1908,6 +1917,13 @@ end
 
 local function AcceptRequest(req, confirmed, automatic)
 	if not CurrentRequest(req) then return false end
+	if Recruit.Filters then
+		local allowed, reason = Recruit.Filters.Allows(req)
+		if not allowed then
+			if not automatic then ns.Print(reason) end
+			return false
+		end
+	end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
 	local prepare = automatic or req.viaWhisper or ns.OnForever()
 	local invite
@@ -2039,7 +2055,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	local req = data.req
 	if data.candidate then
 		if not Recruit.Candidates.Check(data.candidate) then return end
-	elseif not CurrentRequest(req) then return end
+	elseif not CurrentRequest(req) or (Recruit.Filters and not Recruit.Filters.Allows(req)) then return end
 	local util = ChatFrameUtil
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
@@ -2172,7 +2188,8 @@ PromptReply = function()
 		-- combat, another draft or the popup interval may have postponed the first try.
 		for _, pending in ipairs(Recruit.requests) do
 			if pending.guild == recruitingGuild and not pending.panelDone and not pending.panelPrompted
-				and not pending.invitePrepared and ns.Roster.RankOf(pending.name) == nil then
+				and not pending.invitePrepared and ns.Roster.RankOf(pending.name) == nil
+				and (Recruit.IsReply(pending) or not Recruit.Filters or Recruit.Filters.Allows(pending)) then
 				return RetryReply(2)
 			end
 		end
@@ -2196,7 +2213,8 @@ PromptReply = function()
 	end
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and (not H or not (H.State(pending) or H.Taken(pending))) then
+			and (not H or not (H.State(pending) or H.Taken(pending)))
+			and (Recruit.IsReply(pending) or not Recruit.Filters or Recruit.Filters.Allows(pending)) then
 			req = pending
 			break
 		end
@@ -2206,12 +2224,13 @@ PromptReply = function()
 		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
 	end
 	if (InCombatLockdown and InCombatLockdown()) or ns.ChatLocked() or ns.KeyboardFocus() then return RetryReply(2) end
-	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_FILTER_LEVELS" }) do
 		if ns.Dialog.Find(id) then return RetryReply(2) end
 	end
 	for _, pending in ipairs(Recruit.requests) do
 		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and not (H and H.Taken(pending)) and CurrentRequest(pending) then
+			and not (H and H.Taken(pending)) and CurrentRequest(pending)
+			and (Recruit.IsReply(pending) or not Recruit.Filters or Recruit.Filters.Allows(pending)) then
 			local shown
 			if pending.handoffIntent or pending.handedIn then shown = AcceptRequest(pending, nil, true)
 			else shown = ReviewReply(pending) end
@@ -2227,7 +2246,8 @@ end
 function Recruit.PromptReplies()
 	if not Recruiting() or Recruit.IsPaused() then return end
 	for _, pending in ipairs(Recruit.requests) do
-		if not pending.panelDone and not pending.panelPrompted and not pending.invitePrepared then
+		if not pending.panelDone and not pending.panelPrompted and not pending.invitePrepared
+			and (Recruit.IsReply(pending) or not Recruit.Filters or Recruit.Filters.Allows(pending)) then
 			return RetryReply(2)
 		end
 	end
@@ -2334,7 +2354,13 @@ function Recruit.RequestLines(viaWhisper, nested)
 			local label = reply and L.RECRUIT_WHISPER_REVIEW:format(req.guild)
 				or ((req.viaWhisper or ns.OnForever()) and L.RECRUIT_WHISPER_PREPARE_BUTTON or L.JOIN_INVITE:format(req.guild))
 			local action = reply and ReviewReply or Recruit.Accept
-			lines[#lines + 1] = { indent = 1, text = V.Green(label), onClick = function() action(req) end }
+			local allowed, reason = true, nil
+			if Recruit.Filters then allowed, reason = Recruit.Filters.Allows(req) end
+			if not allowed and not reply then
+				lines[#lines + 1] = { indent = 1, text = V.Grey(reason) }
+				lines[#lines + 1] = { indent = 1, text = ns.GamepadUI() and V.Grey(L.RECRUIT_FILTER_TARGET) or V.Gold(L.RECRUIT_FILTER_CHECK),
+					onClick = not ns.GamepadUI() and function() Recruit.Filters.CheckRequest(req) end or nil }
+			else lines[#lines + 1] = { indent = 1, text = V.Green(label), onClick = function() action(req) end } end
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(L.JOIN_DECLINE), onClick = function() Recruit.Decline(req) end,
 				tooltip = function(tt)

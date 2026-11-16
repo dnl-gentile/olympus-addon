@@ -10,6 +10,7 @@ Church recruiting belongs to the player who starts it. Incoming JOIN requests an
 | --- | --- |
 | [Recruit.lua](../../Olympus/Recruit.lua) | Join-screen routing, incoming requests, outreach replies, deduplication, invitation drafts, retries and copy/paste handling |
 | [RecruitCandidates.lua](../../Olympus/RecruitCandidates.lua) | Observed and WHO candidates, eligibility, scan limits and replenishment |
+| [RecruitFilters.lua](../../Olympus/RecruitFilters.lua) | Saved level/class preferences, shared eligibility, metadata checks and visible controls |
 | [RecruitPanel.lua](../../Olympus/RecruitPanel.lua) | Unified queue, priority, Start/Pause, Prepare, Skip/Next and automatic prompt pacing |
 | [RecruitHandoff.lua](../../Olympus/RecruitHandoff.lua) | Disabled compatibility facade and cleanup of obsolete handoff state |
 | [ChurchCount.lua](../../Olympus/ChurchCount.lua), [RecruitRanking.lua](../../Olympus/RecruitRanking.lua) | Native guild-event observations and recruitment credit |
@@ -63,6 +64,26 @@ Pending JOIN requests schedule their own retry through `RetryReply`; this does n
 These flags belong to different source rows and flows. Do not replace them with a single “invited” boolean. Skip clears the deferred return-to-invite state before closing the draft, and later candidate checks reject completed rows; otherwise an already-scheduled callback can reopen a skipped invite.
 
 Offered/prepared scan rows no longer count as remaining work. When the queue is low, a deliberate copy/native-chat action can request more WHO candidates, subject to search pacing and the shared [Who.lua](../../Olympus/Who.lua) owner. Merely showing a popup does not start an unrestricted background WHO loop.
+
+## Filter ownership and metadata
+
+`Recruit.FilterPreference` permits configuration before recruiting starts while still
+requiring membership and invite permission. `filters.min` and `filters.max` are inclusive;
+`filters.classes == nil` means all classes, while an empty table means none. Settings
+live in the existing per-character/per-guild recruiting preference, not a new global store.
+UI callbacks retain the preference identity so a stale control cannot edit another guild.
+
+`Recruit.Filters.Allows` is shared by candidate discovery/preparation, JOIN scheduling,
+manual acceptance, panel status and the copy-to-chat boundary. Changing a filter closes
+excluded drafts. Missing metadata blocks only restrictions that need it; defaults preserve
+the original JOIN flow. Normal replies remain reviewable, but their invitation is filtered.
+
+`UnitLevel`/`UnitClass` observations and `Who.Read` populate candidate/request metadata.
+`J3` can complete an earlier plain-text JOIN without resetting deduplication. A deliberate
+WHO button uses the existing shared search owner and native input-mode gate; no scan is
+required. Incoming filtered requests remain reviewable but are skipped by automatic popup
+selection, so later eligible requests can proceed. The offline tests advance both timer
+and server clocks for legacy popup pacing; these are separate clocks in the fixture.
 
 ## Keyboard and chat interaction
 

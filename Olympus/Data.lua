@@ -1642,6 +1642,15 @@ function Data.Summary()
 				-- A count-only snapshot can be newer than a valid roster detail report. Keep
 				-- recent player levels beside the display row, without attaching ranks to it.
 				local levels = g.relayed and localGuilds[direct[name:lower()]] or g
+				-- A newer aggregate replaces counts, not the separately observed guild
+				-- directory. Keep that report beside the row for presentation only: putting
+				-- its ranks on g would promote a count-only relay into authority.
+				local detailAt = ObservationTime(levels)
+				if g.relayed and levels ~= g and detailAt <= now and now - detailAt <= Data.KEEP
+					and (levels.faction or "Alliance") == (ns.faction or "Alliance") then
+					row.rosterDetails, row.rosterObserved = levels, detailAt
+					row.rosterFresh = now - detailAt <= Data.FRESH
+				end
 				if fresh and type(levels.top) == "table" and #levels.top > 0 and now - ObservationTime(levels) <= Data.FRESH
 					and (levels.faction or "Alliance") == (ns.faction or "Alliance") then
 					row.topLevels, row.topRealm = levels.top, levels.realm

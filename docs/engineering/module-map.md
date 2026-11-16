@@ -8,7 +8,7 @@ The packaged TOCs can differ: packaging removes the entries in [bets-only.txt](.
 
 ## Olympus
 
-Main runtime, domain services and ordinary UI. [Olympus.toc](../../Olympus/Olympus.toc) contains 203 entries.
+Main runtime, domain services and ordinary UI. [Olympus.toc](../../Olympus/Olympus.toc) contains 204 entries.
 
 | Order | Source file | Purpose |
 | --- | --- | --- |
@@ -125,96 +125,97 @@ Main runtime, domain services and ordinary UI. [Olympus.toc](../../Olympus/Olymp
 | 111 | [GuildCharter.lua](../../Olympus/GuildCharter.lua) | Guild-master-authored recruitment cards. |
 | 112 | [Recruit.lua](../../Olympus/Recruit.lua) | Join routing, incoming requests, reply reviews, command drafts and retry/copy flow. |
 | 113 | [RecruitHandoff.lua](../../Olympus/RecruitHandoff.lua) | Disabled handoff facade, legacy-packet handling and obsolete state cleanup. |
-| 114 | [RecruitCandidates.lua](../../Olympus/RecruitCandidates.lua) | Scan/WHO observations, candidate filtering and replenishment. |
-| 115 | [RecruitPanel.lua](../../Olympus/RecruitPanel.lua) | Unified local recruiting queue, Start/Pause, Prepare, Skip/Next and pacing. |
-| 116 | [PartyGuard.lua](../../Olympus/PartyGuard.lua) | Short-lived invitation inbox with guild/permission validation. |
-| 117 | [AnswerBank.lua](../../Olympus/AnswerBank.lua) | Generated answer content; edit docs/answers.json and regenerate. |
-| 118 | [Answers.lua](../../Olympus/Answers.lua) | Curated answer browsing and presentation. |
-| 119 | [Views.lua](../../Olympus/Views.lua) | Shared row/detail rendering used by feature-owned view models. |
-| 120 | [CensusStats.lua](../../Olympus/CensusStats.lua) | Sanitized census statistics and aggregate projections. |
-| 121 | [Members.lua](../../Olympus/Members.lua) | Own-guild membership/activity views. |
-| 122 | [Nominees.lua](../../Olympus/Nominees.lua) | Guild-master appointments and nomination data. |
-| 123 | [UI.lua](../../Olympus/UI.lua) | Main Olympus window, layout, tabs and routing. |
-| 124 | [MainKey.lua](../../Olympus/MainKey.lua) | Session-bound borrowed shortcut to permitted controls. |
-| 125 | [Watch.lua](../../Olympus/Watch.lua) | Private own-guild moderation desk and officer-to-officer records. |
-| 126 | [Judgment.lua](../../Olympus/Judgment.lua) | Council case voting and crown decisions. |
-| 127 | [JusticeTasks.lua](../../Olympus/JusticeTasks.lua) | Deliberate follow-up guild-action requests, without granting game privileges. |
-| 128 | [KingArrow.lua](../../Olympus/KingArrow.lua) | Permitted crown-location pointer and its lifecycle. |
-| 129 | [Accord.lua](../../Olympus/Accord.lua) | Membership terms and acceptance state. |
-| 130 | [Consent.lua](../../Olympus/Consent.lua) | Per-feature consent choices and checks. |
-| 131 | [Cover.lua](../../Olympus/Cover.lua) | Permitted moderator cover names and quiet-presence integration. |
-| 132 | [PrivatePresence.lua](../../Olympus/PrivatePresence.lua) | Own-guild private-presence notices used by roster reporters. |
-| 133 | [Verify.lua](../../Olympus/Verify.lua) | Guild/personal verification flows and evidence. |
-| 134 | [WeeklyBrief.lua](../../Olympus/WeeklyBrief.lua) | Weekly summaries of relevant feature state. |
-| 135 | [Carry.lua](../../Olympus/Carry.lua) | Quoted portable history sidecars and their limits. |
-| 136 | [ChatRooms.lua](../../Olympus/ChatRooms.lua) | Logical chat-room membership, protocol and lifecycle. |
-| 137 | [WarSquads.lua](../../Olympus/WarSquads.lua) | War-room squad assignments. |
-| 138 | [CraftRequests.lua](../../Olympus/CraftRequests.lua) | Crafting requests, claims and private fulfillment flow. |
-| 139 | [ViewAs.lua](../../Olympus/ViewAs.lua) | Session-only presentation preview; never action authority. |
-| 140 | [Church.lua](../../Olympus/Church.lua) | Church offices book and domain rules. |
-| 141 | [ChurchCount.lua](../../Olympus/ChurchCount.lua) | Native guild-event observations for recruitment credit. |
-| 142 | [ChurchFullness.lua](../../Olympus/ChurchFullness.lua) | Eligible complete-roster/fullness observations. |
-| 143 | [RecruitRanking.lua](../../Olympus/RecruitRanking.lua) | Recruitment rankings from accepted observations. |
-| 144 | [ChurchView.lua](../../Olympus/ChurchView.lua) | Church page rendering and recruiting entry points. |
-| 145 | [TabardsV2.lua](../../Olympus/TabardsV2.lua) | Opt-in observed tabard-contract state. |
-| 146 | [Letters.lua](../../Olympus/Letters.lua) | Version/onboarding letters and notices. |
-| 147 | [GuildFrame.lua](../../Olympus/GuildFrame.lua) | Gate-controlled Olympus buttons/docking in supported native guild windows. |
-| 148 | [Borders.lua](../../Olympus/Borders.lua) | Permitted portrait border presentation. |
-| 149 | [ProfileEffects.lua](../../Olympus/ProfileEffects.lua) | Bounded profile presentation effects. |
-| 150 | [Nameplates.lua](../../Olympus/Nameplates.lua) | Gate-controlled friendly-nameplate marks. |
-| 151 | [ChatWindow.lua](../../Olympus/ChatWindow.lua) | Main Olympus Chat page and history presentation. |
-| 152 | [WatchChat.lua](../../Olympus/WatchChat.lua) | Chat deletions, tombstones, timeouts and associated feature restrictions. |
-| 153 | [ChatStrikes.lua](../../Olympus/ChatStrikes.lua) | Chat-strike tracking and escalation. |
-| 154 | [TagFollow.lua](../../Olympus/TagFollow.lua) | Associated-identity sanction handling under verification and consent rules. |
-| 155 | [OfficerMuster.lua](../../Olympus/OfficerMuster.lua) | Officer-only calls and their audience rules. |
-| 156 | [Bridge.lua](../../Olympus/Bridge.lua) | Versioned external projections, census checkpoints and section registry. |
-| 157 | [Wanted.lua](../../Olympus/Wanted.lua) | Observed kill/slay facts and related views. |
-| 158 | [PlayerSightings.lua](../../Olympus/PlayerSightings.lua) | Voluntary request-bound sightings and area searches. |
-| 159 | [API.lua](../../Olympus/API.lua) | Public OlympusAPI registration, permissioned handles and bounded operations. |
-| 160 | [BridgeSections.lua](../../Olympus/BridgeSections.lua) | Core feature sections for Bridge consumers. |
-| 161 | [BridgePeople.lua](../../Olympus/BridgePeople.lua) | People-related Bridge projections. |
-| 162 | [BridgeAffairs.lua](../../Olympus/BridgeAffairs.lua) | Crafting, treasury, agenda, moderation and other affairs projections. |
-| 163 | [Record.lua](../../Olympus/Record.lua) | Optional local witness chain in OlympusRecordDB. |
-| 164 | [SelfTest.lua](../../Olympus/SelfTest.lua) | Author-only in-client checks in test builds. |
-| 165 | [ArenaMath.lua](../../Olympus/ArenaMath.lua) | Pure money arithmetic helpers for Arena-related consumers. |
-| 166 | [Compliance.lua](../../Olympus/Compliance.lua) | Wallet/wager policy gates; wallet currently disabled and region declarations empty. |
-| 167 | [ArenaRating.lua](../../Olympus/ArenaRating.lua) | Pure rating calculations. |
-| 168 | [ArenaBracket.lua](../../Olympus/ArenaBracket.lua) | Pure tournament-bracket calculations. |
-| 169 | [ArenaFarkle.lua](../../Olympus/ArenaFarkle.lua) | Pure server-roll-to-dice and Bones/Farkle scoring rules. |
-| 170 | [ArenaParse.lua](../../Olympus/ArenaParse.lua) | Parsing of supplied system/combat observations for Arena. |
-| 171 | [Honors.lua](../../Olympus/Honors.lua) | Honor eligibility and display rules. |
-| 172 | [ArenaPlaces.lua](../../Olympus/ArenaPlaces.lua) | Static Arena/inn meeting-place data. |
-| 173 | [ArenaNet.lua](../../Olympus/ArenaNet.lua) | Arena namespace, storage, protocol/mode dispatch, authorization and UI loader. |
-| 174 | [ArenaRoles.lua](../../Olympus/ArenaRoles.lua) | Arena role policy. |
-| 175 | [ArenaMoney.lua](../../Olympus/ArenaMoney.lua) | Observed trade/mail flows and guarded fill helpers; never completes payment by itself. |
-| 176 | [Debts.lua](../../Olympus/Debts.lua) | Obligation/IOU records and claims. |
-| 177 | [DuesRosterCheckpoints.lua](../../Olympus/DuesRosterCheckpoints.lua) | Roster checkpoints supporting frozen dues history. |
-| 178 | [CarryHistory.lua](../../Olympus/CarryHistory.lua) | Signed history originals and witness handling. |
-| 179 | [CarryMerger.lua](../../Olympus/CarryMerger.lua) | Frozen archive-merger mandates and validation. |
-| 180 | [Records.lua](../../Olympus/Records.lua) | Shared signed result inventory, reconciliation and seals. |
-| 181 | [CraftRanking.lua](../../Olympus/CraftRanking.lua) | Two-party crafting-completion evidence and rankings. |
-| 182 | [Wallet.lua](../../Olympus/Wallet.lua) | Wallet ledger paths, subject to the disabled compliance policy. |
-| 183 | [Stakes.lua](../../Olympus/Stakes.lua) | Stake obligations and settlement paths under policy gates. |
-| 184 | [Markets.lua](../../Olympus/Markets.lua) | Wager-market domain code; excluded from packaged builds. |
-| 185 | [MarketBank.lua](../../Olympus/MarketBank.lua) | Wager-market bank code; excluded from packaged builds. |
-| 186 | [Lottery.lua](../../Olympus/Lottery.lua) | Lottery domain/results paths, subject to compliance and package dependencies. |
-| 187 | [ArenaFights.lua](../../Olympus/ArenaFights.lua) | Challenges, fight cards and fight progression. |
-| 188 | [ArenaLedger.lua](../../Olympus/ArenaLedger.lua) | Arena result ledgers. |
-| 189 | [ArenaTourney.lua](../../Olympus/ArenaTourney.lua) | Tournament orchestration. |
-| 190 | [ArenaProfile.lua](../../Olympus/ArenaProfile.lua) | Arena-specific preferences/profile state. |
-| 191 | [ProfileEdit.lua](../../Olympus/ProfileEdit.lua) | Main-addon's own-profile editor. |
-| 192 | [PlayerProfile.lua](../../Olympus/PlayerProfile.lua) | Player card built from facts this client holds. |
-| 193 | [HonorsNet.lua](../../Olympus/HonorsNet.lua) | Honor claims and network exchange. |
-| 194 | [RoleBriefings.lua](../../Olympus/RoleBriefings.lua) | Role-specific instructions and letters. |
-| 195 | [ChatMarks.lua](../../Olympus/ChatMarks.lua) | Permitted honor labels in chat presentation. |
-| 196 | [FarkleTable.lua](../../Olympus/FarkleTable.lua) | Bones table state, participant messages and observed rolls. |
-| 197 | [InnkeeperGossip.lua](../../Olympus/InnkeeperGossip.lua) | Opt-in addon-owned entry beside innkeeper interaction. |
-| 198 | [InnkeeperArrow.lua](../../Olympus/InnkeeperArrow.lua) | Local navigation to training inns. |
-| 199 | [ArenaMatch.lua](../../Olympus/ArenaMatch.lua) | Matchmaking and opponent-finding flow. |
-| 200 | [ArenaChat.lua](../../Olympus/ArenaChat.lua) | Canonical fight-room specifications, audience and lifecycle. |
-| 201 | [ArenaSpectate.lua](../../Olympus/ArenaSpectate.lua) | Observed duel/spectator state used by Arena screens. |
-| 202 | [ArenaTest.lua](../../Olympus/ArenaTest.lua) | Arena rehearsal/test orchestration. |
-| 203 | [ArenaHome.lua](../../Olympus/ArenaHome.lua) | Main-addon Arena tab, view-model entry point, menus and alerts. |
+| 114 | [RecruitFilters.lua](../../Olympus/RecruitFilters.lua) | Saved level/class filters for candidates and JOINs, metadata checks and visible controls. |
+| 115 | [RecruitCandidates.lua](../../Olympus/RecruitCandidates.lua) | Scan/WHO observations, candidate filtering and replenishment. |
+| 116 | [RecruitPanel.lua](../../Olympus/RecruitPanel.lua) | Unified local recruiting queue, Start/Pause, Prepare, Skip/Next and pacing. |
+| 117 | [PartyGuard.lua](../../Olympus/PartyGuard.lua) | Short-lived invitation inbox with guild/permission validation. |
+| 118 | [AnswerBank.lua](../../Olympus/AnswerBank.lua) | Generated answer content; edit docs/answers.json and regenerate. |
+| 119 | [Answers.lua](../../Olympus/Answers.lua) | Curated answer browsing and presentation. |
+| 120 | [Views.lua](../../Olympus/Views.lua) | Shared row/detail rendering used by feature-owned view models. |
+| 121 | [CensusStats.lua](../../Olympus/CensusStats.lua) | Sanitized census statistics and aggregate projections. |
+| 122 | [Members.lua](../../Olympus/Members.lua) | Own-guild membership/activity views. |
+| 123 | [Nominees.lua](../../Olympus/Nominees.lua) | Guild-master appointments and nomination data. |
+| 124 | [UI.lua](../../Olympus/UI.lua) | Main Olympus window, layout, tabs and routing. |
+| 125 | [MainKey.lua](../../Olympus/MainKey.lua) | Session-bound borrowed shortcut to permitted controls. |
+| 126 | [Watch.lua](../../Olympus/Watch.lua) | Private own-guild moderation desk and officer-to-officer records. |
+| 127 | [Judgment.lua](../../Olympus/Judgment.lua) | Council case voting and crown decisions. |
+| 128 | [JusticeTasks.lua](../../Olympus/JusticeTasks.lua) | Deliberate follow-up guild-action requests, without granting game privileges. |
+| 129 | [KingArrow.lua](../../Olympus/KingArrow.lua) | Permitted crown-location pointer and its lifecycle. |
+| 130 | [Accord.lua](../../Olympus/Accord.lua) | Membership terms and acceptance state. |
+| 131 | [Consent.lua](../../Olympus/Consent.lua) | Per-feature consent choices and checks. |
+| 132 | [Cover.lua](../../Olympus/Cover.lua) | Permitted moderator cover names and quiet-presence integration. |
+| 133 | [PrivatePresence.lua](../../Olympus/PrivatePresence.lua) | Own-guild private-presence notices used by roster reporters. |
+| 134 | [Verify.lua](../../Olympus/Verify.lua) | Guild/personal verification flows and evidence. |
+| 135 | [WeeklyBrief.lua](../../Olympus/WeeklyBrief.lua) | Weekly summaries of relevant feature state. |
+| 136 | [Carry.lua](../../Olympus/Carry.lua) | Quoted portable history sidecars and their limits. |
+| 137 | [ChatRooms.lua](../../Olympus/ChatRooms.lua) | Logical chat-room membership, protocol and lifecycle. |
+| 138 | [WarSquads.lua](../../Olympus/WarSquads.lua) | War-room squad assignments. |
+| 139 | [CraftRequests.lua](../../Olympus/CraftRequests.lua) | Crafting requests, claims and private fulfillment flow. |
+| 140 | [ViewAs.lua](../../Olympus/ViewAs.lua) | Session-only presentation preview; never action authority. |
+| 141 | [Church.lua](../../Olympus/Church.lua) | Church offices book and domain rules. |
+| 142 | [ChurchCount.lua](../../Olympus/ChurchCount.lua) | Native guild-event observations for recruitment credit. |
+| 143 | [ChurchFullness.lua](../../Olympus/ChurchFullness.lua) | Eligible complete-roster/fullness observations. |
+| 144 | [RecruitRanking.lua](../../Olympus/RecruitRanking.lua) | Recruitment rankings from accepted observations. |
+| 145 | [ChurchView.lua](../../Olympus/ChurchView.lua) | Church page rendering and recruiting entry points. |
+| 146 | [TabardsV2.lua](../../Olympus/TabardsV2.lua) | Opt-in observed tabard-contract state. |
+| 147 | [Letters.lua](../../Olympus/Letters.lua) | Version/onboarding letters and notices. |
+| 148 | [GuildFrame.lua](../../Olympus/GuildFrame.lua) | Gate-controlled Olympus buttons/docking in supported native guild windows. |
+| 149 | [Borders.lua](../../Olympus/Borders.lua) | Permitted portrait border presentation. |
+| 150 | [ProfileEffects.lua](../../Olympus/ProfileEffects.lua) | Bounded profile presentation effects. |
+| 151 | [Nameplates.lua](../../Olympus/Nameplates.lua) | Gate-controlled friendly-nameplate marks. |
+| 152 | [ChatWindow.lua](../../Olympus/ChatWindow.lua) | Main Olympus Chat page and history presentation. |
+| 153 | [WatchChat.lua](../../Olympus/WatchChat.lua) | Chat deletions, tombstones, timeouts and associated feature restrictions. |
+| 154 | [ChatStrikes.lua](../../Olympus/ChatStrikes.lua) | Chat-strike tracking and escalation. |
+| 155 | [TagFollow.lua](../../Olympus/TagFollow.lua) | Associated-identity sanction handling under verification and consent rules. |
+| 156 | [OfficerMuster.lua](../../Olympus/OfficerMuster.lua) | Officer-only calls and their audience rules. |
+| 157 | [Bridge.lua](../../Olympus/Bridge.lua) | Versioned external projections, census checkpoints and section registry. |
+| 158 | [Wanted.lua](../../Olympus/Wanted.lua) | Observed kill/slay facts and related views. |
+| 159 | [PlayerSightings.lua](../../Olympus/PlayerSightings.lua) | Voluntary request-bound sightings and area searches. |
+| 160 | [API.lua](../../Olympus/API.lua) | Public OlympusAPI registration, permissioned handles and bounded operations. |
+| 161 | [BridgeSections.lua](../../Olympus/BridgeSections.lua) | Core feature sections for Bridge consumers. |
+| 162 | [BridgePeople.lua](../../Olympus/BridgePeople.lua) | People-related Bridge projections. |
+| 163 | [BridgeAffairs.lua](../../Olympus/BridgeAffairs.lua) | Crafting, treasury, agenda, moderation and other affairs projections. |
+| 164 | [Record.lua](../../Olympus/Record.lua) | Optional local witness chain in OlympusRecordDB. |
+| 165 | [SelfTest.lua](../../Olympus/SelfTest.lua) | Author-only in-client checks in test builds. |
+| 166 | [ArenaMath.lua](../../Olympus/ArenaMath.lua) | Pure money arithmetic helpers for Arena-related consumers. |
+| 167 | [Compliance.lua](../../Olympus/Compliance.lua) | Wallet/wager policy gates; wallet currently disabled and region declarations empty. |
+| 168 | [ArenaRating.lua](../../Olympus/ArenaRating.lua) | Pure rating calculations. |
+| 169 | [ArenaBracket.lua](../../Olympus/ArenaBracket.lua) | Pure tournament-bracket calculations. |
+| 170 | [ArenaFarkle.lua](../../Olympus/ArenaFarkle.lua) | Pure server-roll-to-dice and Bones/Farkle scoring rules. |
+| 171 | [ArenaParse.lua](../../Olympus/ArenaParse.lua) | Parsing of supplied system/combat observations for Arena. |
+| 172 | [Honors.lua](../../Olympus/Honors.lua) | Honor eligibility and display rules. |
+| 173 | [ArenaPlaces.lua](../../Olympus/ArenaPlaces.lua) | Static Arena/inn meeting-place data. |
+| 174 | [ArenaNet.lua](../../Olympus/ArenaNet.lua) | Arena namespace, storage, protocol/mode dispatch, authorization and UI loader. |
+| 175 | [ArenaRoles.lua](../../Olympus/ArenaRoles.lua) | Arena role policy. |
+| 176 | [ArenaMoney.lua](../../Olympus/ArenaMoney.lua) | Observed trade/mail flows and guarded fill helpers; never completes payment by itself. |
+| 177 | [Debts.lua](../../Olympus/Debts.lua) | Obligation/IOU records and claims. |
+| 178 | [DuesRosterCheckpoints.lua](../../Olympus/DuesRosterCheckpoints.lua) | Roster checkpoints supporting frozen dues history. |
+| 179 | [CarryHistory.lua](../../Olympus/CarryHistory.lua) | Signed history originals and witness handling. |
+| 180 | [CarryMerger.lua](../../Olympus/CarryMerger.lua) | Frozen archive-merger mandates and validation. |
+| 181 | [Records.lua](../../Olympus/Records.lua) | Shared signed result inventory, reconciliation and seals. |
+| 182 | [CraftRanking.lua](../../Olympus/CraftRanking.lua) | Two-party crafting-completion evidence and rankings. |
+| 183 | [Wallet.lua](../../Olympus/Wallet.lua) | Wallet ledger paths, subject to the disabled compliance policy. |
+| 184 | [Stakes.lua](../../Olympus/Stakes.lua) | Stake obligations and settlement paths under policy gates. |
+| 185 | [Markets.lua](../../Olympus/Markets.lua) | Wager-market domain code; excluded from packaged builds. |
+| 186 | [MarketBank.lua](../../Olympus/MarketBank.lua) | Wager-market bank code; excluded from packaged builds. |
+| 187 | [Lottery.lua](../../Olympus/Lottery.lua) | Lottery domain/results paths, subject to compliance and package dependencies. |
+| 188 | [ArenaFights.lua](../../Olympus/ArenaFights.lua) | Challenges, fight cards and fight progression. |
+| 189 | [ArenaLedger.lua](../../Olympus/ArenaLedger.lua) | Arena result ledgers. |
+| 190 | [ArenaTourney.lua](../../Olympus/ArenaTourney.lua) | Tournament orchestration. |
+| 191 | [ArenaProfile.lua](../../Olympus/ArenaProfile.lua) | Arena-specific preferences/profile state. |
+| 192 | [ProfileEdit.lua](../../Olympus/ProfileEdit.lua) | Main-addon's own-profile editor. |
+| 193 | [PlayerProfile.lua](../../Olympus/PlayerProfile.lua) | Player card built from facts this client holds. |
+| 194 | [HonorsNet.lua](../../Olympus/HonorsNet.lua) | Honor claims and network exchange. |
+| 195 | [RoleBriefings.lua](../../Olympus/RoleBriefings.lua) | Role-specific instructions and letters. |
+| 196 | [ChatMarks.lua](../../Olympus/ChatMarks.lua) | Permitted honor labels in chat presentation. |
+| 197 | [FarkleTable.lua](../../Olympus/FarkleTable.lua) | Bones table state, participant messages and observed rolls. |
+| 198 | [InnkeeperGossip.lua](../../Olympus/InnkeeperGossip.lua) | Opt-in addon-owned entry beside innkeeper interaction. |
+| 199 | [InnkeeperArrow.lua](../../Olympus/InnkeeperArrow.lua) | Local navigation to training inns. |
+| 200 | [ArenaMatch.lua](../../Olympus/ArenaMatch.lua) | Matchmaking and opponent-finding flow. |
+| 201 | [ArenaChat.lua](../../Olympus/ArenaChat.lua) | Canonical fight-room specifications, audience and lifecycle. |
+| 202 | [ArenaSpectate.lua](../../Olympus/ArenaSpectate.lua) | Observed duel/spectator state used by Arena screens. |
+| 203 | [ArenaTest.lua](../../Olympus/ArenaTest.lua) | Arena rehearsal/test orchestration. |
+| 204 | [ArenaHome.lua](../../Olympus/ArenaHome.lua) | Main-addon Arena tab, view-model entry point, menus and alerts. |
 
 ## Olympus_Arena
 

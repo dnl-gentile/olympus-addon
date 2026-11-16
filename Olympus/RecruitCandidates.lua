@@ -20,7 +20,7 @@ local raceFaction = {
 	BloodElf = "Horde", Goblin = "Horde",
 }
 local blockingDrafts = { "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
-	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT" }
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_FILTER_LEVELS" }
 
 local function LocalGuild()
 	if R.IsWhisperRecruiting() and R.CanInvite() then return GetGuildInfo("player") end
@@ -82,6 +82,10 @@ local function Remember(unit)
 	if row.guid and row.guid ~= guid then return end
 	byGUID[guid] = row
 	local changed = not row.seen or row.guid ~= guid
+	local level, class = R.Filters.ReadUnit(unit)
+	changed = changed or row.level ~= level or row.class ~= class
+	row.level, row.class = level, class
+	R.Filters.UpdateRequest(full, level, class)
 	row.guid, row.seen = guid, now
 	if unit == "target" then row.target = true else row.plate = unit end
 	if changed and R.Handoff then R.Handoff.LogSeen(unit == "target" and "target" or "nameplate", full) end
@@ -102,7 +106,7 @@ local function WhoFaction(race)
 	end
 end
 
-function Q.ObserveWho(name, rawGuild, race)
+function Q.ObserveWho(name, rawGuild, race, level, class)
 	if type(name) ~= "string" or type(rawGuild) ~= "string" or not Q.Enabled() or Quiet() then return end
 	local full = ns.FullName(ns.Normal(name))
 	local key = ns.Fold(full)
@@ -119,15 +123,21 @@ function Q.ObserveWho(name, rawGuild, race)
 	local now = GetTime()
 	local row = Add(full, command, now)
 	local first = not row.who
+	local changed = first or row.level ~= level or row.class ~= R.Filters.Class(class)
+	row.level, row.class = level, R.Filters.Class(class)
 	row.who = now
 	if first and R.Handoff then R.Handoff.LogSeen("who", full) end
-	if first then Change() end
+	if changed then Change() end
 end
 
 local function UnitMatches(row, unit)
 	if not unit then return false end
 	local name, guid, _, full = R.ReadCandidateUnit(unit)
-	return name == row.name and guid == row.guid and full == row.full
+	if name == row.name and guid == row.guid and full == row.full then
+		row.level, row.class = R.Filters.ReadUnit(unit)
+		return true
+	end
+	return false
 end
 
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
@@ -136,12 +146,12 @@ function Q.Check(row, live, ignoreQuiet)
 	if type(row) ~= "table" or row.panelDone or byName[row.key] ~= row or not Q.Enabled() or (not ignoreQuiet and Quiet()) or Hidden(row.full)
 		or R.Declined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
-		if UnitMatches(row, row.plate) then return row.plate end
-		if row.target and UnitMatches(row, "target") then return "target" end
+		if UnitMatches(row, row.plate) and R.Filters.Allows(row) then return row.plate end
+		if row.target and UnitMatches(row, "target") and R.Filters.Allows(row) then return "target" end
 	end
 	-- A stale sighting cannot fall back to WHO: the known token may now name a
 	-- player who joined a guild. Re-observe them, or use a fresh WHO-only entry.
-	if not live and not row.guid and row.who and GetTime() - row.who < WHO_TTL then return true end
+	if not live and not row.guid and row.who and GetTime() - row.who < WHO_TTL and R.Filters.Allows(row) then return true end
 end
 
 -- (1.5.8) A scanned player another member may still invite instead: current, and his command
@@ -274,6 +284,7 @@ end
 -- `hint` (1.5.9): the section's grey line, under its switch as every section of Church > Invites has it.
 function Q.Lines(lines, V, hint)
 	if not LocalGuild() then return end
+	R.Filters.Lines(lines, V)
 	local on = Q.Enabled()
 	lines[#lines + 1] = { id = "recruit-candidate-toggle", text = (on and V.Green or V.Grey)(on and L.RECRUIT_CANDIDATES_ON or L.RECRUIT_CANDIDATES_OFF),
 		onClick = Toggle }
@@ -289,25 +300,27 @@ function Q.Lines(lines, V, hint)
 	Prune(GetTime())
 	if #rows == 0 then lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_EMPTY) } end
 	for _, row in ipairs(rows) do
-		local display = ns.DisplayName(row.full) or row.name
-		local label = row.guid and L.RECRUIT_CANDIDATE_SEEN or L.RECRUIT_CANDIDATE_WHO
-		local state = R.Handoff and R.Handoff.State(row)
-		if state then
-			-- (Review of 1.5.9: rows do not wrap.) Who has him on a row of its own, as a JOIN's.
-			local ref = row.handoff
-			lines[#lines + 1] = { indent = 1, text = V.Grey(display) }
-			lines[#lines + 1] = { indent = 2, text = V.Grey((state == "assigned" and L.RECRUIT_HANDOFF_DONE
-				or L.RECRUIT_HANDOFF_PENDING):format(R.Handoff.Who(ref.peer, ref.to))) }
-		elseif row.passWanted then
-			lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_PASSING:format(display)),
-				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
-		else
-			lines[#lines + 1] = { indent = 1, text = V.Gold(label:format(display)),
-				onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
-		end
-		if row.guid then
-			lines[#lines + 1] = { indent = 2, text = V.Grey(L.RECRUIT_CANDIDATE_WHISPER),
-				onClick = function() if R.PromptCandidateWhisper(row) then row.whisperPrompted = true end end }
+		if R.Filters.Allows(row) then
+			local display = ns.DisplayName(row.full) or row.name
+			local label = row.guid and L.RECRUIT_CANDIDATE_SEEN or L.RECRUIT_CANDIDATE_WHO
+			local state = R.Handoff and R.Handoff.State(row)
+			if state then
+				-- (Review of 1.5.9: rows do not wrap.) Who has him on a row of its own, as a JOIN's.
+				local ref = row.handoff
+				lines[#lines + 1] = { indent = 1, text = V.Grey(display) }
+				lines[#lines + 1] = { indent = 2, text = V.Grey((state == "assigned" and L.RECRUIT_HANDOFF_DONE
+					or L.RECRUIT_HANDOFF_PENDING):format(R.Handoff.Who(ref.peer, ref.to))) }
+			elseif row.passWanted then
+				lines[#lines + 1] = { indent = 1, text = V.Grey(L.RECRUIT_CANDIDATE_PASSING:format(display)),
+					onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
+			else
+				lines[#lines + 1] = { indent = 1, text = V.Gold(label:format(display)),
+					onClick = function() if R.CopyCandidateInvite(row) then row.prompted = true end end }
+			end
+			if row.guid then
+				lines[#lines + 1] = { indent = 2, text = V.Grey(L.RECRUIT_CANDIDATE_WHISPER),
+					onClick = function() if R.PromptCandidateWhisper(row) then row.whisperPrompted = true end end }
+			end
 		end
 	end
 end
@@ -328,6 +341,7 @@ local function ObserveMouseover()
 	local row = Add(full, name, now)
 	if row.guid then return end
 	local first = not row.who
+	row.level, row.class = R.Filters.ReadUnit("mouseover")
 	row.who = now
 	if first then Change() end
 end
@@ -358,15 +372,17 @@ Q.SEARCH_STEP, Q.FEW_LEFT = 10, 2
 local searchIndex = 0
 
 function Q.SearchQuery(index)
-	local top = tonumber(GetMaxPlayerLevel and GetMaxPlayerLevel()) or 60
-	top = math.max(1, math.floor(top))
-	local n = math.ceil(top / Q.SEARCH_STEP)
+	local low, high = R.Filters.Settings()
+	local top = math.min(high or R.Filters.Cap(), R.Filters.Cap())
+	low = math.min(low or 1, top)
+	local n = math.ceil((top - low + 1) / Q.SEARCH_STEP)
 	local zone = GetRealZoneText and GetRealZoneText()
 	if type(zone) ~= "string" or zone == "" or zone:find('"', 1, true) then zone = nil end
 	local total = zone and 2 * n or n
 	index = (index - 1) % total + 1
 	local k = (index - 1) % n
-	local range = ("%d-%d"):format(k * Q.SEARCH_STEP + 1, math.min(top, (k + 1) * Q.SEARCH_STEP))
+	local first = low + k * Q.SEARCH_STEP
+	local range = ("%d-%d"):format(first, math.min(top, first + Q.SEARCH_STEP - 1))
 	if zone and index > n then return ('z-"%s" %s'):format(zone, range), index end
 	return range, index
 end

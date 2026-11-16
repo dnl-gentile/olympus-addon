@@ -17,7 +17,7 @@ end
 local function CloseDrafts()
 	if not ns.Dialog or not ns.Dialog.Find then return end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY",
-		"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_FILTER_LEVELS" }) do
 		local draft = ns.Dialog.Find(id)
 		if draft then
 			-- Closing the queue's reviews must not schedule a return to the old invite.
@@ -100,6 +100,8 @@ function P.Status(item)
 	if busy then return "waiting", busy end
 	local valid = item.scanned and R.Candidates.Check(item) or (not item.scanned and R.CurrentRequest(item))
 	if not valid then return "stale", L.RECRUIT_PANEL_STALE end
+	local allowed, reason = R.Filters.Allows(item)
+	if not allowed and not R.IsReply(item) then return "filtered", reason end
 	if item.invitePrepared then return "prepared", L.RECRUIT_PANEL_PREPARED end
 	return "ready", item.scanned and L.RECRUIT_PANEL_DISCOVERED
 		or (R.IsReply(item) and L.RECRUIT_WHISPER_REVIEW:format(item.guild) or L.RECRUIT_PANEL_JOIN)
@@ -109,6 +111,7 @@ function P.Current()
 	local saved = R.Preference()
 	if owner ~= saved then owner, current = saved, nil end
 	local queue = P.Queue()
+	if current and current.scanned and not R.Filters.Allows(current) then current = nil end
 	-- Keep a prepared/current request visible until Next. A new JOIN takes priority over
 	-- an untouched scan, but never replaces a draft the player is already using.
 	if current and current.panelDone then current = nil end
@@ -150,7 +153,7 @@ function P.Prompt()
 	if promptOwner ~= saved then promptOwner, promptAt = saved, nil end
 	if promptAt and GetTime() - promptAt < P.PROMPT_GAP then return false end
 	for _, id in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY",
-		"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_FILTER_LEVELS" }) do
 		if ns.Dialog.Find(id) then return false end
 	end
 	for _, item in ipairs(P.Queue()) do
@@ -205,6 +208,7 @@ function P.Lines()
 	if not busy and running and ns.Who and ns.Who.IsPending() then status = L.RECRUIT_PANEL_SEARCHING end
 	Line("recruit-panel-status", status)
 	Line("recruit-panel-hint", ns.GamepadUI() and L.RECRUIT_PANEL_GAMEPAD or L.RECRUIT_PANEL_HINT)
+	R.Filters.Lines(lines, V)
 	if on then
 		local item, count = P.Current()
 		Line("recruit-panel-count", L.RECRUIT_PANEL_COUNT:format(count))
@@ -214,6 +218,11 @@ function P.Lines()
 			Line("recruit-panel-current", (ns.DisplayName(Name(item)) or Name(item)) .. " — " .. (item.scanned and L.RECRUIT_PANEL_SCAN
 				or (reply and L.RECRUIT_WHISPER_REVIEW:format(item.guild) or "JOIN")))
 			Line("recruit-panel-detail", detail)
+			if not item.scanned and state == "filtered" then
+				if not ns.GamepadUI() then
+					Line("recruit-filter-check", L.RECRUIT_FILTER_CHECK, function() R.Filters.CheckRequest(item) end)
+				else Line("recruit-filter-target", L.RECRUIT_FILTER_TARGET) end
+			end
 			if state == "ready" or state == "prepared" then
 				Line("recruit-panel-prepare", reply and not item.invitePrepared and L.RECRUIT_WHISPER_REVIEW:format(item.guild)
 					or L.RECRUIT_WHISPER_PREPARE_BUTTON, function() P.Prepare(item) end)
