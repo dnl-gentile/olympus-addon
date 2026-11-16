@@ -826,6 +826,32 @@ test("join reach (1.6.0): with reminders on, a wait the member's answer cut shor
 	end)
 end)
 
+-- Fails on this lane's first version (review): the Where to go tooltips still said a click asks one of the
+-- guild's Lords or Captains (one of its officers), while since 1.6.0 it asks first the recruiters a 1.6.0
+-- member of that guild names, of any rank.
+test("join reach (1.6.0): Where to go says a click asks one of the guild's recruiters, Lords or Captains; the click asks the recruiter its member names first", function()
+	WithRequester(function(w)
+		R.OnFound({ { name = "Ned Park-Realm", guild = "Olympus Alpha" }, { name = "Lia Ford-Realm", guild = "Olympus Alpha" },
+			{ name = "Rae Cole-Realm", guild = "Olympus Alpha" } })
+		-- Ned (1.6.0) names Rae, who recruits at an ordinary rank, before Lia, the guild's Lord.
+		R.OnRoute("Ned Park-Realm", "J2~y~~0~*=x;Olympus Alpha=500=Rae Cole/Lia Ford")
+		local texts, click = {}, nil
+		local tt = { AddLine = function(_, text) texts[#texts + 1] = text end }
+		local inRoute = false
+		for _, l in ipairs(ns.Views.RecruitLines()) do
+			if l.header and l.text == L.RECRUIT_ROUTE_TITLE then inRoute = true; l.tooltip(tt) end
+			if inRoute and not click and l.onClick and l.text and l.text:find("Olympus Alpha", 1, true) then click = l; l.tooltip(tt) end
+		end
+		local tip = table.concat(texts, "\n")
+		assert(tip:find(L.RECRUIT_ROUTE_TIP:format("Ned Park"), 1, true), "the route's tooltip")
+		assert(tip:find(L.RECRUIT_ROUTE_ASK_TIP, 1, true), "the guild's tooltip")
+		assert(L.RECRUIT_ROUTE_TIP:find("recruiters, Lords or Captains", 1, true), "says the click asks a recruiter, Lord or Captain")
+		assert(L.RECRUIT_ROUTE_ASK_TIP:find("recruiters or officers", 1, true), "says the whisper goes to a recruiter or an officer")
+		click.onClick()
+		eq(Open() and Open().data.name, "Rae Cole-Realm", "the click asks the recruiter he names first, as the tooltips say")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The simulation: a fresh unguilded character on the Join page asks the members /who lists, as a
 -- player does: Request to join, reads the request four seconds, Send, waits; Request again when the

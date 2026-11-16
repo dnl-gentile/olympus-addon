@@ -78,9 +78,9 @@ guild's members who recruit (himself while his recruiting is on, then those whos
 take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
 Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
 one of its members (the gates once a second member's answer agrees: one more is asked), the
-guilds found with `/who` too, and a click asks one of those officers that `/who` found in that
-guild, or another member it found there. Just before, their addon is asked whether they take
-recruit whispers (again if it never answered). A member who set **do not contact** (`/oly
+guilds found with `/who` too, and a click asks one of that guild's recruiters (from 1.6.0) or
+officers that `/who` found in it, or another member it found there. Just before, their addon is
+asked whether they take recruit whispers (again if it never answered). A member who set **do not contact** (`/oly
 nocontact on`) is never offered, however many recruits ask him, and the question closes before
 anything is sent. It stays **one whisper per click**, in your own words (no dues line), 20
 seconds apart. With it goes your request to the same member, so an officer's addon shows it with
