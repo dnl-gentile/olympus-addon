@@ -48,12 +48,19 @@ ns.Locale("frFR", {
 	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
 	LETTER_1_6_0 = [==[Votre Majesté. Soldats d'Olympus.
 
-- {church} Si tu recrutes sur un reroll confirmé, ton personnage principal, Apôtre ou Missionnaire, reçoit les points directs habituels dès que le journal de guilde et un témoin indépendant confirment la recrue. Lie tes personnages avec /oly alt add sur ton personnage principal, puis confirme sur le reroll.
+- {church} Si tu recrutes sur un reroll confirmé, ton personnage principal, Apôtre ou Missionnaire, reçoit les points directs habituels dès que le journal de guilde et un témoin indépendant confirment la recrue. Lie tes personnages avec /oly alt add sur ton personnage principal, puis confirme sur le reroll. Sur WoW: Forever, un reroll d'un autre sous-royaume s'ajoute par son simple nom ; une fois que tes rerolls ont confirmé, reconnecte-toi sur ton personnage principal.
 - {church} Les fenêtres de recrutement ne prennent plus le focus du clavier. Les guildes sans place pour de nouveaux joueurs sont ignorées, et un joueur proche qui n'a jamais demandé à rejoindre n'est pas transmis automatiquement à un autre recruteur.
 - {church} Les annonces de recrutement activées depuis le Recensement s'ouvrent maintenant toutes les 30 minutes au lieu de 5, et jamais par-dessus une autre fenêtre de recrutement. La fenêtre de l'annonce a les boutons Moins souvent et Désactiver ; Église > Invitations change leur fréquence ou les réactive. Si la tienne revient encore toutes les 5 minutes, clique sur Moins souvent.
+- {church} Transferts : la commande d'invitation d'un joueur que tu as pris en charge s'ouvre aussitôt, même avec une fenêtre d'annonce ou de recherche ouverte. Le membre qui t'a transmis le joueur répond même en combat, les membres occupés sont ignorés et, si aucun nom n'arrive, tu en es averti.
 - {guild} Pendant la reconstruction du recensement, le dernier compte connu garde son heure d'origine. Les demandes de mise à jour peuvent se comparer à ces données enregistrées et demander ce qui leur manque.
 - {guild} Quand aucun nouveau rapport de recensement n'atteint ton addon, le Recensement garde son dernier compte, avec la date où il a été fait, au lieu de perdre les guildes une à une.
+- {guild} La page Rejoindre Olympus sollicite d'abord les membres qui recrutent, ignore ceux qui ne peuvent pas inviter et te prévient quand toutes les guildes trouvées sont pleines ou qu'il ne reste personne à solliciter.
 - {news} Une ligne du chat d'Olympus ne s'affiche plus deux fois quand la copie d'un relais arrive en retard. Aux heures de pointe, les relais restent reliés entre eux, transmettent chaque ligne d'abord aux autres relais et partagent l'attente équitablement entre les guildes.
+- {news} Seuls les avis de joueur hors ligne causés par les chuchotements d'Olympus lui-même sont masqués : si tu chuchotes toi-même à un joueur hors ligne, tu vois toujours l'avis du jeu.
+- {news} Dans le chat d'Olympus, sous Tous, une ligne dont l'auteur a des règles inconnues (versions antérieures à 1.5.9) est marquée [?], et survoler le nom de celui qui écrit indique quand il joue avec d'autres règles, dont les guildes ne peuvent pas t'inviter.
+- {watch} Les guildes dont le nom se compare seulement à Olympus ou dit qu'elles ne sont pas Olympus ne comptent plus comme guildes Olympus.
+- {watch} Sur WoW: Forever, le maître d'une guilde déjà vérifiée reçoit maintenant cette vérification des membres de sa guilde qui l'ont, donc une nouvelle installation ou une approbation manquée n'affiche plus Vérification du maître de guilde en attente, même sans vérificateur en ligne.
+- {watch} Révoquer la vérification d'une guilde atteint maintenant tout le monde : tout vérificateur peut révoquer une approbation que son propre client n'a jamais reçue, ceux qui reviennent après quelques jours d'absence reçoivent la révocation, et une guilde retirée du réseau n'affiche pas la coche des guildes vérifiées.
 
 Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
 

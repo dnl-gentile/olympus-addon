@@ -299,17 +299,28 @@ Long live the King. Long live Olympus.]==]
 -- 1.6.0: the alt's recruits for the main, the recruiting windows, the census rebuild; then (the review
 -- of the players' reports) the ad reminder's popup every 30 minutes (Recruit.AD_MINUTES) with Less
 -- often and Turn off, the census's last count kept with its date while nothing newer arrives, and a
--- chat line shown once when a relay's copy arrives late. In every shipped language.
+-- chat line shown once when a relay's copy arrives late; then (the fixes merged for the release) a
+-- Forever alt linked by its plain name, the handoffs, the Join screen asking recruiters first, the
+-- offline notices of Olympus's own whispers alone, the [?] of a line nobody can place, the name rule's
+-- comparisons, a guild master handed his guild's verification and the revocations that reach
+-- everyone. In every shipped language.
 L.LETTER_1_6_0_TITLE = "The Recruiter's Record"
 L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 
-- {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt.
+- {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt. On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.
 - {church} Recruiting prompts no longer take keyboard focus. Guilds without room for new players are skipped, and a nearby player who never asked to join is not automatically passed to another recruiter.
 - {church} Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window. The ad window has Less often and Turn off buttons; Church > Invites changes how often or turns it back on. If yours still comes every 5 minutes, click Less often.
+- {church} Handoffs: a claimed player's invite command opens at once, even with an ad or scan popup open. The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.
 - {guild} During a census rebuild, the last known count keeps its original time. Refresh requests can compare against that saved view and ask for updates it is missing.
 - {guild} When no new census reports reach your addon, the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.
+- {guild} The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.
 - {news} An Olympus chat line no longer shows twice when a relay's copy arrives late. At busy hours the relays stay linked, pass each line to the other relays first and share the wait fairly between guilds.
+- {news} Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.
+- {news} In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?], and hovering a writer's name says when he plays another ruleset, whose guilds can't invite you.
+- {watch} Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.
+- {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
+- {watch} Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.
 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
@@ -557,12 +568,19 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_6_0 = [==[Vossa Majestade. Soldados do Olympus.
 
-- {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt.
+- {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt. No WoW: Forever, um alt em outro sub-reino é adicionado pelo nome simples; quando seus alts confirmarem, entre de novo no principal.
 - {church} As janelas de recrutamento não tiram mais o foco do teclado. Guildas sem vaga ficam fora da busca, e jogadores próximos que nunca pediram para entrar não são repassados automaticamente a outro recrutador.
 - {church} Os anúncios de recrutamento ligados pelo Censo agora aparecem a cada 30 minutos, não mais a cada 5, e nunca por cima de outra janela de recrutamento. A janela do anúncio tem os botões Menos vezes e Desligar; Igreja > Convites muda a frequência ou liga de novo. Se o seu ainda aparece a cada 5 minutos, clique em Menos vezes.
+- {church} Repasses: o comando de convite de um jogador que você assumiu abre na hora, mesmo com a janela de um anúncio ou da busca aberta. O membro que repassou o jogador responde ao seu pedido mesmo em combate, membros ocupados são pulados e, se o nome não chegar, você é avisado.
 - {guild} Durante a reconstrução do censo, a última contagem mantém o horário original. Os pedidos de atualização podem comparar com os dados salvos e pedir o que falta.
 - {guild} Quando nenhum relato novo do censo chega ao seu addon, o Censo mantém a última contagem, com a data em que foi feita, em vez de perder uma guilda de cada vez.
+- {guild} A página Entre na Olympus chama primeiro os membros que estão recrutando, pula quem não pode convidar e avisa quando todas as guildas encontradas estão cheias ou não sobrou ninguém para chamar.
 - {news} Uma linha do chat do Olympus não aparece mais duas vezes quando a cópia de um relay chega atrasada. Nos horários de pico, os relays continuam ligados entre si, passam cada linha primeiro aos outros relays e dividem a espera de forma justa entre as guildas.
+- {news} Só ficam escondidos os avisos de jogador offline causados pelos sussurros do próprio Olympus: se você mesmo sussurrar um jogador offline, ainda vê o aviso do jogo.
+- {news} No chat do Olympus, em Todos, uma linha cujo autor tem conjunto de regras desconhecido (versões antes da 1.5.9) aparece marcada com [?], e passar o mouse no nome de quem escreveu diz quando ele joga em outro conjunto de regras, cujas guildas não podem te convidar.
+- {watch} Guildas cujo nome só se compara ao Olympus ou diz que não é o Olympus deixam de contar como guildas do Olympus.
+- {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
+- {watch} Revogar a verificação de uma guilda agora chega a todos: qualquer verificador pode revogar uma aprovação que o próprio cliente nunca recebeu, quem volta depois de alguns dias fora recebe a revogação, e uma guilda tirada da rede não mostra a marca de guilda verificada.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 

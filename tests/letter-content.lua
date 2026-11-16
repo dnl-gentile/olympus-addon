@@ -613,7 +613,10 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
 		local marks = {}
 		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
-		eq(table.concat(marks, ","), "church,church,church,guild,guild,news", code .. ": release topics")
+		-- (Changed on purpose with the fixes merged for the release: the handoffs, the Join screen, the
+		-- offline notices, the [?] under All, the name rule and the two verification fixes are news too,
+		-- each under its section's mark; the test below names them.)
+		eq(table.concat(marks, ","), "church,church,church,church,guild,guild,guild,news,news,news,watch,watch,watch", code .. ": release topics")
 		for _, text in ipairs({ raw, title }) do
 			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
 				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
@@ -638,4 +641,69 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 	assert(english:find("If yours still comes every 5 minutes, click Less often.", 1, true), "an interval saved before 1.6.0 is kept")
 	assert(english:find("the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.", 1, true))
 	assert(english:find("An Olympus chat line no longer shows twice when a relay's copy arrives late.", 1, true))
+end)
+
+-- 1.6.0, the fixes merged for the release, in every shipped language: a Forever alt added by its plain
+-- name and the main logged in again (Alts.lua), the handoffs (RecruitHandoff.lua), the Join screen asking
+-- recruiters first (Recruit.SelfWord), the offline notices kept out for Olympus's own whispers alone
+-- (Accord.Tried), the [?] under All for a line nobody can place (Channels.GroupTag), the name rule's
+-- comparisons (Core.lua), a guild master handed his guild's verification by his guildmates and the
+-- revocations that reach everyone (Verify.lua). Each page, tag and line named as that language's player
+-- sees it. Fails before: the letter told none of them.
+test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the name rule, the guild master's verification from his guild and the revocations, each named as shown", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	-- The bullets of a section's mark, in their order.
+	local function Bullets(raw, mark)
+		local out = {}
+		for line in ("\n" .. raw):gmatch("\n%- {" .. mark .. "} ([^\n]+)") do out[#out + 1] = line end
+		return out
+	end
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Client(code).L
+		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
+		local church, guild, news, watch = Bullets(raw, "church"), Bullets(raw, "guild"), Bullets(raw, "news"), Bullets(raw, "watch")
+		-- The alt's bullet: still the link's command, and now Forever's plain name and the main logged in again.
+		assert(church[1]:find("/oly alt add", 1, true) and church[1]:find("WoW: Forever", 1, true), code .. ": the alt's bullet tells Forever's link")
+		-- The handoffs, by the Invites section's own heading.
+		eq(church[4]:sub(1, #L.RECRUIT_SECTION_HANDOFFS), L.RECRUIT_SECTION_HANDOFFS, code .. ": the handoffs' bullet opens with their section as shown")
+		-- The Join screen, by its page's title.
+		assert(guild[3]:find(L.RECRUIT_JOIN_TITLE, 1, true), code .. ": the Join page as shown: " .. L.RECRUIT_JOIN_TITLE)
+		-- The [?] under All, the tag and the view as shown, and the versions that send no ruleset.
+		local tag = "[" .. L.CHATWIN_GROUP_UNKNOWN .. "]"
+		assert(news[3]:find(tag, 1, true) and news[3]:find(L.CHATWIN_GROUP_ALL, 1, true) and news[3]:find("1.5.9", 1, true),
+			code .. ": the tag under All as shown: " .. tag .. ", " .. L.CHATWIN_GROUP_ALL)
+		eq(#news, 3, code .. ": the chat's news")
+		-- The guild master's line his guild's verification now takes away, as his Census shows it.
+		local pending = assert(L.VERIFY_LINE_MASTER_GRACE:match("^(.-)%s*:"), code)
+		assert(watch[2]:find(pending, 1, true) and watch[2]:find("WoW: Forever", 1, true), code .. ": the guild master's line as shown: " .. pending)
+		eq(#watch, 3, code .. ": the name rule and the two verification fixes")
+	end
+	local english = Client("enUS").L.LETTER_1_6_0
+	for _, words in ipairs({
+		"On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.",
+		"Handoffs: a claimed player's invite command opens at once, even with an ad or scan popup open.",
+		"The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.",
+		"The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.",
+		"Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.",
+		"In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?]",
+		"Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.",
+		"a guild master whose guild is already verified now gets that verification from guildmates who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
+		"any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.",
+	}) do
+		assert(english:find(words, 1, true), "1.6.0's letter: " .. words)
+	end
 end)

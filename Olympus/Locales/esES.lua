@@ -48,12 +48,19 @@ ns.Locale({ "esES", "esMX" }, {
 	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
 	LETTER_1_6_0 = [==[Su Majestad. Soldados de Olympus.
 
-- {church} Si reclutas con un alter confirmado, tu personaje principal, Apóstol o Misionero, recibe los puntos directos de siempre cuando el registro de la hermandad y un testigo independiente confirman al recluta. Vincula tus personajes con /oly alt add en tu personaje principal y confirma luego en el alter.
+- {church} Si reclutas con un alter confirmado, tu personaje principal, Apóstol o Misionero, recibe los puntos directos de siempre cuando el registro de la hermandad y un testigo independiente confirman al recluta. Vincula tus personajes con /oly alt add en tu personaje principal y confirma luego en el alter. En WoW: Forever, un alter de otro subreino se añade solo con su nombre; cuando tus alters hayan confirmado, vuelve a entrar con tu personaje principal.
 - {church} Las ventanas de reclutamiento ya no te quitan el foco del teclado. Las hermandades sin sitio para nuevos jugadores se omiten, y a un jugador cercano que nunca pidió entrar no se le pasa automáticamente a otro reclutador.
 - {church} Los anuncios de reclutamiento activados desde el Censo aparecen ahora cada 30 minutos en lugar de cada 5, y nunca encima de otra ventana de reclutamiento. La ventana del anuncio tiene los botones Menos a menudo y Desactivar; Iglesia > Invitaciones cambia cada cuánto aparece o lo vuelve a activar. Si el tuyo sigue apareciendo cada 5 minutos, haz clic en Menos a menudo.
+- {church} Derivaciones: el comando de invitación de un jugador que asumiste se abre al momento, aunque haya abierta una ventana de anuncio o de búsqueda. El miembro que te pasó el jugador responde aunque esté en combate, los miembros ocupados se omiten y, si no llega ningún nombre, se te avisa.
 - {guild} Mientras el censo se reconstruye, el último recuento conocido conserva su hora original. Las peticiones de actualización pueden compararse con esos datos guardados y pedir lo que les falta.
 - {guild} Cuando no llegan informes nuevos del censo a tu addon, el Censo conserva su último recuento, con la fecha en que se hizo, en lugar de ir perdiendo hermandades una a una.
+- {guild} La página Únete a Olympus pregunta primero a los miembros que están reclutando, omite a los que no pueden invitar y te avisa cuando todas las hermandades encontradas están llenas o no queda nadie a quien preguntar.
 - {news} Una línea del chat de Olympus ya no aparece dos veces cuando la copia de un relay llega tarde. En las horas punta, los relays siguen conectados entre sí, pasan cada línea primero a los otros relays y reparten la espera de forma justa entre las hermandades.
+- {news} Solo se ocultan los avisos de jugador desconectado que causan los susurros del propio Olympus: si tú susurras a un jugador desconectado, sigues viendo el aviso del juego.
+- {news} En el chat de Olympus, en Todos, una línea cuyo autor tiene reglas desconocidas (versiones anteriores a la 1.5.9) aparece marcada con [?], y al pasar el ratón por el nombre de quien escribe se indica cuándo juega con otras reglas, cuyas hermandades no pueden invitarte.
+- {watch} Las hermandades cuyo nombre solo las compara con Olympus o dice que no son Olympus ya no cuentan como hermandades de Olympus.
+- {watch} En WoW: Forever, el maestro de una hermandad ya verificada recibe ahora esa verificación de los compañeros de hermandad que la tienen, así que una instalación nueva o una aprobación perdida ya no muestra Verificación del maestro de hermandad pendiente, aunque no haya ningún verificador conectado.
+- {watch} Revocar la verificación de una hermandad ahora llega a todos: cualquier verificador puede revocar una aprobación que su propio cliente nunca recibió, quien vuelve tras unos días fuera recibe la revocación, y una hermandad sacada de la red no muestra la marca de hermandad verificada.
 
 Cierra y vuelve a abrir WoW después de actualizar. Si algo sigue fallando, envía un informe con /oly bug.
 

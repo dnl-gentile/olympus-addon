@@ -48,12 +48,19 @@ ns.Locale("itIT", {
 	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
 	LETTER_1_6_0 = [==[Vostra Maestà. Soldati di Olympus.
 
-- {church} Se recluti con un alt confermato, il tuo personaggio principale, Apostolo o Missionario, riceve i soliti punti diretti quando il registro della gilda e un testimone indipendente confermano la recluta. Collega i tuoi personaggi con /oly alt add sul personaggio principale, poi conferma sull'alt.
+- {church} Se recluti con un alt confermato, il tuo personaggio principale, Apostolo o Missionario, riceve i soliti punti diretti quando il registro della gilda e un testimone indipendente confermano la recluta. Collega i tuoi personaggi con /oly alt add sul personaggio principale, poi conferma sull'alt. Su WoW: Forever, un alt di un altro sottoreame si aggiunge con il solo nome; quando i tuoi alt hanno confermato, rientra con il personaggio principale.
 - {church} Le finestre di reclutamento non ti tolgono più il focus della tastiera. Le gilde senza posto per nuovi giocatori vengono saltate, e un giocatore vicino che non ha mai chiesto di entrare non viene passato automaticamente a un altro reclutatore.
 - {church} Gli annunci di reclutamento attivati dal Censimento ora compaiono ogni 30 minuti invece che ogni 5, e mai sopra un'altra finestra di reclutamento. La finestra dell'annuncio ha i pulsanti Meno spesso e Disattiva; Chiesa > Inviti cambia ogni quanto compare o lo riattiva. Se il tuo compare ancora ogni 5 minuti, clicca Meno spesso.
+- {church} Inoltri: il comando di invito di un giocatore che hai preso in carico si apre subito, anche con una finestra di annuncio o di ricerca aperta. Il membro che ti ha passato il giocatore risponde anche in combattimento, i membri occupati vengono saltati e, se non arriva nessun nome, vieni avvisato.
 - {guild} Durante la ricostruzione del censimento, l'ultimo conteggio noto mantiene l'ora originale. Le richieste di aggiornamento possono confrontarsi con quei dati salvati e chiedere ciò che manca.
 - {guild} Quando al tuo addon non arrivano nuovi rapporti del censimento, il Censimento mantiene il suo ultimo conteggio, con la data in cui è stato fatto, invece di perdere le gilde una alla volta.
+- {guild} La pagina Unisciti a Olympus contatta prima i membri che stanno reclutando, salta quelli che non possono invitare e ti avvisa quando tutte le gilde trovate sono piene o non resta nessuno da contattare.
 - {news} Una riga della chat di Olympus non appare più due volte quando la copia di un relay arriva in ritardo. Nelle ore di punta i relay restano collegati tra loro, passano ogni riga prima agli altri relay e dividono l'attesa in modo equo tra le gilde.
+- {news} Vengono nascosti solo gli avvisi di giocatore offline causati dai sussurri di Olympus stesso: se sussurri tu a un giocatore offline, vedi ancora l'avviso del gioco.
+- {news} Nella chat di Olympus, in Tutti, una riga il cui autore ha regole sconosciute (versioni precedenti alla 1.5.9) è segnata con [?], e passando il mouse sul nome di chi scrive si vede quando gioca con altre regole, le cui gilde non possono invitarti.
+- {watch} Le gilde il cui nome le paragona soltanto a Olympus o dice che non sono Olympus non contano più come gilde di Olympus.
+- {watch} Su WoW: Forever, il capogilda di una gilda già verificata ora riceve quella verifica dai compagni di gilda che ce l'hanno, quindi una nuova installazione o un'approvazione persa non mostra più Verifica del capogilda in sospeso, anche senza verificatori online.
+- {watch} Revocare la verifica di una gilda ora raggiunge tutti: qualsiasi verificatore può revocare un'approvazione che il suo client non ha mai ricevuto, chi torna dopo qualche giorno di assenza riceve la revoca, e una gilda tolta dalla rete non mostra il segno di spunta delle gilde verificate.
 
 Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
 

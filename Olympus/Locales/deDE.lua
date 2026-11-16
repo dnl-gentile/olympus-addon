@@ -48,12 +48,19 @@ ns.Locale("deDE", {
 	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
 	LETTER_1_6_0 = [==[Eure Majestät. Soldaten von Olympus.
 
-- {church} Wenn du auf einem bestätigten Twink rekrutierst, bekommt dein Hauptcharakter als Apostel oder Missionar die üblichen direkten Punkte, sobald das Gildenprotokoll und ein unabhängiger Zeuge den Rekruten bestätigen. Verknüpfe deine Charaktere mit /oly alt add auf deinem Hauptcharakter und bestätige dann auf dem Twink.
+- {church} Wenn du auf einem bestätigten Twink rekrutierst, bekommt dein Hauptcharakter als Apostel oder Missionar die üblichen direkten Punkte, sobald das Gildenprotokoll und ein unabhängiger Zeuge den Rekruten bestätigen. Verknüpfe deine Charaktere mit /oly alt add auf deinem Hauptcharakter und bestätige dann auf dem Twink. Auf WoW: Forever fügst du einen Twink auf einem anderen Teilrealm mit seinem bloßen Namen hinzu; sobald deine Twinks bestätigt haben, melde dich noch einmal mit deinem Hauptcharakter an.
 - {church} Rekrutierungsfenster nehmen dir nicht mehr den Tastaturfokus. Gilden ohne Platz für neue Spieler werden übersprungen, und ein Spieler in der Nähe, der nie um Aufnahme gebeten hat, wird nicht automatisch an einen anderen Rekrutierer weitergegeben.
 - {church} Rekrutierungsanzeigen, die du im Zensus einschaltest, erscheinen jetzt alle 30 Minuten statt alle 5, und nie über einem anderen Rekrutierungsfenster. Das Anzeigenfenster hat die Knöpfe Seltener und Ausschalten; unter Kirche > Einladungen änderst du, wie oft es kommt, oder schaltest es wieder ein. Kommt deines noch alle 5 Minuten, klicke auf Seltener.
+- {church} Weitergaben: Der Einladungsbefehl für einen übernommenen Spieler öffnet sich sofort, auch wenn ein Anzeigen- oder Suchfenster offen ist. Das Mitglied, das den Spieler weitergegeben hat, antwortet auch im Kampf, beschäftigte Mitglieder werden übersprungen, und kommt kein Name an, wird es dir gesagt.
 - {guild} Während der Zensus neu aufgebaut wird, behält die letzte bekannte Zählung ihre ursprüngliche Zeit. Aktualisierungsanfragen können mit diesem gespeicherten Stand vergleichen und anfordern, was ihm fehlt.
 - {guild} Wenn keine neuen Zensusberichte dein Addon erreichen, behält der Zensus seine letzte Zählung mit dem Datum, an dem sie gezählt wurde, statt eine Gilde nach der anderen zu verlieren.
+- {guild} Die Seite Olympus beitreten fragt zuerst Mitglieder, die rekrutieren, überspringt Mitglieder, die nicht einladen können, und sagt dir, wenn alle gefundenen Gilden voll sind oder niemand mehr zu fragen ist.
 - {news} Eine Zeile im Olympus-Chat erscheint nicht mehr doppelt, wenn die Kopie eines Relays verspätet ankommt. Zu Stoßzeiten bleiben die Relays miteinander verbunden, geben jede Zeile zuerst an die anderen Relays weiter und verteilen die Wartezeit gerecht auf die Gilden.
+- {news} Nur die Offline-Hinweise, die das Flüstern von Olympus selbst auslöst, werden ausgeblendet: Wenn du selbst einen Spieler anflüsterst, der offline ist, siehst du den Hinweis des Spiels weiterhin.
+- {news} Im Olympus-Chat unter Alle ist eine Zeile, deren Schreiber ein unbekanntes Regelwerk hat (Versionen vor 1.5.9), mit [?] markiert, und fährst du mit der Maus über den Namen, steht dort, wenn er auf einem anderen Regelwerk spielt, dessen Gilden dich nicht einladen können.
+- {watch} Gilden, deren Name sie nur mit Olympus vergleicht oder sagt, dass sie nicht Olympus sind, zählen nicht mehr als Olympus-Gilden.
+- {watch} Auf WoW: Forever bekommt der Gildenmeister einer bereits verifizierten Gilde diese Verifizierung jetzt von Gildenmitgliedern, die sie haben, sodass eine Neuinstallation oder eine verpasste Genehmigung nicht mehr GM-Verifizierung ausstehend zeigt, auch wenn kein Prüfer online ist.
+- {watch} Der Widerruf einer Gildenverifizierung erreicht jetzt alle: Jeder Prüfer kann eine Genehmigung widerrufen, die sein eigener Client nie erhalten hat, wer nach ein paar Tagen zurückkommt, bekommt den Widerruf, und eine vom Netz genommene Gilde zeigt kein Häkchen einer verifizierten Gilde.
 
 Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.
 
