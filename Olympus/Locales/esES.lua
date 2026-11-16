@@ -9,6 +9,21 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "esES" and code ~= "esMX" then return end
 ns.Locale({ "esES", "esMX" }, {
+	RECRUIT_FILTER_TITLE = "Filtros de reclutamiento",
+	RECRUIT_FILTER_HINT = "Se aplica a candidatos y solicitudes JOIN. Los datos desconocidos requieren una comprobación.",
+	RECRUIT_FILTER_LEVELS = "Niveles: %s (clic para editar)",
+	RECRUIT_FILTER_ALL = "Todos",
+	RECRUIT_FILTER_ALL_CLASSES = "Seleccionar todas las clases",
+	RECRUIT_FILTER_NO_CLASSES = "Borrar selección de clases",
+	RECRUIT_FILTER_LEVEL_PROMPT = "Introduce un intervalo (por ejemplo 20-60), un nivel o deja el campo vacío para todos.",
+	RECRUIT_FILTER_SAVE = "Guardar filtros",
+	RECRUIT_FILTER_INVALID = "Introduce niveles enteros de 1 a %d, el mínimo primero, o deja el campo vacío.",
+	RECRUIT_FILTER_UNKNOWN = "Faltan datos de nivel o clase. Comprueba al jugador antes de preparar la invitación.",
+	RECRUIT_FILTER_LEVEL_OUT = "Fuera del intervalo de niveles seleccionado.",
+	RECRUIT_FILTER_CLASS_OUT = "Clase no seleccionada para reclutar.",
+	RECRUIT_FILTER_CHECK = "Comprobar nivel y clase (/who)",
+	RECRUIT_FILTER_TARGET = "Selecciona al jugador o pasa el cursor sobre él para comprobar su nivel y clase.",
+	REALM_ROSTER_AGE = "Último informe de detalles de la hermandad: %s.",
 	LETTER_1_4_1_TITLE = "Restaurar el chat de hermandad",
 	LETTER_1_4_1_HEAD = "Restaurar el chat de hermandad",
 	LETTER_1_4_1_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",

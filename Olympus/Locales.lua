@@ -8418,3 +8418,21 @@ L.RECRUIT_FILTER_CHECK = "Check level and class (/who)"
 L.RECRUIT_FILTER_TARGET = "Target or mouse over this player to check their level and class."
 
 L.REALM_ROSTER_AGE = "Guild details last reported %s."
+
+if GetLocale and GetLocale() == "ptBR" then
+	L.RECRUIT_FILTER_TITLE = "Filtros de recrutamento"
+	L.RECRUIT_FILTER_HINT = "Vale para candidatos e pedidos JOIN. Dados desconhecidos precisam de verificação."
+	L.RECRUIT_FILTER_LEVELS = "Níveis: %s (clique para editar)"
+	L.RECRUIT_FILTER_ALL = "Todos"
+	L.RECRUIT_FILTER_ALL_CLASSES = "Selecionar todas as classes"
+	L.RECRUIT_FILTER_NO_CLASSES = "Limpar seleção de classes"
+	L.RECRUIT_FILTER_LEVEL_PROMPT = "Digite um intervalo (por exemplo 20-60), um nível, ou deixe vazio para todos os níveis."
+	L.RECRUIT_FILTER_SAVE = "Salvar filtros"
+	L.RECRUIT_FILTER_INVALID = "Digite níveis inteiros de 1 a %d, o mínimo primeiro, ou deixe vazio."
+	L.RECRUIT_FILTER_UNKNOWN = "Nível ou classe desconhecido. Confira o jogador antes de preparar um convite."
+	L.RECRUIT_FILTER_LEVEL_OUT = "Fora do intervalo de níveis selecionado."
+	L.RECRUIT_FILTER_CLASS_OUT = "Classe não selecionada para recrutamento."
+	L.RECRUIT_FILTER_CHECK = "Verificar nível e classe (/who)"
+	L.RECRUIT_FILTER_TARGET = "Selecione o jogador ou passe o cursor sobre ele para verificar nível e classe."
+	L.REALM_ROSTER_AGE = "Último relato dos detalhes da guilda: %s."
+end
