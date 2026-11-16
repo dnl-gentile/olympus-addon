@@ -186,6 +186,129 @@ test("1.1.6 Church: linked invite attribution prefers the main over a duplicate 
 	eq(StateOf(w, c.a1, "Shared Recruit", c.m1.name), "credited")
 end)
 
+-- (1.6.0) The guild log gives hours ago, so two reads of one invite can name hours an hour apart: a row
+-- kept under a linked alt who is a missionary himself (by a keeper before 1.6.0, or before the link
+-- reached it) and the main's own row of the same invite then differ by that hour.
+test("1.6.0 Church: an invite kept under a linked missionary alt and again under the main, its hours an hour apart, counts for the main", function()
+	local w, c = Cast()
+	local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+	Join(w, World.GUILD, "Skew Recruit")
+	local function Report(ti, tj)
+		return ("NV~1~w~Mira Wells~Skew Recruit-Realm~%s~%s~%s"):format(World.GUILD, B36(ti), B36(tj))
+	end
+	-- Before the link: Mira's own row, a missionary's, the earlier read's hours.
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(hour - 2, hour - 1)), true)
+	eq(StateOf(w, c.a1, "Skew Recruit", "Mira Wells"), "credited")
+	-- Mira is Aldric's alt (both claims heard): a later read, an hour on, is the Apostle's own row.
+	local revision = 1
+	c.a1.ns.Alts.Group = function(name)
+		if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+	end
+	c.a1.ns.Alts.Version = function() return revision end
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(hour - 1, hour)), true)
+	eq(StateOf(w, c.a1, "Skew Recruit", A1), "credited", "the main's row wins, whichever read came first")
+	eq(StateOf(w, c.a1, "Skew Recruit", "Mira Wells"), "taken")
+	eq(w:As(c.a1, c.a1.Count.Own, Key(A1), "a").joins, 1)
+	eq(w:As(c.a1, c.a1.Count.Own, Key("Mira Wells"), "a").joins, 0, "the missionary's row scores nothing")
+	-- Two hours apart is another invite as the log tells them: the earlier claim, as before.
+	c.a1.ns.Alts.Group = function() return nil end
+	revision = revision + 1
+	Join(w, World.GUILD, "Far Recruit")
+	local function Far(ti, tj)
+		return ("NV~1~w~Mira Wells~Far Recruit-Realm~%s~%s~%s"):format(World.GUILD, B36(ti), B36(tj))
+	end
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Far(hour - 4, hour - 3)), true)
+	c.a1.ns.Alts.Group = function(name)
+		if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+	end
+	revision = revision + 1
+	eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Far(hour - 2, hour - 1)), true)
+	eq(StateOf(w, c.a1, "Far Recruit", "Mira Wells"), "credited", "the earlier row of two invites")
+	eq(StateOf(w, c.a1, "Far Recruit", A1), "taken")
+end)
+
+-- (1.6.0) Those two rows, tied (ClaimTie), stand together at the earlier of their hours against a third
+-- recruiter's claim on the same recruit. Weighed at the main's own row, the later read, a third claim of
+-- the alt row's hour took the recruit from the pair, which the alt's row alone held before 1.6.0, and one
+-- of the main row's hour took him on its name (the tie keys). Fails before: the third credited in both.
+test("1.6.0 Church: an invite kept under a linked missionary alt and under the main an hour apart stands at the earlier hour against a third recruiter's claim", function()
+	for _, case in ipairs({
+		{ third = "Nils Ford", hours = -2, wins = A1, why = "a third claim of the alt row's hour" },
+		{ third = "Abel Quill", hours = -1, wins = A1, why = "a third claim of the main row's hour, its name first" },
+		{ third = "Abel Quill", hours = -3, wins = "Abel Quill", why = "a third claim earlier than both rows" },
+	}) do
+		local w, c = Cast()
+		w:Client("Abel Quill")
+		w:Act(c.a1, c.a1.Church.NameMissionary, "Abel Quill")
+		w:Run(8 * 3600)
+		w:Presence()
+		local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+		Join(w, World.GUILD, "Skew Recruit")
+		local function Report(by, ti, tj)
+			return ("NV~1~w~%s~Skew Recruit-Realm~%s~%s~%s"):format(by, World.GUILD, B36(ti), B36(tj))
+		end
+		-- Before the link: Mira's own row (a missionary's) and the third recruiter's.
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report("Mira Wells", hour - 2, hour - 1)), true)
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.third, hour + case.hours, hour + case.hours + 1)), true)
+		-- Mira is Aldric's alt (both claims heard): the later read, an hour on, is his own row.
+		c.a1.ns.Alts.Group = function(name)
+			if Key(name) == Key(A1) or Key(name) == Key(c.m1.name) then return { main = A1 } end
+		end
+		c.a1.ns.Alts.Version = function() return 1 end
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report("Mira Wells", hour - 1, hour)), true)
+		for _, by in ipairs({ A1, "Mira Wells", case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.wins) and "credited" or "taken", case.why .. ", the row of " .. by)
+		end
+	end
+end)
+
+-- (1.6.0) At one hour, the tied rows stand under one name against a third recruiter's claim of that hour:
+-- that of the row this ledger credits when the link is not known (a 1.5.9 keeper ties nothing), the
+-- earliest of the main's row and the rows tied to it, then the smallest id. Knowing the link then moves
+-- the credit inside the group only, to the main's own row. Under the main's name, a third recruiter named
+-- between the alt and the main took the recruit from a missionary alt's row of his hour (Aaron, Abel,
+-- Aldric), which held him alone, or lost him to the main (Aldric, Cora, Mira), having beaten the alt's
+-- row alone. Fails before: Abel credited in the first and third cases, Aldric in the second.
+test("1.6.0 Church: a missionary alt's rows tied to the main's stand under the name of the row a keeper without the link credits, so knowing the link moves the credit inside the group only", function()
+	for _, case in ipairs({
+		{ alt = "Aaron Moss", third = "Abel Quill", mainAt = -1, alone = "Aaron Moss", wins = A1, why = "alt, third, main, the main's row an hour on" },
+		{ alt = "Mira Wells", third = "Cora Lind", mainAt = -1, alone = "Cora Lind", wins = "Cora Lind", why = "main, third, alt, the main's row an hour on" },
+		{ alt = "Aaron Moss", third = "Abel Quill", mainAt = -2, alone = "Aaron Moss", wins = A1, why = "alt, third, main, all three of one hour" },
+		{ alt = "Mira Wells", third = "Cora Lind", mainAt = -2, alone = A1, wins = A1, why = "main, third, alt, all three of one hour" },
+	}) do
+		local w, c = Cast()
+		for _, name in ipairs({ "Aaron Moss", "Abel Quill", "Cora Lind" }) do
+			w:Client(name)
+			w:Act(c.a1, c.a1.Church.NameMissionary, name)
+		end
+		w:Run(8 * 3600)
+		w:Presence()
+		local B36, hour = ns.Codec.Base36, math.floor(w.clock / 3600)
+		Join(w, World.GUILD, "Skew Recruit")
+		local function Report(by, ti)
+			return ("NV~1~w~%s~Skew Recruit-Realm~%s~%s~%s"):format(by, World.GUILD, B36(ti), B36(ti + 1))
+		end
+		-- Before the link: the alt's own row (a missionary's) and the third recruiter's, of one hour.
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.alt, hour - 2)), true)
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.third, hour - 2)), true)
+		-- The alt is Aldric's (both claims heard): another read of the invite is the main's own row.
+		local linked, revision = true, 1
+		c.a1.ns.Alts.Group = function(name)
+			if linked and (Key(name) == Key(A1) or Key(name) == Key(case.alt)) then return { main = A1 } end
+		end
+		c.a1.ns.Alts.Version = function() return revision end
+		eq(w:Act(c.a1, c.a1.Count.TakeEvidence, c.wes.name, Report(case.alt, hour + case.mainAt)), true)
+		for _, by in ipairs({ A1, case.alt, case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.wins) and "credited" or "taken", case.why .. ", the link known: the row of " .. by)
+		end
+		-- The same ledger, the link not known: every row stands alone. The third recruiter's the same.
+		linked, revision = false, revision + 1
+		for _, by in ipairs({ A1, case.alt, case.third }) do
+			eq(StateOf(w, c.a1, "Skew Recruit", by), Key(by) == Key(case.alone) and "credited" or "taken", case.why .. ", the link not known: the row of " .. by)
+		end
+	end
+end)
+
 test("1.1.6 Church: linked invite attribution resolves a confirmed alt from another Forever sub-realm", function()
 	local w, c = Cast()
 	local keeper = c.a1
@@ -229,6 +352,245 @@ test("1.1.6 Church: linked invite attribution resolves a confirmed alt from anot
 	w:As(keeper, Alts.Handle, "CHANNEL", sameName, ("AL~%d~A~%s~%s"):format(w.clock, World.GUILD, otherMain))
 	eq(w:Act(keeper, keeper.Count.TakeEvidence, c.wes.name, Report("Unclear Recruit", localRealm)), false,
 		"ambiguous short names do not identify a link")
+end)
+
+-- (1.6.0) Alt links on a WoW: Forever ruleset, whose sub-realms are one family where a name is one:
+-- the real Alts.lua in this world's clients, one account's characters sharing its saved variables.
+local FR1, FR2, FR3 = "CAMWOWUS1Realm1PvE", "CAMWOWUS1Realm2PvE", "CAMWOWUS1Realm3PvE"
+local function ForeverAlts(w, name, realm, opts)
+	opts = opts or {}
+	local cl = w:Client(name .. "-" .. realm, opts)
+	cl.ns.realm, cl.ns.group = realm, "ForeverPvE"
+	if opts.db then cl.ns.db = opts.db end
+	local popup = StaticPopupDialogs.OLYMPUS_ALT_CONFIRM
+	w:As(cl, function() assert(loadfile(ROOT .. "Olympus/Alts.lua"))("Olympus", cl.ns) end)
+	cl.altPopup = StaticPopupDialogs.OLYMPUS_ALT_CONFIRM
+	StaticPopupDialogs.OLYMPUS_ALT_CONFIRM = popup
+	cl.Alts = cl.ns.Alts
+	return cl
+end
+
+test("1.6.0 alt links on a Forever ruleset: '/oly alt add First Surname' reaches an alt on another sub-realm, asked and linked there; '/oly alt remove First Surname' undoes it from either side", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local far = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db })
+	local near = ForeverAlts(w, "Orrin Tallis", FR1, { db = db })
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(main, main.Alts.Slash, "add Orrin Tallis"), true)
+	eq(w:As(far, far.Alts.AskConfirm), true, "the alt on another sub-realm is asked")
+	eq(far.dialogs[#far.dialogs].which, "OLYMPUS_ALT_CONFIRM")
+	w:As(far, far.altPopup.OnAccept)
+	eq(w:As(near, near.Alts.Confirm, true), true, "the alt on the main's own sub-realm, as before")
+	eq(table.concat(w:As(main, main.Alts.MyGroup), ","), table.concat({ main.name, far.name, near.name }, ","))
+	eq(next(db.alts.offers), nil, "no offer left waiting")
+	w:Flush()
+	local claims = w:Sent(far, "AL", "CHANNEL")
+	eq(claims[#claims].msg:match("~([^~]*)$"), main.name, "its claim names the main as the server writes him")
+	-- The plain name takes it apart from the main, and again from the alt naming its main plain.
+	eq(w:As(main, main.Alts.Slash, "remove Ilsa Fenwick"), true)
+	eq(db.alts.links[far.name:lower()], nil)
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(far, far.Alts.Confirm, true), true)
+	eq(w:As(far, far.Alts.Slash, "remove Corvin Ashdale"), true, "from the alt: its main by the plain name")
+	eq(db.alts.links[far.name:lower()], nil)
+	eq(db.alts.links[near.name:lower()] ~= nil, true, "the other alt stays linked")
+end)
+
+test("1.6.0 alt links: at most eight alts per player, also when a ninth was offered before the eighth said yes", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local alts = {}
+	for i, n in ipairs({ "Wynn Ash", "Wynn Birch", "Wynn Cedar", "Wynn Elm", "Wynn Fir", "Wynn Hazel", "Wynn Larch", "Wynn Maple", "Wynn Oak" }) do
+		alts[i] = ForeverAlts(w, n, FR1, { db = db })
+		eq(w:As(main, main.Alts.Slash, "add " .. n), true, "an offer: no link yet")
+	end
+	for i = 1, 8 do eq(w:As(alts[i], alts[i].Alts.Confirm, true), true, alts[i].name) end
+	eq(w:As(alts[9], alts[9].Alts.Confirm, true), false, "the ninth yes")
+	eq(alts[9].printed[#alts[9].printed], ns.L.ALT_FULL:format(8))
+	eq(#w:As(main, main.Alts.MyGroup), 9, "the main and eight alts")
+end)
+
+test("1.6.0 alt links on a Forever ruleset: the main's claim names all eight alts on other sub-realms, those past one message plain, and another client links all eight; a claim that fits is as before", function()
+	local w = World.New({})
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local other = ForeverAlts(w, "Wren Hollow", FR3)
+	local names = { "Wynn Copperfield", "Wynn Ravenscroft", "Wynn Hollowmere", "Wynn Kettleburn", "Wynn Stonebridge",
+		"Wynn Ashworth", "Wynn Duskwater", "Wynn Millbrook" }
+	local full = {}
+	local function Claim()
+		w:Flush()
+		w:ClearSent()
+		eq(w:As(main, main.Alts.Send, true), true)
+		local sent = w:Sent(main, "AL", "CHANNEL")
+		w:Flush()
+		return sent[#sent].msg
+	end
+	for i, n in ipairs(names) do
+		local cl = ForeverAlts(w, n, i % 2 == 0 and FR3 or FR2, { db = db })
+		full[i] = cl.name
+		eq(w:As(main, main.Alts.Slash, "add " .. cl.name), true)
+		eq(w:As(cl, cl.Alts.Confirm, true), true)
+		if i == 3 then
+			-- Three fit with their sub-realms: the claim is the one every version reads, names and all.
+			local claim = Claim()
+			eq(claim:match("~([^~]*)$"), table.concat({ full[1], full[3], full[2] }, ","))
+		end
+	end
+	local claim = Claim()
+	eq(#claim <= 250, true, "one message")
+	local named = {}
+	for n in claim:match("~([^~]*)$"):gmatch("[^,]+") do named[#named + 1] = n end
+	eq(#named, 8, "every alt named: " .. claim)
+	for i, n in ipairs(full) do
+		local g = w:As(other, other.Alts.Group, n)
+		eq(g and g.main, main.name, "linked on another client: " .. names[i])
+	end
+end)
+
+test("1.6.0 Church: a character of the inviter's own account is no witness, linked or not; the log's plain name on another sub-realm of a Forever ruleset is his", function()
+	local w, c = Cast()
+	-- Mira's account has another character in her guild that she never linked (the account's list of
+	-- its characters, ns.db.myCharacters, which Treasury keeps).
+	local twin = w:Client("Mira Twin")
+	twin.ns.db.myCharacters = { ["mira wells-realm"] = true, ["mira twin-realm"] = true }
+	w:Presence()
+	w:LogEvent(World.GUILD, "invite", "Mira Wells", "Twin Recruit", 3)
+	w:LogEvent(World.GUILD, "join", "Twin Recruit", nil, 2)
+	Join(w, World.GUILD, "Twin Recruit")
+	eq(w:ReadLog(twin), true)
+	eq(#w:Sent(twin, "NV", "WHISPER", "w"), 0, "a character of her account reports no pair of hers")
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), nil, "and confirms nothing")
+	w:ReadLog(c.m1)
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), "pending", "her own report, as before")
+	w:ReadLog(c.wes)
+	eq(StateOf(w, c.a1, "Twin Recruit", "Mira Wells"), "credited", "another player's read confirms it")
+
+	-- An Apostle's linked alt, its name plain in the log; another character of that account, never
+	-- linked, whose list writes the alt with its own sub-realm of the ruleset.
+	local alt = w:Client("Aldric Alt", { guild = World.GUILD2 })
+	local cousin = w:Client("Aldric Cousin", { guild = World.GUILD2 })
+	local group = { main = A1, members = { { name = A1 }, { name = alt.name } } }
+	for _, cl in ipairs(w.clients) do
+		cl.ns.Alts.Group = function(n) if Key(n) == Key(A1) or Key(n) == Key(alt.name) then return group end end
+	end
+	w.alts[Key(A1)], w.alts[Key(alt.name)] = { alt.name }, { A1 }
+	cousin.ns.group = "ForeverPvE"
+	cousin.ns.db.myCharacters = { ["aldric alt-" .. FR2:lower()] = true, ["aldric cousin-" .. FR3:lower()] = true }
+	w:Presence()
+	w:LogEvent(World.GUILD2, "invite", "Aldric Alt", "Cousin Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Cousin Recruit", nil, 2)
+	Join(w, World.GUILD2, "Cousin Recruit")
+	eq(w:ReadLog(cousin), true)
+	eq(#w:Sent(cousin, "NV", "WHISPER", "w"), 0, "the alt's own account, across its sub-realms")
+	eq(StateOf(w, c.a2, "Cousin Recruit", A1), nil)
+	w:ReadLog(c.vik)
+	eq(StateOf(w, c.a2, "Cousin Recruit", A1), "credited", "another player's read credits the Apostle")
+end)
+
+-- (1.6.0) A world of Forever clients: Core's name helpers (FullName, RealmOf, GroupOf) read the harness's
+-- own realm and ruleset, so each client runs with its own there, as the game's would.
+local function Pack(...) return { n = select("#", ...), ... } end
+local function ForeverWorld(opts)
+	local w = World.New(opts)
+	function w:As(cl, fn, ...)
+		local r, g, f = ns.realm, ns.group, ns.faction
+		ns.realm, ns.group, ns.faction = cl.ns.realm, cl.ns.group, cl.ns.faction
+		local out = Pack(pcall(World.As, self, cl, fn, ...))
+		ns.realm, ns.group, ns.faction = r, g, f
+		if not out[1] then error(out[2], 0) end
+		return unpack(out, 2, out.n)
+	end
+	return w
+end
+
+test("1.6.0 Church on Forever: a linked alt's recruit counts for its Apostle main when the channel carries no alt claim: the claims go over GUILD and to the keepers online, and a guildmate reports the pair on the alt's own claim", function()
+	local MAIN = "Corvin Ashdale-" .. FR1
+	local w = ForeverWorld({ apostles = { MAIN, "Edda Marsh-" .. FR1 } })
+	-- Forever's relays at their worst: no claim said on the channel reaches anyone.
+	w.lost = { AL = true }
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })                   -- an Apostle, Olympus Ember
+	local keeper = ForeverAlts(w, "Edda Marsh", FR1, { guild = World.GUILD2 })        -- an Apostle in Olympus Vale
+	local mate = ForeverAlts(w, "Vik Stone", FR3, { guild = World.GUILD2 })            -- a plain member there
+	local alt = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db, guild = World.GUILD2 }) -- the Apostle's alt, there
+	-- Another player's link, his main no Church person: his claims stay on the channel.
+	local pdb = { chatRooms = true, addonChat = true }
+	local plain = ForeverAlts(w, "Hale Brook", FR2, { db = pdb, guild = World.GUILD2 })
+	local plainAlt = ForeverAlts(w, "Hale Cotter", FR3, { db = pdb, guild = World.GUILD2 })
+	alt.online, plainAlt.online = false, false
+	w:Presence()
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	eq(w:As(plain, plain.Alts.Slash, "add Hale Cotter"), true)
+	-- One character of an account at a time: the alts log in and say yes.
+	main.online, plain.online, alt.online, plainAlt.online = false, false, true, true
+	w:Presence()
+	eq(w:As(alt, alt.Alts.Confirm, true), true)
+	eq(w:As(plainAlt, plainAlt.Alts.Confirm, true), true)
+	w:Flush()
+	eq(#w:Sent(alt, "AL", "GUILD"), 1, "the alt's claim to its own guild")
+	eq(#w:Sent(alt, "AL", "WHISPER"), 1, "and to the keeper it hears online")
+	eq(w:Sent(alt, "AL", "WHISPER")[1].target, keeper.name)
+	eq(#w:Sent(plainAlt, "AL", "GUILD") + #w:Sent(plainAlt, "AL", "WHISPER"), 0, "no Church group: the channel alone")
+	-- The main logs in again: his claim reaches the keeper too.
+	alt.online, plainAlt.online, main.online = false, false, true
+	w:Presence()
+	eq(w:As(main, main.Alts.Send, true), true)
+	w:Flush()
+	local g = w:As(keeper, keeper.Alts.Group, alt.name)
+	eq(g and g.main, MAIN, "the keeper holds the link, both claims heard")
+	eq(w:As(mate, mate.Alts.Group, alt.name), nil, "the guildmate holds the alt's claim alone")
+	-- The alt invites; the recruit joins; the guildmate's addon reads the guild log, which gives names plain.
+	main.online, alt.online = false, true
+	w:Presence()
+	w:LogEvent(World.GUILD2, "invite", "Ilsa Fenwick", "Lark Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Lark Recruit", nil, 2)
+	Join(w, World.GUILD2, "Lark Recruit")
+	eq(w:ReadLog(mate), true)
+	eq(#w:Sent(mate, "NV", "WHISPER", "w") > 0, true, "the guildmate reports the alt's pair")
+	eq(StateOf(w, keeper, "Lark Recruit", MAIN), "credited", "credited to the Apostle")
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1)
+	eq(StateOf(w, keeper, "Lark Recruit", alt.name), nil, "no row for the alt")
+	w:ReadLog(alt)
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1, "the alt's own report adds nothing")
+end)
+
+test("1.6.0 Church: a pair a guildmate reported on the alt's own claim, which the keeper refused for want of the main's claim, goes again at once when both claims are heard", function()
+	local MAIN = "Corvin Ashdale-" .. FR1
+	local w = ForeverWorld({ apostles = { MAIN, "Edda Marsh-" .. FR1 } })
+	local db = { chatRooms = true, addonChat = true }
+	local main = ForeverAlts(w, "Corvin Ashdale", FR1, { db = db })
+	local keeper = ForeverAlts(w, "Edda Marsh", FR1, { guild = World.GUILD2 })
+	local mate = ForeverAlts(w, "Vik Stone", FR3, { guild = World.GUILD2 })
+	local alt = ForeverAlts(w, "Ilsa Fenwick", FR2, { db = db, guild = World.GUILD2 })
+	alt.online = false
+	w:Presence()
+	eq(w:As(main, main.Alts.Slash, "add Ilsa Fenwick"), true)
+	main.online, alt.online = false, true
+	w:Presence()
+	eq(w:As(alt, alt.Alts.Confirm, true), true)
+	w:Flush()
+	-- The alt recruits before its main logs in again: nobody holds his claim naming her yet.
+	w:LogEvent(World.GUILD2, "invite", "Ilsa Fenwick", "Wren Recruit", 3)
+	w:LogEvent(World.GUILD2, "join", "Wren Recruit", nil, 2)
+	Join(w, World.GUILD2, "Wren Recruit")
+	eq(w:ReadLog(mate), true)
+	eq(#w:Sent(mate, "NV", "WHISPER", "w") > 0, true, "reported on the alt's own claim")
+	eq(StateOf(w, keeper, "Wren Recruit", MAIN), nil, "refused for now: no main's claim at the keeper")
+	-- The main logs in: everyone hears his claim. The guildmate's next read sends the pair again at once,
+	-- long before the outbox's hourly try.
+	alt.online, main.online = false, true
+	w:Presence()
+	eq(w:As(main, main.Alts.Send, true), true)
+	w:Flush()
+	eq((w:As(mate, mate.Alts.Group, alt.name) or {}).main, MAIN, "both claims heard by the guildmate")
+	w:Run(mate.Count.READ_GAP + 1)
+	eq(w:ReadLog(mate), true)
+	eq(StateOf(w, keeper, "Wren Recruit", MAIN), "credited")
+	w:ReadLog(mate)
+	eq(w:As(keeper, keeper.Count.Own, Key(MAIN), "a").joins, 1, "once")
 end)
 
 test("1.1.6 Church: evidence the keeper refuses: a recruiter with no place, invited before his naming, a non-Olympus guild, bad times, over budget, net-off", function()

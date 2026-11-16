@@ -12,7 +12,9 @@ local L = ns.L
 --   server stamps), at login, when a link changes and every EVERY:
 --     AL~<time of the account's last change>~<M|A|->~<its guild>~<its alts (M) | its main (A)>
 --   A link counts on a client only when both characters said it: the main naming the alt, and the
---   alt naming the main. A name another player claims alone links nothing.
+--   alt naming the main. A name another player claims alone links nothing. (1.6.0) On a Forever
+--   ruleset an Apostle's or Missionary's group says it over GUILD and to the keepers online too
+--   (over GUILD the stamp carries the reader's own sub-realm: the sender's is his hello's).
 -- - The census counts people: the army's total leaves out every linked character past the first
 --   of its player's in a guild the total counts (Data.Summary). The treasury's ranking and its
 --   week's donors put a player's characters on one line, under the main's name (Treasury.Report).
@@ -38,7 +40,7 @@ Alts.MAX_CLAIMS = 5000       -- claims kept (the oldest unfrozen goes first)
 Alts.DATE_AHEAD = 60         -- a claim dated further ahead of the server's clock is not taken
 Alts.ASK_AFTER = 15          -- the alt's confirmation is asked this long after login (not in combat)
 
-local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0 }
+local stats = { taken = 0, same = 0, older = 0, frozen = 0, refused = 0, sent = 0, guild = 0, keepers = 0, unplaced = 0 }
 local version = 0            -- bumped on every change of a claim or of this account's links
 local cache                  -- { version, groups = { { main, members = { { name, guild } } } }, of = { [key] = group } }
 local lastSent = -math.huge
@@ -172,13 +174,91 @@ local function OfOurGroup(name)
 	return ns.GroupOf(realm) == group
 end
 
--- The group a main's claim confirms: the main and each alt that names it back.
-local function GroupOfMain(main)
+-- (1.6.0) WoW: Forever's rulesets are families of sub-realms ("CAMWOW...Realm<n>PvE", ns.ForeverFamily),
+-- and a name is one across its family (ns.TellName, Church.Key): a name given plain is the character of
+-- that name on any sub-realm of ours. "/oly alt add First Surname" on the main gave the main's own
+-- sub-realm to an alt that plays on another one: that alt was never asked, and its yes found nothing.
+local function Family()
+	local group = ns.group
+	return type(group) == "string" and group:match("^Forever%a+$") and group or nil
+end
+local function Plain(name) return ns.Fold(ns.ShortName(ns.Normal(tostring(name or "")))) end
+-- A name of our Forever family: its realm one of the family's, or none given.
+local function InFamily(name)
+	local family = Family()
+	if not family or type(name) ~= "string" then return false end
+	local realm = ns.RealmOf(name)
+	return not realm or realm == "" or ns.GroupOf(realm) == family
+end
+-- The key of the one entry of `list` (this account's offers or links) whose character has the plain
+-- name of `name` within our Forever family; nil for none, or two.
+local function ByPlain(list, name)
+	if not InFamily(name) then return nil end
+	local plain, found = Plain(name), nil
+	for k, e in pairs(list) do
+		if type(e) == "table" and type(e.name) == "string" and Plain(e.name) == plain and InFamily(e.name) then
+			if found and found ~= k then return nil end
+			found = k
+		end
+	end
+	return found
+end
+-- The key of this account's link of a character: as named, or the linked character of that plain name.
+local function LinkKey(name)
+	local links = Account().links
+	local key = Key(name)
+	if type(links[key]) == "table" then return key end
+	return ByPlain(links, name)
+end
+-- Two names of one character: the same name, or the same plain name within our Forever family.
+local function Same(a, b)
+	if type(a) ~= "string" or type(b) ~= "string" then return false end
+	return Key(a) == Key(b) or (InFamily(a) and InFamily(b) and Plain(a) == Plain(b))
+end
+-- (1.6.0) An offer this account's links answer already: its character linked to that offer's main. 1.5.x
+-- kept "/oly alt add First Surname" under the main's own sub-realm, which no alt on another one could
+-- answer, so players linked theirs by the full name; that offer, now found by its plain name, asked the
+-- linked alt again, and "/oly alt remove First Surname" on the main took it back instead of the link.
+local function Answered(offer)
+	if type(offer) ~= "table" or type(offer.name) ~= "string" then return false end
+	local k = LinkKey(offer.name)
+	local link = k and Account().links[k]
+	return type(link) == "table" and Same(link.main, offer.main)
+end
+-- The offers this account's links answer already go (Answered), before any is looked up or listed.
+local function DropAnswered()
+	local offers = Account().offers
+	for k, o in pairs(offers) do
+		if Answered(o) then offers[k] = nil end
+	end
+end
+-- This account's offer for a character: under its own name, or one its main made with the plain name.
+-- Its key and the offer.
+local function OfferFor(name)
+	DropAnswered()
+	local offers = Account().offers
+	local key = Key(name)
+	if type(offers[key]) == "table" then return key, offers[key] end
+	local k = ByPlain(offers, name)
+	if k then return k, offers[k] end
+	return nil
+end
+
+-- The group a main's claim confirms: the main and each alt that names it back. (1.6.0) An alt the
+-- claim names plain (Wire, past one message's room with its sub-realm) is the one claim of our Forever
+-- family with that plain name (byPlain), never one of two.
+local function GroupOfMain(main, byPlain)
 	if not main or main.role ~= "M" or not OfOurGroup(main.name) then return nil end
 	local members = { { name = main.name, guild = main.guild } }
+	local seen = { [Key(main.name)] = true }
 	for _, alt in ipairs(main.links) do
 		local c = ClaimOf(alt)
-		if c and c.role == "A" and c.links[1] and Key(c.links[1]) == Key(main.name) and OfOurGroup(c.name) then
+		if not c and byPlain and InFamily(alt) then
+			local k = byPlain[Plain(alt)]
+			c = k and Claims()[k] or nil
+		end
+		if c and c.role == "A" and c.links[1] and Key(c.links[1]) == Key(main.name) and OfOurGroup(c.name) and not seen[Key(c.name)] then
+			seen[Key(c.name)] = true
 			members[#members + 1] = { name = c.name, guild = c.guild }
 		end
 	end
@@ -189,19 +269,24 @@ end
 -- Every confirmed group, rebuilt after any change (the census asks often).
 local function Groups()
 	if cache and cache.version == version and cache.rdb == ns.rdb and cache.db == ns.db and cache.group == ns.group and cache.realm == ns.realm then return cache end
-	local forever = type(ns.group) == "string" and ns.group:match("^Forever%a+$")
+	local forever = Family()
 	cache = { version = version, rdb = ns.rdb, db = ns.db, group = ns.group, realm = ns.realm, groups = {},
 		of = {}, short = forever and {} or nil }
-	local mains = {}
+	local mains, byPlain = {}, forever and {} or nil
 	for key, c in pairs(Claims()) do
 		if type(c) == "table" and c.role == "M" then mains[key] = true end
+		if byPlain and type(c) == "table" and c.role == "A" and type(c.name) == "string" and InFamily(c.name) then
+			local p = Plain(c.name)
+			if byPlain[p] == nil then byPlain[p] = key elseif byPlain[p] ~= key then byPlain[p] = false end
+		end
 	end
+	cache.byPlain = byPlain
 	for _, e in pairs(Account().links) do
 		if type(e) == "table" then mains[Key(e.main)] = true end
 	end
 	for key in pairs(mains) do
 		local main = ClaimOf(key)
-		local g = main and GroupOfMain(main)
+		local g = main and GroupOfMain(main, byPlain)
 		if g then
 			cache.groups[#cache.groups + 1] = g
 			for _, m in ipairs(g.members) do
@@ -232,6 +317,22 @@ function Alts.GroupByGuildName(name)
 	local short = Groups().short
 	local record = short and short[ns.Fold(ns.ShortName(ns.Normal(name)))]
 	if record then return record.group end
+end
+
+-- (1.6.0) The main a character's own claim names (role A), as last heard: its word alone, which links
+-- nothing (Group needs its main's claim too). The Church's witness reports an alt's recruit on it, and
+-- the keeper, who asks both claims, decides (ChurchCount.Pair). On Forever the guild log gives the name
+-- plain: then the one claim of our family with that plain name, never one of two.
+function Alts.ClaimedMain(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	local c = ClaimOf(name)
+	if not c and InFamily(name) then
+		local byPlain = Groups().byPlain
+		local k = byPlain and byPlain[Plain(name)]
+		c = k and Claims()[k] or nil
+	end
+	if type(c) ~= "table" or c.role ~= "A" or type(c.links) ~= "table" or type(c.links[1]) ~= "string" or not OfOurGroup(c.name) then return nil end
+	return c.links[1]
 end
 
 -- The other names of its player's confirmed group (a list, empty when none).
@@ -327,15 +428,27 @@ function Alts.Claim()
 	return "-", {}
 end
 
--- Names as they travel: short on our realm, Name-Realm otherwise; as many as fit.
+-- Names as they travel: short on our realm, Name-Realm otherwise; as many as fit. (1.6.0) On a Forever
+-- ruleset, when they do not all fit with their sub-realms, the last ones travel plain so that all fit:
+-- a 1.6.0 client finds each by that character's own claim (GroupOfMain); an older one links only the
+-- names that kept their sub-realm. Eight alts on other sub-realms left two out of the claim, linked
+-- nowhere but on the player's own account.
 local function Wire(at, role, guild, names)
 	local head = ("AL~%d~%s~%s~"):format(at, role, tostring(guild or ""):gsub("[~|%c]", ""))
+	local shown, plain = {}, {}
+	for i, n in ipairs(names) do
+		shown[i] = ns.RealmOf(n) == ns.realm and ns.ShortName(n) or n
+		plain[i] = InFamily(n) and ns.ShortName(n) or shown[i]
+	end
 	local parts, len = {}, #head
-	for _, n in ipairs(names) do
-		local shown = ns.RealmOf(n) == ns.realm and ns.ShortName(n) or n
-		if len + #shown + 1 > 250 then break end
-		parts[#parts + 1] = shown
-		len = len + #shown + 1
+	for i = 1, #names do
+		local rest = 0
+		for j = i + 1, #names do rest = rest + #plain[j] + 1 end
+		local s = shown[i]
+		if len + #s + 1 + rest > 250 then s = plain[i] end
+		if len + #s + 1 > 250 then break end
+		parts[#parts + 1] = s
+		len = len + #s + 1
 	end
 	return head .. table.concat(parts, ",")
 end
@@ -353,8 +466,44 @@ local function GuildChanged()
 	return true
 end
 
+-- (1.6.0) On a Forever ruleset the channel reaches another guild only through one relay, within each
+-- guild's share of its trickle (Relay.lua: Afford), and never another relay's guilds: a keeper, or a
+-- guildmate reading the guild log, who never heard both claims credited no linked alt's recruit to its
+-- Apostle or Missionary main (ChurchCount), and the trickle passes few of a busy evening's words. So
+-- there such a group's claims also go to the claimant's own guild over GUILD, with each channel claim,
+-- and by whisper to every keeper this client hears online (Church.KeepersOnline): each new claim within
+-- the minute's round, and each again every EVERY. Every route's sender is the server's stamp (over GUILD
+-- with the reader's own sub-realm: the receiver takes his hello's, Alts.Handle).
+local toldKeepers = {} -- keeper key -> { at = the claim's revision told, t = when }
+local function ChurchGroup(role, names)
+	local C = ns.Church
+	if type(C) ~= "table" or type(C.Role) ~= "function" then return false end
+	local r = C.Role(role == "A" and names[1] or ns.me)
+	return r == "A" or r == "M"
+end
+local function TellKeepers(wire, at, now)
+	local C = ns.Church
+	if type(C) ~= "table" or type(C.KeepersOnline) ~= "function" then return 0 end
+	local n, me = 0, Key(ns.me)
+	for _, k in ipairs(C.KeepersOnline(false) or {}) do
+		local name = type(k) == "table" and k.name
+		local kk = type(name) == "string" and Key(name) or nil
+		local told = kk and toldKeepers[kk]
+		if kk and kk ~= me and (not told or told.at ~= at or now - told.t >= Alts.EVERY) then
+			toldKeepers[kk] = { at = at, t = now }
+			if ns.Comm.Whisper(name, wire, "alts " .. kk, false, false) ~= false then n = n + 1 end
+		end
+	end
+	stats.keepers = stats.keepers + n
+	return n
+end
+
 -- Sends this character's claim: at the login's first round, after a change, every EVERY. A
--- character never linked sends nothing; one whose links were all removed says so once.
+-- character never linked sends nothing; one whose links were all removed says so once. (1.6.0) On a
+-- Forever ruleset that "-" goes on every route a Church group's claims take: a former alt's own Church
+-- role is none (the role was its main's), so an alt that left its main itself said so on the channel
+-- alone, which a relay may lose, and the keepers, who hold its earlier claim by whisper, credited its
+-- later recruits to that main until his next claim.
 function Alts.Send(force)
 	local changed = GuildChanged()
 	if not ns.me or not ns.IsMember() then return false end
@@ -364,11 +513,18 @@ function Alts.Send(force)
 	local role, names = Alts.Claim()
 	local at = tonumber(a.at) or 0
 	if role == "-" and not (a.told[key] and a.told[key] < at) then return false end
+	local wire = Wire(at, role, GetGuildInfo("player"), names)
+	local church = Family() ~= nil and (role == "-" or ChurchGroup(role, names))
+	if church then TellKeepers(wire, at, ns.Now()) end
 	if not force and ns.Now() - lastSent < Alts.EVERY then return false end
 	lastSent = ns.Now()
 	a.told[key] = at
 	stats.sent = stats.sent + 1
-	ns.Comm.Send("CHANNEL", Wire(at, role, GetGuildInfo("player"), names), "alts")
+	ns.Comm.Send("CHANNEL", wire, "alts")
+	if church and IsInGuild() then
+		stats.guild = stats.guild + 1
+		ns.Comm.Send("GUILD", wire, "alts guild")
+	end
 	return true
 end
 
@@ -385,12 +541,29 @@ local function Frozen(old, new)
 	return out
 end
 
+-- (1.6.0) On a Forever ruleset a claim also comes over GUILD and by whisper (Alts.Send): its sender
+-- is the server's stamp there too, its own character's word. Elsewhere the channel's alone, as before.
+-- Over GUILD the server stamps a guildmate with the READER's own sub-realm, never his (Comm.PeerRealm,
+-- Layers.lua), so there his sub-realm is the one his hello named. Taken under the stamp, a guild copy was
+-- a second claimant beside the claim's channel copy at every guildmate on another sub-realm: a phantom
+-- group of the main and the alts on his sub-realm (Duplicates took one character too many from the
+-- census's total for each of them), none found by a plain name (GroupByGuildName), and an overflowing
+-- claim's plain names each matched two claims (GroupOfMain linked five alts of eight). A guild copy from a
+-- guildmate whose hello is not heard yet (every client repeats it within ten minutes, Comm.Hello), or
+-- whose hello names no sub-realm of ours, is left to the other routes and to his next copy (every EVERY).
 function Alts.Handle(dist, sender, text)
-	if dist ~= "CHANNEL" then return end
+	local family = Family()
+	if dist ~= "CHANNEL" and not (family and (dist == "GUILD" or dist == "WHISPER")) then return end
 	local at, role, guild, list = tostring(text):match("^AL~(%d+)~([MA%-])~([^~]*)~?(.*)$")
 	at = tonumber(at)
 	if not at then return end
 	sender = ns.FullName(sender)
+	if dist == "GUILD" then
+		local C = ns.Comm
+		local own = type(C) == "table" and type(C.PeerRealm) == "function" and C.PeerRealm(sender) or nil
+		if type(own) ~= "string" or own == "" or ns.GroupOf(own) ~= family then stats.unplaced = stats.unplaced + 1 return end
+		sender = ns.FullName(ns.ShortName(sender), own)
+	end
 	local key = Key(sender)
 	-- This account's own characters: its saved links say it better.
 	if AccountMain(sender) then return end
@@ -461,13 +634,20 @@ function Alts.Add(input)
 	local name = CharName(input, ns.realm)
 	if not name then ns.Print(L.ALT_WHO_BAD) return false end
 	local a = Account()
-	local me, key = ns.me, Key(name)
-	if key == Key(me) then ns.Print(L.ALT_NOT_SELF) return false end
+	local me = ns.me
+	-- (1.6.0) One this account linked already, named plain from another sub-realm of the ruleset: that one.
+	local linked = LinkKey(name)
+	if linked then name = a.links[linked].name end
+	local key = Key(name)
+	if key == Key(me) or (InFamily(name) and Plain(name) == Plain(me)) then ns.Print(L.ALT_NOT_SELF) return false end
 	-- An alt never starts a link: its main does.
 	if type(a.links[Key(me)]) == "table" then ns.Print(L.ALT_NOT_FROM_ALT:format(ns.DisplayName(a.links[Key(me)].main))) return false end
 	if type(a.links[key]) == "table" or #AccountAlts(name) > 0 then ns.Print(L.ALT_ALREADY:format(ns.DisplayName(name))) return false end
 	if #AccountAlts(me) >= Alts.MAX_ALTS then ns.Print(L.ALT_FULL:format(Alts.MAX_ALTS)) return false end
 	if Alts.Frozen({ name }) then ns.Print(L.ALT_FROZEN) return false end
+	-- One offer a character: one made before under its plain name on another sub-realm goes.
+	local old = OfferFor(name)
+	if old and old ~= key then a.offers[old] = nil end
 	a.offers[key] = { name = name, main = me, t = Clock(), faction = ns.faction, group = ns.GroupOf(ns.realm) }
 	ns.Print(L.ALT_OFFERED:format(ns.DisplayName(name)))
 	return true
@@ -478,9 +658,9 @@ function Alts.Confirm(yes)
 	if not ns.me then return false end
 	local a = Account()
 	local key = Key(ns.me)
-	local offer = a.offers[key]
+	local okey, offer = OfferFor(ns.me)
 	if type(offer) ~= "table" then return false end
-	a.offers[key] = nil
+	a.offers[okey] = nil
 	if not yes then
 		ns.Print(L.ALT_DECLINED:format(ns.DisplayName(offer.main)))
 		return false
@@ -491,8 +671,18 @@ function Alts.Confirm(yes)
 		return false
 	end
 	if type(a.links[Key(offer.main)] ) == "table" or #AccountAlts(ns.me) > 0 then ns.Print(L.ALT_ALREADY:format(ns.DisplayName(ns.me))) return false end
+	-- (1.6.0) At most MAX_ALTS: offers count no link, so a ninth one made before the eighth yes was linked
+	-- here, and every other client (which takes MAX_ALTS names of a claim) left one of them out.
+	local others = 0
+	for _, n in ipairs(AccountAlts(offer.main)) do if Key(n) ~= key then others = others + 1 end end
+	if others >= Alts.MAX_ALTS then ns.Print(L.ALT_FULL:format(Alts.MAX_ALTS)) return false end
 	if Alts.Frozen({ offer.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = { name = ns.me, main = offer.main, at = Clock() }
+	-- Any other offer of this character (made under its plain name on another sub-realm) goes with it.
+	local plain = Plain(ns.me)
+	for k, o in pairs(a.offers) do
+		if type(o) == "table" and type(o.name) == "string" and Plain(o.name) == plain and InFamily(o.name) and InFamily(ns.me) then a.offers[k] = nil end
+	end
 	Changed()
 	ns.Print(L.ALT_LINKED:format(ns.DisplayName(ns.me), ns.DisplayName(offer.main)))
 	Alts.Send(true)
@@ -506,19 +696,30 @@ function Alts.Remove(input)
 	local name = CharName(input, ns.realm)
 	if not name then ns.Print(L.ALT_WHO_BAD) return false end
 	local a = Account()
-	local key = Key(name)
-	if type(a.offers[key]) == "table" then
-		a.offers[key] = nil
-		ns.Print(L.ALT_OFFER_DROPPED:format(ns.DisplayName(name)))
-		return true
-	end
+	-- (1.6.0) The link first, then an offer: on a Forever ruleset the plain name finds its character on any
+	-- sub-realm of it, and an offer 1.5.x left under that name for a character linked since is no stand-in
+	-- for the link (Answered): the first remove took that offer back and left the link.
+	local key = LinkKey(name) or Key(name)
 	local link = a.links[key]
 	local mine = type(a.links[Key(ns.me)]) == "table" and a.links[Key(ns.me)] or nil
 	-- The alt named, or the main of this alt named (this alt leaves it).
-	if type(link) ~= "table" and mine and Key(mine.main) == key then link, key = mine, Key(ns.me) end
-	if type(link) ~= "table" then ns.Print(L.ALT_NOT_LINKED:format(ns.DisplayName(name))) return false end
+	if type(link) ~= "table" and mine and Same(mine.main, name) then link, key = mine, Key(ns.me) end
+	if type(link) ~= "table" then
+		local okey, offer = OfferFor(name)
+		if okey then
+			a.offers[okey] = nil
+			ns.Print(L.ALT_OFFER_DROPPED:format(ns.DisplayName(offer.name)))
+			return true
+		end
+		ns.Print(L.ALT_NOT_LINKED:format(ns.DisplayName(name)))
+		return false
+	end
 	if Alts.Frozen({ link.name, link.main }) then ns.Print(L.ALT_FROZEN) return false end
 	a.links[key] = nil
+	-- Its offers to that main go with it: a 1.5.x one would ask it to link again.
+	for k, o in pairs(a.offers) do
+		if type(o) == "table" and Same(o.name, link.name) and Same(o.main, link.main) then a.offers[k] = nil end
+	end
 	Changed()
 	ns.Print(L.ALT_REMOVED:format(ns.DisplayName(link.name), ns.DisplayName(link.main)))
 	Alts.Send(true)
@@ -546,6 +747,7 @@ function Alts.PrintStatus()
 		ns.Print(L.ALT_NONE)
 	end
 	local waiting = {}
+	DropAnswered() -- (1.6.0: a 1.5.x offer for an alt linked since waits for nothing)
 	for _, o in pairs(a.offers) do if type(o) == "table" then waiting[#waiting + 1] = ns.DisplayName(o.name) end end
 	table.sort(waiting)
 	if #waiting > 0 then ns.Print(L.ALT_WAITING:format(table.concat(waiting, ", "))) end
@@ -570,7 +772,7 @@ StaticPopupDialogs["OLYMPUS_ALT_CONFIRM"] = {
 -- The alt's question, once a session, never in combat: its main's offer, waiting in the account.
 function Alts.AskConfirm()
 	if asked or not ns.me then return false end
-	local offer = Account().offers[Key(ns.me)]
+	local _, offer = OfferFor(ns.me)
 	if type(offer) ~= "table" then return false end
 	if InCombatLockdown and InCombatLockdown() then return false end
 	asked = true
@@ -630,6 +832,7 @@ end)
 -- Tests start from a clean state.
 function Alts.Reset()
 	cache, lastSent, asked = nil, -math.huge, false
+	toldKeepers = {}
 	for k in pairs(stats) do stats[k] = 0 end
 	Bump()
 end

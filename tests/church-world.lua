@@ -28,11 +28,13 @@ local function Key(name) return ns.Fold(ns.ShortName(tostring(name or ""))) end
 World.Key = Key
 
 -- A world: opts.apostles (names, signed), opts.head (the Head, World.HEAD, signed as an Apostle
--- marked Head, "*"; false: none), opts.listAt (the signed list's time).
+-- marked Head, "*"; false: none), opts.listAt (the signed list's time), opts.stamp (1.6.0: Forever's
+-- stamp on a guildmate's GUILD word, the reader's own sub-realm: Stamped, below).
 function World.New(opts)
 	opts = opts or {}
-	local w = setmetatable({ clock = World.EPOCH, clients = {}, byKey = {}, pending = {}, sent = {}, timers = {}, alts = {}, off = {},
+	local w = setmetatable({ clock = World.EPOCH, clients = {}, byKey = {}, seen = {}, pending = {}, sent = {}, timers = {}, alts = {}, off = {},
 		gm = {}, ranks = {}, council = {}, census = {}, log = {}, members = {} }, World)
+	w.stamp = opts.stamp == true
 	w.council[Key(World.HEAD)] = true
 	w.council[Key("Dela Moss")] = true
 	w.council[Key(World.COUNCILLOR)] = true
@@ -154,6 +156,14 @@ function World:Client(name, opts)
 		ChannelName = function() return "OlympusNet" end,
 		DeliveredLogged = function() return true end,
 		Cancel = function() end, CancelQueued = function() return 0 end,
+		-- (1.6.0) The sub-realm a guildmate's hello named (Comm.PeerRealm): every client says hello to its
+		-- guild as it logs in, so one of this client's guild that logged in this session, by its own
+		-- sub-realm; none for anyone else, or while the world holds his hello back (w.noHello, by key).
+		PeerRealm = function(n)
+			local o = w.seen[Key(n)]
+			if o and o.guild ~= nil and o.guild == cl.guild and not (w.noHello and w.noHello[o.key]) then return o.ns.realm, w.clock end
+			return nil
+		end,
 	}
 	c.Channels = { IsMe = function(n) return Key(n) == cl.key end, Admit = function() return true, "ok" end }
 	c.Consent = { Register = function() end, Ask = function() end }
@@ -177,6 +187,7 @@ function World:Client(name, opts)
 	cl.c = c
 	w.clients[#w.clients + 1] = cl
 	w.byKey[cl.key] = cl
+	w.seen[cl.key] = cl
 	w:RefreshRosters()
 	if not opts.old then
 		-- (1.2.3: ChatRooms.lua no longer defines a dialog in the game's global table, the race and class
@@ -265,9 +276,12 @@ function World:Queue(from, dist, msg, target, logged)
 	return true
 end
 
--- Who hears one message: the channel, the guild, or the one name (online, and a member).
+-- Who hears one message: the channel, the guild, or the one name (online, and a member). (1.6.0)
+-- w.lost: message types the channel hands to nobody, still sent: WoW: Forever, where another client's
+-- word reaches another guild only through one relay's trickle (Relay.lua), at its worst.
 local function Recipients(w, e)
 	local out = {}
+	if e.dist == "CHANNEL" and w.lost and w.lost[e.msg:sub(1, 2)] then return out end
 	for _, cl in ipairs(w.clients) do
 		if cl ~= e.from and cl.online and cl.guild and ns.IsFederation(cl.guild) then
 			if e.dist == "CHANNEL" or (e.dist == "GUILD" and cl.guild == e.from.guild)
@@ -277,10 +291,23 @@ local function Recipients(w, e)
 	return out
 end
 
+-- (1.6.0) The sender as a reader's client gets him. WoW: Forever stamps a guildmate's word over GUILD
+-- with the reader's own sub-realm, never his (measured: Comm.PeerRealm, Layers.lua, tests/hop-forever.lua).
+-- w.stamp (World.New's opts.stamp): a GUILD word between two sub-realms of one Forever family reaches its
+-- reader so stamped. Otherwise every sender as he is.
+local function Stamped(w, e, cl)
+	local sender = e.from.name
+	if not w.stamp or e.dist ~= "GUILD" then return sender end
+	local here, there = cl.ns and cl.ns.realm, ns.RealmOf(sender)
+	local family = type(here) == "string" and ns.ForeverFamily(here) or nil
+	if family and there and there ~= here and ns.ForeverFamily(there) == family then return ns.ShortName(sender) .. "-" .. here end
+	return sender
+end
+
 function World:Deliver(e)
 	for _, cl in ipairs(Recipients(self, e)) do
 		local h = cl.handlers[e.msg:sub(1, 2)]
-		if h and e.msg:sub(3, 3) == "~" then self:As(cl, h, e.dist, e.from.name, e.msg) end
+		if h and e.msg:sub(3, 3) == "~" then self:As(cl, h, e.dist, Stamped(self, e, cl), e.msg) end
 		cl.log[#cl.log + 1] = e
 	end
 end

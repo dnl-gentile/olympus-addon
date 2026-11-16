@@ -421,6 +421,18 @@ local function RecruitMain(name)
 	local role = Church.Role(main)
 	if role == "A" or role == "M" then return main end
 end
+-- (1.6.0) The Apostle or Missionary main an inviter's own alt claim names (Alts.ClaimedMain): his word
+-- alone, which no keeper credits on (TakeEvidence asks RecruitMain: both claims). On Forever a guildmate
+-- hears that claim over GUILD (Alts.Send) while the main's own claim, said in another guild, reaches him
+-- only through a relay's trickle, if at all: a witness who waited for both reported none of the alt's
+-- recruits, and the keepers, who hear both claims by whisper, had nothing to credit.
+local function ClaimedMain(name)
+	local A = ns.Alts
+	local main = A and type(A.ClaimedMain) == "function" and A.ClaimedMain(name) or nil
+	if type(main) ~= "string" or Key(main) == Key(name) then return nil end
+	local role = Church.Role(main)
+	if role == "A" or role == "M" then return main end
+end
 
 -- (1.5.5) A Church person of our guild by this client's own book: one its roster holds now. His own
 -- client may never say so (one that holds a signed list older than the one naming him), and then no
@@ -604,7 +616,7 @@ function Count.Process(events)
 						ns.SafeCall("recruit ranking pair", RR.Pair, by, e.p1, guild, ti, tj, true)
 					end
 					-- A link may be heard after the original read. Only retry pairs from this guild.
-					if ev.g[seen] and RecruitMain(by) and Count.Pair(by, e.p1, guild, ti, tj) then found = found + 1 end
+					if ev.g[seen] and (RecruitMain(by) or ClaimedMain(by)) and Count.Pair(by, e.p1, guild, ti, tj) then found = found + 1 end
 				end
 			end
 		else
@@ -663,22 +675,68 @@ function Count.OnLogUpdate()
 	Count.Process(Count.Events())
 end
 
--- A pair seen: reported once (Att), when its inviter is a Church person this client knows.
+-- (1.6.0) Another character of this account that no keeper can tell from another player: one the
+-- account played (Treasury keeps ns.db.myCharacters) and not linked to us (Alts.Linked: a keeper takes
+-- a linked one's report as the recruiter's own side, never as a witness's). On a Forever ruleset a name
+-- is one across its sub-realms, and the guild log may give it plain.
+local function UnlinkedOwn(name)
+	if type(name) ~= "string" or Key(name) == Key(ns.me) then return false end
+	if Count.Linked and Count.Linked(name, ns.me) then return false end
+	local mine = ns.db and ns.db.myCharacters
+	if type(mine) ~= "table" then return false end
+	local full = ns.FullName(ns.Normal(name))
+	if full and mine[full:lower()] == true then return true end
+	local rules = type(ns.group) == "string" and ns.group:match("^Forever(%a+)$")
+	local k = rules and Key(name)
+	if not k then return false end
+	rules = rules:lower()
+	for character, on in pairs(mine) do
+		if on == true and type(character) == "string" and Key(character) == k
+			and (character:match("%-camwow%a%a%d+realm%d+(%a+)$") == rules) then return true end
+	end
+	return false
+end
+
+-- (1.6.0) A report of ours still in the outbox goes to every keeper online again at once, its tries started
+-- over: one sent on an alt's own claim alone, which a keeper without the main's claim refused for now.
+local function Again(text)
+	local me = ns.FullName(ns.me)
+	for _, o in ipairs(Out() or {}) do
+		if type(o) == "table" and o.text == text and (not o.by or o.by == me) then o.to = {} end
+	end
+end
+
+-- A pair seen: reported once (Att), when its inviter is a Church person this client knows (or, 1.6.0, the
+-- linked alt of one: both claims heard, or the alt's own, ClaimedMain).
+-- (1.6.0) Never by a character of the inviter's (of the main he recruits for, or of the recruit's) own
+-- account that is not linked to them: a keeper took its read as an independent witness's, and it
+-- confirmed the recruit (RecruitRanking.Pair keeps the account's characters out since the 1.5.9 review).
 function Count.Pair(inviter, invitee, guild, ti, tj, unscoped)
 	local ik, xk = Key(inviter), Key(invitee)
 	if not ik or not xk or ik == xk then return false end
-	if not (Church.IsPerson(inviter) or Count.Claimed(inviter) or (not unscoped and RecruitMain(inviter))) then return false end
+	local main = not unscoped and RecruitMain(inviter) or nil
+	local claimed = not main and not unscoped and ClaimedMain(inviter) or nil
+	local person = Church.IsPerson(inviter) or Count.Claimed(inviter)
+	if not (person or main or claimed) then return false end
+	if UnlinkedOwn(inviter) or UnlinkedOwn(invitee) or (main and UnlinkedOwn(main)) or (claimed and UnlinkedOwn(claimed)) then return false end
 	local att = Att()
 	local id = xk .. ":" .. ik
-	if att[id] then return false end
-	att[id] = Day(Clock())
+	-- (1.6.0) One reported on the alt's own claim alone is marked apart: once both claims are heard here it
+	-- goes again, at once (Again), where before it waited for the outbox's hourly tries, four at most.
+	local early = claimed ~= nil and not person
+	local mark = early and (id .. "?") or id
+	if att[id] or att[mark] then return false end
+	local again = not early and att[id .. "?"] ~= nil
+	att[mark] = Day(Clock())
 	local n = 0
 	for k, d in pairs(att) do if Day(Clock()) - d > Count.ATT_DAYS then att[k] = nil else n = n + 1 end end
-	if n > Count.ATT_MAX then wipe(att); att[id] = Day(Clock()) end
+	if n > Count.ATT_MAX then wipe(att); att[mark] = Day(Clock()) end
 	stats.pairs = stats.pairs + 1
 	local g = CleanGuild(guild)
 	if not g then return false end
-	Count.SendEvidence(("NV~1~w~%s~%s~%s~%s~%s"):format(inviter, invitee, g, B36(ti), B36(tj)))
+	local text = ("NV~1~w~%s~%s~%s~%s~%s"):format(inviter, invitee, g, B36(ti), B36(tj))
+	if again then Again(text) end
+	Count.SendEvidence(text)
 	return true
 end
 
@@ -1382,6 +1440,10 @@ local function Confirmed(r) return r.ws ~= nil and #r.ws > 0 end
 -- Legacy keepers may report the same invite under the alt's name. Compare those two claims under
 -- the main's id, then prefer the row already recorded against the main. Giving both rows the
 -- same tie key keeps the comparison consistent even if a third recruiter also claims the join.
+-- (1.6.0) The guild log gives hours ago, so two reads of one invite can name hours an hour apart
+-- (Count.Events, SeenEvent): a row kept under a missionary alt before its link was heard, an hour
+-- earlier than the main's own, took the recruit from the main on every keeper that knew the link.
+local function Near(a, b) return a ~= nil and b ~= nil and math.abs(a - b) <= 3600 end
 local function ClaimTie(id, r, recs, mains)
 	if r.kind ~= "i" or not r.tj or not r.g or not Confirmed(r) then return id end
 	local main = mains[r.bn]
@@ -1394,20 +1456,30 @@ local function ClaimTie(id, r, recs, mains)
 	local candidate = recs[key]
 	if candidate and candidate.kind == "i" and Confirmed(candidate)
 		and not (candidate.x or candidate.t or candidate.a)
-		and r.tc == candidate.tc and r.tj == candidate.tj and r.g == candidate.g then
+		and Near(r.tc, candidate.tc) and Near(r.tj, candidate.tj) and r.g == candidate.g then
 		return key
 	end
 	return id
 end
 
--- A confirmed claim wins, then the earliest. Equal times use the claim tie keys.
-local function Before(id, r, bid, b, ties)
+-- A confirmed claim wins, then the earliest, then the smaller id. (1.6.0) A row tied to the main's own
+-- (ClaimTie) stands with it, the main's row first between them: the two always stand alike against a
+-- third claim, whichever order the ledger lists them in. They stand as their lead (lead: the earliest
+-- of the main's row and the rows tied to it, then the smallest id), the row this ledger credits when the
+-- link is not known (a 1.5.9 keeper ties nothing): knowing the link moves a credit inside the group
+-- only. Weighed as the main's row, a third claim of the alt row's hour took the recruit from them, which
+-- the alt's row alone held before 1.6.0, and at one hour a third recruiter named between the alt and the
+-- main won where he lost to the alt's row alone, or lost where he beat it.
+local function Before(id, r, bid, b, ties, recs, lead)
+	local tie, btie = ties[id] or id, ties[bid] or bid
+	if tie ~= id and recs[tie] then r = recs[tie] end
+	if btie ~= bid and recs[btie] then b = recs[btie] end
 	local conf, bconf = Confirmed(r), Confirmed(b)
 	if conf ~= bconf then return conf end
-	local at, bat = r.tc or 0, b.tc or 0
+	local first, bfirst = lead[tie] or tie, lead[btie] or btie
+	local at, bat = recs[first].tc or 0, recs[bfirst].tc or 0
 	if at ~= bat then return at < bat end
-	local tie, btie = ties[id] or id, ties[bid] or bid
-	if tie ~= btie then return tie < btie end
+	if tie ~= btie then return first < bfirst end
 	return id == tie and bid ~= btie
 end
 
@@ -1415,7 +1487,7 @@ end
 -- ids of his records, r = the records }. (1.2.3: kept while the ledger is the same, until the first open
 -- registration reaches REG_DAYS and CREDITS_KEEP at most, nothing else in it depends on the time; built
 -- in one pass over the ids, no table for each record: every minute's 1,932 records cost 30 ms and over
--- 1 MB of garbage on the author's laptop, the same result each time.)
+-- 1 MB of garbage on the author's laptop, the same result each time. 1.6.0: two passes, the ties first.)
 function Count.Credits()
 	local now = Clock()
 	local recs = Led().r
@@ -1425,9 +1497,11 @@ function Count.Credits()
 	if c and c.rev == ledRev and c.altVersion == altVersion and c.r == recs and now >= c.at and now <= c.til
 		and (not c.placement or c.placement == Church.State()) then return c end
 	local states, byPerson, winners, G = {}, {}, {}, Gone()
-	local ties, mains = {}, {}
+	local ties, mains, lead = {}, {}, {}
 	local placement
 	local til = now + Count.CREDITS_KEEP
+	-- (1.6.0) Two passes: every record's state and tie first, so a tied group's lead is known before
+	-- any claim is weighed against it, whichever order the ledger lists them in.
 	for id, r in pairs(recs) do
 		local xc = id:match("^[^:]+:")
 		if xc then
@@ -1447,18 +1521,28 @@ function Count.Credits()
 				if state == "open" and ends < til then til = ends end
 			elseif r.kind == "g" and r.tj > (r.tc or 0) + Count.REG_DAYS * DAY then state = "expired"
 			else state = "valid" end
-			if state == "valid" or state == "open" then
-				-- (1.2.1: a recruit the archive counts already, Gone, is no live claim's: he counts once.)
-				local bid = winners[xc]
-				if state == "valid" and not G[xc] and r.bn and r.n then
-					local tie = ClaimTie(id, r, recs, mains)
-				if tie ~= id then ties[id], placement = tie, placement or Church.State() end
+			if state == "valid" and not G[xc] and r.bn and r.n then
+				local tie = ClaimTie(id, r, recs, mains)
+				if tie ~= id then
+					ties[id], placement = tie, placement or Church.State()
+					local first = lead[tie] or tie
+					local at, fat = r.tc or 0, recs[first].tc or 0
+					lead[tie] = (at < fat or (at == fat and id < first)) and id or first
 				end
-				if G[xc] ~= nil then state = "taken"
-				elseif not bid then winners[xc] = id
-				elseif Before(id, r, bid, recs[bid], ties) then states[bid], winners[xc] = "taken", id
-				else state = "taken" end
 			end
+			states[id] = state
+		end
+	end
+	for id, r in pairs(recs) do
+		local state = states[id]
+		if state == "valid" or state == "open" then
+			-- (1.2.1: a recruit the archive counts already, Gone, is no live claim's: he counts once.)
+			local xc = id:match("^[^:]+:")
+			local bid = winners[xc]
+			if G[xc] ~= nil then state = "taken"
+			elseif not bid then winners[xc] = id
+			elseif Before(id, r, bid, recs[bid], ties, recs, lead) then states[bid], winners[xc] = "taken", id
+			else state = "taken" end
 			states[id] = state
 		end
 	end
