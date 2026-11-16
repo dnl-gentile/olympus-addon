@@ -1,7 +1,9 @@
 -- Olympus/Recruit.lua as 1.5.9 ships it (tag v1.5.9, main 88b6b67f), copied unchanged from
--- `git show v1.5.9:Olympus/Recruit.lua`, for tests/recruit-handoff-sides.lua: a 1.5.9
--- member's side of a recruiting handoff next to this build's (mixed versions in one guild). Loaded
--- with recruit-handoff-1.5.9.lua, as the addon loads its files: loadfile(...)("Olympus", ns).
+-- `git show v1.5.9:Olympus/Recruit.lua`, for tests/recruit-handoff-sides.lua (a 1.5.9 member's side
+-- of a recruiting handoff next to this build's, mixed versions in one guild, with
+-- recruit-handoff-1.5.9.lua) and tests/join-reach.lua (a 1.5.9 member answers a Join screen's J1 with
+-- no word of his own, no "*=" entry, and takes a J3 as 1.5.9 does). Loaded as the addon loads its
+-- files: loadfile(...)("Olympus", ns).
 local ADDON, ns = ...
 local L = ns.L
 

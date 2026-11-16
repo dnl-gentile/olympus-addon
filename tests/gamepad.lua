@@ -3727,8 +3727,23 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		C.env.C_FriendList.GetNumWhoResults = function() return #contacts, #contacts end
 		C.env.C_FriendList.GetWhoInfo = function(i) return contacts[i] end
 		C.Fire("WHO_LIST_UPDATE")
+		-- (Changed in 1.6.0: the request opened with the search's answer, on the first member /who
+		-- listed, before the answer of the member it asked where to go. It now waits for that answer, or
+		-- ROUTE_SETTLE seconds when none comes, as here: Alice's client never answers.)
+		eq(Draft(), nil, "the screen waits for the asked member's answer first")
+		C.Advance(1)
+		eq(Draft(), nil)
+		assert(Row(L.RECRUIT_SEARCHING), "still looking meanwhile")
+		-- (Review of the 1.6.0 join reach: the window the screen opens on its own, from a timer, took the
+		-- keyboard from the chat box with mouse and keyboard, so Enter sent the chat line as the request.)
+		local chat = C.env.ChatFrame1EditBox
+		chat:Show(); chat:SetText("typing meanwhile"); C.focus = chat
+		C.Advance(ns.Recruit.ROUTE_SETTLE - 1)
 		local draft = assert(Draft(), "a completed search prepares one request")
 		eq(draft.data.name, "Alice-Realm")
+		eq(C.focus, chat, "the chat box keeps the keyboard while the request opens on its own")
+		eq(chat:GetText(), "typing meanwhile")
+		chat:ClearFocus(); chat:Hide()
 		eq(#(C.said or {}), sends, "the game results send no chat")
 		C.Click(draft.buttons[1])
 		C.Advance(1)
@@ -3758,6 +3773,7 @@ test("gamepad Join Olympus onboarding searches, waits and retries through attend
 		eq(ns.UI.PageId(), "join", "retry reopens the Join page")
 		assert(Row(L.RECRUIT_JOIN_TIMEOUT), "a reply does not make the invite appear to have arrived")
 		eq(assert(Draft()).data.name, "Zoe-Realm", "the next contact has not already been asked")
+		eq(C.focus, Draft().editBox, "a request a click opens takes the keyboard, no other box having it")
 		eq(#C.said, sends + 1)
 		C.Click(Draft().buttons[1])
 		eq(#C.said, sends + 2, "the new request needs its own Send click")

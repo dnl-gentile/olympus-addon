@@ -1337,7 +1337,7 @@ test("sealed channel name comes from the key", function()
 	eq((ns.Comm.ChannelSpec()), "OlympusNet")
 end)
 
-test("join flow groups online Olympus players and never asks twice", function()
+test("join flow groups online Olympus players and never asks twice within REASK", function()
 	local R = ns.Recruit
 	R.found = {
 		{ name = "A", guild = "Olympus II" }, { name = "B", guild = "Olympus II" }, { name = "C", guild = "Olympus" },
@@ -1345,10 +1345,16 @@ test("join flow groups online Olympus players and never asks twice", function()
 	local g = R.Guilds()
 	eq(g[1].name, "Olympus II"); eq(#g[1].members, 2)
 	eq(R.NextContact("Olympus II").name, "A")
-	R.asked.A = 1
+	-- (Changed in 1.6.0: these were 1, a whisper at the epoch's first second, never asked again. Since
+	-- 1.6.0 one asked more than REASK ago may be asked again once nobody new is left, so a realm with
+	-- few members online is no dead end; within REASK, never twice.)
+	R.asked.A = ns.Now()
 	eq(R.NextContact("Olympus II").name, "B")
-	R.asked.B = 1
+	R.asked.B = ns.Now()
 	eq(R.NextContact("Olympus II"), nil)
+	R.asked.A = ns.Now() - R.REASK
+	eq(R.NextContact("Olympus II").name, "A", "nobody new: the one asked REASK ago")
+	R.asked.A = ns.Now()
 	function UnitLevel() return 12 end
 	function UnitClass() return "Mage", "MAGE" end
 	assert(R.Message({ guild = "Olympus II" }):find("Olympus II"))
@@ -42135,6 +42141,9 @@ end)
 	-- 1.6.0: the handoffs on both factions, members of 1.5.9 and this build side by side.
 	print("tests/recruit-handoff-sides.lua")
 	assert(loadfile(ROOT .. "tests/recruit-handoff-sides.lua"))(ns, test, eq)
+	-- 1.6.0: a Join Olympus request end to end, between this build's and 1.5.9's members (tests/join-reach.lua).
+	print("tests/join-reach.lua")
+	assert(loadfile(ROOT .. "tests/join-reach.lua"))(ns, test, eq, ROOT .. "tests/fixtures/", ADDON_DIR)
 	print("tests/netoff-battleground.lua")
 	assert(loadfile(ROOT .. "tests/netoff-battleground.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, LoadUI = LoadUI, LoadWatch = Harness.LoadWatch })

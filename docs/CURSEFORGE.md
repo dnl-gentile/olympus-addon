@@ -63,23 +63,30 @@ doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's o
 find Olympus members online, groups them by guild, and whispers one of them a ready-made
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
-are highlighted. It is rate limited, so nobody gets spammed.
+are highlighted. It is rate limited, so nobody gets spammed. From 1.6.0 it asks a member who
+recruits first (after the King's gates), passes over one whose addon says he can't invite (no
+invite right, or a full guild), tells you why when the member asked can't take your request or
+nobody is left to ask, and searches again before it asks a member a second time, 10 minutes after
+the first.
 
-**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line)
-where recruits should go, and its census answers: the guild the King opened **the gates** of
-first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
-online (never the King). It names only what the census confirms: guilds two members' reports
-agree on, and Lords and Captains two reports name. The screen lists them in that order, each
-once `/who` found one of its members (the gates once a second member's answer agrees: one more
-is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
-found in that guild, or another member it found there. Just before, their addon is asked
-whether they take recruit whispers (again if it never answered). A member who set **do not
-contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
-question closes before anything is sent. It stays **one whisper per click**, in your
-own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
-chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
+**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line) where
+recruits should go, and its census answers: the guild the King opened **the gates** of first,
+then the guilds with the **most free slots**, and a couple of their Lords and Captains online
+(never the King). From 1.6.0 the answer also says whether a request pops up for that member now,
+waits in his list or can't be taken (no invite right, or a full guild), and names first his own
+guild's members who recruit (himself while his recruiting is on, then those whose hello says they
+take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
+Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
+one of its members (the gates once a second member's answer agrees: one more is asked), the
+guilds found with `/who` too, and a click asks one of that guild's recruiters (from 1.6.0) or
+officers that `/who` found in it, or another member it found there. Just before, their addon is
+asked whether they take recruit whispers (again if it never answered). A member who set **do not contact** (`/oly
+nocontact on`) is never offered, however many recruits ask him, and the question closes before
+anything is sent. It stays **one whisper per click**, in your own words (no dues line), 20
+seconds apart. With it goes your request to the same member, so an officer's addon shows it with
+**Invite** and **Decline** instead of a raw whisper; one who recruits by whisper (1.5.9) gets it
+as a **JOIN**: the invite pop-up opens by itself, unless he chose **Queue only**. Members on
+versions before 1.1 just get the whisper, as before.
 
 ## What it does
 
@@ -1929,8 +1936,8 @@ goes where:
 | A Lord's mentor pair (1.1): the recruit's name to the Captain, the Captain's name to the recruit, as whispers in his words | those two players | only when the Lord clicks **Send both** |
 | A guild master's Legates and correspondents: names and each correspondent's department | everyone on the Olympus channel; each client saves up to 300 accepted guild lists, including its own, while the source is offline; verified removal or change of master revokes the duty | only from that guild master's client: after a change and every 5 minutes while online |
 | The King's guild's manually appointed Legates (1.2.4): up to 25 names, original issuer and revision, including an empty removal list | everyone on the Olympus channel; retained appointments use compatible historical ids, with current King/High Council issuer verification | only from the King or an actual High Councillor's client after an authorized edit or repeat; no automatic retirement message |
-| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered); J3 with each whisper you send |
-| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King) | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
+| Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered; from 1.6.0 also, at each click and after a search, to the members the screen would ask next, together, 4 a click at most); J3 with each whisper you send |
+| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King); from 1.6.0 whether you recruit (the King's answer never says so), can invite or can't (no invite right, or your guild is full), and for your own guild, before its Lords and Captains, yourself while your recruiting is on and the guildmates online whose hello says they take handoffs | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | Who declined a guild invite: a hash of each such player's name (8 hex digits) and when, from the game's decline notice | sent to members of your current guild who use Olympus, through the game's guild addon channel. Your client keeps up to 200 local declines and 200 reports from your guild for 7 days. Received reports only suppress unsolicited invites | when the game reports the decline and your character can invite. A player can still ask to join with **JOIN** |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name; in the Treasurer's part of the ranking, your gold to his characters less each week's up to the dues' amount his addon knew that week, and less all you sent with the dues' note) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
