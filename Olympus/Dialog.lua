@@ -20,6 +20,10 @@ local ADDON, ns = ...
 -- after the others that answers nothing and keeps the dialog up (the Answers of the author, the
 -- High Council and the Stewards in Olympus's whisper windows: UI.lua). The game's popups have no
 -- such button: a dialog that needs it is shown here in both input modes (Dialog.Show).
+-- 1.6.0: a definition's `more` = a list of { label, shown(self, data), onClick(self, data) } (or a
+-- function(self, data) giving one) adds a row of buttons under the others (`moreAbove`: over them;
+-- `moreWidth`: their least width, 90 else), each answering nothing and keeping the dialog up as the
+-- extra button does (the recruiting popups' Pause recruiting and Turn off recruiting, Recruit.lua).
 -- An edit box here never takes the keyboard from another one (the chat's): its focus change
 -- would run the game's gamepad code from ours, the same block (ns.Focus).
 
@@ -395,10 +399,42 @@ function Dialog.Show(which, a, b, data)
 	else
 		eb2:Hide()
 	end
-	local total = 0
-	for _, b in ipairs(used) do total = total + b:GetWidth() end
-	total = total + 8 * math.max(0, #used - 1)
-	width = math.max(width, total + 40)
+	-- The row under the others (1.6.0), its buttons made once per window and given out in order.
+	local list, row = def.more, {}
+	if type(list) == "function" then list = Call(f, "more", list, f, data) end
+	f.moreButtons = f.moreButtons or {}
+	for _, item in ipairs(type(list) == "table" and list or {}) do
+		if type(item) == "table" and (not item.shown or Call(f, "more shown", item.shown, f, data)) then
+			local b = f.moreButtons[#row + 1]
+			if not b then
+				b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+				b:SetScript("OnClick", function(self)
+					local it = self.item
+					if f:IsShown() and type(it) == "table" then Call(f, "more", it.onClick, f, f.data) end
+				end)
+				f.moreButtons[#row + 1] = b
+			end
+			b.item = item
+			b:SetHeight(buttonH)
+			b:SetText(tostring(item.label or ""))
+			local fs = b:GetFontString()
+			local textW = fs and (fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()) or 80
+			b:SetWidth(math.max(tonumber(def.moreWidth) or 90, math.ceil(textW) + 24))
+			b:Show()
+			row[#row + 1] = b
+		end
+	end
+	for i = #row + 1, #f.moreButtons do
+		f.moreButtons[i].item = nil
+		f.moreButtons[i]:Hide()
+	end
+	local function RowWidth(buttons)
+		local w = 0
+		for _, b in ipairs(buttons) do w = w + b:GetWidth() end
+		return w + 8 * math.max(0, #buttons - 1)
+	end
+	local total, moreTotal = RowWidth(used), RowWidth(row)
+	width = math.max(width, total + 40, moreTotal + 40)
 	f:SetWidth(width)
 	f.text:SetWidth(width - 40)
 	local textH = f.text.GetStringHeight and f.text:GetStringHeight() or 14
@@ -408,11 +444,20 @@ function Dialog.Show(which, a, b, data)
 		eb:SetPoint("TOP", f, "TOP", 0, y)
 		y = y - 30
 	end
-	local x = -total / 2
-	for _, b in ipairs(used) do
-		b:ClearAllPoints()
-		b:SetPoint("TOPLEFT", f, "TOP", x, y)
-		x = x + b:GetWidth() + 8
+	local rows = { used, row }
+	if def.moreAbove then rows = { row, used } end
+	local placed = false
+	for _, buttons in ipairs(rows) do
+		if #buttons > 0 then
+			if placed then y = y - buttonH - 6 end
+			local x = -RowWidth(buttons) / 2
+			for _, b in ipairs(buttons) do
+				b:ClearAllPoints()
+				b:SetPoint("TOPLEFT", f, "TOP", x, y)
+				x = x + b:GetWidth() + 8
+			end
+			placed = true
+		end
 	end
 	f:SetHeight(-y + buttonH + 16)
 	f:Show()
