@@ -8417,9 +8417,15 @@ L.CHATWIN_GROUP_PVE = "PvE"
 L.CHATWIN_GROUP_RP = "Roleplay"
 L.CHATWIN_GROUP_RPPVP = "RP-PvP"
 L.CHATWIN_GROUP_TITLE = "Rulesets"
-L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels messages from other rulesets."
+L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels messages from other rulesets, and [?] those whose ruleset is not known."
 L.CHATWIN_GROUP_EMPTY = "No messages for this ruleset."
 L.CHATWIN_GROUP_HARDCORE = "Hardcore"
+-- (1.6.0) Under All, a line whose writer's ruleset nobody can place is marked [?] (Channels.GroupTag): bare,
+-- it read as a line of the reader's own ruleset. On hover, a writer's name in the Chat tab says when he plays
+-- another ruleset or nobody can place him (Channels.RulesetNote): whispers and guild invites stay within one.
+L.CHATWIN_GROUP_UNKNOWN = "?"
+L.CHATWIN_RULESET_OTHER = "Plays on %s servers. Whispers and guild invites stay within one ruleset, so this character cannot join this player's guild."
+L.CHATWIN_RULESET_UNKNOWN = "Ruleset not known: versions of Olympus before 1.5.9 do not send it. This player may be on other servers, and whispers and guild invites stay within one ruleset."
 -- (1.5.9) A line written in the box under this character's own ruleset goes to it alone; under All or
 -- another ruleset, and with /ol, to every ruleset (Channels.SendTo, Codec.EncodeChat), where it goes as the
 -- channel's text too (ChatHall.On): with the gamepad UI, the channel not joined, or a realm key held on
@@ -8436,8 +8442,11 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_RP = "Roleplay"
 	L.CHATWIN_GROUP_RPPVP = "RP-PvP"
 	L.CHATWIN_GROUP_TITLE = "Conjuntos de regras"
-	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos."
+	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos, e [?] as de conjunto desconhecido."
 	L.CHATWIN_GROUP_EMPTY = "Nenhuma mensagem deste conjunto de regras."
+	L.CHATWIN_GROUP_UNKNOWN = "?"
+	L.CHATWIN_RULESET_OTHER = "Joga nos servidores %s. Sussurros e convites de guilda ficam dentro de um mesmo conjunto de regras, então este personagem não pode entrar na guilda deste jogador."
+	L.CHATWIN_RULESET_UNKNOWN = "Conjunto de regras desconhecido: versões do Olympus antes da 1.5.9 não o enviam. Este jogador pode estar em outros servidores, e sussurros e convites de guilda ficam dentro de um mesmo conjunto de regras."
 	L.CHATWIN_GROUP_SEND = "Com o seu conjunto de regras selecionado, outros jogadores podem ver sua mensagem escolhendo esse conjunto. Em Todos ou em outro conjunto, e com /ol, ela aparece para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
 	L.CHATWIN_PLACEHOLDER_TO = "Só para %s..."
 	L.CHATWIN_PLACEHOLDER_EVERY = "Para todos..."

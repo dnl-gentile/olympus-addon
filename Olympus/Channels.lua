@@ -83,7 +83,9 @@ local RULESETS = { pvp = true, pve = true, rp = true, rppvp = true, hardcore = t
 --            whispers and guild words reach their own family alone), a sub-realm the server named,
 --            a guildmate (the roster), his hello's realm (Comm.PeerRealm), or his line's guild in one
 --            family's census alone (Data.GuildFamily);
---   unknown  none of these: the line shows in All alone, never under a ruleset that may not be his.
+--   unknown  none of these: the line shows in All alone, never under a ruleset that may not be his
+--            (1.6.0: marked [?] there, Channels.GroupTag, a line of our own ruleset's too; only a line
+--            placed as ours shows bare).
 -- A server id names a ruleset only from what no writer chooses, this character's GUID and its guild
 -- roster's (a guild is one family's), or once two writers' own word named it and none another: the
 -- guild a line names is its writer's word too, so the census files that line alone, never its server.
@@ -324,14 +326,41 @@ function Channels.GroupFilter(tier, list, own)
 	return out or list
 end
 -- Under All, another ruleset's line has its writer's ruleset before his name ("[PvE] "), whomever it
--- was sent to (the picker's tooltip: All labels other rulesets' lines); ours, and a line whose writer's
--- ruleset is unknown, none.
+-- was sent to (the picker's tooltip: All labels other rulesets' lines); ours none.
+-- (1.6.0) A line whose writer's ruleset nobody can place has "[?] " there. 1.5.9 left it bare, as
+-- ours are, so a recruiter of another ruleset writing from a version before 1.5.9 read as one of
+-- ours: players left their guilds for a guild on other servers (a report of 14 Nov). Only where
+-- this character's own ruleset is known (Channels.MyKind: Forever's live realms); a call without
+-- the line's history entry tags nothing. A line of our own ruleset that nobody can place is marked
+-- too (1.6.0's review: a writer before 1.5.9, no guildmate, on a server the roster does not span, his
+-- guild in no census): bare once his server is learned, his kept lines too (Channels.LineKind), and
+-- his next lines once our census lists his guild.
 function Channels.GroupTag(tier, line)
-	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" then return "" end
-	local kind = Channels.LineKind(line)
-	if not kind or kind == Channels.MyKind() then return "" end
+	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" or type(line) ~= "table" then return "" end
+	local kind, mine = Channels.LineKind(line), Channels.MyKind()
+	if not kind then
+		if not mine then return "" end
+		kind = "unknown"
+	elseif kind == mine then
+		return ""
+	end
 	local label = L["CHATWIN_GROUP_" .. kind:upper()]
 	return type(label) == "string" and ("[" .. label .. "] ") or ""
+end
+-- (1.6.0) What the Chat tab's name tooltip says of a line's writer whose ruleset is not this
+-- character's, under any view: his ruleset's servers, or that nobody can place him; and that
+-- whispers and guild invites stay within one ruleset (a whisper reaches its own Forever family
+-- alone, and a family shares its guilds: Core.lua's ForeverFamily). nil for ours, for a rank room's
+-- line, off Forever's live realms, and with no entry.
+function Channels.RulesetNote(tier, line)
+	if tier ~= "A" or not ns.splitNames or type(line) ~= "table" then return nil end
+	local mine = Channels.MyKind()
+	if not mine then return nil end
+	local kind = Channels.LineKind(line)
+	if kind == mine then return nil end
+	if not kind then return L.CHATWIN_RULESET_UNKNOWN end
+	local label = L["CHATWIN_GROUP_" .. kind:upper()]
+	return type(label) == "string" and L.CHATWIN_RULESET_OTHER:format(label) or nil
 end
 
 local function Label(tier)

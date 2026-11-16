@@ -35,11 +35,12 @@ local function Said(guild, n, text, kind, to)
 end
 local function Tag(kind) return "[" .. L["CHATWIN_GROUP_" .. kind] .. "]" end
 local KINDS = { "PVP", "PVE", "RP", "RPPVP" }
+-- (1.6.0: no ruleset's tag, and no [?] either, the mark of a line nobody can place: tests/ruleset-labels.lua.)
 local function Untagged(text)
 	for _, k in ipairs(KINDS) do
 		if tostring(text):find(Tag(k), 1, true) then return false end
 	end
-	return not tostring(text):find(Tag("HARDCORE"), 1, true)
+	return not tostring(text):find(Tag("HARDCORE"), 1, true) and not tostring(text):find(Tag("UNKNOWN"), 1, true)
 end
 -- The kept [Olympus] line with these words, or nil.
 local function Kept(text)
@@ -197,9 +198,11 @@ test("chat rulesets (1.5.9): on an RP-PvP character a PvE player's [Olympus] lin
 			local who = b["hello from the PvE realms"].who:GetText()
 			local at, name = who:find(Tag("PVE"), 1, true), who:find("Dawn Rulespeaker", 1, true)
 			assert(at and name and at < name, "[PvE] before his name: " .. tostring(who))
-			for _, text in ipairs({ "a guildmate speaks", "a neighbour of our family", "who am I" }) do
+			for _, text in ipairs({ "a guildmate speaks", "a neighbour of our family" }) do
 				assert(Untagged(b[text].who:GetText()), "no tag: " .. text)
 			end
+			-- (Changed on purpose in 1.6.0: a line nobody can place is marked [?], no longer bare as ours are.)
+			assert(b["who am I"].who:GetText():find(Tag("UNKNOWN"), 1, true), "unknown: [?] " .. b["who am I"].who:GetText())
 		end)
 	end)
 end)
@@ -242,7 +245,8 @@ test("chat rulesets (1.5.9): a 1.5.9 line names its writer's ruleset: with no ce
 			assert(b["a PvP player of 1.5.9"].who:GetText():find(Tag("PVP"), 1, true))
 			assert(b["a Hardcore player of 1.5.9"].who:GetText():find(Tag("HARDCORE"), 1, true))
 			assert(Untagged(b["one of ours on 1.5.9"].who:GetText()))
-			assert(Untagged(b["a PvE player before 1.5.9"].who:GetText()), "unknown: no tag")
+			-- (Changed on purpose in 1.6.0: unknown, marked [?] rather than bare.)
+			assert(b["a PvE player before 1.5.9"].who:GetText():find(Tag("UNKNOWN"), 1, true), "unknown: [?]")
 		end)
 	end, true)
 end)
@@ -650,13 +654,15 @@ test("chat rulesets (1.5.9): a line kept before 1.5.9 (no ruleset kept with it) 
 		eq(Shown("pve"), "another family's stamp / our own words")
 		eq(Shown("rppvp"), "a guildmate / our own words")
 		eq(Shown("all"), "another family's stamp / a guildmate / a bare name, our stamp / our family, another sub-realm / our own words")
-		eq(C.GroupTag("A", list[1]), Tag("PVE") .. " "); eq(C.GroupTag("A", list[3]), "")
+		-- (Changed on purpose in 1.6.0: the bare name's line, which nobody can place, is marked [?] under All.)
+		eq(C.GroupTag("A", list[1]), Tag("PVE") .. " "); eq(C.GroupTag("A", list[3]), Tag("UNKNOWN") .. " ")
+		eq(C.GroupTag("A", list[2]), "", "a guildmate's: ours"); eq(C.GroupTag("A", list[5]), "", "our own")
 		-- Under All nothing is made: the list itself.
 		eq(C.GroupFilter("A", list, nil), list)
 		-- A saved file may hold anything: a ruleset of ours, or none (no tag made of it).
 		local odd = { t = 1000, sender = "Pve Rulespeaker-CAMWOWUS1Realm2PvE", guild = GUILD, text = "odd", kind = "|TInterface\\x:16|t", to = "everyone", sid = {} }
 		eq(C.LineRoom(odd), nil, "an odd kind is no ruleset: unknown, All alone")
-		eq(C.GroupTag("A", odd), "", "and no tag made of it")
+		eq(C.GroupTag("A", odd), Tag("UNKNOWN") .. " ", "and no tag made of it: the mark of a line nobody can place (1.6.0)")
 		odd.kind = false
 		eq(C.LineRoom(odd), nil, "unknown, its odd server id read as none")
 	end)

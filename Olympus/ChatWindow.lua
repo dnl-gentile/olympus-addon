@@ -826,6 +826,8 @@ local function NewBubble(pane)
 		if not self.whisper then return end
 		Tip(self, function(tt)
 			tt:AddLine(self.full or self.whisper, 1, 0.82, 0)
+			-- (1.6.0) Another ruleset's writer, or one nobody can place: said before the whisper's line.
+			if self.note then tt:AddLine(self.note, 1, 0.5, 0.5, true) end
 			tt:AddLine(L.CHATWIN_WHISPER_TIP:format(self.whisper), 0.6, 0.6, 0.6)
 		end)
 	end)
@@ -1047,7 +1049,11 @@ function ChatWindow.HeaderOf(v, e, deleted, chat)
 			v.whisper = tell or nil
 			v.tip = who .. "  <" .. ns.Codec.Plain(e.guild or "?") .. ">"
 		end
-		if not mine and tier == "A" then v.who = ns.Channels.GroupTag(tier, e) .. v.who end
+		-- (1.6.0: by the bubble's own room, `chat`, as an embedded pane's bubbles are drawn while the tab
+		-- shows [Olympus]; a tag now marks a line nobody can place too, Channels.GroupTag.)
+		if not mine and chat == "A" then v.who = ns.Channels.GroupTag(chat, e) .. v.who end
+		-- (1.6.0) The name's tooltip says when the writer plays another ruleset, or one nobody can place.
+		v.note = not mine and ns.Channels.RulesetNote(chat, e) or nil
 		v.headed, v.nativeGuild = true, nativeGuild
 	end
 	return v.who, v.when, v.whisper, v.tip
@@ -1096,7 +1102,7 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		veiled, modRoom, c[1], c[2], c[3], who
 	k[11], k[12], k[13], k[14], k[15], k[16], k[17], k[18], k[19], k[20] = when, whisper, full, text,
 		bodyFont, bodySize, bodyFlags, whoFont, whoSize, whoFlags
-	k[21], k[22], k.n = replyWho, replyText, 22
+	k[21], k[22], k[23], k.n = replyWho, replyText, start and v.note or nil, 23 -- (1.6.0: the name's ruleset note)
 	if ChatWindow.SameLook(b, k) then
 		b:ClearAllPoints()
 		if mine then
@@ -1124,10 +1130,11 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		headerW = math.ceil(TextWidth(b.who)) + 8 + timeW + (modRoom and 18 or 0) -- (room for the moderator's button, 1.1.6)
 		b.header.whisper = whisper
 		b.header.full = full
+		b.header.note = v.note
 		b.header:EnableMouse(not mine)
 		b.header:Show()
 	else
-		b.header.whisper, b.header.full = nil, nil
+		b.header.whisper, b.header.full, b.header.note = nil, nil, nil
 		b.header:Hide()
 	end
 	b.body:SetText(text)
