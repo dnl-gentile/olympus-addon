@@ -8158,14 +8158,18 @@ local function NoPlayerWorld(fn)
 		-- The server's line for `name` (the game numbers each chat line: CHAT_MSG_SYSTEM's eleventh
 		-- value, none with w.noLineIDs) in `windows` chat windows, each running the system line's
 		-- filters in turn with the event's values (the relay's, given, then the Accord's; the first
-		-- that says true drops it): in how many windows it shows.
+		-- that says true drops it): in how many windows it shows. (Changed on purpose, 1.6.0: each
+		-- window is the same frame from one line to the next, as the game's chat windows are, which
+		-- the filters receive first; a new table each time told nothing of which window asked.)
+		w.frames = {}
 		function w.Shown(name, windows, relay)
 			local text = ERR_CHAT_PLAYER_NOT_FOUND_S:format(name)
 			w.lineID = w.lineID + 1
 			local id = w.noLineIDs and 0 or w.lineID
 			local n = 0
-			for _ = 1, windows or 1 do
-				local frame = {}
+			for i = 1, windows or 1 do
+				w.frames[i] = w.frames[i] or {}
+				local frame = w.frames[i]
 				local dropped = relay and relay.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id)
 				if not dropped then dropped = ns.Accord.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id) end
 				if not dropped then n = n + 1 end
@@ -8377,6 +8381,44 @@ test("1.6.0 no-player lines: a whisper the game refused (12) keeps its line out 
 		eq(w.Shown("Taken Keeper"), 0, "a delivered try's line, past the refusal's grace: out")
 		w.mono = w.mono + A.QUIET
 		eq(w.Shown("Taken Keeper"), 1, "QUIET on: shown")
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): with no lineID a line is told only by its text and
+-- the frame's time, and identical lines in one frame (a relay's pieces to one reporter in one pump)
+-- got the first one's answer: one mark taken for them all, and the marks left kept the player's own
+-- next lines out of the chat. They come to each chat window in turn: the same filter asking again in
+-- the same window is the next line, and takes a mark of its own; another window, or the other filter
+-- in the same one, the same line. Both filters run in two windows here, as on Forever with the relay
+-- on. Fails before: the player's own whisper a second later said nothing.
+test("1.6.0 no-player lines: with no lineID, identical lines in one frame each take a mark of their own, asked in two chat windows by the relay's filter and the Accord's; the player's own whisper a second later shows in both", function()
+	NoPlayerWorld(function(w)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		w.noLineIDs = true
+		for _, mode in ipairs({ "S1", "S2" }) do
+			local name = mode == "S1" and "Gone Reporter" or "Away Reporter"
+			local lines = {}
+			-- S1: each refused at once, its line during the call; S2: taken, the server's four lines
+			-- coming together a moment later, in one frame.
+			C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+				if dist ~= "WHISPER" or target ~= name then return 0 end
+				if mode == "S1" then lines[#lines + 1] = w.Shown(target, 2, O.Relay) return 12 end
+				return 0
+			end
+			for i = 1, 4 do O.Comm.Whisper(name .. "-Realm", "X1~piece " .. i, nil, false, false) end
+			for _ = 1, 10 do O.Comm.Pump() end -- (one frame: the clock stands still)
+			if mode == "S2" then
+				w.mono = w.mono + 0.3
+				for _ = 1, 4 do lines[#lines + 1] = w.Shown(name, 2, O.Relay) end
+			end
+			eq(#lines, 4, mode .. ": four lines")
+			eq(lines[1] + lines[2] + lines[3] + lines[4], 0, mode .. ": all four out, in both windows")
+			w.mono = w.mono + 1
+			eq(w.Shown(name, 2, O.Relay), 2, mode .. ": the player's own whisper a second later: shown in both windows")
+			w.mono = w.mono + 2
+			eq(w.Shown(name, 2, O.Relay), 2, mode .. ": and his next")
+		end
 	end)
 end)
 

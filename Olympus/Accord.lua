@@ -110,7 +110,10 @@ local pending = {} -- [Fold(name)] = { name }: an answer waiting for its delay (
 -- (1.6.0, Accord.Tried), the not-found line that whisper may still cause, until its own QUIET is
 -- out; his name's forms share one entry.
 local quiet = {}
-local lastLine = { key = false, hide = false } -- the line the chat windows are asking about now
+-- The line the chat windows are asking about now, its answer, and (1.6.0, a line with no lineID) who
+-- asked it: [the filter: "own" or "relay"][the chat window, or NOFRAME] = true.
+local lastLine = { key = false, hide = false, asked = { own = {}, relay = {} } }
+local NOFRAME = {}
 local watchingNotFound, filtering = false, false
 local stats = { asks = 0, heard = 0, told = 0, kept = 0, refused = 0, askNotTeam = 0, lower = 0, gone = 0, wiped = 0,
 	quieted = 0, passed = 0 }
@@ -483,13 +486,15 @@ end
 -- and a line takes the newest one still running: a whisper the game delivered while he was online
 -- never gets a line, and its mark goes by itself however long we go on whispering him after he left
 -- (one count per name, its deadline moved on by each whisper, kept those marks, and his own lines
--- out of the chat, as long as we did). Each chat window that shows system lines runs the filter for
--- the same line, and the relay's filter asks this one: one answer per line (lastLine). A line is
--- told by its lineID (CHAT_MSG_SYSTEM's eleventh value), else by its text and the frame's time
--- (GetTime is one value through a frame): there two such lines in one frame get one answer, the
--- first one's, which keeps them both out.
-function Accord.QuietLine(_, _, text, ...)
-	if not ns.Gate.Allowed("system-filters") then return false end
+-- out of the chat, as long as we did). Each chat window that shows system lines runs the filters for
+-- the same line, and the relay's filter asks here too (Accord.QuietLineForRelay): one answer per line
+-- (lastLine). A line is told by its lineID (CHAT_MSG_SYSTEM's eleventh value), else by its text and
+-- the frame's time (GetTime is one value through a frame) and who asks: identical lines in one frame
+-- (a relay's pieces to one reporter in one pump, refused) come to each window in turn, so the same
+-- filter asking again in the same window is the next of them and takes a mark of its own; another
+-- window, or the other filter in the same one, is the same line. (Given one answer, the first's, those
+-- lines kept the marks they did not take, and the player's next own lines out of the chat with them.)
+local function Answer(asker, chatFrame, text, ...)
 	if next(quiet) == nil then return false end
 	local who = NotFoundName(text)
 	local q = who and quiet[who]
@@ -498,7 +503,15 @@ function Accord.QuietLine(_, _, text, ...)
 	local lineID = select(10, ...)
 	if Secret(lineID) or type(lineID) ~= "number" or lineID <= 0 then lineID = nil end
 	local key = lineID and ("#" .. lineID) or (text .. "\n" .. tostring(now))
-	if lastLine.key == key then return lastLine.hide end
+	local window = chatFrame or NOFRAME
+	if lastLine.key == key then
+		if lineID then return lastLine.hide end
+		local asked = lastLine.asked[asker]
+		if not asked[window] then
+			asked[window] = true
+			return lastLine.hide
+		end
+	end
 	local hide = TakeMark(q, now)
 	if hide then
 		stats.quieted = stats.quieted + 1
@@ -506,7 +519,18 @@ function Accord.QuietLine(_, _, text, ...)
 		stats.passed = stats.passed + 1
 	end
 	lastLine.key, lastLine.hide = key, hide
+	wipe(lastLine.asked.own); wipe(lastLine.asked.relay)
+	lastLine.asked[asker][window] = true
 	return hide
+end
+function Accord.QuietLine(chatFrame, _, text, ...)
+	if not ns.Gate.Allowed("system-filters") then return false end
+	return Answer("own", chatFrame, text, ...)
+end
+-- (1.6.0) The relay's filter (Relay.QuietLine), asking for the same line in the same window.
+function Accord.QuietLineForRelay(chatFrame, _, text, ...)
+	if not ns.Gate.Allowed("system-filters") then return false end
+	return Answer("relay", chatFrame, text, ...)
 end
 -- (1.6.0) A whisper to `name` the game is being handed now (Comm.SendNow, before its call: a refused
 -- whisper's line comes during it): one more of his lines kept out, until QUIET seconds from now.
@@ -1354,6 +1378,7 @@ function Accord.Reset()
 	session.declined, session.newSaid, session.revealUntil, session.teamRevealUntil, session.lastRead = false, false, 0, 0, -math.huge
 	wipe(askers); wipe(pending); wipe(quiet)
 	lastLine.key, lastLine.hide = false, false
+	wipe(lastLine.asked.own); wipe(lastLine.asked.relay)
 	watchingNotFound = false -- (each test's own events; the game never resets it)
 	for k in pairs(stats) do stats[k] = 0 end
 	if frame and rawget(_G, "OlympusAccordFrame") ~= frame then frame = nil elseif frame then frame:Hide() end
