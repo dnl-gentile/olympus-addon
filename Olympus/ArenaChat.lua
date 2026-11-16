@@ -170,8 +170,13 @@ end
 
 local function Count(map) local n = 0 for _ in pairs(map) do n = n + 1 end return n end
 local function Housekeep(r, now)
-	-- Same expiry windows as Channels.Admit. Never evict a live rate bucket/dedupe entry to
-	-- admit a new one: a hostile stream cannot reset its burst or cause a late duplicate.
+	-- A line's key is kept 120 s, Channels.Admit's window before 1.6.0, not Channels.DedupeWindow
+	-- (1.6.0: as long as a relay copy may still come): a room keeps SEEN_MAX keys at most and refuses
+	-- a new line while they are full, so a hostile burst kept that long would silence the room that
+	-- long. An arena line never goes as text in the public channel (ChatHall.Send), and the relay's last
+	-- hop takes a second copy once within Relay.SEEN_FOR; one later than that may still show twice. Never
+	-- evict a live rate bucket/dedupe entry to admit a new one: a hostile stream cannot reset its burst
+	-- or cause a late duplicate.
 	for _, map in ipairs({ r.seen, r.mine }) do
 		for key, at in pairs(map) do if now - at > 120 then map[key] = nil end end
 	end
