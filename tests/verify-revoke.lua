@@ -418,3 +418,27 @@ test("verify revoke: a word a verifier's guildmate hands over may reach his stor
 		eq(Checked(As, fresh, THIRD), true, "a client that missed it has it from the verifier's answer")
 	end)
 end)
+
+-- The review of 1.6.0. The Watch lists a guild a verifier's client knows by its start alone (Verify.Pending:
+-- the starts cross with the answers, while the census row of a guild off the network for a week is gone),
+-- yet /oly verify revoke there found no such guild (Verify.FindGuild: census rows, words held and our own
+-- guild only) and called it unknown. Its start is a guild this client knows too. Fails before: listed, and
+-- the revocation refused as unknown.
+test("verify revoke: a guild a verifier's Watch lists by its start alone is revoked there with its guild master named, who is asked for without him", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local v = Node(HC, "Olympus Crown")
+		local V = v.c.Verify
+		As(v, V.Handle, "CHANNEL", HUB, ("GV~1~S~%d~T,%d,Olympus Gone,Hildryn Payne"):format(Now(), T0 - 5 * DAY))
+		eq(v.c.rdb.guilds["Olympus Gone"], nil, "(no census row of it)")
+		local listed = false
+		for _, r in ipairs(As(v, V.Pending)) do if r.guild == "Olympus Gone" then listed = true end end
+		eq(listed, true, "(The Watch lists it, by its start)")
+		As(v, V.RevokeInput, "Olympus Gone")
+		assert(Printed(v, v.c.L.VERIFY_REVOKE_NO_MASTER:format("Olympus Gone")), "no guild master named: asked for one")
+		As(v, V.RevokeInput, "Olympus Gone Gone Master")
+		assert(Printed(v, v.c.L.VERIFY_REVOKED:format("Olympus Gone")), "revoked with the guild master named")
+		local e = v.c.rdb.verify.list[ns.Fold("Olympus Gone")]
+		eq(e and e.k, "R", "the revocation held")
+		eq(e and ns.ShortName(e.gm), "Gone Master")
+	end)
+end)

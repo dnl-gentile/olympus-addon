@@ -924,6 +924,8 @@ ns.Comm.Handle("GV", function(...) return Verify.Handle(...) end)
 
 -- The guild named by a verifier as this client spells it (the census's, a word's, our own), with
 -- what follows the name (a guild master's name, or ""); the longest known name the input starts with.
+-- (The review of 1.6.0) A start's too: The Watch lists a guild known by its start alone (Verify.Pending),
+-- and /oly verify revoke there called it unknown.
 function Verify.FindGuild(input)
 	input = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if input == "" then return nil end
@@ -938,6 +940,7 @@ function Verify.FindGuild(input)
 	for name in pairs(ns.rdb.guilds or {}) do Try(name) end
 	local s = Store()
 	for _, e in pairs(s and s.list or {}) do if Valid(e) then Try(e.guild) end end
+	for _, e in pairs(s and s.start or {}) do if ValidStart(e) then Try(e.guild) end end
 	if IsInGuild() then Try((GetGuildInfo("player"))) end
 	return best, rest
 end
