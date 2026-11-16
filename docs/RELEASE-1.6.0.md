@@ -14,7 +14,8 @@ without a desktop companion or API setup.
   Unknown required details wait for a deliberate WHO check or target/mouseover
   observation. An excluded request does not hold up later eligible popups.
 - **Movement-safe prompts:** an automatic window does not take keyboard focus.
-  Click the command when ready to copy, paste and send it yourself.
+  Click the command when ready to copy, paste and send it yourself. Recruiting status
+  labels also use punctuation supported by the client fonts.
 - **JOIN recovery:** a request postponed by typing, combat or another window retries
   with scanning off. JOIN after an ordinary reply becomes an invite request once.
 - **Census leadership stays visible:** newer guild totals no longer hide retained
