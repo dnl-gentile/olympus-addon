@@ -567,3 +567,75 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, guilds with a realm key too (the key now only keeps their typed chat lines out of it), and the relays pass the whole census on again", 1, true))
 	assert(english:find("The King's guild wears the verified check mark in the Census.", 1, true))
 end)
+
+-- 1.6.0, in every shipped language: the alt's recruits for the main, the recruiting windows, then (the
+-- review of the players' reports, merged for the release) the ad reminder's popup every
+-- Recruit.AD_MINUTES with its Less often and Turn off, the census's last count kept with its date while
+-- nothing newer arrives, and a chat line shown once when a relay's copy arrives late. Each page and
+-- button is named as that language's player sees it; plain text in the game's fonts, as 1.5.9's.
+local AD_EVERY_1_6_0 = { enUS = "every %d minutes instead of 5", ptBR = "a cada %d minutos, não mais a cada 5",
+	deDE = "alle %d Minuten statt alle 5", esES = "cada %d minutos en lugar de cada 5", esMX = "cada %d minutos en lugar de cada 5",
+	frFR = "toutes les %d minutes au lieu de 5", itIT = "ogni %d minuti invece che ogni 5", ruRU = "каждые %d минут вместо 5" }
+
+test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting windows, the ad reminder every 30 minutes with its two buttons, the census kept with its date and the chat line shown once, each page and button named as shown", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local Recruit = assert(ns.Recruit)
+	eq(Recruit.AD_MINUTES, 30, "the Census offer's ads every 30 minutes, as the letter says")
+	local english = Client("enUS").L.LETTER_1_6_0
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local cns = Client(code)
+		local L = cns.L
+		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
+		local title, body = cns.Letters.Text("1.6.0")
+		eq(cns.Letters.Versions()[1], "1.6.0", code .. ": the release's letter first")
+		eq(cns.Letters.Versions()[2], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(title, rawget(L, "LETTER_1_6_0_HEAD"), code .. ": its window names it by its title")
+		assert(title ~= rawget(L, "LETTER_1_5_9_HEAD"), code .. ": distinct release title")
+		eq(rawget(L, "LETTER_1_6_0_SIGNED"), rawget(L, "LETTER_1_5_9_SIGNED"), code .. ": the dev's signature in this language, as 1.5.9's")
+		eq(rawget(L, "LETTER_1_6_0_LINK"), rawget(L, "LETTER_1_5_9_LINK"), code .. ": the site's link, as 1.5.9's")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "church,church,church,guild,guild,news", code .. ": release topics")
+		for _, text in ipairs({ raw, title }) do
+			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
+				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
+			end
+			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
+		end
+		-- The pages and the ad window's buttons as this language's player sees them named.
+		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
+		assert(raw:find(invites, 1, true), code .. ": Church > Invites as shown: " .. invites)
+		for _, key in ipairs({ "TAB_CENSUS", "RECRUIT_ANNOUNCE_LESS", "RECRUIT_ANNOUNCE_TURN_OFF" }) do
+			assert(raw:find(L[key], 1, true), code .. ": " .. key .. " as shown: " .. L[key])
+		end
+		local every = AD_EVERY_1_6_0[code]:format(Recruit.AD_MINUTES)
+		assert(raw:find(every, 1, true), code .. ": the reminder's interval, as Recruit.lua sets it: " .. every)
+		for _, word in ipairs({ "/oly alt add", "/oly bug" }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		previous = raw
+	end
+	-- The three news of the review, in plain words.
+	assert(english:find("Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window.", 1, true))
+	assert(english:find("If yours still comes every 5 minutes, click Less often.", 1, true), "an interval saved before 1.6.0 is kept")
+	assert(english:find("the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.", 1, true))
+	assert(english:find("An Olympus chat line no longer shows twice when a relay's copy arrives late.", 1, true))
+end)

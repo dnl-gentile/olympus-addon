@@ -42,6 +42,22 @@ ns.Locale("itIT", {
 	PLAYER_TOOLTIP_SIZE = "Dimensione del tooltip: %d%%",
 	RECORDS_LAG = "Tempo dal turno di invio alla trasmissione dei riepiloghi: %d campioni, %.1f s in media, %.1f s al massimo",
 	RECORDS_NET = "Turno %d: riepiloghi ricevuti %s, risposte inviate %d, budget residuo %d di %d, richieste inviate %d",
+	LETTER_1_6_0_TITLE = "Il registro del reclutatore",
+	LETTER_1_6_0_HEAD = "Il registro del reclutatore",
+	LETTER_1_6_0_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
+	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
+	LETTER_1_6_0 = [==[Vostra Maestà. Soldati di Olympus.
+
+- {church} Se recluti con un alt confermato, il tuo personaggio principale, Apostolo o Missionario, riceve i soliti punti diretti quando il registro della gilda e un testimone indipendente confermano la recluta. Collega i tuoi personaggi con /oly alt add sul personaggio principale, poi conferma sull'alt.
+- {church} Le finestre di reclutamento non ti tolgono più il focus della tastiera. Le gilde senza posto per nuovi giocatori vengono saltate, e un giocatore vicino che non ha mai chiesto di entrare non viene passato automaticamente a un altro reclutatore.
+- {church} Gli annunci di reclutamento attivati dal Censimento ora compaiono ogni 30 minuti invece che ogni 5, e mai sopra un'altra finestra di reclutamento. La finestra dell'annuncio ha i pulsanti Meno spesso e Disattiva; Chiesa > Inviti cambia ogni quanto compare o lo riattiva. Se il tuo compare ancora ogni 5 minuti, clicca Meno spesso.
+- {guild} Durante la ricostruzione del censimento, l'ultimo conteggio noto mantiene l'ora originale. Le richieste di aggiornamento possono confrontarsi con quei dati salvati e chiedere ciò che manca.
+- {guild} Quando al tuo addon non arrivano nuovi rapporti del censimento, il Censimento mantiene il suo ultimo conteggio, con la data in cui è stato fatto, invece di perdere le gilde una alla volta.
+- {news} Una riga della chat di Olympus non appare più due volte quando la copia di un relay arriva in ritardo. Nelle ore di punta i relay restano collegati tra loro, passano ogni riga prima agli altri relay e dividono l'attesa in modo equo tra le gilde.
+
+Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
+
+Lunga vita al Re. Lunga vita a Olympus.]==],
 	LETTER_1_5_9_TITLE = "Tutto l'esercito contato",
 	LETTER_1_5_9_HEAD = "Tutto l'esercito contato",
 	LETTER_1_5_9_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",

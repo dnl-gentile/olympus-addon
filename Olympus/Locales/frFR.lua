@@ -42,6 +42,22 @@ ns.Locale("frFR", {
 	PLAYER_TOOLTIP_SIZE = "Taille de l'infobulle : %d%%",
 	RECORDS_LAG = "Délai entre le créneau et l'envoi des empreintes : %d mesures, %.1f s en moyenne, %.1f s au maximum",
 	RECORDS_NET = "Tour %d : empreintes reçues %s, réponses envoyées %d, budget restant %d sur %d, demandes envoyées %d",
+	LETTER_1_6_0_TITLE = "Le registre du recruteur",
+	LETTER_1_6_0_HEAD = "Le registre du recruteur",
+	LETTER_1_6_0_SIGNED = "Votre humble artisan, le dev d'Olympus",
+	LETTER_1_6_0_LINK = ns.L.LETTER_1_6_0_LINK,
+	LETTER_1_6_0 = [==[Votre Majesté. Soldats d'Olympus.
+
+- {church} Si tu recrutes sur un reroll confirmé, ton personnage principal, Apôtre ou Missionnaire, reçoit les points directs habituels dès que le journal de guilde et un témoin indépendant confirment la recrue. Lie tes personnages avec /oly alt add sur ton personnage principal, puis confirme sur le reroll.
+- {church} Les fenêtres de recrutement ne prennent plus le focus du clavier. Les guildes sans place pour de nouveaux joueurs sont ignorées, et un joueur proche qui n'a jamais demandé à rejoindre n'est pas transmis automatiquement à un autre recruteur.
+- {church} Les annonces de recrutement activées depuis le Recensement s'ouvrent maintenant toutes les 30 minutes au lieu de 5, et jamais par-dessus une autre fenêtre de recrutement. La fenêtre de l'annonce a les boutons Moins souvent et Désactiver ; Église > Invitations change leur fréquence ou les réactive. Si la tienne revient encore toutes les 5 minutes, clique sur Moins souvent.
+- {guild} Pendant la reconstruction du recensement, le dernier compte connu garde son heure d'origine. Les demandes de mise à jour peuvent se comparer à ces données enregistrées et demander ce qui leur manque.
+- {guild} Quand aucun nouveau rapport de recensement n'atteint ton addon, le Recensement garde son dernier compte, avec la date où il a été fait, au lieu de perdre les guildes une à une.
+- {news} Une ligne du chat d'Olympus ne s'affiche plus deux fois quand la copie d'un relais arrive en retard. Aux heures de pointe, les relais restent reliés entre eux, transmettent chaque ligne d'abord aux autres relais et partagent l'attente équitablement entre les guildes.
+
+Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
+
+Vive le Roi. Vive Olympus.]==],
 	LETTER_1_5_9_TITLE = "Toute l'armée comptée",
 	LETTER_1_5_9_HEAD = "Toute l'armée comptée",
 	LETTER_1_5_9_SIGNED = "Votre humble artisan, le dev d'Olympus",

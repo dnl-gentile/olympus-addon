@@ -296,21 +296,28 @@ To everyone who sent ideas, bug reports and fixes: thank you. Special thanks to 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
 Long live the King. Long live Olympus.]==]
--- 1.5.9 (the author, 11-12: "Você pode, por favor, finalizar 1.5.9? ... tem coisa que a gente deixou
--- para ela da estrutura da rede, do repasse"): the rest the 1.5.8 letter promised. The ranking for
--- everyone, Church > Invites in sections, the kept switches, the Join page's request as a JOIN, the
--- census for the guilds that saw too few of us, the chat by ruleset and the King's guild's mark.
+-- 1.6.0: the alt's recruits for the main, the recruiting windows, the census rebuild; then (the review
+-- of the players' reports) the ad reminder's popup every 30 minutes (Recruit.AD_MINUTES) with Less
+-- often and Turn off, the census's last count kept with its date while nothing newer arrives, and a
+-- chat line shown once when a relay's copy arrives late. In every shipped language.
 L.LETTER_1_6_0_TITLE = "The Recruiter's Record"
 L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 
 - {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt.
 - {church} Recruiting prompts no longer take keyboard focus. Guilds without room for new players are skipped, and a nearby player who never asked to join is not automatically passed to another recruiter.
+- {church} Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window. The ad window has Less often and Turn off buttons; Church > Invites changes how often or turns it back on. If yours still comes every 5 minutes, click Less often.
 - {guild} During a census rebuild, the last known count keeps its original time. Refresh requests can compare against that saved view and ask for updates it is missing.
+- {guild} When no new census reports reach your addon, the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.
+- {news} An Olympus chat line no longer shows twice when a relay's copy arrives late. At busy hours the relays stay linked, pass each line to the other relays first and share the wait fairly between guilds.
 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
 Long live the King. Long live Olympus.]==]
+-- 1.5.9 (the author, 11-12: "Você pode, por favor, finalizar 1.5.9? ... tem coisa que a gente deixou
+-- para ela da estrutura da rede, do repasse"): the rest the 1.5.8 letter promised. The ranking for
+-- everyone, Church > Invites in sections, the kept switches, the Join page's request as a JOIN, the
+-- census for the guilds that saw too few of us, the chat by ruleset and the King's guild's mark.
 L.LETTER_1_5_9_TITLE = "The Whole Host Counted"
 L.LETTER_1_5_9_HEAD, L.LETTER_1_5_9_SIGNED, L.LETTER_1_5_9_LINK = L.LETTER_1_5_9_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_5_9 = [==[Your Majesty. Soldiers of Olympus.
@@ -552,7 +559,10 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 
 - {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt.
 - {church} As janelas de recrutamento não tiram mais o foco do teclado. Guildas sem vaga ficam fora da busca, e jogadores próximos que nunca pediram para entrar não são repassados automaticamente a outro recrutador.
+- {church} Os anúncios de recrutamento ligados pelo Censo agora aparecem a cada 30 minutos, não mais a cada 5, e nunca por cima de outra janela de recrutamento. A janela do anúncio tem os botões Menos vezes e Desligar; Igreja > Convites muda a frequência ou liga de novo. Se o seu ainda aparece a cada 5 minutos, clique em Menos vezes.
 - {guild} Durante a reconstrução do censo, a última contagem mantém o horário original. Os pedidos de atualização podem comparar com os dados salvos e pedir o que falta.
+- {guild} Quando nenhum relato novo do censo chega ao seu addon, o Censo mantém a última contagem, com a data em que foi feita, em vez de perder uma guilda de cada vez.
+- {news} Uma linha do chat do Olympus não aparece mais duas vezes quando a cópia de um relay chega atrasada. Nos horários de pico, os relays continuam ligados entre si, passam cada linha primeiro aos outros relays e dividem a espera de forma justa entre as guildas.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
