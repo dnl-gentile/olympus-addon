@@ -225,7 +225,51 @@ end
 -- player for that report: there it is the only way to learn what the game refused.
 local MAX_BLOCKED = 10
 local blocked, toldGamepad = 0, false
-function ns.ResetBlocked() blocked, toldGamepad = 0, false end -- tests
+local uiActions, actionRevision, samples = {}, 0, {}
+local ACTIONS = {
+	["recruit-start"] = true, ["recruit-pause"] = true, ["invite-auto"] = true,
+	["invite-manual"] = true, ["invite-chat"] = true, ["invite-hide"] = true,
+	["input-gamepad"] = true, ["input-mouse"] = true, ["gate-reload-notice"] = true,
+}
+-- Fixed labels only: never accept command text, keys pressed or player names. The ring stays
+-- in memory; only its bounded snapshot at a blocked action is saved with that action.
+function ns.NoteUIAction(action)
+	if not ACTIONS[action] then return end
+	actionRevision = actionRevision + 1
+	uiActions[#uiActions + 1] = date("%H:%M:%S") .. " " .. action
+	while #uiActions > 8 do table.remove(uiActions, 1) end
+end
+function ns.ResetBlocked() -- tests
+	blocked, toldGamepad, uiActions, actionRevision, samples = 0, false, {}, 0, {}
+end
+
+local function BlockedContext() -- gp:diagnostics
+	if not ns.Gate.Allowed("diagnostics") then return "diagnostics unavailable" end
+	local R, D = ns.Recruit, ns.Dialog
+	local draft = D and D.Find and D.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
+	local automatic = draft and type(draft.data) == "table" and draft.data.automatic
+	return ("input=%s combat=%s recruiting=%s paused=%s scan=%s requests=%d invite=%s"):format(
+		ns.GamepadUI() and "gamepad" or "mouse", tostring(InCombatLockdown and InCombatLockdown() or false),
+		tostring(R and R.IsWhisperRecruiting and R.IsWhisperRecruiting() or false),
+		tostring(R and R.IsPaused and R.IsPaused() or false),
+		tostring(R and R.Candidates and R.Candidates.Enabled() or false),
+		R and type(R.requests) == "table" and #R.requests or 0,
+		draft and (automatic and "automatic" or "manual") or "closed")
+end
+
+local function SampleBlocked(b, now, fresh)
+	local clock, pad = GetTime(), ns.GamepadUI()
+	local sample = samples[b.key]
+	-- Counts are exact; context is sampled at most once a second unless a recorded UI action
+	-- or input mode changed. No repeated stack/probe walks during Blizzard's event bursts.
+	if not fresh and sample and clock - sample.t < 1 and sample.revision == actionRevision and sample.pad == pad then return end
+	samples[b.key] = { t = clock, revision = actionRevision, pad = pad }
+	local ok, context = pcall(BlockedContext)
+	b.context = ok and context or "context unavailable"
+	b.contextAt, b.gamepad = now, pad
+	b.firstContext = fresh and b.context or b.firstContext or b.context
+	b.recentUI = table.concat(uiActions, " > ")
+end
 
 -- The game raises the event inside the refused call, so the stack read here starts with this
 -- handler's own frames (it, pcall, Core.lua's SafeCall and event dispatch), which never made the
@@ -247,16 +291,21 @@ end
 
 -- Kept once per call; the first time it comes in a session its stack and probe are taken
 -- again (and it moves to the end, the newest), so the report shows this version's evidence.
-local function RecordBlocked(event, func)
+local function RecordBlocked(event, addon, func)
 	local db = ns.db
 	if not db then return end
 	db.actionsBlocked = type(db.actionsBlocked) == "table" and db.actionsBlocked or {}
 	local list, key, now = db.actionsBlocked, event .. "|" .. func, date("%Y-%m-%d %H:%M:%S")
+	if addon ~= ADDON then key = key .. "|" .. addon end
 	local b
 	for i, e in ipairs(list) do
 		if e.key == key then
 			e.count, e.last = (e.count or 0) + 1, now
-			if e.session == db.sessions then return end
+			if e.session == db.sessions then
+				SampleBlocked(e, now, false)
+				table.remove(list, i); list[#list + 1] = e
+				return
+			end
 			b = table.remove(list, i)
 			break
 		end
@@ -268,16 +317,21 @@ local function RecordBlocked(event, func)
 	end
 	local okProbe, taint = pcall(ns.TaintProbe)
 	b = b or { key = key, event = event, func = func, count = 1, first = now, last = now }
+	b.addon = addon
+	local build = rawget(ns, "TEST_BUILD")
+	b.build = type(build) == "table" and ("test " .. tostring(build.n) .. " commit " .. tostring(build.commit)) or "release/source"
 	b.session, b.version, b.client, b.gamepad, b.stack = db.sessions, ns.VERSION, ClientInfo(), ns.GamepadUI(), stack
 	b.taint = okProbe and taint or ("taint: probe failed: " .. tostring(taint))
+	SampleBlocked(b, now, true)
 	list[#list + 1] = b
-	while #list > MAX_BLOCKED do table.remove(list, 1) end
+	while #list > MAX_BLOCKED do samples[table.remove(list, 1).key] = nil end
 end
 
+local OUR_ADDONS = { [ADDON] = true, Olympus_Arena = true, OlympusSiteAggregate = true, Olympus_Link = true }
 for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 	ns.RegisterEvent(event, function(addon, func)
 		-- Another addon's: logged as always.
-		if addon ~= ADDON then return ns.Log("%s: %s tried %s", event, tostring(addon), tostring(func)) end
+		if not OUR_ADDONS[addon] then return ns.Log("%s: %s tried %s", event, tostring(addon), tostring(func)) end
 		blocked = blocked + 1
 		if blocked <= 3 then
 			local stack = debugstack and debugstack(2, 12, 0) or ""
@@ -285,7 +339,7 @@ for _, event in ipairs({ "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
 		elseif blocked <= 10 or blocked % 100 == 0 then
 			ns.Log("%s: %s tried %s (%d this session)", event, tostring(addon), tostring(func), blocked)
 		end
-		RecordBlocked(event, tostring(func))
+		RecordBlocked(event, addon, tostring(func))
 		if ns.GamepadUI() and not toldGamepad then
 			toldGamepad = true
 			ns.Print("|cffff4040" .. L.BLOCKED_GAMEPAD .. "|r")
@@ -1086,6 +1140,12 @@ function ns.BuildBugReport()
 				shown = shown + 1
 				out[#out + 1] = ("[%dx] %s %s  (%s .. %s, v%s, %s)"):format(b.count or 1, tostring(b.event), tostring(b.func),
 					tostring(b.first), tostring(b.last), tostring(b.version), b.gamepad and "gamepad UI" or "mouse and keyboard")
+				if b.addon then out[#out + 1] = "  addon=" .. b.addon .. " build=" .. tostring(b.build) .. " client=" .. tostring(b.client) end
+				if b.context then
+					out[#out + 1] = "  first context this session: " .. tostring(b.firstContext)
+					out[#out + 1] = "  latest sampled context (" .. tostring(b.contextAt) .. "): " .. b.context
+					if b.recentUI ~= "" then out[#out + 1] = "  recent UI: " .. tostring(b.recentUI) end
+				end
 				if b.taint then out[#out + 1] = "  " .. b.taint end
 				local n = 0
 				for line in tostring(b.stack or ""):gmatch("[^\n]+") do
@@ -1097,6 +1157,7 @@ function ns.BuildBugReport()
 		end
 		out[#out + 1] = ""
 	end
+	if #uiActions > 0 then out[#out + 1] = "Recent local UI actions: " .. table.concat(uiActions, " > ") end
 	out[#out + 1] = ns.StatusText()
 	out[#out + 1] = ""
 	-- (1.5.5) The debug section, bounded (ns.DebugLines), after the status: a report sent in game

@@ -38,6 +38,7 @@ Run from the repository root with Bash and LuaJIT:
 ```sh
 OLYMPUS_TEST_FILTER='gamepad unified recruiting' bash scripts/check.sh
 OLYMPUS_TEST_FILTER='gamepad recruit movement focus' luajit tests/run.lua
+OLYMPUS_TEST_FILTER='gamepad blocked diagnostics' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit invite (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (review of 1.5.8)' luajit tests/run.lua
 OLYMPUS_TEST_FILTER='recruit scan (1.5.9)' luajit tests/run.lua
@@ -77,6 +78,14 @@ are removed in a scratch copy, and pass with the fixes.
    and keyboard, test quick paste/Enter, closing empty chat, and copying again.
 7. Opt into an ad reminder separately, then pause. No reminder should open while
    paused; resuming should preserve the chosen reminder interval.
+8. If Blizzard displays a blocked/forbidden-addon warning, open Help → Report a bug
+   before reloading. The report should identify the refused function, attributed
+   module, test build/commit, input mode and recruiting state, plus recent local UI
+   actions. Repeat the warning after changing input mode or closing the draft: its
+   count should increase and its latest context should change while the first stays.
+   Reload/logout normally and verify `OlympusDB.actionsBlocked` in
+   `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua` retains the record. Logging does
+   not fix the underlying blocked action; send the copied report for diagnosis.
 
 Offline API models cannot establish live server acceptance, real chat delivery,
 controller navigation quality, or account-policy approval.

@@ -3371,6 +3371,19 @@ the exact text first, in a window of its own, and sends nothing without your **S
 Type `/oly bug` (or press **Report a bug**), copy the text and open an issue. Errors are
 also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 
+When Blizzard says an addon action was blocked or forbidden, the report starts with the
+refused function, attributed Olympus module, client and test-build identification, stack,
+count and timestamps. It keeps up to ten distinct calls, including the first and latest
+sampled context for each session: input mode, combat, recruiting state and invite draft.
+Repeated events update the count immediately; context is sampled once a second or after a
+recorded UI action/input-mode change. A short history of fixed local UI action labels helps
+connect warnings to recruiting popups or input-mode switches, without recording commands,
+keys pressed or invitee names. The added diagnostics send nothing automatically.
+After the warning, open **Help → Report a bug** (or `/oly bug` with mouse and keyboard) and
+copy the report before reloading. A normal `/reload` or logout writes the saved records to
+disk. These records identify what Blizzard refused; the blamed addon is not by itself proof
+of where the taint began.
+
 Since 1.5.5 the report has a short debug section after the status lines. It shows which game
 and which Olympus files the addon runs on, and, for each kind of message that comes in pieces,
 how many arrived, were put together, were dropped incomplete or were refused, and why. It also

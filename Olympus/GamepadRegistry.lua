@@ -197,7 +197,7 @@ ns.GAMEPAD = {
 		why = "Loading the world map before the map library on clients where it loads on demand: it does nothing on Forever." },
 	{ id = "diagnostics", kind = "reads", files = { "Diagnostics.lua", "Gamepad.lua" },
 		guard = "own", toPad = "stays", toMouse = "nothing", safe = "keep",
-		why = "Reads only (taint probe, stacks), and the notices in Olympus's own windows." },
+		why = "Reads only (taint probe, stacks, sampled blocked-action context), and notices in Olympus's own windows. Records bounded local action labels at either login and across both input-mode switches; never reads chat text or writes to native UI." },
 
 	-- Found by the audit (scripts/gamepad-audit.lua), registered with it.
 	{ id = "lookups", kind = "reads", files = { "ArmyExport.lua", "ArenaMatch.lua", "ArenaParse.lua", "Borders.lua", "Channels.lua", "ChatWindow.lua", "Dialog.lua", "GuildFrame.lua", "Treasury.lua", "UI.lua", "Views.lua", "Who.lua", "Workshop.lua" },

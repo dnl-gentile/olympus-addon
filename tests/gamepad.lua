@@ -2833,6 +2833,87 @@ test("gamepad pass 4: blocked calls with the gamepad UI: counted, told once in a
 	NoErrors(C, "blocked calls")
 end)
 
+test("gamepad blocked diagnostics: latest context, module attribution, bounded bursts and both input transitions", function()
+	for _, initial in ipairs({ false, true }) do
+		local C, ns = Session(initial)
+		ns.ResetBlocked(); ns.db.actionsBlocked = nil
+		ns.TEST_BUILD = { n = 7, commit = "diagnostic-test" }
+		local probes, probe = 0, ns.TaintProbe
+		ns.TaintProbe = function() probes = probes + 1; return probe() end
+		local function Fire(addon, func) C.Fire("ADDON_ACTION_BLOCKED", addon or "Olympus", func or "FocusUnit()") end
+		local mark = C.Mark()
+		Fire()
+		local first = ns.db.actionsBlocked[1]
+		assert(first.context and first.context:find(initial and "input=gamepad" or "input=mouse", 1, true), "captures context at failure")
+		eq(first.addon, "Olympus"); eq(first.build, "test 7 commit diagnostic-test")
+		local original = first.context
+		for i = 1, 500 do Fire() end
+		eq(first.count, 501); eq(probes, 1, "burst does not walk stacks/probe again")
+		eq(#C.Since(mark), 0, "capture touches no native UI")
+		C.Switch(not initial)
+		Fire()
+		eq(first.gamepad, not initial, "same-session repeats update input context")
+		assert(first.context ~= original); eq(first.firstContext, original, "first context preserved")
+		assert(first.recentUI:find(initial and "input-mouse" or "input-gamepad", 1, true), "real switch is recorded")
+		C.Switch(initial)
+		Fire()
+		eq(first.context, original); eq(probes, 1)
+		for _, addon in ipairs({ "Olympus_Arena", "OlympusSiteAggregate", "Olympus_Link" }) do
+			Fire(addon)
+			eq(ns.db.actionsBlocked[#ns.db.actionsBlocked].addon, addon, "module attribution kept")
+		end
+		Fire("SomeOtherAddon"); Fire("OlympusUnrelated")
+		eq(#ns.db.actionsBlocked, 4, "only exact module names belong to Olympus")
+		Fire()
+		eq(ns.db.actionsBlocked[4], first, "repeat is newest in report")
+		local report = ns.BuildBugReport()
+		assert(report:find("addon=Olympus build=test 7 commit diagnostic-test", 1, true))
+		assert(report:find("latest sampled context", 1, true))
+		assert(report:find("addon=Olympus_Link", 1, true))
+		for i = 1, 12 do Fire("Olympus_Arena", "Call" .. i .. "()") end
+		eq(#ns.db.actionsBlocked, 10, "bounded saved records")
+		Check(C.ledger, "diagnostic input switches")
+		NoErrors(C, "blocked diagnostic context")
+	end
+	GP.Covers("diagnostics")
+end)
+
+test("gamepad blocked diagnostics: fixed action history, sampled state and fresh-session evidence", function()
+	local C, ns = Session(false)
+	ns.ResetBlocked(); ns.db.actionsBlocked = nil
+	local function Fire() C.Fire("ADDON_ACTION_FORBIDDEN", "Olympus", "FocusUnit()") end
+	Fire()
+	local b = ns.db.actionsBlocked[1]
+	local first = b.context
+	-- Change a real owned queue; a burst within the sample interval keeps the earlier snapshot.
+	ns.Recruit.requests[#ns.Recruit.requests + 1] = { name = "PrivateInvitee", t = 0 }
+	Fire(); eq(b.context, first)
+	C.Advance(1.1)
+	Fire(); assert(b.context ~= first, "latest state sampled after interval")
+	local unchanged = b.recentUI
+	ns.NoteUIAction("/ginvite PrivateInvitee"); Fire()
+	C.Advance(1.1); Fire()
+	eq(b.recentUI, unchanged, "arbitrary content never enters action history")
+	for i = 1, 12 do ns.NoteUIAction(i % 2 == 0 and "invite-auto" or "invite-hide") end
+	Fire()
+	local _, labels = b.recentUI:gsub("invite%-", "")
+	eq(labels, 8, "bounded action snapshot")
+	local frozen = b.recentUI
+	ns.NoteUIAction("recruit-pause")
+	eq(b.recentUI, frozen, "saved snapshot cannot mutate with live ring")
+	assert(not b.context:find("PrivateInvitee", 1, true)); assert(not b.recentUI:find("PrivateInvitee", 1, true))
+	ns.db.sessions = (ns.db.sessions or 0) + 1
+	ns.ResetBlocked(); Fire()
+	eq(b.firstContext, b.context, "new session refreshes first evidence")
+	eq(b.recentUI, "", "previous session's actions cleared")
+	local enabled = ns.Recruit.Candidates.Enabled
+	ns.Recruit.Candidates.Enabled = function() error("unavailable subsystem") end
+	ns.NoteUIAction("recruit-pause"); Fire()
+	eq(b.context, "context unavailable", "a broken subsystem cannot stop blocked-call capture")
+	ns.Recruit.Candidates.Enabled = enabled
+	NoErrors(C, "sampled diagnostic state")
+end)
+
 test("gamepad personal verification opens and submits in Olympus-owned windows", function()
 	local C = Session(true)
 	local calls = 0
@@ -6188,6 +6269,10 @@ test("gamepad recruit movement focus: automatic invite drafts never capture game
 		eq(C.focus, nil)
 		C.Fire("CHAT_MSG_WHISPER", "JOIN", "MovementTest-Realm")
 		local draft = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"))
+		C.Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+		local captured = ns.db.actionsBlocked[#ns.db.actionsBlocked]
+		assert(captured.context:find("invite=automatic", 1, true), captured.context)
+		assert(captured.recentUI:find("recruit-start", 1, true) and captured.recentUI:find("invite-auto", 1, true), "real popup actions captured")
 		local command = "/ginvite MovementTest"
 		eq(draft.editBox:GetText(), command)
 		for _, pad in ipairs({ initialPad, not initialPad, initialPad }) do
@@ -6215,6 +6300,12 @@ test("gamepad recruit movement focus: automatic invite drafts never capture game
 		end)
 		if initialPad then eq(C.chatBox, nil, "gamepad still leaves native chat alone")
 		else eq(assert(C.chatBox).text, "", "only deliberate copying opens empty game chat") end
+		C.Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+		if not initialPad then assert(captured.recentUI:find("invite-chat", 1, true), "deliberate chat action captured") end
+		InClick(C, P.Pause)
+		C.Fire("ADDON_ACTION_BLOCKED", "Olympus", "FocusUnit()")
+		assert(captured.context:find("paused=true", 1, true) and captured.context:find("invite=closed", 1, true), captured.context)
+		assert(captured.recentUI:find("recruit-pause", 1, true) and captured.recentUI:find("invite-hide", 1, true), "pause closes recorded draft")
 		Check(C.ledger, "movement-safe invite focus"); NoErrors(C, "movement-safe invite focus")
 	end
 end)

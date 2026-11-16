@@ -2022,6 +2022,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
+	if ns.NoteUIAction then ns.NoteUIAction("invite-chat") end
 	if pcall(open, "", DEFAULT_CHAT_FRAME) then
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
@@ -2071,6 +2072,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		local req = type(data) == "table" and data.req or nil
 		local name = candidate and candidate.name or req and NameForCommand(req.name)
 		if not name then box:SetText("") return end
+		if ns.NoteUIAction then ns.NoteUIAction(data.automatic and "invite-auto" or "invite-manual") end
 		-- (Review of the 1.5.9 release) Where no chat box opens (the gamepad UI: Open game chat and its
 		-- Ctrl+C do nothing there), the popup itself starts the ranking's own read of the log for him
 		-- (Recruit.LastInviteAt): he invites from the game's own menu, and his report of the join came only
@@ -2098,6 +2100,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	end,
 	OnHide = function(f)
 		f.pasteWatch = nil
+		if ns.NoteUIAction then ns.NoteUIAction("invite-hide") end
 		f.editBox:SetScript("OnKeyDown", nil)
 		f.editBox:SetScript("OnKeyUp", nil)
 		f.editBox:SetScript("OnEditFocusGained", nil)

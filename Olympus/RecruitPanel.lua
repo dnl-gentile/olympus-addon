@@ -31,6 +31,7 @@ function P.Start()
 	local saved = R.Preference(true)
 	if not saved then return false end
 	saved.panelQueue, saved.panelPaused, saved.offerAgain = true, nil, nil
+	if ns.NoteUIAction then ns.NoteUIAction("recruit-start") end
 	CloseDrafts()
 	if R.Candidates then R.Candidates.SetEnabled(true) end
 	Changed()
@@ -41,6 +42,7 @@ function P.Pause()
 	local saved = R.Preference()
 	if not saved or not saved.panelQueue then return false end
 	saved.panelPaused = true
+	if ns.NoteUIAction then ns.NoteUIAction("recruit-pause") end
 	CloseDrafts()
 	Changed()
 	return true
