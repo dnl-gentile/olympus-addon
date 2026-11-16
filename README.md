@@ -93,7 +93,9 @@ back, even where the verifier's own client never received that approval (1.6.0: 
 follows the guild's only when the census doesn't know it; a name that isn't the guild master known there
 sends nothing, as it may be the end of another guild's name). A revocation takes the guild's check off every
 client that receives it; a guild the moderators take off the network shows no check either, but its
-approval stands until a verifier revokes it. The verifiers are told once of each pending guild (and
+approval stands until a verifier revokes it. To take its verification back as well, revoke it first:
+a week off the network leaves no census row to name it, and then only a verifier whose client holds its
+approval (the one who approved it, for one) can still revoke it. The verifiers are told once of each pending guild (and
 of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
 verified, on the guild's same clock. Past its 7 days an unverified guild is overdue. Member-facing popups, chat warnings and Census

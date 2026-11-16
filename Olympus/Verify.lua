@@ -1023,6 +1023,9 @@ local function SayWhy(why, guild, master, typed)
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
 	if why == "revoke master" then return ns.Print(L.VERIFY_REVOKE_NO_MASTER:format(guild)) end -- (1.6.0)
 	if why == "other master" then return ns.Print(L.VERIFY_REVOKE_OTHER_MASTER:format(guild, Shown(master), tostring(typed or ""))) end -- (1.6.0)
+	-- (1.6.0, the review of the 1.6.0 fixes) A guild this client no longer knows (a week off the network
+	-- leaves no census row): Revoke's alone, which a verifier's client holding its approval can give.
+	if why == "unknown" then return ns.Print(L.VERIFY_REVOKE_UNKNOWN) end
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)

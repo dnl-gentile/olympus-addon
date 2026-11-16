@@ -1558,7 +1558,7 @@ test("verify: 1.6.0 a verifier revokes a guild whose approval his client never h
 		w.As(hc, hc.Verify.RevokeInput, "Olympus")
 		assert(Find(hc.printed, hc.L.VERIFY_NOTHING:format("Olympus")), "the King's guild")
 		w.As(hc, hc.Verify.RevokeInput, "Distant Olympus")
-		assert(Find(hc.printed, hc.L.VERIFY_BAD_GUILD), "an unknown guild")
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_UNKNOWN), "an unknown guild (told where it can be revoked)")
 		w.As(member, member.Verify.RevokeInput, GUILD)
 		assert(Find(member.printed, member.L.VERIFY_ONLY), "only a verifier")
 		eq(Words("R"), 3, "none of them sent anything")
@@ -1619,6 +1619,45 @@ test("verify: 1.6.0 a revocation naming someone other than the guild's known gui
 		-- A revocation held: a name after the guild's is checked the same way.
 		w.As(hc, hc.Verify.RevokeInput, GUILD .. " II")
 		eq(Words(), 2, "nothing sent")
+	end)
+end)
+
+-- 1.6.0 (the review of these fixes: a guild off the network for over a week). A guild no census row and
+-- no word names on a verifier's client (census rows lapse after Data.KEEP, 7 days, and a guild off the
+-- network sends none) can't be revoked from it: it says where it can be, from a verifier's client that
+-- holds the guild's approval, which needs no census row. Fails before: it said to use the guild's exact
+-- name or its guild master's code, and no code finds a guild the census lost.
+test("verify: 1.6.0 a guild a verifier's client no longer knows is revoked from one that holds its approval, census row or not; the other is told so", function()
+	World(function(w)
+		local approver = w.Client(HC, HEARTH, 3)
+		local other = w.Client(HC2, ROGUES, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		local function Words()
+			local n = 0
+			for _, s in ipairs(w.sent) do if s.msg:find("^GV~1~R~") then n = n + 1 end end
+			return n
+		end
+		-- Approved while the other councillor was away; then over a week off the network: no census row left.
+		other.online = false
+		eq(w.As(approver, approver.Verify.Approve, GUILD, GM), true)
+		other.online = true
+		for _, c in ipairs(w.clients) do c.rdb.guilds[GUILD] = nil end
+		w.now = T0 + 8 * DAY
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "(the members' check)")
+		w.As(other, other.Verify.RevokeInput, GUILD)
+		eq(Words(), 0, "nothing sent from a client that doesn't know the guild")
+		assert(Find(other.printed, other.L.VERIFY_REVOKE_UNKNOWN), "told where it can be revoked")
+		assert(not Find(other.printed, other.L.VERIFY_BAD_GUILD), "not approve's words (no code finds a guild the census lost)")
+		-- The approver's client holds the approval: revoked there, with no census row.
+		eq(w.As(approver, approver.Verify.RevokeInput, GUILD), true)
+		eq(Words(), 1)
+		eq(w.As(member, member.Verify.Mark, GUILD), "", "revoked")
+		local e = other.rdb.verify.list[ns.Fold(GUILD)]
+		eq(e.k, "R"); eq(e.gm, GM, "naming the approval's guild master")
+		-- Approving a guild unknown here keeps its own words.
+		w.As(other, other.Verify.ApproveInput, "Distant Olympus")
+		assert(Find(other.printed, other.L.VERIFY_BAD_GUILD))
 	end)
 end)
 
