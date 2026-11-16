@@ -47,6 +47,8 @@ local L = ns.L
 -- player's lines (the README says so).
 -- Rooms that register a surface (WatchChat.RegisterSurface) take deletions too; the Church's room,
 -- the crafting requests' private rooms and the fight rooms are the seam for later.
+-- 1.6.0: on WoW: Forever a name counts once across its realm family, whatever sub-realm stamped it (Key):
+-- a timeout, a deletion and a moderators' list reach the player under every stamp his lines carry.
 
 local WC = {}
 ns.WatchChat = WC
@@ -145,7 +147,17 @@ local function Red(s) return "|cffff6060" .. tostring(s or "") .. "|r" end
 local function Green(s) return "|cff40ff40" .. tostring(s or "") .. "|r" end
 local function Clock() return ns.Data and ns.Data.ServerTime and ns.Data.ServerTime() or ns.Now() end
 local function Now() return ns.Now() end
-local function Key(s) return ns.Fold(tostring(s or "")) end
+-- (1.6.0, the moderators' report of 2026-11-16: a timeout silenced the player for the moderator who gave
+-- it, others still saw him.) One player, one key, however the server stamped him. On WoW: Forever a name
+-- is one across its realm family (Core.lua's ForeverFamily; Channels.Person, Moderation.Character), and
+-- each client sees a player under its own sub-realm (a bare name in the channel's text or the roster,
+-- completed with its own) or as a relay's client stamped him: keyed as stamped, a reader took the
+-- moderator his namer wrote under another sub-realm for nobody, the timeout matched none of the
+-- player's lines, and the player's own client never knew it was his. Folded, a Forever sub-realm
+-- ("camwow<region><n>realm<m><rules>") is its family ("forever<rules>"); any other name as before. The
+-- same on a key already folded, so a key kept under a sub-realm's stamp files again as its family's (Store).
+local function Canon(s) return (s:gsub("%-camwow%l%l%d+realm%d+(%l+)$", "-forever%1")) end
+local function Key(s) return Canon(ns.Fold(tostring(s or ""))) end
 local function Same(a, b) return type(a) == "string" and type(b) == "string" and a ~= "" and Key(a) == Key(b) end
 local function Live(t) return type(t) == "table" and not t.missing and t or nil end
 local function TheWatch() return Live(ns.Watch) end
@@ -267,6 +279,36 @@ local function Store()
 			end
 		end
 		s.replaySplit = 1
+	end
+	if s.familyKeys ~= 1 then
+		-- (1.6.0) Names keyed by their Forever family (Key): the timeouts and lifts kept under a sub-realm's
+		-- stamp file again once under it, merged, and each moderators' list too, its set made again. The
+		-- other records (replay floors, tombstones, counts) keep their keys and lapse as before.
+		for _, field in ipairs({ "timeouts", "lifts", "modLists" }) do
+			local t, moved = s[field], {}
+			for k in pairs(t) do if type(k) == "string" and Canon(k) ~= k then moved[#moved + 1] = k end end
+			for _, k in ipairs(moved) do
+				local v, to = t[k], Canon(k)
+				t[k] = nil
+				local had = t[to]
+				if field == "modLists" then
+					if type(had) ~= "table" or (type(v) == "table" and (tonumber(v.at) or 0) > (tonumber(had.at) or 0)) then t[to] = v end
+				elseif type(v) == "table" then
+					local into = type(had) == "table" and had or {}
+					for _, e in ipairs(v) do into[#into + 1] = e end
+					while #into > WC.MAX_PER_TARGET do table.remove(into, 1) end
+					t[to] = into
+				end
+			end
+		end
+		for _, list in pairs(s.modLists) do
+			if type(list) == "table" and type(list.names) == "table" then
+				local set = {}
+				for _, n in ipairs(list.names) do set[Key(n)] = true end
+				list.set = set
+			end
+		end
+		s.familyKeys = 1
 	end
 	s.seq = math.max(0, math.floor(tonumber(s.seq) or 0))
 	return s

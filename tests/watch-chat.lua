@@ -1002,6 +1002,58 @@ test("watch: chat moderation: the guild master names and removes Watchers; only 
 	end)
 end)
 
+-- (1.6.0, the moderators' report of 2026-11-16: a timeout silenced the player for the moderator who gave
+-- it, others still saw him.) On WoW: Forever a name is one across its realm family, and each client sees a
+-- player under its own sub-realm (a bare name in the channel's text, completed with its own) or as a
+-- relay's client stamped him: the namer's list, the relay's stamp of the moderator and of the player, the
+-- reader's stamp of his lines and the player's own name all differ. Keyed as stamped, the reader took the
+-- moderator for nobody, the timeout matched none of the player's lines, and his own client never knew.
+test("watch: chat moderation (1.6.0, Forever): a moderator's timeout counts under any sub-realm stamp of the family: the reader drops the player's lines, the player's own client refuses to send; another family's namesake and a stranger's word stay as before", function()
+	World(function(w)
+		local G, A, B, D, Y1 = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local Tr = w.Client("Troll", X, 3)
+		Tr.ns.me = "Troll-CAMWOWUS2Realm3PvE" -- (his own client: his own sub-realm)
+		-- The councillor names the moderator as his own client writes him, under the councillor's sub-realm.
+		assert(w.As(Co, Co.WC.SetMod, "Modder-CAMWOWUS2Realm1PvE", true))
+		w.epoch = w.epoch + 3
+		w.Run()
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvE"), true, "the moderator under another stamp of his family")
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvP"), false, "another family's namesake is nobody's moderator")
+		-- The timeout as a relay hands it on: the moderator and the player as that relay's client stamped them.
+		local at = w.epoch
+		local word = ("MD~1~T~O~%d~%d~-~Troll-CAMWOWUS2Realm1PvE~%d~-~-~spam"):format(at - D.WC.SEQ_EPOCH, at, at + 600)
+		for _, cl in ipairs({ D, Tr }) do
+			local ok, why = w.Inject("CHANNEL", "Modder-CAMWOWUS2Realm5PvE", cl, word)
+			eq(ok, true, "taken on " .. cl.short .. ": " .. tostring(why))
+		end
+		-- His line as the reader's channel names him: bare, under the reader's own sub-realm.
+		local shown, why = w.Inject("CHANNEL", "Troll-CAMWOWUS2Realm7PvE", D, ns.Codec.EncodeChat("A", X, 77, "", "still here"))
+		eq(shown, false); eq(why, "timeout", "the reader drops his line")
+		eq(w.As(D, D.WC.Silenced, "Troll-CAMWOWUS2Realm1PvE"), true, "and under the moderator's stamp")
+		-- His own client holds it at once: told, and it refuses to send.
+		assert(w.As(Tr, Tr.WC.SelfTimeout), "his own client holds the timeout")
+		eq(select(2, w.As(Tr, Tr.WC.RefuseSend)), "timeout", "his own client refuses to send")
+		-- Another family's namesake is another player; a stranger's word is still nobody's.
+		shown, why = w.Inject("CHANNEL", "Troll-CAMWOWUS2Realm7PvP", D, ns.Codec.EncodeChat("A", X, 78, "", "not him"))
+		assert(why ~= "timeout", "another family's namesake is not silenced: " .. tostring(why))
+		local _, refused = w.Inject("CHANNEL", "Faker-CAMWOWUS2Realm7PvE", D,
+			("MD~1~T~O~%d~%d~-~Other-CAMWOWUS2Realm1PvE~%d~-~-~"):format(at - D.WC.SEQ_EPOCH + 1, at, at + 600))
+		eq(refused, "actor", "a stranger gives no timeout under any stamp")
+		eq(w.As(D, D.WC.Silenced, "Other-CAMWOWUS2Realm7PvE"), false)
+		-- A save from before 1.6.0: the same timeout and list kept under the stamps they came with. Filed again
+		-- once under the family (WatchChat's Store), they count at once, without a repeat.
+		local s = D.ns.rdb.chatMod
+		s.timeouts["troll-camwowus2realm1pve"], s.timeouts["troll-foreverpve"] = s.timeouts["troll-foreverpve"], nil
+		for _, list in pairs(s.modLists) do list.set = { ["modder-camwowus2realm1pve"] = true } end
+		s.familyKeys = nil
+		eq(w.As(D, D.WC.Silenced, "Troll-CAMWOWUS2Realm7PvE"), true, "an old save's timeout counts under the reader's stamp")
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvE"), true, "and its moderators' list")
+		eq(s.timeouts["troll-camwowus2realm1pve"], nil, "filed again under the family")
+	end)
+end)
+
 test("watch: chat moderation: Olympus moderators: a councillor's list counts while fresh and while he is a councillor; never another's list", function()
 	World(function(w)
 		local G, A, B, D, Y1 = Standard(w)
