@@ -124,10 +124,13 @@ end
 
 -- The members online, as a spec gives them: { key, guild, version ("1.6.0": this build, "1.5.9", or
 -- nil: no Olympus), invite (the game lets him invite), recruiting (his recruiting by whisper is on),
--- rank (0 Lord, 1 Captain, 3 member) }, in the order /who lists them; spec.guilds[name] = members.
+-- rank (0 Lord, 1 Captain, 3 member) }, in the order /who lists them; spec.guilds[name] = members;
+-- spec.gates: the guild of the King's gates, or nil.
 -- Each member with Olympus runs his own Recruit.lua, his globals put in place while it runs (As).
 local function World(w, spec)
 	local world = { members = {}, byTell = {}, guilds = spec.guilds, w = w, invited = nil, popups = {} }
+	-- spec.gates: the guild the King opened the gates of, as every member's census holds it (Acts.Gates).
+	world.gates = spec.gates and { guild = spec.gates, at = w.clock + 7200 } or nil
 	local function Short(key) return key:match("^(.-)%-") or key end
 	function world.As(m, fn, ...)
 		local saved = { GetGuildInfo, IsInGuild, CanGuildInvite, GetNumGuildMembers }
@@ -209,7 +212,7 @@ local function World(w, spec)
 			KeyboardFocus = function() return nil end, Quiet = function() return nil end,
 			Roster = { RankOf = function() return nil end, online = world.Online(m.guild), Fresh = function() return nil end },
 			Data = setmetatable({ AuthorizedRank = function(name, guild) return world.Rank(name, guild) end }, { __index = ns.Data }),
-			Acts = { Gates = function() return nil end },
+			Acts = { Gates = function() return world.gates end },
 			Watch = {}, Moderation = {}, RecruitRanking = {},
 		}, { __index = ns })
 		local ok, err = pcall(assert(loadfile(m.version == "1.5.9" and RECRUIT_159 or RECRUIT_NOW)), "Olympus", mns)
@@ -623,6 +626,47 @@ test("join reach (1.6.0): failure cases: a window the player closed brings no ne
 	end)
 end)
 
+-- Fails on this lane's first version (review): a member's own "r", which no other answer confirms, put
+-- him before the guild of the King's gates, which counts only once two answers agree. Until the author
+-- decides otherwise, the gates' guild comes first (one of its own who recruits before its officers),
+-- then a member of another guild who recruits.
+test("join reach (1.6.0): the King's gates, two answers agreeing, come before a member of another guild who says he recruits; in the gates' guild one who recruits comes first", function()
+	WithRequester(function(w)
+		R.OnFound({ { name = "Gale One-Realm", guild = "Olympus Gates" }, { name = "Hart Two-Realm", guild = "Olympus Other" },
+			{ name = "Gil Three-Realm", guild = "Olympus Gates" } })
+		eq(w.out[1].to, "Gale One")
+		R.OnRoute("Gale One-Realm", "J2~y~Olympus Gates~3600~*=i;Olympus Gates=700=Gil Three;Olympus Other=100=")
+		eq(w.out[#w.out].to, "Hart Two", "gates one answer named: one more member asked")
+		R.OnRoute("Hart Two-Realm", "J2~y~Olympus Gates~3600~*=r;Olympus Gates=700=Gil Three;Olympus Other=100=Hart Two")
+		eq(R.Route().gates, "Olympus Gates", "two answers agree on the gates")
+		eq(R.SaidOf("Hart Two-Realm"), "r")
+		local c = R.NextContact()
+		eq(c.name, "Gil Three-Realm", "the gates' officer, before another guild's member who says he recruits")
+		eq(c.guild, "Olympus Gates")
+		-- Asked within REASK, the gates' guild has nobody left: then the member who recruits elsewhere.
+		R.asked["Gil Three-Realm"], R.asked["Gale One-Realm"] = ns.Now(), ns.Now()
+		eq(R.NextContact().name, "Hart Two-Realm")
+	end)
+	WithRequester(function(w)
+		R.OnFound({ { name = "Ivy Four-Realm", guild = "Olympus Gates" }, { name = "Hart Two-Realm", guild = "Olympus Other" },
+			{ name = "Gil Three-Realm", guild = "Olympus Gates" } })
+		R.OnRoute("Ivy Four-Realm", "J2~y~Olympus Gates~3600~*=r;Olympus Gates=700=Gil Three;Olympus Other=100=")
+		R.OnRoute("Hart Two-Realm", "J2~y~Olympus Gates~3600~*=r;Olympus Gates=700=Gil Three;Olympus Other=100=Hart Two")
+		eq(R.Route().gates, "Olympus Gates")
+		eq(R.NextContact().name, "Ivy Four-Realm", "in the gates' guild, one who says he recruits before its officer")
+		eq(R.NextContact("Olympus Gates").name, "Ivy Four-Realm", "and so for a click beside that guild")
+	end)
+	-- Gates only one answer names: no gates, and the member who recruits comes first, as the lane has it.
+	WithRequester(function(w)
+		R.OnFound({ { name = "Gale One-Realm", guild = "Olympus Gates" }, { name = "Hart Two-Realm", guild = "Olympus Other" },
+			{ name = "Gil Three-Realm", guild = "Olympus Gates" } })
+		R.OnRoute("Gale One-Realm", "J2~y~Olympus Gates~3600~*=i;Olympus Gates=700=Gil Three;Olympus Other=100=")
+		R.OnRoute("Hart Two-Realm", "J2~y~~0~*=r;Olympus Gates=700=Gil Three;Olympus Other=100=Hart Two")
+		eq(R.Route().gates, nil, "one answer named them: no gates")
+		eq(R.NextContact().name, "Hart Two-Realm", "the member who says he recruits")
+	end)
+end)
+
 ---------------------------------------------------------------------------
 -- The simulation: a fresh unguilded character on the Join page asks the members /who lists, as a
 -- player does: Request to join, reads the request four seconds, Send, waits; Request again when the
@@ -697,6 +741,7 @@ local function Play(w, world, seconds)
 	end
 	stats.sends = world.sends or {}
 	stats.invited = world.invited and 1 or 0
+	stats.invitedInto = world.invited and world.invited.m.guild or nil
 	stats.inviteAfter = world.invited and math.floor(world.invited.at - start) or nil
 	-- The Join page's line at the end.
 	local after, line = false, nil
@@ -769,6 +814,17 @@ local function AllFull(mixed)
 		} }
 end
 
+-- The King's gates (every member's census holds them) and a recruiter in another guild, on 1.6.0: the
+-- gates' guild has a member who can't invite and a Captain who recruits.
+local function Gates()
+	return { gates = "Olympus Gates", guilds = { ["Olympus Gates"] = 300, ["Olympus Other"] = 900 },
+		members = {
+			{ "Gale One-Realm", "Olympus Gates", version = "1.6.0" },
+			{ "Hart Two-Realm", "Olympus Other", version = "1.6.0", invite = true, recruiting = true },
+			{ "Gil Three-Realm", "Olympus Gates", version = "1.6.0", invite = true, recruiting = true, rank = 1 },
+		} }
+end
+
 -- Fails before 1.6.0 (the numbers before and after are in this lane's report): requests went to
 -- members who can't invite and to full guilds without a word, the PvP player's screen ran dry and kept
 -- saying "No invite yet? Try another member.", and a full army ended the same way.
@@ -787,6 +843,7 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	Run("PvP, no recruiter online", PvP(false), 900)
 	Run("every guild full (1.6.0)", AllFull(false), 900)
 	Run("every guild full (1.5.9 in one)", AllFull(true), 900)
+	Run("the King's gates, a recruiter in another guild", Gates(), 900)
 	local on, off, pvp, dry = results["PvE, recruiters online"], results["PvE, recruiters offline"],
 		results["PvP, one recruiter (1.5.9)"], results["PvP, no recruiter online"]
 	local full, mixed = results["every guild full (1.6.0)"], results["every guild full (1.5.9 in one)"]
@@ -805,6 +862,10 @@ test("join reach simulation (1.6.0): a fresh character asks from the Join page w
 	assert(full.seen[L.RECRUIT_JOIN_ALL_FULL], "every guild full: said so")
 	-- One guild's members on 1.5.9 can't say theirs is full: only theirs is asked, never the guild a 1.6.0 member reported full.
 	for _, s in ipairs(mixed.sends) do eq(s.m.guild, "Olympus Omega", "only the guild nobody reported full") end
+	-- (Review of this lane) The King's gates first: a member's own word that he recruits elsewhere does not
+	-- draw the recruit away from the guild two answers confirm.
+	local gates = results["the King's gates, a recruiter in another guild"]
+	eq(gates.invited, 1, "gates: invited"); eq(gates.invitedInto, "Olympus Gates", "into the gates' guild")
 	for _, name in ipairs({ "PvE, recruiters online", "PvE, recruiters offline", "PvP, one recruiter (1.5.9)", "PvP, no recruiter online" }) do
 		eq(results[name].full, 0, name .. ": no request to a full guild")
 	end

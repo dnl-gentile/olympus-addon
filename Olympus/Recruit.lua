@@ -35,11 +35,13 @@ local L = ns.L
 -- and none invited; a PvP player "haven't seen anyone"): a member's answer also says what he can do
 -- with a request ("r" it pops up for him now, "i" he can invite and it waits in his list, "x" he
 -- can't: no invite right, or a full guild; clients before 1.6.0 read no guild in that entry) and
--- names his own guild's recruiters before its Lords and Captains. The screen asks one who recruits first, then the officers and recruiters the
--- answers name, then anyone else; passes over one who can't (a request open for him closes with the
--- reason and the next member is asked); waits for the asked member's answer before its own requests
--- (JoinNext); ends a sent request's wait when its member can't take it; says why when nobody is
--- left; and asks a member again REASK after the first time once a new search found nobody new.
+-- names his own guild's recruiters before its Lords and Captains. The screen asks, after the guild of
+-- the King's gates (its own who recruit first: a member's word is his alone, the gates two answers
+-- confirm), one who recruits, then the officers and recruiters the answers name, then anyone else;
+-- passes over one who can't (a request open for him closes with the reason and the next member is
+-- asked); waits for the asked member's answer before its own requests (JoinNext); ends a sent
+-- request's wait when its member can't take it; says why when nobody is left; and asks a member
+-- again REASK after the first time once a new search found nobody new.
 
 local Recruit = {}
 ns.Recruit = Recruit
@@ -481,34 +483,44 @@ local function NamedIn(guild, route, again)
 	return nil
 end
 
+-- (1.6.0) A member /who found whose own answer said he recruits, in a guild with room (in `guild` alone
+-- when one is given): the request pops up for him as a JOIN does.
+local function Recruiter(guild, route, again)
+	for _, p in ipairs(Recruit.found) do
+		if (not guild or p.guild == guild) and SaidOf(Key(p.name)) == "r" and HasRoom(p.guild, route)
+			and Askable(p.name, again) then return p end
+	end
+	return nil
+end
+
 local function Next(guild, route, again)
 	if guild then
 		if not HasRoom(guild, route) then return nil end
-		local c = NamedIn(guild, route, again)
+		-- (1.6.0) One of its own who said he recruits, then the officers and recruiters the answers name.
+		local c = Recruiter(guild, route, again) or NamedIn(guild, route, again)
 		if c then return c end
 	else
-		-- (1.6.0) First a member whose own answer said he recruits, in a guild with room: the request
-		-- pops up for him as a JOIN does.
-		for _, p in ipairs(Recruit.found) do
-			if SaidOf(Key(p.name)) == "r" and HasRoom(p.guild, route) and Askable(p.name, again) then return p end
+		local order = route and RouteOrder(route) or {}
+		-- The King's gates first, whole, as before. (1.6.0, review of this lane: a member's own word is his
+		-- alone and nothing confirms it, while the gates count once two answers agree, so a member who says
+		-- he recruits elsewhere never comes before them; a decision left to the author.)
+		if route and route.gates and order[1] == route.gates then
+			local c = Next(route.gates, route, again)
+			if c then return c end
 		end
-		if route then
-			local order = RouteOrder(route)
-			-- The King's gates first, whole, as before. (1.6.0) Then the officers and recruiters the answers
-			-- name in each guild, in the route's order, before anyone else /who found there: most members
-			-- can't invite, and the roomiest guild's members came before another guild's officers.
-			if route.gates and order[1] == route.gates then
-				local c = Next(route.gates, route, again)
-				if c then return c end
-			end
-			for _, name in ipairs(order) do
-				local c = NamedIn(name, route, again)
-				if c then return c end
-			end
-			for _, name in ipairs(order) do
-				local c = Next(name, route, again)
-				if c then return c end
-			end
+		-- (1.6.0) Then a member whose own answer said he recruits, in a guild with room; then the officers
+		-- and recruiters the answers name in each guild, in the route's order, before anyone else /who found
+		-- there: most members can't invite, and the roomiest guild's members came before another guild's
+		-- officers.
+		local c = Recruiter(nil, route, again)
+		if c then return c end
+		for _, name in ipairs(order) do
+			c = NamedIn(name, route, again)
+			if c then return c end
+		end
+		for _, name in ipairs(order) do
+			c = Next(name, route, again)
+			if c then return c end
 		end
 	end
 	for _, p in ipairs(Recruit.found) do

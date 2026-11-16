@@ -130,9 +130,9 @@ you can edit. Click **Send** to whisper it. The screen waits 45 seconds before o
 when the 45 seconds expire, even if you received a whisper reply or closed the Join page.
 Confirm to prepare a new request. **Browse Olympus guilds** opens the optional guild list.
 
-From 1.6.0 the screen asks first a member whose own answer says he recruits, then (after the
-guild of the King's gates) the Lords, Captains and recruiters the answers name, and only then
-anyone else `/who` found. Before it opens a request on its own, after a search or when the member
+From 1.6.0, after the guild of the King's gates (where one of its own whose answer says he recruits
+comes first), the screen asks a member whose own answer says he recruits, then the Lords, Captains
+and recruiters the answers name, and only then anyone else `/who` found. Before it opens a request on its own, after a search or when the member
 it chose can't take it, it may ask that member's addon first and waits up to 3 seconds for the
 answer (4 members a click at most). A member whose answer says he can't invite (no invite right,
 or a full guild) is passed over before you write to him; a request already open for him closes
@@ -3087,8 +3087,9 @@ few characters working together can still reach is said plainly further down
 - **The Join screen** (1.1): outside an Olympus guild the addon hears one message alone, a
   member's answer to its own question, and only from the member it asked in the last minute;
   a guild it names counts only if it is an Olympus guild. (1.6.0) What an answer says of the
-  member who gave it (he recruits, can invite or can't) is about him alone, and whoever it names
-  is still whispered only once the recruit's own `/who` found him in that guild. A member answers
+  member who gave it (he recruits, can invite or can't) is about him alone, never puts him before
+  the guild of the King's gates, and whoever it names is still whispered only once the recruit's
+  own `/who` found him in that guild. A member answers
   each recruit once a minute and ten a minute in all. A recruit's request shows only for your own
   guild, once per ten minutes per recruit, thirty kept at most, six chat lines a minute at most.
 - **Validation**: every number is range checked, names are length limited, and malformed

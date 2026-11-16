@@ -72,9 +72,10 @@ find Olympus members online, groups them by guild, and whispers one of them a re
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
 are highlighted. It is rate limited, so nobody gets spammed. From 1.6.0 it asks a member who
-recruits first, passes over one whose addon says he can't invite (no invite right, or a full
-guild), tells you why when the member asked can't take your request or nobody is left to ask, and
-searches again before it asks a member a second time, 10 minutes after the first.
+recruits first (after the King's gates), passes over one whose addon says he can't invite (no
+invite right, or a full guild), tells you why when the member asked can't take your request or
+nobody is left to ask, and searches again before it asks a member a second time, 10 minutes after
+the first.
 
 **Where to go**: a search also asks one member's addon (an addon whisper, not a chat line) where
 recruits should go, and its census answers: the guild the King opened **the gates** of first,
