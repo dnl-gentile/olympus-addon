@@ -129,8 +129,10 @@ function F.UpdateRequest(name, level, class)
 	if type(name) ~= "string" or not R.IsWhisperRecruiting() or not R.CandidateCommandName(name) then return end
 	level, class = Level(level), F.Class(class)
 	local changed
+	local own, now = GetGuildInfo("player"), ns.Now()
 	for _, req in ipairs(R.requests) do
-		if R.CurrentRequest(req) and SameName(req.name, ns.FullName(name)) then
+		-- Pause stops invitations, not receipt of details for an already queued JOIN.
+		if req.guild == own and now - req.t <= R.REQUEST_TTL and SameName(req.name, ns.FullName(name)) then
 			-- New incomplete metadata never erases a previously known value.
 			if level and req.level ~= level then req.level, changed = level, true end
 			if class and req.class ~= class then req.class, changed = class, true end
