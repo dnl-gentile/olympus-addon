@@ -654,15 +654,18 @@ function Alts.Handle(dist, sender, text)
 	end
 	local claim = { name = sender, role = role, links = names, guild = guild, at = at, heard = ns.Now() }
 	-- A name of its group, or of what it names now, is off: the links freeze (added to, never dropped).
-	-- (The review of 1.6.0) On a Forever ruleset a copy under a stamp first heard now freezes on the newest
-	-- copy held under the others, which it may follow as the claim (Groups): else it dropped names.
+	-- (The review of 1.6.0) On a Forever ruleset a copy freezes on the claim held for its character now, the
+	-- newest copy under any route's stamp (Groups), which it may follow as the claim. Frozen on the copy under
+	-- its own stamp instead, it had none there when first heard, and an older one than the claim where a
+	-- relay's stamp kept the claim from before the main linked an alt: either way it dropped names, the alt
+	-- left the group, and its main was shown while the alt was off (Moderation.Hidden).
 	local all = { sender }
 	for _, n in ipairs(names) do all[#all + 1] = n end
 	local prior = old
-	if type(prior) ~= "table" and family and InFamily(sender) then
+	if family and InFamily(sender) then
 		local byPlain = Groups().byPlain
 		local k = byPlain and byPlain[Plain(sender)]
-		prior = k and claims[k] or nil
+		if k and type(claims[k]) == "table" then prior = claims[k] end
 	end
 	if type(prior) == "table" and OffAmong(all) then
 		claim = Frozen(prior, claim)

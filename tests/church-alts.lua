@@ -471,6 +471,53 @@ test("1.6.0 Church alts (Forever's live stamps): while a linked name is off, a c
 	eq(w:As(eda, eda.Alts.Duplicates, { [G1:lower()] = true }), 3, "the main and his three alts, one player")
 end)
 
+-- (The review of 1.6.0) The same freeze under a stamp that holds an older copy of the claim. Under a relay's
+-- stamp on Realm4 Eda held the main's claim from before he linked Ardo Gale, under the others the newer one
+-- with him. While Ardo Gale is off, the main's next claim without him came through the relay on Realm4 again
+-- and froze on that older copy alone, which never named him: the newest claim, the one every copy follows
+-- (Groups), dropped him, and Eda's client no longer hid the main through him (Moderation.Hidden: the real
+-- file, as a Forever client runs it, ns.splitNames). Fails before: Ardo Gale linked nowhere (a player of his
+-- own in the army's total), the main shown.
+test("1.6.0 Church alts (Forever's live stamps): while a linked name is off, a claim's copy under a stamp that held an older copy drops none of the names the newest copy holds: the alt stays linked and the main stays hidden", function()
+	local R4 = "CAMWOWUS1Realm4PvE"
+	local w = World.New({ apostles = { MAIN, "Eda Marsh-" .. R2 }, live = R3 })
+	local eda = MakeClient(w, "Eda Marsh-" .. R2, { guild = G1 })
+	local acct = NewAccount()
+	AddChar(w, acct, MAIN, G1, 0)
+	for _, n in ipairs({ "flint", "gale", "crest" }) do AddChar(w, acct, A[n], G1) end
+	w:Run(60)
+	w:Presence()
+	local sm = Login(w, acct, MAIN)
+	for _, n in ipairs({ "flint", "gale", "crest" }) do Slash(w, sm, "add " .. Plain(A[n])) end
+	for _, n in ipairs({ "flint", "gale", "crest" }) do Confirm(w, acct, A[n]) end
+	sm = Login(w, acct, MAIN)
+	w:Run(61)
+	local at = tonumber(LastClaim(w, sm):match("^AL~(%d+)~"))
+	Logout(w, acct)
+	w:Run(30)
+	-- His claim from before Ardo Gale's link (Ardo Flint and Ardo Crest), held under a relay's stamp on Realm4.
+	w:As(eda, eda.Alts.Handle, "CHANNEL", Plain(MAIN) .. "-" .. R4,
+		("AL~%d~M~%s~%s,%s"):format(at - 50, G1, A.flint, A.crest))
+	eq(MainKeyOn(w, eda, A.gale), Key(MAIN), "linked: the newest copy names Ardo Gale")
+	-- The King takes Ardo Gale off on Eda's client, which hides the main with him.
+	eda.ns.splitNames = true
+	w:As(eda, function() assert(loadfile(ROOT .. "Olympus/Moderation.lua"))("Olympus", eda.ns) end)
+	w:As(eda, eda.ns.Moderation.Handle, "CHANNEL", World.KING,
+		("O1~c~1~%d~%s~%s~%s"):format(w.clock, A.gale, World.KING, "gold spam"))
+	local word, on = w:As(eda, eda.ns.Moderation.Hidden, MAIN, true)
+	eq(word ~= nil and Key(on), Key(A.gale), "the main hidden through Ardo Gale")
+	-- His next claim, without Ardo Gale, through the relay on Realm4 again.
+	w:Run(120)
+	w:As(eda, eda.Alts.Handle, "CHANNEL", Plain(MAIN) .. "-" .. R4,
+		("AL~%d~M~%s~%s,%s"):format(at + 100, G1, A.flint, A.crest))
+	eq(MainKeyOn(w, eda, A.gale), Key(MAIN), "frozen: Ardo Gale still linked")
+	eq(MainKeyOn(w, eda, A.flint), Key(MAIN), "frozen: Ardo Flint still linked")
+	eq(GroupsOn(w, eda), 1)
+	eq(w:As(eda, eda.Alts.Duplicates, { [G1:lower()] = true }), 3, "the main and his three alts, one player")
+	word, on = w:As(eda, eda.ns.Moderation.Hidden, MAIN, true)
+	eq(word ~= nil and Key(on), Key(A.gale), "the main still hidden through Ardo Gale")
+end)
+
 ---------------------------------------------------------------------------
 -- The credit: an Apostle main, keepers of both versions, witnesses in three guilds
 ---------------------------------------------------------------------------
