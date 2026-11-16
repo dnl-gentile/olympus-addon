@@ -731,7 +731,11 @@ JoinNext = function()
 		return true
 	end
 	join.waitUntil = nil
+	-- (Review of this lane) Opened on its own, from a timer or an answer, the window keeps the keyboard
+	-- where it is (OLYMPUS_RECRUIT's OnShow): a player typing in chat meanwhile goes on typing there.
+	join.preserve = true
 	local f = Recruit.Prompt(contact)
+	join.preserve = nil
 	if f then join.auto, join.notice = contact, nil end
 	ns.Fire("RECRUIT_CHANGED")
 	return f ~= nil
@@ -3028,7 +3032,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
 		if eb and contact then
 			eb:SetText(Recruit.Message(contact))
 			eb:HighlightText(0, 0)
-			eb:SetFocus()
+			-- (1.6.0, review of the join reach) The Join screen's own window (JoinNext: a timer or an answer
+			-- opens it, not a click) leaves the keyboard with another box that has it, the chat's, in both
+			-- input modes: Enter there would send the chat line as this request. A click's takes it.
+			if join.preserve then ns.Focus(eb, nil, true) else eb:SetFocus() end
 		end
 	end,
 	OnAccept = function(self, contact)
