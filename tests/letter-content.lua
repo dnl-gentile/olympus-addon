@@ -732,4 +732,8 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 	local roadmap = RoadmapLine("1.6.0")
 	assert(roadmap:find("a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window;", 1, true),
 		"ROADMAP.md's v1.6.0: the windows a claimed player's command opens over")
+	-- (The review of 1.6.0) The guild's hand-over runs where the relay runs (Verify.lua's OwnGuild: Relay.On, on
+	-- Forever alone), as the letter and the README say; the ROADMAP's line said it of every realm.
+	assert(roadmap:find(". On Forever a guild master whose guild is already verified now receives that verification", 1, true),
+		"ROADMAP.md's v1.6.0: the guild's hand-over, on Forever")
 end)
