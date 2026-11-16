@@ -215,7 +215,7 @@ function P.Lines()
 		if item then
 			local state, detail = P.Status(item)
 			local reply = R.IsReply(item)
-			Line("recruit-panel-current", (ns.DisplayName(Name(item)) or Name(item)) .. " — " .. (item.scanned and L.RECRUIT_PANEL_SCAN
+			Line("recruit-panel-current", (ns.DisplayName(Name(item)) or Name(item)) .. " - " .. (item.scanned and L.RECRUIT_PANEL_SCAN
 				or (reply and L.RECRUIT_WHISPER_REVIEW:format(item.guild) or "JOIN")))
 			Line("recruit-panel-detail", detail)
 			if not item.scanned and state == "filtered" then
