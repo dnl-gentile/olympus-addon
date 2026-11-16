@@ -863,6 +863,43 @@ test("verify guild hand-over: a stale hand-over at a 1.5.9 guild master's login 
 	end)
 end)
 
+-- The review of 1.6.0. A revocation was kept REVOKE_KEEP (30 days) and an approval until revoked: a month
+-- after a revocation every client that heard it had dropped it, a guildmate that missed it still held the
+-- approval, and its hand-over gave the revoked approval back to the guild master and to the guildmate who
+-- had heard the revocation (the check back, and the master's powers on his guild's clients). A revocation
+-- is kept as long as an approval now: until a newer word, or past Verify.MAX, after every approval. Fails
+-- before: 32 days on, the guild master and that guildmate verified again by the revoked approval of T0.
+test("verify guild hand-over: a revocation is kept as long as an approval: a month after it, a guildmate that missed it hands the revoked approval to nobody", function()
+	World(function(Node, As, Flush, Advance, Now)
+		local hub = Node("Hildryn Payne-Realm", "Olympus Hearth")
+		local master = Ready(Node(MASTER, GUILD, { rank = 0 }))
+		local holder = Ready(Node("Guild Holder-Realm", GUILD)) -- (heard the approval, away for the revocation)
+		local mate = Ready(Node("Guild Mate-Realm", GUILD)) -- (heard both)
+		local all = { master, holder, mate }
+		Approved(As, T0, master, holder, mate)
+		Advance(86400)
+		local revokedAt = Now()
+		Revoked(As, revokedAt, master, mate)
+		Advance(32 * 86400)
+		for _, n in ipairs(all) do As(n, n.c.Verify.Tick) end
+		for _, n in ipairs({ master, mate }) do
+			local e = n.c.rdb.verify.list[ns.Fold(GUILD)]
+			eq(e and e.k, "R", n.c.me .. " still holds the revocation a month on")
+		end
+		As(master, master.deliver, "WHISPER", hub.c.me, "RY~") -- (his relay answered his ping)
+		for _, n in ipairs(all) do As(n, n.c.Verify.Login) end
+		Play(Advance, As, all, 180)
+		for _, n in ipairs({ master, mate }) do
+			local status, info = As(n, n.c.Verify.Status, GUILD)
+			assert(status ~= "verified", n.c.me .. ": verified again by the revoked approval")
+			eq(info.revoked and info.revoked.at, revokedAt, n.c.me .. " holds the revocation")
+		end
+		-- (The guild master's ask names the revocation he holds: nothing older answers it. The guildmate that
+		-- missed it keeps the approval on its own client alone, as on 1.5.9, until a verifier's answer.)
+		eq(HandOvers(holder), 0, "the guildmate that missed the revocation handed the revoked approval to nobody")
+	end)
+end)
+
 test("verify guild hand-over: a guild answers a stale hand-over once, and again for another one heard within GUILD_WINDOW", function()
 	World(function(Node, As, Flush, Advance, Now)
 		local master = Ready(Node(MASTER, GUILD, { rank = 0 }))

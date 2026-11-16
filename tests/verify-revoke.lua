@@ -316,7 +316,7 @@ end)
 
 -- 1.6.0 (the review of these fixes: a purge). An answer carries the newest revocations first, in
 -- Verify.REVOKE_BYTES of it at most, then every other word, the newest first. With every revocation
--- first, a purge of some 50 guilds or more within REVOKE_KEEP filled an answer (some 98 rows of
+-- first, a purge of some 50 guilds or more within a month filled an answer (some 98 rows of
 -- Forever's names) and it carried no approval given since; with the newest first alone (1.5.9), a
 -- revocation behind some 98 newer approvals reached no client back after them. Fails before: on the
 -- lane's first fix none of the 100 new approvals arrived; on 76c0c57e none of the 130 revocations.

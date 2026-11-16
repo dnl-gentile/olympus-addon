@@ -86,8 +86,10 @@ local L = ns.L
 -- relay carries unchanged: an old approval relayed is as old as it was). On the same second a
 -- revocation stands over an approval. A relay is taken only from a verifier's client, which only
 -- answers an ask from a client with different contents. Kept in the realm group's saved data: approvals
--- until revoked (MAX words at most), revocations REVOKE_KEEP, starts START_KEEP and first sightings
--- SEEN_KEEP after the guild was last seen.
+-- and revocations until a newer word on the guild (MAX words at most: past it the oldest approvals go
+-- first, then the oldest revocations), starts START_KEEP and first sightings SEEN_KEEP after the guild was
+-- last seen. (The review of 1.6.0) A revocation was kept REVOKE_KEEP, 30 days: then the clients that heard
+-- it dropped it, and a guildmate that had missed it handed the approval it revoked back to its guild.
 --
 -- (1.6.0, a guild master's report: "GM verification pending" on his old PC and on a new laptop, for a
 -- guild his guildmates' Census showed verified, with him as its guild master.) A guild master who was
@@ -156,7 +158,6 @@ Verify.GUILD_WINDOW = 300        -- one hand-over a guild in this window, heard 
 Verify.GUILD_LOGIN_GAP = 720     -- a guild master's hello after this long without one: his login (quiet ones: every 10-11 min)
 Verify.GUILD_SHARE_EVERY = 1800  -- an older guild master online is handed it this often at most, by a guildmate here that long
 Verify.GUILD_ASK_SINCE = "1.6.0" -- a guild master of this version or newer asks his guild himself
-Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
 Verify.MAX = 400                 -- words kept (past it: the oldest approvals, then the oldest revocations; 1.6.0)
@@ -478,7 +479,7 @@ function Verify.Prune(now)
 	if not s then return end
 	local kept = {}
 	for key, e in pairs(s.list) do
-		if not Valid(e) or (e.k == "R" and now - e.at > Verify.REVOKE_KEEP) then
+		if not Valid(e) then
 			s.list[key] = nil
 		else
 			kept[#kept + 1] = { key = key, e = e }
@@ -636,10 +637,10 @@ end
 -- (1.6.0) The revocations before the approvals: an answer holds some 80 rows of Forever's names, and
 -- a realm group's store held 132 words by 11-13 (the oldest 50 in no answer since 11-07), so a
 -- revocation a few days old fell behind the newer approvals, and a client back after those days kept
--- the check of the guild it revoked. Revocations are few (REVOKE_KEEP), and a missed approval costs a
+-- the check of the guild it revoked. Revocations are few, and a missed approval costs a
 -- check where a missed revocation leaves a wrong one. (The review of the 1.6.0 fixes: a purge.) The
 -- newest of them in REVOKE_BYTES (half the answer) at most, then every other word, the newest first:
--- with every revocation first, a purge of some 50 guilds or more within REVOKE_KEEP filled the answer,
+-- with every revocation first, a purge of some 50 guilds or more filled the answer,
 -- and no approval given since reached a client back after it.
 function Verify.Payload(now, coverage)
 	now = now or Verify.Clock()
