@@ -965,19 +965,20 @@ test("1.5.9 recruiting ranking: a report a keeper refuses for now (its roster no
 	eq(Outbox(c.wes), 0, "its receipt")
 end)
 
--- The README and the CurseForge page tell of it in the same words, and its privacy rows say what goes where.
+-- The pages retain ranking/history documentation but describe handoffs as removed in 1.6.0.
+-- Privacy still names the old fields and the always-off compatibility flag.
 test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the ranking for everyone; the privacy table names its words", function()
 	local function Read(p) local f = assert(io.open(ROOT .. p)) local s = f:read("*a") f:close() return s end
 	for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
 		local doc = Read(path):gsub("%s+", " ")
-		for _, phrase in ipairs({ "**The recruiting ranking for everyone (1.5.9).**", "25% of those points", "**Everyone**",
+		for _, phrase in ipairs({ "**The recruiting ranking for everyone (1.5.9).**", "Historical referral records remain readable", "**Everyone**",
 			"| The recruiting ranking for everyone (1.5.9): what your addon read in your guild's log",
 			"| The recruiting ranking for everyone: its numbers",
 			-- (Review of 1.5.9: the pages said a move between Olympus guilds never counted and that a recruit's
 			-- mark kept him from counting twice "never"; the keepers catch a move only where their own addon saw
 			-- the player, for 120 days. And the inviter's own report, the passer's word, the top 10.)
 			"a move no keeper's addon saw is not caught", "so he does not count again in that time",
-			"when his addon and yours both say so", "each inviter's own report and each passer's word",
+			"this version no longer passes invitations to other members", "each inviter's own report and each passer's word",
 			"the top 10 and his own place", "your own invites whose player joined, always",
 			-- (Review of the 1.5.9 release: the pages put the keeper's guildmate whose invite the keeper's own
 			-- log saw among the witnesses that need your own report, left out a High Councillor, who confirms
@@ -987,7 +988,7 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 			-- ChatHall.On, and the pages say so.)
 			"It is **confirmed** when the addon of a Church keeper or a High Councillor saw the join, or that of a keeper's guildmate whose invite the keeper's own log saw;",
 			"(an officer, the Church correspondent, or another guildmate of a keeper)",
-			"| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) |",
+			"| Hello: addon version, realm, public or sealed channel, whether you share your zone, the legacy recruitment-handoff flag (always off in 1.6.0) |",
 			"With the gamepad UI, while the Olympus channel is not joined, or when your guild holds a realm key, a line goes by the hidden way alone (the relays), which reaches your own ruleset only, under **All** too" }) do
 			assert(doc:find(phrase, 1, true), path .. ": " .. phrase)
 		end
@@ -1754,4 +1755,23 @@ test("1.5.9 recruiting ranking: past PEOPLE_MAX each keeper keeps the people wit
 	end
 	eq(People(l.p), People(l2.p), "the same people on both")
 	eq(People(l.p), table.concat({ Key("Inviter ae"), Key("Inviter af"), Key("Inviter zz") }, ","))
+end)
+
+
+test("recruit guild log regression: dense equal-hour events retain native order in both directions", function()
+	for _, newestFirst in ipairs({false, true}) do
+		local w, c = Cast()
+		w.newestFirst = newestFirst
+		for i=1,40 do w:LogEvent(World.GUILD, "invite", "Wes Brook", "Older " .. i, 3) end
+		w:LogEvent(World.GUILD, "invite", "Sid Pass", "Dense Join", 0)
+		w:LogEvent(World.GUILD, "join", "Dense Join", nil, 0)
+		w:LogEvent(World.GUILD, "quit", "Dense Join", nil, 0)
+		w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Dense Join", 0)
+		for i=1,20 do
+			local events = w:As(c.ivo, c.ivo.Count.Events)
+			eq(#events,44)
+			eq(ns.ShortName(events[41].p1),"Sid Pass"); eq(events[42].kind,"join")
+			eq(events[43].kind,"quit"); eq(ns.ShortName(events[44].p1),"Ivo Plain")
+		end
+	end
 end)

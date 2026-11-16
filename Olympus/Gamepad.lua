@@ -149,6 +149,7 @@ end
 local function Notice() -- gp:diagnostics
 	if noticed or not ns.GamepadUI() then return end
 	noticed = true
+	if ns.NoteUIAction then ns.NoteUIAction("gate-reload-notice") end
 	local D = ns.Dialog
 	if type(D) == "table" and not D.missing and type(D.Show) == "function" and D.Show(NOTICE) then return end
 	ns.Print(L.GATE_NOTICE)
@@ -183,6 +184,7 @@ end
 
 function Gate.Switched(newMode)
 	local pad = PadMode(newMode)
+	if ns.NoteUIAction then ns.NoteUIAction(pad and "input-gamepad" or "input-mouse") end
 	switches[#switches + 1] = { t = time and time() or 0, to = pad and "gamepad" or "mouse" }
 	while #switches > 20 do table.remove(switches, 1) end
 	for _, key in ipairs(order) do

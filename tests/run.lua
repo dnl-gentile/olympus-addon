@@ -166,7 +166,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "Locales/RecruitHandoffText", "RecruitHandoff", "RecruitFilters", "RecruitPanel", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -63851,9 +63851,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.9") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.0") -- the release has one identity across the bundle
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.9", 1, true))
+		assert(toc:find("## Version: 1.6.0", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -63866,6 +63866,8 @@ end)()
 		assert(at["Dialog.lua"] < at["PlayerMenu.lua"] and at["PlayerMenu.lua"] < at["Workshop.lua"], "the menus' list before the files adding to it")
 		assert(at["Workshop.lua"] < at["Versions.lua"], "Versions reads the Workshop's version helpers")
 		assert(at["AnswerBank.lua"] < at["Answers.lua"])
+		assert(at["Recruit.lua"] < at["RecruitFilters.lua"] and at["RecruitFilters.lua"] < at["RecruitCandidates.lua"]
+			and at["RecruitFilters.lua"] < at["RecruitPanel.lua"], "shared filters load before both recruiting paths")
 		assert(at["Wanted.lua"] < at["ArenaMath.lua"], "Wanted is a core board, not part of the Arena-only load tail")
 		local comm = assert(ReadFile(ADDON_DIR .. "Comm.lua"))
 		assert(comm:find("Versions V7 V8 V9 | Workshop VR", 1, true))

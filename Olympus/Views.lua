@@ -103,10 +103,33 @@ end
 function Views.PresenceNow(e, name, online, days)
 	if type(e) ~= "table" or e.name == GetGuildInfo("player") then return online, days, false end
 	if Views.SeenNow(e.name, name) then return true, 0, false end
-	if e.fresh == false and online then
-		return nil, nil, true, e.observed or (type(e.g) == "table" and tonumber(e.g.t) or nil)
+	local fresh = e.fresh
+	if e.rosterDetails then fresh = e.rosterFresh end
+	if fresh == false and online then
+		return nil, nil, true, e.rosterObserved or e.observed or (type(e.g) == "table" and tonumber(e.g.t) or nil)
 	end
-	return online, days, e.fresh == false
+	return online, days, fresh == false
+end
+
+-- Presentation copies only. Consumers of Data.Summary still receive count-only g
+-- rows, and permission checks continue to use Data's original report/vote stores.
+local function DisplaySummary(s)
+	local out = {}
+	for k, v in pairs(s) do out[k] = v end
+	out.guilds = {}
+	for _, entry in ipairs(s.guilds or {}) do
+		local row = entry
+		if entry.rosterDetails then
+			row = {}
+			for k, v in pairs(entry) do row[k] = v end
+			row.g = {}
+			for k, v in pairs(entry.g) do row.g[k] = v end
+			for _, field in ipairs({ "realm", "leader", "leaderOnline", "leaderDays", "leaderClass", "leaderLevel", "leaderZone",
+				"officers", "ranks", "inactive7", "inactive30" }) do row.g[field] = entry.rosterDetails[field] end
+		end
+		out.guilds[#out.guilds + 1] = row
+	end
+	return out
 end
 
 ---------------------------------------------------------------------------
@@ -1854,11 +1877,9 @@ function Views.RecruitOfferSwitch(key)
 	-- author's "Ele tem que ficar desativado se ele estava desativado", and a kept ads interval became 5.
 	local saved = R.Preference and R.Preference()
 	local kept = type(saved) == "table" and saved.offerAgain == true
-	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
-	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
-	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
-	-- recruiting.)
-	if H and H.SetAuto and not kept and not state.join then H.SetAuto(true) end
+	-- Retired handoff preferences must stay off when recruiting or scanning starts.
+	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(false) end
+	if H and H.SetAuto and not kept and not state.join then H.SetAuto(false) end
 	if key == "ads" then
 		if state.ads then R.SetAnnounceReminder(0)
 		elseif R.AnnounceReminderMinutes() == 0 then R.SetAnnounceReminder(Views.RECRUIT_AD_MINUTES) end
@@ -1873,6 +1894,7 @@ end
 -- seen (by name: nobody knows their Lord), in the same order as ever. Letters that look alike
 -- read as one (Lookalike, 1.2.1).
 local function CensusLines(s, q, recruitment)
+	s = DisplaySummary(s)
 	local lines = {}
 	if q then
 		local min = RecruitQuery(q)
@@ -1974,9 +1996,6 @@ local function CensusLines(s, q, recruitment)
 			if switch.key == "ads" then hint = hint:format(Views.RecruitAdMinutes()) end
 			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
 		end
-		-- (1.5.8, the author's ask: the handoffs marked experimental; one short line of its own, as a
-		-- longer hint is cut off in the window, 11-12.)
-		lines[#lines + 1] = { id = "census-recruit-experimental", text = Grey(L.RECRUIT_CENSUS_EXPERIMENTAL), center = true, gapAfter = true }
 		if any then
 			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true }
 			-- (11-12, the author's: where to stop the popups, said right after turning them on.)
@@ -2453,6 +2472,7 @@ end
 -- search of its own). Nothing
 -- else: the King's lines, the level race, recruiting and the layers show once it is emptied.
 local function RealmLines(s, q)
+	s = DisplaySummary(s)
 	if boardShown and ns.Board and not ns.Board.missing and ns.Board.Lines then return ns.Board.Lines(q) end
 	local page = pageShown and RealmPage(pageShown)
 	if page then return page.Lines(q) end
@@ -2588,7 +2608,7 @@ local function RealmLines(s, q)
 			text = (open and "[-] " or "[+] ") .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
 			-- (1.2.4, the author's ask: its average level too, in parentheses after its Lord's online
 			-- or offline, both kept whole up to half the row.)
-			right = Presence(lordOn, lordDays, lordDim, lordAt) .. AvgTag(g, not e.fresh),
+			right = (g.leader and Presence(lordOn, lordDays, lordDim, lordAt) or Grey(L.NONE_REPORTED)) .. AvgTag(g, not e.fresh),
 			rightWide = true,
 			onClick = function()
 				if folds then
@@ -2605,6 +2625,9 @@ local function RealmLines(s, q)
 			color = e.fresh and "GameFontHighlightSmall" or "GameFontDisableSmall",
 		}
 		if not open then return end
+		if e.rosterDetails then
+			lines[#lines + 1] = { indent = 1, text = Grey(L.REALM_ROSTER_AGE:format(ns.Ago(e.rosterObserved))) }
+		end
 		if g.leader and (not only or only.lord) then
 			local lord = { name = g.leader, realm = g.realm, class = g.leaderClass, level = g.leaderLevel, zone = g.leaderZone,
 				guild = e.name, rank = L.LORD, online = lordOn, days = lordDays }
@@ -2904,6 +2927,7 @@ end
 -- five highest-level members, and /who contributes only people actually seen online. Missing
 -- fields remain missing; the Arena profile and crafter board are consented addon self-reports.
 local function RealmPeople(s)
+	s = DisplaySummary(s)
 	local byKey, out = {}, {}
 	local function Add(x)
 		if type(x) ~= "table" or type(x.name) ~= "string" or x.name == "" then return nil end
@@ -3169,10 +3193,11 @@ local function RealmNavigation()
 end
 
 local function RealmDetail(s)
+	s = DisplaySummary(s)
 	local lords, captains, inactive = 0, 0, 0
 	for _, e in ipairs(s.guilds) do
-		if e.fresh then
-			lords = lords + 1
+		if (e.rosterDetails and e.rosterFresh) or (not e.rosterDetails and e.fresh) then
+			if e.g.leader then lords = lords + 1 end
 			captains = captains + #(e.g.officers or {})
 			inactive = inactive + (e.g.inactive30 or 0)
 		end

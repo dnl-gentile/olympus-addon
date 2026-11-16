@@ -2,6 +2,24 @@
 
 # Olympus
 
+**Church → Invites now opens a unified recruiting queue.** Click **Start recruiting**
+to collect nearby unguilded players and JOIN requests together, with JOIN requests
+first. Automatic popups offer the invite command without taking keyboard focus
+from movement. Click the command when ready to copy and paste;
+**Prepare invite** can reopen it manually; **Next** moves on without
+sending a message. Only a fresh guild roster confirms a join. **Pause recruiting**
+keeps pending requests, stops new invite popups and scan collection, and suppresses ad
+reminders; its setting survives reloads. Ads remain optional and handoffs stay removed.
+The previous controls are available through **Advanced**, which explicitly restores
+the earlier workflow. See [recruiting queue checks](docs/RECRUIT-QUEUE.md) for testing.
+
+**Olympus 1.6.0** adds visible level-range and class filters under Church → Invites.
+They apply to scanned candidates and JOIN requests, including manual preparation.
+Unknown required details wait for a deliberate WHO check or a target/mouseover observation.
+Filters survive reloads; all levels and classes are allowed by default.
+Newer census totals also preserve retained GM, Captain and rank details for other guilds,
+with the roster report's age shown separately. See [1.6.0 release notes](docs/RELEASE-1.6.0.md).
+
 **The whole Olympus army in one window, inside World of Warcraft: Forever.**
 
 Olympus is Asmongold's guild for *World of Warcraft: Forever*: Alliance, PvP ruleset, a
@@ -2184,9 +2202,8 @@ master (or the Head, the King or the author), who keeps that guild full and answ
   invite the keeper's own log saw; or when your own addon and another one a keeper can check both did
   (an officer, the Church correspondent, or another guildmate of a keeper); until then it waits as
   yours. 10 points for each confirmed
-  recruit and 5 more if he is still in the guild 7 days later; the member who passed that player on (a
-  JOIN request or a scanned player, **Pass to other members**) gets 25% of those points when his addon
-  and yours both say so. An invite whose player never joins counts nothing, and one player counts once:
+  recruit and 5 more if he is still in the guild 7 days later. Historical referral records
+  remain readable, but this version no longer passes invitations to other members. An invite whose player never joins counts nothing, and one player counts once:
   never an alt, a return to his guild, or a move from another Olympus guild where a keeper's addon saw
   him in the last 90 days (a move no keeper's addon saw is not caught). Every member sees it on the
   **Ranking** page (**Everyone**): the top 10 and his own place, this week, the last 30 days or all
@@ -2684,7 +2701,7 @@ goes where:
 | A net-off word (1.1): the character's name, hidden or shown again (or the guild's name, off or on again), the time, who gave it and the reason | everyone on the Olympus channel | when the King, his Steward, a Hand or a High Councillor gives one, then from the giver's own addon every few minutes for late logins |
 | The army's key (1.1, when the King or his Steward rotates it): the new key, the time it was made and the hashes of the keys it replaces | each Lord and Captain the census confirms online in the guilds the King picks whom his own /who saw in that guild (a whisper from the King each), then each one's guild over guild chat; never the Olympus channel. Each 1.1 addon that has it tells the King so (a whisper), and after login asks its guild whether a newer key exists | only when the King rotates it on the Throne; a guildmate's ask once a login |
 | Your alt links (1.1, only if you link your characters): each linked character's name and guild, and the names it confirmed (its main, or its alts) | everyone on the Olympus channel | from each character you linked yourself, confirmed on each: at login, when a link changes and every 30 minutes while you play |
-| Hello: addon version, realm, public or sealed channel, whether you share your zone, whether you take recruitment handoffs (1.5.9) | your guild | every minute or so |
+| Hello: addon version, realm, public or sealed channel, whether you share your zone, the legacy recruitment-handoff flag (always off in 1.6.0) | your guild | every minute or so |
 | The signed leadership snapshot (1.2, only after the author explicitly activates it): each Olympus guild's Lord and Captains for this realm group and faction, its generation, issue and expiry times, and the author's signatures | Olympus addons in that realm group and faction; a client asks on the Olympus channel and in its guild, then a holder answers that client alone by whisper, one bounded signed part at a time | after login while missing or behind (four short retries, then every 10 minutes); a holder answers one requester at most every 2 minutes and stops immediately if its own membership, net-off state or signed generation changes |
 | Check version (1.1.2): nothing but a number to match the answer | the player you right-clicked, alone (a whisper) | only when you pick **Check version** (a player once every 2 minutes, 6 a minute) |
 | The answer to a version check (1.1.2): your addon's version | the player whose addon asked, alone (a whisper) | when a player's addon asks: each once every 30 seconds at most, 20 a minute in all; never to a player you block or ignore, and to the author only after your yes to his roll calls (his checks are roll calls) |
@@ -2741,7 +2758,7 @@ goes where:
 | The Church: what your addon read in your guild's log (an invite by a Church person and the join after it: both names, your guild, the hours), a registration (the name), your public-row choice | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none is online | a Church person's own addon every 5 minutes; any other member's only where a Church person was heard in the guild lately, drawn so that about two of each guild read; your own invite count and your guild's joins and leaves are never sent |
 | The Church's seen-check (a name) and its answer (the guild your roster saw him in, the first and last day, whether he is in it now) | the check: everyone on the Olympus channel, from the desk (a keeper). The answer: that keeper alone (a whisper) | the desk asks about each new recruit, a registered one on its days and 7 days after a join; about two clients of each guild that knew the name answer |
 | The Church's numbers (rankings, a person's detail) and the keepers' ledger | the Church's audience who asked (the Church, the High Council, the King, the author), alone; the ledger between keepers alone, and a keeper's copy of it to the signed High Councillors' addons online, which pass it to each other only while no keeper is online (never the King's). A councillor's addon saves its copy apart from the ledger of a keeper character on the same account, which never reads it | when a member of that audience opens the tab or refreshes; the ledger when a keeper confirms a record or closes its check, and in a catch-up; never on the channel, except, while the author's switch is open, the rows of the people who chose to show theirs and the top 3 of each ranking (names only), the top 3 said again as it came by the King's and the signed High Councillors' addons (1.3.4) |
-| The recruiting ranking for everyone (1.5.9): what your addon read in your guild's log (an invite by any member and the join after it: both names, your guild, the hours; for your own invite, the member who passed you that player), 7 days later whether that player is still in your guild, and when a member took a JOIN or a scanned player you passed on, that player's name and the member's | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none takes it | your own invites whose player joined, always (your addon reads your guild's log every 5 minutes for 3 hours after you take an invite command to chat, and while a player another member passed you has not joined); others' invites: about two members of each guild a Church keeper is in (drawn for each invite), about two of its officers, its Church correspondent, the keepers and the High Council; never an invite whose player did not join |
+| The recruiting ranking for everyone (1.5.9): what your addon read in your guild's log (an invite by any member and the join after it: both names, your guild, the hours; for your own invite, the member who passed you that player), 7 days later whether that player is still in your guild, and legacy records from versions that let a member take a player you passed on, that player's name and the member's | the Church's keepers online (the Head, the Apostles, the author), alone (whispers); kept on your client up to 7 days while none takes it | your own invites whose player joined, always (your addon reads your guild's log every 5 minutes for 3 hours after you take an invite command to chat, and while a player another member passed you has not joined); others' invites: about two members of each guild a Church keeper is in (drawn for each invite), about two of its officers, its Church correspondent, the keepers and the High Council; never an invite whose player did not join |
 | The recruiting ranking for everyone: its numbers (each member's points, recruits and players passed on; your own place and how many of your recruits wait for a confirmation) and the keepers' records (both names, the guild, the times, the members whose addons confirmed it, who passed the player on), and apart from them each inviter's own report and each passer's word, 14 days | an Olympus member who asks, alone (the top 10 and his own row; his ask names his guild, and a keeper refuses one it knows in another guild); the records between the keepers alone. Kept by the keepers 40 days after each join, then as each person's all-time totals, with the recruit's name 120 days more so he does not count again in that time; the last answer on the asker's computer | when a member's **Ranking** page shows it (once a minute until a keeper answers, every 15 minutes after; a keeper answers one member twice and all eight times in 5 minutes at most); between keepers when one confirms a record, and in a catch-up |
 | A list as one message (LS, 1.5.4): the Church's public rows, a guild master's nominees (each part as before) or the shared block terms, the same words as before packed into one message where the relay carries the channel (Forever); where the channel works the words go one by one as before, a list too long for the relay to carry whole goes word by word, and a client that knows no list reads nothing of it | everyone on the Olympus channel, as the words always went: by the relay to each guild's reporter whole, then to its guild | as each was sent before (the Church's desk every 30 minutes while the author's switch is open, a guild master's client every 5 minutes, an editor's every 10); a relay sends a guild a list it does not hold yet, the Church's rows once an hour at most, an unchanged list again only days later, and spends on lists a bounded share of its whispers, most of it for the senders its own client can trust (the Church's keepers, a proven guild master, the block terms' editors). A relay's client keeps in its saved variables which guilds it sent each sender's last list (a sum of it, never its words) and when, 3 days at most |
 | Most Wanted, your own death to a Horde player or your own killing blow on one (WK, 1.2.3): the Horde player's GUID and name, your GUID, the time and month, bounty or claim, your guild, the realm group's digest, and what it is worth (your office as your client verifies it, your level, the Horde player's level as your client saw him) | everyone on the Olympus channel | at once, by itself (no Send, no review), and again after a login if the channel did not take it; once a login, the deaths the game's death recaps still hold this session, each once; your own killing blow again in answer to a member's avenged ask (W7) that names that Horde player; never where it happened, never in an instance |
@@ -3360,6 +3377,19 @@ the exact text first, in a window of its own, and sends nothing without your **S
 Type `/oly bug` (or press **Report a bug**), copy the text and open an issue. Errors are
 also saved in `WTF/Account/<ACCOUNT>/SavedVariables/Olympus.lua`.
 
+When Blizzard says an addon action was blocked or forbidden, the report starts with the
+refused function, attributed Olympus module, client and test-build identification, stack,
+count and timestamps. It keeps up to ten distinct calls, including the first and latest
+sampled context for each session: input mode, combat, recruiting state and invite draft.
+Repeated events update the count immediately; context is sampled once a second or after a
+recorded UI action/input-mode change. A short history of fixed local UI action labels helps
+connect warnings to recruiting popups or input-mode switches, without recording commands,
+keys pressed or invitee names. The added diagnostics send nothing automatically.
+After the warning, open **Help → Report a bug** (or `/oly bug` with mouse and keyboard) and
+copy the report before reloading. A normal `/reload` or logout writes the saved records to
+disk. These records identify what Blizzard refused; the blamed addon is not by itself proof
+of where the taint began.
+
 Since 1.5.5 the report has a short debug section after the status lines. It shows which game
 and which Olympus files the addon runs on, and, for each kind of message that comes in pieces,
 how many arrived, were put together, were dropped incomplete or were refused, and why. It also
@@ -3398,17 +3428,22 @@ harness's own suite files are called, where Olympus Link's tests ran when it shi
 
 ## Development
 
+For a guided tour of the code, start with the [engineering documentation](docs/README.md).
+It maps startup, storage, census and networking, every major feature, recruiting, UI/gamepad
+integration, Arena, exports and the development workflow. The [complete module map](docs/engineering/module-map.md)
+lists every file in the three addon TOCs in load order and explains what it owns.
+
 The [transport lifecycle notes](docs/transport-lifecycle.md) describe queue completion,
 cancellation, compatibility and the in-game checks for the transport queue.
 
 ### Recruiting by whisper
 
-**Church → Invites** has four sections, each under a heading of the same size, in the order they
+**Church → Invites → Advanced** has three sections, each under a heading of the same size, in the order they
 are used: **Recruiting** (the switch, how an incoming JOIN arrives, and the JOINs waiting),
-**Recruiting ads**, **Find unguilded players** and **Handoffs (Experimental)**; a guild master's
+**Recruiting ads** and **Find unguilded players**; a guild master's
 **Help from the Apostles** follows. Each section shows its heading, then its switch when it has
 one, then one grey line saying what it does, and the rest one step in. Turn **Recruiting** on there. While it is off,
-the other three sections say it comes first. That includes the ads: an ad asks players to whisper
+the other two sections say it comes first. That includes the ads: an ad asks players to whisper
 JOIN, and only Recruiting answers a JOIN. A member whose rank the game does not let invite reads
 why under the switch, and the sections he cannot use are not shown.
 It starts off for each character. An officer's choice to enable recruiting is remembered for
@@ -3424,7 +3459,7 @@ recruiting is off too (the page shows them only while it is on).
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
-pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
+pop-up, invite limit and recruiting log. One from a player on your ignore list is
 dropped, recruiting or not, as the game drops his whisper.
 
 **Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
@@ -3446,36 +3481,14 @@ no prospect list to disk. The one list about other players it saves (1.5.9) is t
 players who declined a guild invite of yours, however you sent it, read from the game's own line
 (or its automatic decline, for a player who blocks guild invites), kept 7 days (200 at most) in
 the realm group's saved variables as a hash of each name, never the name. Such a player does not
-pop up again, is left out of the scan and of whispers, and is not passed to other members; a
-sighting of him another member passes is not taken. His own **JOIN**, whispered to you, sent from
-his **Join Olympus** screen or passed on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
+pop up again and is left out of the scan and of whispers. His own **JOIN**, whispered to you, sent from
+his **Join Olympus** screen clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft. A **Join Olympus** request goes back to the
-Census instead, unless its name went to another member in a handoff.
+Census instead.
 
-For a referral, the receiving member turns on **Accept recruitment handoffs** in the Handoffs
-section. Open **Offer to another member** on the applicant's request and choose a listed member.
-Members whose client says it takes handoffs come first, then members whose hello says they run
-Olympus, then the rest; a member whose client says it takes none is not listed. A row names the
-member alone, and adds his guild only when it is another guild's. The recipient claims the offer before Olympus shares the character name in a private addon
-message. **JOIN** can be referred inside the same guild. **JOIN OLYMPUS** can also be referred
-to a sister guild in the same faction, region and ruleset. The recipient prepares and sends
-their own invite through the game's chat. A handoff confirms who received the request. The
-recruiter's native roster can show whether the player actually joined.
-
-The sender can also turn on **Offer my waiting players to members**. With at least three eligible
-requests waiting, or at the game's limit of ten invites a minute, it asks one member of the same
-guild at a time. From 1.5.9 a client's guild hello says whether it takes handoffs ("J") or takes
-none ("j"); older clients ignore the field. Members who take them are asked first; after each turn
-over them, one member known to run Olympus otherwise (a 1.5.8 hello has no such field), and after
-each turn over those, one never heard from. A member whose hello says it takes none, or names a
-version before 1.5.8, is never asked. The order matters
-because a member without Olympus never answers, and each probe to one waits 20 seconds. Only a recipient who enabled
-**Accept recruitment handoffs** and has room replies. The offer carries no applicant name until the recipient claims it. The sender's
-oldest eligible request and any open reply window stay with the sender. Officers still prepare
-and send invitations themselves. **Pass** on a pop-up sends that player the same way (on a JOIN's
-pop-up, the JOINs waiting behind it too), and (1.5.9) leaves this switch as you set it.
+Invite handoffs were removed after negative player feedback that passing invites off to other guild members caused unwanted messages and spam. Saved handoff opt-ins are cleared, old referral packets receive no reply, and invites stay with the original recruiter. The local scan and invite flow remain available.
 
 ### Public recruiting announcement
 

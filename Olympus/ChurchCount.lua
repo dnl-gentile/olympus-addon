@@ -483,7 +483,9 @@ function Count.Events()
 	local order = { invite = 1, join = 2 }
 	table.sort(out, function(x, z)
 		if x.hour ~= z.hour then return x.hour < z.hour end
-		if way ~= 0 then return (x.i - z.i) * way < 0 end
+		-- Direct index comparisons also avoid numeric reversal in dense-log LuaJIT sorts.
+		if way == 1 then return x.i < z.i end
+		if way == -1 then return x.i > z.i end
 		local kx, kz = order[x.kind] or 3, order[z.kind] or 3
 		if kx ~= kz then return kx < kz end
 		return x.i < z.i
