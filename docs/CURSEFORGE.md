@@ -576,7 +576,9 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   under it. A line from an older version is placed by the server ID in the writer's GUID (the game
   gives Forever names without their realm), else by what Olympus knows of the writer (the relay's
   copy, a guildmate, his guild in one ruleset's census); one nobody can place shows under **All**
-  alone. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
+  alone, marked **[?]** (1.6.0): there only a line of your own ruleset shows without a tag. Hovering a
+  writer's name says when he plays another ruleset or nobody can place him: whispers and guild invites
+  stay within one ruleset, so his guild cannot invite your character. With your own ruleset chosen, what you write in this box goes to that ruleset alone (the box
   says so): its players see it, under **All** too, and others only by choosing it. Under **All** or
   another ruleset, and from the game's own chat box, a line goes to every ruleset. With the gamepad UI,
   while the Olympus channel is not joined, or when your guild holds a realm key, a line goes by the
