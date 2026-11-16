@@ -3422,6 +3422,11 @@ harness's own suite files are called, where Olympus Link's tests ran when it shi
 
 ## Development
 
+For a guided tour of the code, start with the [engineering documentation](docs/README.md).
+It maps startup, storage, census and networking, every major feature, recruiting, UI/gamepad
+integration, Arena, exports and the development workflow. The [complete module map](docs/engineering/module-map.md)
+lists every file in the three addon TOCs in load order and explains what it owns.
+
 The [transport lifecycle notes](docs/transport-lifecycle.md) describe queue completion,
 cancellation, compatibility and the in-game checks for the transport queue.
 
