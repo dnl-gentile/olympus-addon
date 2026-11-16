@@ -42,6 +42,18 @@ ns.Locale({ "esES", "esMX" }, {
 	PLAYER_TOOLTIP_SIZE = "Tamaño de la descripción: %d%%",
 	RECORDS_LAG = "Tiempo desde el turno de envío hasta la transmisión de resúmenes: %d muestras, %.1f s de media, %.1f s como máximo",
 	RECORDS_NET = "Ronda %d: resúmenes recibidos %s, respuestas enviadas %d, presupuesto restante %d de %d, consultas enviadas %d",
+	LETTER_1_6_0_1_TITLE = "Dos semanas más",
+	LETTER_1_6_0_1_HEAD = "Dos semanas más",
+	LETTER_1_6_0_1_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",
+	LETTER_1_6_0_1_LINK = ns.L.LETTER_1_6_0_1_LINK,
+	LETTER_1_6_0_1 = [==[Su Majestad. Soldados de Olympus.
+
+- {watch} La verificación de hermandades en los reinos PvP y RP espera dos semanas más: hasta el 30 de noviembre ninguna hermandad de allí aparece como vencida.
+- {news} Una línea corta enviada otra vez en el chat de Olympus, como "gz", ya no desaparece para los demás jugadores después de que hayas escrito muchas líneas.
+
+Cierra y vuelve a abrir WoW después de actualizar. Si algo sigue fallando, envía un informe con /oly bug.
+
+Larga vida al Rey. Larga vida a Olympus.]==],
 	LETTER_1_6_0_TITLE = "El registro del reclutador",
 	LETTER_1_6_0_HEAD = "El registro del reclutador",
 	LETTER_1_6_0_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",

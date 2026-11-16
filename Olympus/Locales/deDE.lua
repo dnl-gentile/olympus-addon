@@ -42,6 +42,18 @@ ns.Locale("deDE", {
 	PLAYER_TOOLTIP_SIZE = "Tooltip-Größe: %d%%",
 	RECORDS_LAG = "Zeit vom Sendeplatz bis zum Versand der Prüfsummen: %d Messungen, im Schnitt %.1f s, höchstens %.1f s",
 	RECORDS_NET = "Runde %d: Prüfsummen empfangen %s, Antworten gesendet %d, Budget %d von %d, Suchanfragen gesendet %d",
+	LETTER_1_6_0_1_TITLE = "Zwei weitere Wochen",
+	LETTER_1_6_0_1_HEAD = "Zwei weitere Wochen",
+	LETTER_1_6_0_1_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",
+	LETTER_1_6_0_1_LINK = ns.L.LETTER_1_6_0_1_LINK,
+	LETTER_1_6_0_1 = [==[Eure Majestät. Soldaten von Olympus.
+
+- {watch} Die Gildenverifizierung auf den PvP- und RP-Realms wartet zwei weitere Wochen: Bis zum 30. November wird dort keine Gilde als überfällig angezeigt.
+- {news} Eine kurze Zeile, die du im Olympus-Chat erneut sendest, etwa "gz", verschwindet für die anderen Spieler nicht mehr, nachdem du viele Zeilen geschrieben hast.
+
+Schließe WoW nach dem Update und öffne es erneut. Wenn noch etwas nicht funktioniert, sende einen Bericht mit /oly bug.
+
+Lang lebe der König. Lang lebe Olympus.]==],
 	LETTER_1_6_0_TITLE = "Das Register des Rekrutierers",
 	LETTER_1_6_0_HEAD = "Das Register des Rekrutierers",
 	LETTER_1_6_0_SIGNED = "Euer ergebener Tüftler, der Entwickler von Olympus",

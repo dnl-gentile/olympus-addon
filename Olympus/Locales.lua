@@ -296,6 +296,19 @@ To everyone who sent ideas, bug reports and fixes: thank you. Special thanks to 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
 Long live the King. Long live Olympus.]==]
+-- 1.6.0.1 (the dev: "Bota aí mais 2 semanas"): guild verification on Forever's realm groups but PvE
+-- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
+-- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
+L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_6_0_1 = [==[Your Majesty. Soldiers of Olympus.
+
+- {watch} Guild verification on the PvP and RP realms waits two more weeks: no guild there shows as overdue until 30 November.
+- {news} A short line sent again in the Olympus chat, like "gz", no longer goes missing for the other players after you have sent many lines.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
 -- 1.6.0: the alt's recruits for the main, the recruiting windows, the census rebuild; then (the review
 -- of the players' reports) the ad reminder's popup every 30 minutes (Recruit.AD_MINUTES) with Less
 -- often and Turn off, the census's last count kept with its date while nothing newer arrives, and a
@@ -564,6 +577,16 @@ O Rei pediu ferramentas melhores de recrutamento. Aqui estão. O jogo deixa cada
 - {watch} The Watch pode reenviar uma aprovação de guilda, conferir o mestre de guilda atual, ocultar guildas e copiar nomes.
 
 A todos que mandaram ideias, relatos de bugs e correções: muito obrigado. Um agradecimento especial a Thunder Konig, Fern Melder e Heuto Jerrico.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_6_0_1 = [==[Vossa Majestade. Soldados do Olympus.
+
+- {watch} A verificação de guildas nos reinos PvP e RP espera mais duas semanas: nenhuma guilda de lá aparece como atrasada até 30 de novembro.
+- {news} Uma frase curta enviada de novo no chat do Olympus, como "gz", não some mais para os outros jogadores depois de você mandar muitas linhas.
 
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 

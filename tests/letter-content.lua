@@ -63,7 +63,7 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 		end
 		local versions = cns.Letters.Versions()
 		eq(table.concat(versions, " ", 1, 20),
-			"1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+			"1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[5], "1.5.6")
+		eq(cns.Letters.Versions()[6], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -365,8 +365,8 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 		local cns = Language(code, file)
 		local raw = assert(cns.L.LETTER_1_5_7)
 		local title, body = cns.Letters.Text("1.5.7")
-		eq(cns.Letters.Versions()[4], "1.5.7", code)
-		eq(cns.Letters.Versions()[5], "1.5.6", code)
+		eq(cns.Letters.Versions()[5], "1.5.7", code)
+		eq(cns.Letters.Versions()[6], "1.5.6", code)
 		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
 		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
@@ -412,8 +412,8 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 		local L = cns.L
 		local raw = assert(L.LETTER_1_5_8)
 		local title, body = cns.Letters.Text("1.5.8")
-		eq(cns.Letters.Versions()[3], "1.5.8", code)
-		eq(cns.Letters.Versions()[4], "1.5.7", code)
+		eq(cns.Letters.Versions()[4], "1.5.8", code)
+		eq(cns.Letters.Versions()[5], "1.5.7", code)
 		eq(title, L.LETTER_1_5_8_HEAD, code)
 		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
@@ -507,8 +507,8 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_5_9"), code)
 		local title, body = cns.Letters.Text("1.5.9")
-		eq(cns.Letters.Versions()[2], "1.5.9", code .. ": the previous letter remains in the archive")
-		eq(cns.Letters.Versions()[3], "1.5.8", code)
+		eq(cns.Letters.Versions()[3], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(cns.Letters.Versions()[4], "1.5.8", code)
 		eq(title, rawget(L, "LETTER_1_5_9_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_5_8_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_5_9_SIGNED"), rawget(L, "LETTER_1_5_8_SIGNED"), code .. ": the dev's signature in this language, as 1.5.8's")
@@ -602,8 +602,8 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
 		local title, body = cns.Letters.Text("1.6.0")
-		eq(cns.Letters.Versions()[1], "1.6.0", code .. ": the release's letter first")
-		eq(cns.Letters.Versions()[2], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": the release's letter, after 1.6.0.1's")
+		eq(cns.Letters.Versions()[3], "1.5.9", code .. ": the previous letter remains in the archive")
 		eq(title, rawget(L, "LETTER_1_6_0_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_5_9_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_6_0_SIGNED"), rawget(L, "LETTER_1_5_9_SIGNED"), code .. ": the dev's signature in this language, as 1.5.9's")
@@ -764,4 +764,64 @@ test("1.6.0 letter content (the fixes merged for the release): each locale tells
 		"ROADMAP.md's v1.6.0: the profession and crafted item links")
 	assert(roadmap:find("On Forever a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines", 1, true),
 		"ROADMAP.md's v1.6.0: the chat moderation on Forever")
+end)
+
+-- 1.6.0.1 (the dev, 2026-11-16: "Bota aí mais 2 semanas"): its letter in every shipped language tells
+-- that guild verification on the PvP and RP realms waits until 30 November (Verify.lua), then (the review
+-- of PR #114) that a short line sent again in the Olympus chat no longer goes missing (Channels.Send), in
+-- the frame of 1.6.0's letter in that language; a player who never read 1.6.0's letter gets it first
+-- (Letters.CATCH_UP).
+test("1.6.0.1 letter content: each locale tells that guild verification on the PvP and RP realms waits until 30 November and that a short line sent again in the Olympus chat no longer goes missing, first in the list, 1.6.0's letter carried before it for a player who never read it", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local english = Client("enUS").L.LETTER_1_6_0_1
+	local savedRead = ns.db.lettersRead
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local cns = Client(code)
+		local L = cns.L
+		local raw = assert(rawget(L, "LETTER_1_6_0_1"), code)
+		local title, body = cns.Letters.Text("1.6.0.1")
+		eq(cns.Letters.Versions()[1], "1.6.0.1", code .. ": the release's letter first")
+		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": 1.6.0's after it")
+		eq(title, rawget(L, "LETTER_1_6_0_1_HEAD"), code .. ": its window names it by its title")
+		assert(title ~= rawget(L, "LETTER_1_6_0_HEAD"), code .. ": distinct release title")
+		eq(rawget(L, "LETTER_1_6_0_1_SIGNED"), rawget(L, "LETTER_1_6_0_SIGNED"), code .. ": the dev's signature in this language, as 1.6.0's")
+		eq(rawget(L, "LETTER_1_6_0_1_LINK"), rawget(L, "LETTER_1_6_0_LINK"), code .. ": the site's link, as 1.6.0's")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code ~= "enUS" and code ~= "esMX" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "watch,news", code .. ": the verification's wait, then the chat's repeated line")
+		local old = rawget(L, "LETTER_1_6_0")
+		eq(raw:match("^[^\n]+"), old:match("^[^\n]+"), code .. ": 1.6.0's greeting")
+		eq(raw:match("\n\n([^\n]+\n\n[^\n]+)$"), old:match("\n\n([^\n]+\n\n[^\n]+)$"), code .. ": 1.6.0's closing lines")
+		for _, word in ipairs({ "PvP", "RP", "30", "Olympus", "\"gz\"", "/oly bug" }) do assert(raw:find(word, 1, true), code .. ": " .. word) end
+		for _, text in ipairs({ raw, title }) do
+			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
+				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
+			end
+			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
+		end
+		-- 1.6.0's letter unread: carried first; read: not again.
+		ns.db.lettersRead = {}
+		local _, carriedBody, previous = cns.Letters.Text("1.6.0.1", true)
+		eq(previous, "1.6.0", code .. ": 1.6.0's letter carried")
+		assert(carriedBody:find(cns.Letters.DrawMarks(old), 1, true) and carriedBody:find(cns.Letters.DrawMarks(raw), 1, true), code .. ": both letters")
+		ns.db.lettersRead = { ["1.6.0"] = true }
+		eq(select(3, cns.Letters.Text("1.6.0.1", true)), nil, code .. ": 1.6.0's letter read, 1.6.0.1's alone")
+	end
+	ns.db.lettersRead = savedRead
 end)

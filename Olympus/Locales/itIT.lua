@@ -42,6 +42,18 @@ ns.Locale("itIT", {
 	PLAYER_TOOLTIP_SIZE = "Dimensione del tooltip: %d%%",
 	RECORDS_LAG = "Tempo dal turno di invio alla trasmissione dei riepiloghi: %d campioni, %.1f s in media, %.1f s al massimo",
 	RECORDS_NET = "Turno %d: riepiloghi ricevuti %s, risposte inviate %d, budget residuo %d di %d, richieste inviate %d",
+	LETTER_1_6_0_1_TITLE = "Altre due settimane",
+	LETTER_1_6_0_1_HEAD = "Altre due settimane",
+	LETTER_1_6_0_1_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",
+	LETTER_1_6_0_1_LINK = ns.L.LETTER_1_6_0_1_LINK,
+	LETTER_1_6_0_1 = [==[Vostra Maestà. Soldati di Olympus.
+
+- {watch} La verifica delle gilde sui reami PvP e RP aspetta altre due settimane: fino al 30 novembre nessuna gilda lì risulta in ritardo.
+- {news} Una riga breve inviata di nuovo nella chat di Olympus, come "gz", non sparisce più per gli altri giocatori dopo che hai scritto molte righe.
+
+Chiudi e riapri WoW dopo l'aggiornamento. Se qualcosa non funziona ancora, invia una segnalazione con /oly bug.
+
+Lunga vita al Re. Lunga vita a Olympus.]==],
 	LETTER_1_6_0_TITLE = "Il registro del reclutatore",
 	LETTER_1_6_0_HEAD = "Il registro del reclutatore",
 	LETTER_1_6_0_SIGNED = "Il vostro umile artefice, lo sviluppatore di Olympus",

@@ -2371,11 +2371,14 @@ test("recruit hello (1.5.9, regression): a member who takes handoffs says so in 
 			eq(heard.full[mate].takes, false)
 			eq(heard.short[ns.Fold(ns.ShortName(me))], heard.full[me], "by the short name too")
 			eq(reader.Comm.PeerRealm(me), reader.Comm.PeerRealm(mate), "the realm field reads the same")
-			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other.
+			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other. (1.6.0.1: it reads a
+			-- hello's first three numbers, ^H1~(%d+%.%d+%.%d+) in its Comm, so 1.6.0.1 counts there as 1.6.0,
+			-- beside its own count under its own.)
 			local oldest, hearOld = FreshComm(true)
 			oldest.me = "Reader Member-" .. home
 			hearOld("GUILD", me, flagged:sub(7))
-			eq(oldest.Comm.PeerVersions()[ns.VERSION], 2, "ours and the flagged peer's, its flag ignored")
+			local versions, read = oldest.Comm.PeerVersions(), ns.VERSION:match("^%d+%.%d+%.%d+")
+			eq((versions[read] or 0) + (read ~= ns.VERSION and versions[ns.VERSION] or 0), 2, "ours and the flagged peer's, its flag ignored")
 		end)
 		C_ChatInfo, GetTime = savedChat, savedTime
 		if not ok then error(err, 0) end
@@ -2448,7 +2451,10 @@ test("recruit hello (review of 1.5.9, regression): a client that takes no handof
 			local oldest, hearOld = FreshComm(true)
 			oldest.me = "Reader Member-" .. home
 			if hello then hearOld("GUILD", "Refusing Member-" .. home, hello) end
-			oldCount = oldest.Comm.PeerVersions()[ns.VERSION]
+			-- (1.6.0.1: a 0.9.8 client reads a hello's first three numbers, ^H1~(%d+%.%d+%.%d+) in its Comm, so a
+			-- four-number version such as 1.6.0.1 counts there as 1.6.0, beside its own count under its own.)
+			local versions, read = oldest.Comm.PeerVersions(), ns.VERSION:match("^%d+%.%d+%.%d+")
+			oldCount = (versions[read] or 0) + (read ~= ns.VERSION and versions[ns.VERSION] or 0)
 		end)
 		C_ChatInfo = savedChat
 		if not ok then error(err, 0) end

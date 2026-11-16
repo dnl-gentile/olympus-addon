@@ -42,6 +42,18 @@ ns.Locale("frFR", {
 	PLAYER_TOOLTIP_SIZE = "Taille de l'infobulle : %d%%",
 	RECORDS_LAG = "Délai entre le créneau et l'envoi des empreintes : %d mesures, %.1f s en moyenne, %.1f s au maximum",
 	RECORDS_NET = "Tour %d : empreintes reçues %s, réponses envoyées %d, budget restant %d sur %d, demandes envoyées %d",
+	LETTER_1_6_0_1_TITLE = "Deux semaines de plus",
+	LETTER_1_6_0_1_HEAD = "Deux semaines de plus",
+	LETTER_1_6_0_1_SIGNED = "Votre humble artisan, le dev d'Olympus",
+	LETTER_1_6_0_1_LINK = ns.L.LETTER_1_6_0_1_LINK,
+	LETTER_1_6_0_1 = [==[Votre Majesté. Soldats d'Olympus.
+
+- {watch} La vérification des guildes sur les royaumes PvP et RP attend deux semaines de plus : aucune guilde n'y apparaît en retard avant le 30 novembre.
+- {news} Une ligne courte renvoyée dans le chat d'Olympus, comme "gz", ne disparaît plus pour les autres joueurs après que tu as envoyé beaucoup de lignes.
+
+Ferme et rouvre WoW après la mise à jour. Si quelque chose ne marche toujours pas, envoie un rapport avec /oly bug.
+
+Vive le Roi. Vive Olympus.]==],
 	LETTER_1_6_0_TITLE = "Le registre du recruteur",
 	LETTER_1_6_0_HEAD = "Le registre du recruteur",
 	LETTER_1_6_0_SIGNED = "Votre humble artisan, le dev d'Olympus",
