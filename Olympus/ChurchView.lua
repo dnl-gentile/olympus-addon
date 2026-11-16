@@ -829,12 +829,12 @@ function View.PublicLines()
 	return lines, L.CHURCH_TITLE, L.CHURCH_PUBLIC_DETAIL
 end
 
--- (1.5.9) Recruit.WhisperLines draws the page's sections, the JOINs waiting inside its first; the
+-- Recruit.Panel draws the unified queue and optional ads; the
 -- Apostles' help (GuildCharter.lua) follows under headings of its own.
 local function InviteLines()
 	local R = ns.Recruit
 	local lines = { Nav("invites") }
-	for _, line in ipairs(R.WhisperLines()) do lines[#lines + 1] = line end
+	for _, line in ipairs(R.Panel.Lines()) do lines[#lines + 1] = line end
 	local charter = ns.GuildCharter
 	local help = charter and charter.HelpLines and charter.HelpLines() or {}
 	if #help > 0 and #lines > 1 then lines[#lines].gapAfter = true end

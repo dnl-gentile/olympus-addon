@@ -54,7 +54,7 @@ local function Add(full, name, now)
 			if not old.inviteAfterWhisper and not R.CandidatePromptOpen(old) then Drop(i); break end
 		end
 	end
-	row = { key = key, full = full, name = name, scanned = true, prompted = done[key] }
+	row = { key = key, full = full, name = name, scanned = true, prompted = done[key], panelDone = done[key] }
 	rows[#rows + 1], byName[key] = row, row
 	return row
 end
@@ -64,7 +64,7 @@ local function Change()
 end
 
 local function Quiet()
-	return ns.ChatLocked() or ns.QuietPresence() or ns.Quiet() or (InCombatLockdown and InCombatLockdown())
+	return R.IsPaused() or ns.ChatLocked() or ns.QuietPresence() or ns.Quiet() or (InCombatLockdown and InCombatLockdown())
 end
 
 local function Hidden(full)
@@ -132,8 +132,8 @@ end
 
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
-function Q.Check(row, live)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full)
+function Q.Check(row, live, ignoreQuiet)
+	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or (not ignoreQuiet and Quiet()) or Hidden(row.full)
 		or R.Declined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
@@ -175,6 +175,15 @@ function Q.EachRow(fn)
 	for _, row in ipairs(rows) do fn(row) end
 end
 
+-- Skip only in this scan session; never message the player or another recruiter.
+function Q.Skip(row)
+	if type(row) ~= "table" or byName[row.key] ~= row then return false end
+	row.panelDone, row.prompted = true, true
+	done[row.key] = true
+	Change()
+	return true
+end
+
 function Q.Reset()
 	if timer then timer.Cancel(); timer = nil end
 	guild, prompts = nil, nil
@@ -203,6 +212,10 @@ local function Tick()
 	if #rows ~= before then Change() end
 	-- (1.5.8, the author's ask) Only the invite popup comes on its own; a whisper is its
 	-- "Whisper them first" button's, or the list's.
+	if (R.Preference() or {}).panelQueue then
+		if not quiet and R.Panel then R.Panel.Prompt() end
+		return
+	end
 	if not prompts or quiet or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
 	-- (1.5.8) At the invite limit with the automatic offers on, new sightings go to other members.

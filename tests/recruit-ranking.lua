@@ -1755,3 +1755,22 @@ test("1.5.9 recruiting ranking: past PEOPLE_MAX each keeper keeps the people wit
 	eq(People(l.p), People(l2.p), "the same people on both")
 	eq(People(l.p), table.concat({ Key("Inviter ae"), Key("Inviter af"), Key("Inviter zz") }, ","))
 end)
+
+
+test("recruit guild log regression: dense equal-hour events retain native order in both directions", function()
+	for _, newestFirst in ipairs({false, true}) do
+		local w, c = Cast()
+		w.newestFirst = newestFirst
+		for i=1,40 do w:LogEvent(World.GUILD, "invite", "Wes Brook", "Older " .. i, 3) end
+		w:LogEvent(World.GUILD, "invite", "Sid Pass", "Dense Join", 0)
+		w:LogEvent(World.GUILD, "join", "Dense Join", nil, 0)
+		w:LogEvent(World.GUILD, "quit", "Dense Join", nil, 0)
+		w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Dense Join", 0)
+		for i=1,20 do
+			local events = w:As(c.ivo, c.ivo.Count.Events)
+			eq(#events,44)
+			eq(ns.ShortName(events[41].p1),"Sid Pass"); eq(events[42].kind,"join")
+			eq(events[43].kind,"quit"); eq(ns.ShortName(events[44].p1),"Ivo Plain")
+		end
+	end
+end)

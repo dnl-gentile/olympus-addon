@@ -124,6 +124,7 @@ GuildCharter.lua
 Recruit.lua
 RecruitHandoff.lua
 RecruitCandidates.lua
+RecruitPanel.lua
 PartyGuard.lua
 AnswerBank.lua
 Answers.lua

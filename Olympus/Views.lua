@@ -1854,11 +1854,9 @@ function Views.RecruitOfferSwitch(key)
 	-- author's "Ele tem que ficar desativado se ele estava desativado", and a kept ads interval became 5.
 	local saved = R.Preference and R.Preference()
 	local kept = type(saved) == "table" and saved.offerAgain == true
-	-- Recruiting turned on, or the scan, takes what other members pass on too (the handoffs).
-	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(true) end
-	-- (11-12, the author's: and offers its own waiting JOINs and scanned players to them, on with
-	-- recruiting.)
-	if H and H.SetAuto and not kept and not state.join then H.SetAuto(true) end
+	-- Retired handoff preferences must stay off when recruiting or scanning starts.
+	if H and not kept and (not state.join or (key == "scan" and not state.scan)) then H.SetAccepting(false) end
+	if H and H.SetAuto and not kept and not state.join then H.SetAuto(false) end
 	if key == "ads" then
 		if state.ads then R.SetAnnounceReminder(0)
 		elseif R.AnnounceReminderMinutes() == 0 then R.SetAnnounceReminder(Views.RECRUIT_AD_MINUTES) end
@@ -1974,9 +1972,6 @@ local function CensusLines(s, q, recruitment)
 			if switch.key == "ads" then hint = hint:format(Views.RecruitAdMinutes()) end
 			lines[#lines + 1] = { text = Grey(hint), center = true, wrap = true, gapAfter = true }
 		end
-		-- (1.5.8, the author's ask: the handoffs marked experimental; one short line of its own, as a
-		-- longer hint is cut off in the window, 11-12.)
-		lines[#lines + 1] = { id = "census-recruit-experimental", text = Grey(L.RECRUIT_CENSUS_EXPERIMENTAL), center = true, gapAfter = true }
 		if any then
 			lines[#lines + 1] = { id = "census-recruit-thanks", text = Gold(L.RECRUIT_CENSUS_THANKS), center = true }
 			-- (11-12, the author's: where to stop the popups, said right after turning them on.)

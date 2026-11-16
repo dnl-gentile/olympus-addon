@@ -2,6 +2,17 @@
 
 # Olympus
 
+**Church → Invites now opens a unified recruiting queue.** Click **Start recruiting**
+to collect nearby unguilded players and JOIN requests together, with JOIN requests
+first. Automatic popups offer the invite command without taking keyboard focus
+from movement. Click the command when ready to copy and paste;
+**Prepare invite** can reopen it manually; **Next** moves on without
+sending a message. Only a fresh guild roster confirms a join. **Pause recruiting**
+keeps pending requests, stops new invite popups and scan collection, and suppresses ad
+reminders; its setting survives reloads. Ads remain optional and handoffs stay removed.
+The previous controls are available through **Advanced**, which explicitly restores
+the earlier workflow. See [recruiting queue checks](docs/RECRUIT-QUEUE.md) for testing.
+
 **The whole Olympus army in one window, inside World of Warcraft: Forever.**
 
 Olympus is Asmongold's guild for *World of Warcraft: Forever*: Alliance, PvP ruleset, a
@@ -3403,12 +3414,12 @@ cancellation, compatibility and the in-game checks for the transport queue.
 
 ### Recruiting by whisper
 
-**Church → Invites** has four sections, each under a heading of the same size, in the order they
+**Church → Invites → Advanced** has three sections, each under a heading of the same size, in the order they
 are used: **Recruiting** (the switch, how an incoming JOIN arrives, and the JOINs waiting),
-**Recruiting ads**, **Find unguilded players** and **Handoffs (Experimental)**; a guild master's
+**Recruiting ads** and **Find unguilded players**; a guild master's
 **Help from the Apostles** follows. Each section shows its heading, then its switch when it has
 one, then one grey line saying what it does, and the rest one step in. Turn **Recruiting** on there. While it is off,
-the other three sections say it comes first. That includes the ads: an ad asks players to whisper
+the other two sections say it comes first. That includes the ads: an ad asks players to whisper
 JOIN, and only Recruiting answers a JOIN. A member whose rank the game does not let invite reads
 why under the switch, and the sections he cannot use are not shown.
 It starts off for each character. An officer's choice to enable recruiting is remembered for
@@ -3424,7 +3435,7 @@ recruiting is off too (the page shows them only while it is on).
 the request in **Church → Invites**. Pending requests are cleared at login.
 Interested players can whisper you **JOIN**, even without Olympus installed. A request from
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
-pop-up, invite limit, handoffs and recruiting log. One from a player on your ignore list is
+pop-up, invite limit and recruiting log. One from a player on your ignore list is
 dropped, recruiting or not, as the game drops his whisper.
 
 **Scan unguilded players** is off by default. When enabled in **Church → Invites**, it
@@ -3446,36 +3457,14 @@ no prospect list to disk. The one list about other players it saves (1.5.9) is t
 players who declined a guild invite of yours, however you sent it, read from the game's own line
 (or its automatic decline, for a player who blocks guild invites), kept 7 days (200 at most) in
 the realm group's saved variables as a hash of each name, never the name. Such a player does not
-pop up again, is left out of the scan and of whispers, and is not passed to other members; a
-sighting of him another member passes is not taken. His own **JOIN**, whispered to you, sent from
-his **Join Olympus** screen or passed on by another member, clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
+pop up again and is left out of the scan and of whispers. His own **JOIN**, whispered to you, sent from
+his **Join Olympus** screen clears it. **Prepare invite** in the queue opens the same command. On Windows with mouse and keyboard, Ctrl+C
 copies the selected command and hands focus to empty game chat. You can also copy it and
 click **Open game chat**. Paste the command and press Enter. Dismiss the request after sending. Turning recruiting off clears the
 experimental requests and pending outreach draft. A **Join Olympus** request goes back to the
-Census instead, unless its name went to another member in a handoff.
+Census instead.
 
-For a referral, the receiving member turns on **Accept recruitment handoffs** in the Handoffs
-section. Open **Offer to another member** on the applicant's request and choose a listed member.
-Members whose client says it takes handoffs come first, then members whose hello says they run
-Olympus, then the rest; a member whose client says it takes none is not listed. A row names the
-member alone, and adds his guild only when it is another guild's. The recipient claims the offer before Olympus shares the character name in a private addon
-message. **JOIN** can be referred inside the same guild. **JOIN OLYMPUS** can also be referred
-to a sister guild in the same faction, region and ruleset. The recipient prepares and sends
-their own invite through the game's chat. A handoff confirms who received the request. The
-recruiter's native roster can show whether the player actually joined.
-
-The sender can also turn on **Offer my waiting players to members**. With at least three eligible
-requests waiting, or at the game's limit of ten invites a minute, it asks one member of the same
-guild at a time. From 1.5.9 a client's guild hello says whether it takes handoffs ("J") or takes
-none ("j"); older clients ignore the field. Members who take them are asked first; after each turn
-over them, one member known to run Olympus otherwise (a 1.5.8 hello has no such field), and after
-each turn over those, one never heard from. A member whose hello says it takes none, or names a
-version before 1.5.8, is never asked. The order matters
-because a member without Olympus never answers, and each probe to one waits 20 seconds. Only a recipient who enabled
-**Accept recruitment handoffs** and has room replies. The offer carries no applicant name until the recipient claims it. The sender's
-oldest eligible request and any open reply window stay with the sender. Officers still prepare
-and send invitations themselves. **Pass** on a pop-up sends that player the same way (on a JOIN's
-pop-up, the JOINs waiting behind it too), and (1.5.9) leaves this switch as you set it.
+Invite handoffs were removed after negative player feedback that passing invites off to other guild members caused unwanted messages and spam. Saved handoff opt-ins are cleared, old referral packets receive no reply, and invites stay with the original recruiter. The local scan and invite flow remain available.
 
 ### Public recruiting announcement
 

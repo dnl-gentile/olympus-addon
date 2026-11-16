@@ -730,7 +730,12 @@ end
 
 local function QueueOnly()
 	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
-	return saved ~= nil and saved.queueOnly == true
+	return saved ~= nil and (saved.panelQueue == true or saved.queueOnly == true)
+end
+
+function Recruit.IsPaused()
+	local saved = Recruit.Preference()
+	return saved ~= nil and saved.panelPaused == true
 end
 
 local function ToggleQueueOnly()
@@ -1203,7 +1208,7 @@ local function CopyAnnouncement(channel, reminder)
 end
 
 local function ReminderAllowed()
-	return Recruiting() and not ns.QuietPresence() and not ns.Quiet() and not ns.ChatLocked()
+	return Recruiting() and not Recruit.IsPaused() and not ns.QuietPresence() and not ns.Quiet() and not ns.ChatLocked()
 		and not (InCombatLockdown and InCombatLockdown()) and not (IsInInstance and IsInInstance())
 end
 
@@ -1414,11 +1419,12 @@ local function ChurchSwitch()
 	return on
 end
 
--- Church > Invites (ChurchView.lua): Recruiting (its switch, how a JOIN comes in, the JOINs waiting),
--- Recruiting ads, Find unguilded players, Handoffs (Experimental). With recruiting off the other three
--- say it comes first. (1.5.9, the review of 1.5.8: a member whose rank the game does not let invite
+-- Advanced recruiting controls, retained for players using the older popup workflow.
+-- Church > Invites opens the unified queue in RecruitPanel.lua by default. (1.5.9, the review of 1.5.8: a member whose rank the game does not let invite
 -- read nothing on the page until he clicked the switch; the reason is under it now, and the sections
 -- he can't use are left out: an ad asking for JOIN whispers he could not answer helps nobody.)
+Recruit.AnnouncementLines = AnnouncementLines
+
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
@@ -1452,16 +1458,7 @@ function Recruit.WhisperLines()
 		Note(lines, V, L.RECRUIT_SCAN_HINT)
 		lines[#lines + 1] = { indent = 1, text = V.Gold(L.RECRUIT_WHISPER_TARGET), onClick = Recruit.PromptOutreach }
 	end
-	if Recruit.Handoff then
-		-- (Its switches need the roster to confirm this member: until it does, no section.)
-		local handoffs = {}
-		if on then Recruit.Handoff.Controls(handoffs, V, L.RECRUIT_HANDOFFS_HINT) end
-		if #handoffs > 0 or not on then
-			Section(lines, "recruit-section-handoffs", L.RECRUIT_SECTION_HANDOFFS .. " " .. L.RECRUIT_EXPERIMENTAL)
-			if not on then Note(lines, V, L.RECRUIT_SECTION_NEEDS_ON) end
-			for _, line in ipairs(handoffs) do lines[#lines + 1] = line end
-		end
-	end
+
 	return lines
 end
 
@@ -1737,6 +1734,7 @@ Recruit.CanInvite = CanInvite
 -- A warning may wait while ranks, guild membership or the request change. Only a current
 -- request for this guild can reach the native invitation, and only from the officer's click.
 local function CurrentRequest(req, allowHandoff)
+	if Recruit.IsPaused() then return false end
 	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
 	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
 	if req.viaWhisper and (not Recruiting() or ns.ChatLocked()) then return false end
@@ -1745,6 +1743,8 @@ local function CurrentRequest(req, allowHandoff)
 	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
 	return false
 end
+
+Recruit.CurrentRequest = CurrentRequest
 
 -- `blocked`: the officer said the game refused the invite he pasted, so a prepared one counts.
 function Recruit.HandoffSource(req, blocked)
@@ -1846,6 +1846,8 @@ local function InviteLimitWait()
 	return first and math.max(1, math.ceil(60 - (ns.Now() - first))) or 1
 end
 
+Recruit.InviteLimitWait = InviteLimitWait
+
 -- (1.5.8, review) A JOIN or scanned player the limit sent to the other members (not one he passed
 -- himself) comes back to his own popups once the limit clears, or at once when the automatic
 -- offers are off, unless a member's claim is under way. Returns whether a JOIN came back and
@@ -1874,8 +1876,8 @@ function Recruit.ReleaseLimited()
 	if ReleaseLimited() then PromptReply() end
 end
 
-local function InviteDraftText(name, req, item)
-	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
+local function InviteDraftText(name, req, item, automatic)
+	local text = (automatic and L.RECRUIT_INVITE_CLICK_COPY or L.RECRUIT_WHISPER_INVITE_COPY):format(name)
 	local waiting = req and WaitingAfter(req) or 0
 	if waiting > 0 then text = text .. "\n\n" .. L.RECRUIT_HANDOFF_MORE:format(waiting) end
 	if Recruit.AtInviteLimit() then
@@ -1888,7 +1890,7 @@ end
 local function AcceptRequest(req, confirmed, automatic)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
-	local prepare = req.viaWhisper or ns.OnForever()
+	local prepare = automatic or req.viaWhisper or ns.OnForever()
 	local invite
 	if not prepare then
 		invite = (C_GuildInfo and C_GuildInfo.Invite) or GuildInvite -- gp:roster-actions
@@ -1911,7 +1913,7 @@ local function AcceptRequest(req, confirmed, automatic)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 		-- The officer copies and pastes the command. Forever blocks addon-prefilled invites.
-		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req), nil,
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req, nil, automatic), nil,
 			{ req = req, automatic = automatic })
 		if draft and not automatic then req.invitePrepared = true end
 		if draft and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", req, automatic and "auto" or "click") end
@@ -1925,7 +1927,7 @@ end
 
 -- An officer's yes: a current individual net-off word first asks for an explicit choice. It
 -- never declines a guild request, changes a block/ignore list or takes a native invite back.
-function Recruit.Accept(req) return AcceptRequest(req) == true end
+function Recruit.Accept(req, automatic) return AcceptRequest(req, nil, automatic) == true end
 
 StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 	text = "%s",
@@ -1946,7 +1948,7 @@ function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
 	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
-	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate), nil,
+	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate, automatic), nil,
 		{ candidate = candidate, automatic = automatic }) ~= nil
 	if shown and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", candidate, automatic and "auto" or "click") end
 	return shown
@@ -1968,7 +1970,8 @@ end
 -- (read only, ACTIVE_CHAT_EDIT_BOX, nil while chat is closed) closes it then. A chat box closed
 -- without the command leaves the popup up for another Ctrl+C. (Review of 1.5.8: each frame, so a
 -- paste and Enter on the next frames are still seen; 30 s, or up to 2 minutes while chat stays open.)
-local PASTE_STEP, PASTE_WINDOW, PASTE_OPEN = 0.01, 30, 120
+-- Keep the fast check while chat is open; closed chat needs only four checks a second.
+local PASTE_STEP, PASTE_IDLE, PASTE_WINDOW, PASTE_OPEN = 0.01, 0.25, 30, 120
 local function InviteCommand(data)
 	if type(data) ~= "table" then return nil end
 	local name = data.candidate and data.candidate.name or data.req and NameForCommand(data.req.name)
@@ -1992,6 +1995,7 @@ local function WatchPaste(draft, data)
 	draft.pasteWatch = token
 	local function Look()
 		if draft.pasteWatch ~= token or draft.data ~= data or not draft:IsShown() then return end
+		if not ns.Gate.Allowed("chat-box") then draft.pasteWatch = nil; return end
 		local pasted, open = PastedInvite(command)
 		if pasted then
 			draft.pasteWatch = nil
@@ -1999,12 +2003,12 @@ local function WatchPaste(draft, data)
 			return
 		end
 		local waited = GetTime() - start
-		if waited < PASTE_WINDOW or (open and waited < PASTE_OPEN) then ns.After(PASTE_STEP, "invite paste", Look)
+		if waited < PASTE_WINDOW or (open and waited < PASTE_OPEN) then ns.After(open and PASTE_STEP or PASTE_IDLE, "invite paste", Look)
 		else draft.pasteWatch = nil end
 	end
 	ns.After(PASTE_STEP, "invite paste", Look)
 end
-Recruit.PASTE_STEP = PASTE_STEP
+Recruit.PASTE_STEP, Recruit.PASTE_IDLE = PASTE_STEP, PASTE_IDLE
 
 local function OpenInviteChat(draft, data) -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return end
@@ -2043,17 +2047,6 @@ end
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	text = "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
-	-- Before the command reaches chat, a JOIN (and the ones waiting behind it) or a scanned player
-	-- can go to the other members who accept handoffs. Not OnCancel: Escape and replacement pass nothing.
-	button2 = L.RECRUIT_HANDOFF_PASS,
-	button2Shown = function(_, data)
-		local item = type(data) == "table" and (data.req or data.candidate) or nil
-		return item ~= nil and Recruit.Handoff ~= nil and Recruit.Handoff.CanPass(item)
-	end,
-	OnButton2 = function(_, data)
-		local item = type(data) == "table" and (data.req or data.candidate) or nil
-		if item and Recruit.Handoff then Recruit.Handoff.Pass(item, data.req ~= nil) end
-	end,
 	-- (1.5.8, the author's ask) Only a scanned player's popup offers to whisper him first: his
 	-- whisper review opens instead, and this popup comes back for him when it closes.
 	button3 = L.RECRUIT_CANDIDATE_WHISPER_FIRST,
@@ -2085,7 +2078,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		if not ns.Gate.Allowed("chat-box") then lastInviteAt = ns.Now() end
 		box:SetText("/ginvite " .. name)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
+		-- No automatic focus, even when no editor is active: movement keys may be held.
+		-- The player clicks the command (or Prepare invite) before copying it.
+		if data.automatic then box:ClearFocus()
+		elseif ns.Focus(box) then box:HighlightText() end
 		-- Let the game's edit box copy first. Remember Ctrl at key-down because the
 		-- player can release it before C. The only handoff is opening empty chat.
 		local copying
@@ -2137,6 +2133,12 @@ end
 -- Offer each valid queued reply once, in order. When the player is busy, only one retry
 -- waits, and only while there is a reply left to show.
 PromptReply = function()
+	-- The streamlined mode shares one local popup scheduler for JOINs and scans.
+	-- It never offers a pending player to another guild member.
+	if (Recruit.Preference() or {}).panelQueue then
+		if Recruit.Panel then Recruit.Panel.Prompt() end
+		return
+	end
 	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
