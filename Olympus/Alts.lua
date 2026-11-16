@@ -73,17 +73,18 @@ end
 --   offers[alt key] = { name = alt, main = main, t, faction, group }   named on the main, waiting
 --   guilds[key]     = the last guild observed for that character
 --   told[key]       = the account's change that character's client last announced
+--   church[key]     = true: that character's claims went to its guild and the keepers (Alts.Send, 1.6.0's review)
 ---------------------------------------------------------------------------
 
 local function Account()
 	local db = ns.db
-	if type(db) ~= "table" then return { links = {}, offers = {}, guilds = {}, told = {} } end
+	if type(db) ~= "table" then return { links = {}, offers = {}, guilds = {}, told = {}, church = {} } end
 	local a = db.alts
 	if type(a) ~= "table" then
 		a = {}
 		db.alts = a
 	end
-	for _, k in ipairs({ "links", "offers", "guilds", "told" }) do
+	for _, k in ipairs({ "links", "offers", "guilds", "told", "church" }) do
 		if type(a[k]) ~= "table" then a[k] = {} end
 	end
 	return a
@@ -550,7 +551,9 @@ end
 -- Forever ruleset that "-" goes on every route a Church group's claims take: a former alt's own Church
 -- role is none (the role was its main's), so an alt that left its main itself said so on the channel
 -- alone, which a relay may lose, and the keepers, who hold its earlier claim by whisper, credited its
--- later recruits to that main until his next claim.
+-- later recruits to that main until his next claim. (The review of 1.6.0) From a character whose claims
+-- took those routes alone (Account's church): every "-" went to its guild and the keepers, whoever said it,
+-- where the privacy table names those routes for an Apostle's or Missionary's group only.
 function Alts.Send(force)
 	local changed = GuildChanged()
 	if not ns.me or not ns.IsMember() then return false end
@@ -561,11 +564,13 @@ function Alts.Send(force)
 	local at = tonumber(a.at) or 0
 	if role == "-" and not (a.told[key] and a.told[key] < at) then return false end
 	local wire = Wire(at, role, GetGuildInfo("player"), names)
-	local church = Family() ~= nil and (role == "-" or ChurchGroup(role, names))
+	local church = Family() ~= nil and (role == "-" and a.church[key] == true or role ~= "-" and ChurchGroup(role, names))
+	if church and role ~= "-" then a.church[key] = true end
 	if church then TellKeepers(wire, at, ns.Now()) end
 	if not force and ns.Now() - lastSent < Alts.EVERY then return false end
 	lastSent = ns.Now()
 	a.told[key] = at
+	if role == "-" then a.church[key] = nil end -- (said: the next claim on those routes marks it again)
 	stats.sent = stats.sent + 1
 	ns.Comm.Send("CHANNEL", wire, "alts")
 	if church and IsInGuild() then

@@ -867,6 +867,45 @@ test("1.6.0 Church alts: an alt that leaves its main on its own side says so ove
 	for _, k in ipairs({ K.eda, K.bera }) do eq(StateOf(w, k, "Wolf Recruit", MAIN), nil, "not the former main's, on " .. k.name) end
 end)
 
+-- The review of 1.6.0. The privacy table (README, docs/CURSEFORGE.md) says a link's claims go over GUILD and
+-- to the keepers online only when the main is an Apostle or Missionary, yet every "-" claim on a Forever
+-- ruleset went there, whoever made it: a player of no Church group who took his link apart told his guild
+-- and every keeper online. A "-" goes there only from a character whose claims went there (an alt that left
+-- its Apostle main, as above), once. Fails before: his "-" claim over GUILD and by whisper to the keeper.
+test("1.6.0 Church alts: a player of no Church group who takes his link apart says so on the channel alone, as his links went; never to his guild or the keepers", function()
+	local w = World.New({ apostles = { "Eda Marsh-" .. R2 } })
+	local eda = MakeClient(w, "Eda Marsh-" .. R2, { guild = G2 })
+	local acct = NewAccount()
+	local PELL, ASH = "Pell Grove-" .. R1, "Pell Ash-" .. R2
+	AddChar(w, acct, PELL, G1)
+	AddChar(w, acct, ASH, G1)
+	w:Run(60)
+	w:Presence()
+	local pm = Login(w, acct, PELL)
+	Slash(w, pm, "add " .. Plain(ASH))
+	Confirm(w, acct, ASH)
+	pm = Login(w, acct, PELL)
+	w:Run(61)
+	local function Claims(dist, role)
+		local n = 0
+		for _, e in ipairs(w:Sent(nil, "AL", dist)) do if e.msg:match("^AL~%d+~" .. role .. "~") then n = n + 1 end end
+		return n
+	end
+	eq(Claims("CHANNEL", "[MA]") > 0, true, "(his links on the channel)")
+	eq(Claims("GUILD", "[MA]") + Claims("WHISPER", "[MA]"), 0, "(his links never over GUILD nor to a keeper: no Church group)")
+	eq(LinkedOn(w, eda, ASH), PELL, "(the keeper heard them on the channel)")
+	w:ClearSent()
+	eq(Slash(w, pm, "remove " .. Plain(ASH)), true)
+	w:Run(61)
+	w:Run(pm.Alts.EVERY + 100)
+	w:As(pm, pm.Alts.Send, false)
+	w:Run(1)
+	eq(Claims("CHANNEL", "%-"), 1, "the link taken apart, on the channel")
+	eq(Claims("GUILD", "%-"), 0, "not to his guild")
+	eq(Claims("WHISPER", "%-"), 0, "nor to the keeper online")
+	eq(LinkedOn(w, eda, ASH), nil, "the keeper drops the link all the same")
+end)
+
 -- 1.5.9 kept "/oly alt add First Surname" on the main under the main's own sub-realm: no alt on another
 -- sub-realm was ever asked, and players linked theirs by the full name instead. That offer stayed in the
 -- account's saved variables, and 1.6.0 finds an offer by its plain name (OfferFor): the alt, linked
