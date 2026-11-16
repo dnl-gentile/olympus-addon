@@ -522,3 +522,18 @@ test("ruleset labels (1.6.0): the README and the CurseForge page say, in the sam
 	end
 	eq(bullets[1], bullets[2], "the same words on both pages")
 end)
+
+-- 1.6.0's review: the pages gave "his guild cannot invite your character" to a writer nobody can place too,
+-- who may play the reader's own ruleset; his name's note says only that he may be on other servers
+-- (CHATWIN_RULESET_UNKNOWN), the other servers' note that this character cannot join his guild.
+test("ruleset labels (1.6.0): the README and the CurseForge page give the guild invite that cannot reach your character to another ruleset's writer alone, as the name's notes do; of a writer nobody can place they say only that", function()
+	assert(Has(L.CHATWIN_RULESET_OTHER, "cannot join this player's guild"), L.CHATWIN_RULESET_OTHER)
+	assert(Has(L.CHATWIN_RULESET_UNKNOWN, "may be on other servers") and not Has(L.CHATWIN_RULESET_UNKNOWN, "cannot"), L.CHATWIN_RULESET_UNKNOWN)
+	for _, path in ipairs({ "README.md", "docs/CURSEFORGE.md" }) do
+		local bullet = RulesetBullet(path)
+		assert(bullet:find("Hovering a writer's name says when he plays another ruleset (whispers and guild invites stay within one ruleset, so his guild cannot invite your character) or that nobody can place him.", 1, true),
+			path .. ": the hover's sentence")
+		eq(select(2, bullet:gsub("cannot invite your character", "")), 1, path .. ": said once, of another ruleset's writer")
+		assert(not bullet:find("nobody can place him: whispers and guild invites", 1, true), path .. ": said of one nobody can place")
+	end
+end)

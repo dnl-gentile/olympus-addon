@@ -578,8 +578,8 @@ bottom-to-top always gives the same tab order, and changing role or debug view n
   copy, a guildmate, his guild in one ruleset's census); one nobody can place shows under **All**
   alone, marked **[?]** (1.6.0), even when its writer plays your own ruleset: there a line shows
   without a tag only when Olympus places it on your own ruleset. Hovering a writer's name says when
-  he plays another ruleset or nobody can place him: whispers and guild invites stay within one
-  ruleset, so his guild cannot invite your character. With your own ruleset chosen, what you write
+  he plays another ruleset (whispers and guild invites stay within one ruleset, so his guild cannot
+  invite your character) or that nobody can place him. With your own ruleset chosen, what you write
   in this box goes to that ruleset alone (the box says so): its players see it, under **All** too,
   and others only by choosing it. Under **All** or
   another ruleset, and from the game's own chat box, a line goes to every ruleset. With the gamepad UI,
