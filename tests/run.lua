@@ -1247,7 +1247,7 @@ test("sealed channel name comes from the key", function()
 	eq((ns.Comm.ChannelSpec()), "OlympusNet")
 end)
 
-test("join flow groups online Olympus players and never asks twice", function()
+test("join flow groups online Olympus players and never asks twice within REASK", function()
 	local R = ns.Recruit
 	R.found = {
 		{ name = "A", guild = "Olympus II" }, { name = "B", guild = "Olympus II" }, { name = "C", guild = "Olympus" },

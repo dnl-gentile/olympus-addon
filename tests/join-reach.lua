@@ -326,6 +326,14 @@ test("join reach (1.6.0): a member's answer says whether he recruits, can invite
 		world.As(ora, ora.R.ToggleWhisperRecruiting); ora.recruiting = true
 		local own = R.ParseRoute(Answer(ora))
 		eq(own.dnc, true); eq(own.byName["Olympus Alpha"].contacts[1], "Lia Ford", "never himself while he asks not to be contacted")
+		-- (Review of this lane) One who recruits and is a Captain too is named once; the Lord next.
+		local dup = World(w, { guilds = { ["Olympus Beta"] = 400 }, members = {
+			{ "Ann Hale-Realm", "Olympus Beta", version = "1.6.0" },
+			{ "Cal Dunn-Realm", "Olympus Beta", version = "1.6.0", invite = true, recruiting = true, rank = 1 },
+			{ "Bea Lark-Realm", "Olympus Beta", version = "1.6.0", invite = true, rank = 0 },
+		} })
+		eq(table.concat(R.ParseRoute(world.As(dup.members[1], dup.members[1].R.RouteAnswer)).byName["Olympus Beta"].contacts, "/"),
+			"Cal Dunn/Bea Lark", "the recruiting Captain once, then the Lord")
 		-- A full guild's answer: "x", its guild at 0 and no contacts in it.
 		route = assert(R.ParseRoute(Answer(fay)))
 		eq(route.self, "x"); eq(route.byName["Olympus Full"].free, 0); eq(#route.byName["Olympus Full"].contacts, 0)
@@ -581,9 +589,14 @@ test("join reach (1.6.0): a guild that fills up while its window is open closes 
 		-- window opens at once, without another ROUTE_SETTLE.)
 		eq(Open() and Open().data.name, "Hal Byrne-Realm", "a guild with room")
 		-- The Send itself, should a full guild's window still be up: refused, with the reason, nothing sent.
+		-- (Review of this lane: the window's closing printed the same line just before, so the Send's own
+		-- line is counted.)
 		R.lastAsk = -1000
+		local printed = #w.printed
 		eq(R.Ask({ name = "Gil Rowe-Realm", guild = "Olympus Packed" }, "hi"), false)
-		eq(#w.said, 0); eq(w.printed[#w.printed], L.RECRUIT_JOIN_FULL:format("Olympus Packed"))
+		eq(#w.said, 0)
+		eq(#w.printed, printed + 1, "said by the Send itself")
+		eq(w.printed[#w.printed], L.RECRUIT_JOIN_FULL:format("Olympus Packed"))
 	end)
 end)
 
@@ -659,6 +672,9 @@ test("join reach (1.6.0): failure cases: a window the player closed brings no ne
 		end
 		eq(Open() and Open().data.name, list[R.PROBE_MAX + 1].name, "each answered: past PROBE_MAX the next window opens without asking first")
 		eq(Asks() - before, R.PROBE_MAX + 1, "PROBE_MAX asks, then the window's own")
+		-- (Review of this lane) That window is the screen's own too: his late "x" closes it and asks the next.
+		R.OnRoute(list[R.PROBE_MAX + 1].name, "J2~y~~0~*=x;Olympus Alpha=500=")
+		eq(Open() and Open().data.name, list[R.PROBE_MAX + 2].name, "his late answer: the next member")
 		eq(#w.said, 0)
 	end)
 	WithRequester(function(w)
@@ -760,6 +776,20 @@ test("join reach (1.6.0): the members the screen would ask next are asked togeth
 		local ben = false
 		for _, o in ipairs(w.out) do if o.to == "Ben Ives" and o.msg == "J1~1" then ben = true end end
 		assert(ben, "Ben was asked meanwhile: his answer serves the next choice")
+	end)
+	-- The member asked by the search answers at once and the one asked next never does: the window still
+	-- opens ROUTE_SETTLE after the search, not ROUTE_SETTLE after the second ask.
+	WithRequester(function(w)
+		local list = { { name = "Ann Hale-Realm", guild = "Olympus Alpha" }, { name = "Ben Ives-Realm", guild = "Olympus Alpha" } }
+		w.OnSearch = function() w.At(1, function() R.OnFound(list) end) end
+		eq(R.RequestJoin(), true)
+		w.Advance(2)
+		R.OnRoute("Ann Hale-Realm", "J2~y~~0~*=i;Olympus Alpha=500=")
+		eq(Open(), nil, "Ben is asked now")
+		w.Advance(R.ROUTE_SETTLE - 1.5)
+		eq(Open(), nil)
+		w.Advance(0.5)
+		eq(Open() and Open().data.name, "Ann Hale-Realm", "ROUTE_SETTLE after the search in all")
 	end)
 end)
 
