@@ -491,7 +491,7 @@ end
 -- 1.5.9 printed the line and never asked. A question still up when its offer expires closes.
 local CLAIM_DIALOG = "OLYMPUS_RECRUIT_HANDOFF_CLAIM"
 local busyDialogs = { CLAIM_DIALOG, "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF",
-	"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT" }
+	"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }
 H.ASK_RETRY = 2 -- seconds between looks while an offer waits for its question
 
 -- Whether the Claim question can be on his screen now.
@@ -791,6 +791,8 @@ StaticPopupDialogs[CLAIM_DIALOG] = {
 	button1 = L.RECRUIT_HANDOFF_TAKE,
 	button2 = L.RECRUIT_HANDOFF_SKIP,
 	OnAccept = function(_, ref) H.Claim(ref) end,
+	-- (1.6.0) It opens by itself alone (Ask): Pause recruiting and Turn off recruiting under it (Recruit.StopRow).
+	more = function() return R.StopRow("handoffs") end,
 	timeout = 60,
 	whileDead = true,
 	hideOnEscape = true,

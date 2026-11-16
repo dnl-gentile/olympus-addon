@@ -2051,10 +2051,13 @@ end
 -- it 20 seconds.) Whether this client takes recruitment handoffs now (RecruitHandoff.lua: its switch
 -- on, for the guild whose roster confirms it may invite): "J", the hello's 9th field, so the automatic
 -- offers of its guildmates ask such members first; "j" when it takes none, so they never ask it.
+-- (1.6.0) "j" while the member paused recruiting (Recruit.Paused): his guildmates' answers to a Join
+-- Olympus screen do not name him first, and their offers do not ask him, until the pause ends.
 local function TakesHandoffs()
 	local R = ns.Recruit
 	local H = type(R) == "table" and R.Handoff
 	return type(H) == "table" and type(H.Accepting) == "function" and H.Accepting() == true
+		and not (type(R.Paused) == "function" and R.Paused())
 end
 
 -- force: now, whatever the above (the player changed what the hello says).

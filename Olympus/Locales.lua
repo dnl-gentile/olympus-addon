@@ -310,8 +310,9 @@ L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
 
 - {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt. On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.
 - {church} Recruiting prompts no longer take keyboard focus. Guilds without room for new players are skipped, and a nearby player who never asked to join is not automatically passed to another recruiter.
-- {church} Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window. The ad window has Less often and Turn off buttons; Church > Invites changes how often or turns it back on. If yours still comes every 5 minutes, click Less often.
+- {church} Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window. The ad window has a Less often button; Church > Invites changes how often or turns it back on. If yours still comes every 5 minutes, click Less often.
 - {church} Handoffs: a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window. The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.
+- {church} Every recruiting window that opens by itself (an ad, a JOIN, a handoff or a scanned player) now has Pause recruiting and Turn off recruiting. Pause asks for how long, 15 minutes to 4 hours: until then nothing pops up, requests wait in Church > Invites and the Join Olympus page asks other recruiters first; Church > Invites shows until when, with Resume. Turn off asks whether to turn off only that kind of window or all of recruiting; Church > Invites turns it back on.
 - {guild} During a census rebuild, the last known count keeps its original time. Refresh requests can compare against that saved view and ask for updates it is missing.
 - {guild} When no new census reports reach your addon, the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.
 - {guild} The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.
@@ -570,8 +571,9 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 
 - {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt. No WoW: Forever, um alt em outro sub-reino é adicionado pelo nome simples; quando seus alts confirmarem, entre de novo no principal.
 - {church} As janelas de recrutamento não tiram mais o foco do teclado. Guildas sem vaga ficam fora da busca, e jogadores próximos que nunca pediram para entrar não são repassados automaticamente a outro recrutador.
-- {church} Os anúncios de recrutamento ligados pelo Censo agora aparecem a cada 30 minutos, não mais a cada 5, e nunca por cima de outra janela de recrutamento. A janela do anúncio tem os botões Menos vezes e Desligar; Igreja > Convites muda a frequência ou liga de novo. Se o seu ainda aparece a cada 5 minutos, clique em Menos vezes.
+- {church} Os anúncios de recrutamento ligados pelo Censo agora aparecem a cada 30 minutos, não mais a cada 5, e nunca por cima de outra janela de recrutamento. A janela do anúncio tem o botão Menos vezes; Igreja > Convites muda a frequência ou liga de novo. Se o seu ainda aparece a cada 5 minutos, clique em Menos vezes.
 - {church} Repasses: o comando de convite de um jogador que você assumiu abre na hora, mesmo por cima da janela de um anúncio ou da janela de sussurro para um jogador da busca. O membro que repassou o jogador responde ao seu pedido mesmo em combate, membros ocupados são pulados e, se o nome não chegar, você é avisado.
+- {church} Toda janela de recrutamento que abre sozinha (um anúncio, um JOIN, um repasse ou um jogador da busca) agora tem Pausar recrutamento e Desativar recrutamento. Pausar pergunta por quanto tempo, de 15 minutos a 4 horas: até lá nada aparece, os pedidos esperam em Igreja > Convites e a página Entre na Olympus pergunta antes a outros recrutadores; Igreja > Convites mostra até quando, com Retomar. Desativar pergunta se desliga só aquele tipo de janela ou todo o recrutamento; Igreja > Convites liga de novo.
 - {guild} Durante a reconstrução do censo, a última contagem mantém o horário original. Os pedidos de atualização podem comparar com os dados salvos e pedir o que falta.
 - {guild} Quando nenhum relato novo do censo chega ao seu addon, o Censo mantém a última contagem, com a data em que foi feita, em vez de perder uma guilda de cada vez.
 - {guild} A página Entre na Olympus chama primeiro os membros que estão recrutando, pula quem não pode convidar e avisa quando todas as guildas encontradas estão cheias ou não sobrou ninguém para chamar.
@@ -2394,12 +2396,32 @@ L.RECRUIT_ANNOUNCE_POST_WAIT = "A post was requested in this channel. Check the 
 L.RECRUIT_ANNOUNCE_POST_FALLBACK = "Posting is unavailable. You can copy the draft into the game chat."
 L.RECRUIT_ANNOUNCE_POST_EDITED = "Copy the edited draft into the game chat to post it."
 L.RECRUIT_ANNOUNCE_POST_CHECK = "Post requested. Check the channel before posting again."
--- 1.6.0: on the ad reminder's popup, two buttons and the line under the Post line; then one chat line.
+-- 1.6.0: on the ad reminder's popup, Less often and the line under the Post line; then one chat line.
 L.RECRUIT_ANNOUNCE_LESS = "Less often"
-L.RECRUIT_ANNOUNCE_TURN_OFF = "Turn off"
 L.RECRUIT_ANNOUNCE_REMINDER_NOTE = "Ad reminder: every %d min. Change it or turn it back on in Church > Invites."
 L.RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Ad reminder: every %d min. Change it in Church > Invites."
 L.RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Ad reminder off. Turn it back on in Church > Invites."
+-- 1.6.0 (the author's ask, 11-16): every recruiting pop-up that opens by itself has Pause recruiting and
+-- Turn off recruiting under its buttons, each asking first (Recruit.lua's StopRow); then a chat line, and
+-- Church > Invites' row and button while paused. (The ad popup's own Turn off became its Turn off recruiting.)
+L.RECRUIT_PAUSE_BUTTON = "Pause recruiting"
+L.RECRUIT_TURN_OFF_BUTTON = "Turn off recruiting"
+L.RECRUIT_PAUSE_ASK = "Pause recruiting for how long? Until then no recruiting pop-up opens by itself, and requests wait in Church > Invites."
+L.RECRUIT_PAUSED = "Recruiting paused until %s. Requests wait in Church > Invites, where Resume ends the pause."
+L.RECRUIT_PAUSED_UNTIL = "Paused until %s"
+L.RECRUIT_RESUME = "Resume"
+L.RECRUIT_RESUMED = "Recruiting resumed: its pop-ups open again."
+L.RECRUIT_TURN_OFF_ASK = "Turn off only this kind of pop-up, or all of recruiting? Church > Invites turns it back on."
+L.RECRUIT_OFF_ONLY_ADS = "Only ad reminders"
+L.RECRUIT_OFF_ONLY_JOINS = "Only JOIN pop-ups"
+L.RECRUIT_OFF_ONLY_HANDOFFS = "Only handoffs"
+L.RECRUIT_OFF_ONLY_SCAN = "Only the scan"
+L.RECRUIT_OFF_ONLY_ALL = "All recruiting"
+L.RECRUIT_OFF_JOINS = "JOIN pop-ups off: requests wait in Church > Invites, where Incoming JOIN turns them back on."
+L.RECRUIT_OFF_HANDOFFS = "Accepting handoffs off. Turn it back on in Church > Invites."
+L.RECRUIT_OFF_SCAN = "Unguilded player scan off. Turn it back on in Church > Invites."
+L.RECRUIT_OFF_ALL = "Recruiting off. Turn it back on in Church > Invites."
+L.RECRUIT_ASK_LATER = "That question opens once you are out of combat and instances and not typing."
 L.RECRUIT_ANNOUNCE_OPENING = "%s is recruiting!"
 L.RECRUIT_ANNOUNCE_OPENING_NAMED = "Looking for a guild? I'm %s from %s."
 L.RECRUIT_ANNOUNCE_OPENING_PLAY = "The Olympus army needs you! %s is recruiting. I'm %s."
@@ -4998,10 +5020,27 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_ANNOUNCE_POST_EDITED = "Copie o rascunho editado para o chat do jogo para publicar."
 	L.RECRUIT_ANNOUNCE_POST_CHECK = "Envio solicitado. Confira o canal antes de publicar novamente."
 	L.RECRUIT_ANNOUNCE_LESS = "Menos vezes"
-	L.RECRUIT_ANNOUNCE_TURN_OFF = "Desligar"
 	L.RECRUIT_ANNOUNCE_REMINDER_NOTE = "Lembrete de anúncio: a cada %d min. Mude ou ligue de novo em Igreja > Convites."
 	L.RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Lembrete de anúncio: a cada %d min. Mude em Igreja > Convites."
 	L.RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Lembrete de anúncio desligado. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_PAUSE_BUTTON = "Pausar recrutamento"
+	L.RECRUIT_TURN_OFF_BUTTON = "Desativar recrutamento"
+	L.RECRUIT_PAUSE_ASK = "Pausar o recrutamento por quanto tempo? Até lá nenhuma janela de recrutamento abre sozinha, e os pedidos esperam em Igreja > Convites."
+	L.RECRUIT_PAUSED = "Recrutamento pausado até %s. Os pedidos esperam em Igreja > Convites, onde Retomar encerra a pausa."
+	L.RECRUIT_PAUSED_UNTIL = "Pausado até %s"
+	L.RECRUIT_RESUME = "Retomar"
+	L.RECRUIT_RESUMED = "Recrutamento retomado: as janelas voltam a abrir."
+	L.RECRUIT_TURN_OFF_ASK = "Desativar só este tipo de janela, ou todo o recrutamento? Igreja > Convites ativa de novo."
+	L.RECRUIT_OFF_ONLY_ADS = "Só lembretes de anúncio"
+	L.RECRUIT_OFF_ONLY_JOINS = "Só janelas de JOIN"
+	L.RECRUIT_OFF_ONLY_HANDOFFS = "Só repasses"
+	L.RECRUIT_OFF_ONLY_SCAN = "Só a busca"
+	L.RECRUIT_OFF_ONLY_ALL = "Todo o recrutamento"
+	L.RECRUIT_OFF_JOINS = "Janelas de JOIN desligadas: os pedidos esperam em Igreja > Convites, onde Pedidos JOIN as liga de novo."
+	L.RECRUIT_OFF_HANDOFFS = "Aceitar repasses desligado. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_OFF_SCAN = "Busca de jogadores sem guilda desligada. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_OFF_ALL = "Recrutamento desativado. Ative de novo em Igreja > Convites."
+	L.RECRUIT_ASK_LATER = "Essa pergunta abre quando você sair de combate e de instâncias e parar de digitar."
 	-- Public announcements use the same English keyword and wording across locales.
 	L.RECRUIT_ANNOUNCE_OPENING = "%s is recruiting!"
 	L.RECRUIT_ANNOUNCE_OPENING_NAMED = "Looking for a guild? I'm %s from %s."

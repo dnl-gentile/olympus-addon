@@ -412,14 +412,16 @@
       "questions": [
         "How do I turn off the recruiting ad popup?",
         "A popup keeps asking me to post our recruiting ad in General",
-        "The Close/Post popup comes too often"
+        "The Close/Post popup comes too often",
+        "How do I pause the recruiting popups for a while?"
       ],
-      "answer": "That's the ad reminder from recruiting. Click Turn off on the popup, or Less often to space it out (30 minutes, then up to 2 hours). Church > Invites turns it back on or changes the interval. Recruiting itself stays on.",
-      "in_game": "That's the ad reminder: click Turn off on it, or Less often. Church > Invites turns it back on or changes how often. Recruiting stays on.",
-      "notes": "1.6.0: the Census offer's ads come every 30 minutes (5 before). An interval a player saved before 1.6.0 is kept until he changes it; the popup's Less often takes 5 straight to 30. The popup never opens in combat, an instance or while typing.",
+      "answer": "That's the ad reminder from recruiting. Click Turn off recruiting on the popup and choose Only ad reminders, or Pause recruiting for a while, or Less often to space it out (30 minutes, then up to 2 hours). Church > Invites turns it back on or changes the interval.",
+      "in_game": "That's the ad reminder: Turn off recruiting, then Only ad reminders; or Pause recruiting; or Less often. Church > Invites turns it back on or changes how often.",
+      "notes": "1.6.0: the Census offer's ads come every 30 minutes (5 before). An interval a player saved before 1.6.0 is kept until he changes it; the popup's Less often takes 5 straight to 30. The popup never opens in combat, an instance or while typing. The author's ask of 11-16: its own Turn off became Turn off recruiting (only ad reminders, or all of recruiting) beside Pause recruiting (15 minutes to 4 hours, Resume in Church > Invites), as on every recruiting popup that opens by itself.",
       "sources": [
-        "Recruit.lua RemindAnnouncement, LessOften, TurnOffReminder",
-        "README.md:3577-3596"
+        "Recruit.lua RemindAnnouncement, LessOften, TurnOff, Recruit.Pause",
+        "README.md:3577-3591",
+        "README.md:3593-3613"
       ]
     },
     {

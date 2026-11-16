@@ -615,8 +615,9 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
 		-- (Changed on purpose with the fixes merged for the release: the handoffs, the Join screen, the
 		-- offline notices, the [?] under All, the name rule and the two verification fixes are news too,
-		-- each under its section's mark; the test below names them.)
-		eq(table.concat(marks, ","), "church,church,church,church,guild,guild,guild,news,news,news,watch,watch,watch", code .. ": release topics")
+		-- each under its section's mark; the test below names them. And with the author's ask of 11-16: a
+		-- fifth {church} bullet, after the handoffs', for Pause recruiting and Turn off recruiting.)
+		eq(table.concat(marks, ","), "church,church,church,church,church,guild,guild,guild,news,news,news,watch,watch,watch", code .. ": release topics")
 		for _, text in ipairs({ raw, title }) do
 			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
 				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
@@ -626,7 +627,9 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		-- The pages and the ad window's buttons as this language's player sees them named.
 		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
 		assert(raw:find(invites, 1, true), code .. ": Church > Invites as shown: " .. invites)
-		for _, key in ipairs({ "TAB_CENSUS", "RECRUIT_ANNOUNCE_LESS", "RECRUIT_ANNOUNCE_TURN_OFF" }) do
+		-- (Changed on purpose, the author's ask of 11-16: the ad window's own Turn off became Turn off recruiting,
+		-- beside Pause recruiting on every recruiting window that opens by itself, and Church > Invites' Resume.)
+		for _, key in ipairs({ "TAB_CENSUS", "RECRUIT_ANNOUNCE_LESS", "RECRUIT_PAUSE_BUTTON", "RECRUIT_TURN_OFF_BUTTON", "RECRUIT_RESUME" }) do
 			assert(raw:find(L[key], 1, true), code .. ": " .. key .. " as shown: " .. L[key])
 		end
 		local every = AD_EVERY_1_6_0[code]:format(Recruit.AD_MINUTES)
@@ -639,6 +642,11 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 	-- The three news of the review, in plain words.
 	assert(english:find("Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window.", 1, true))
 	assert(english:find("If yours still comes every 5 minutes, click Less often.", 1, true), "an interval saved before 1.6.0 is kept")
+	-- (The author's ask of 11-16) Pause recruiting and Turn off recruiting, as Recruit.lua's StopRow and its questions do them.
+	assert(english:find("Every recruiting window that opens by itself (an ad, a JOIN, a handoff or a scanned player) now has Pause recruiting and Turn off recruiting.", 1, true))
+	assert(english:find("Pause asks for how long, 15 minutes to 4 hours: until then nothing pops up, requests wait in Church > Invites and the Join Olympus page asks other recruiters first; Church > Invites shows until when, with Resume.", 1, true))
+	assert(english:find("Turn off asks whether to turn off only that kind of window or all of recruiting; Church > Invites turns it back on.", 1, true))
+	eq(Recruit.PAUSE_MINUTES[1], 15, "15 minutes, as the letter says"); eq(Recruit.PAUSE_MINUTES[#Recruit.PAUSE_MINUTES], 240, "to 4 hours")
 	assert(english:find("the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.", 1, true))
 	assert(english:find("An Olympus chat line no longer shows twice when a relay's copy arrives late.", 1, true))
 end)

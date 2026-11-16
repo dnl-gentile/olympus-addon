@@ -20,7 +20,8 @@ local raceFaction = {
 	BloodElf = "Horde", Goblin = "Horde",
 }
 local blockingDrafts = { "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
-	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT" }
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT",
+	"OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" } -- (1.6.0: and the Pause and Turn off questions)
 
 local function LocalGuild()
 	if R.IsWhisperRecruiting() and R.CanInvite() then return GetGuildInfo("player") end

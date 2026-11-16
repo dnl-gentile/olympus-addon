@@ -154,14 +154,16 @@ local function GuildFull()
 end
 
 -- Automatic recruiting prompts wait until the player can review them without interrupting play.
+-- (1.6.0) And while he paused recruiting (Recruit.Paused, below).
 function Recruit.PopupsWait()
 	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance())
 		or ns.ChatLocked() or ns.QuietPresence() or ns.KeyboardFocus() ~= nil or GuildFull()
+		or (Recruit.Paused ~= nil and Recruit.Paused())
 end
 -- (The review of 1.6.0) What holds those prompts longer than a recruit's Join screen waits for one
--- (JOIN_WAIT, 45 s): an instance, a chat lockdown. A fight or typing passes within it.
+-- (JOIN_WAIT, 45 s): an instance, a chat lockdown, (1.6.0) a pause. A fight or typing passes within it.
 local function AwayFromPopups()
-	return (IsInInstance and IsInInstance()) or ns.ChatLocked()
+	return (IsInInstance and IsInInstance()) or ns.ChatLocked() or (Recruit.Paused ~= nil and Recruit.Paused())
 end
 
 -- Members a J1 went to within ROUTE_FRESH.
@@ -1049,6 +1051,8 @@ local requestAt, lineTimes, whispers = {}, {}, {}
 local recruitingGuild, lastOutreach, lastReplyPrompt
 local PromptReply, replyTimer
 local contacted = {}
+-- (1.6.0) The pause's timer, and its scheduling (below ChurchSwitch).
+local pauseTimer, SchedulePauseEnd
 
 local function WhisperGuild()
 	if ns.IsMember() then return GetGuildInfo("player") end
@@ -1206,7 +1210,8 @@ end
 -- Church > Invites), "x" we can't take it (no invite right, or our guild is full). His screen asks one
 -- who recruits first, and tells him at once when the member he asked can't. Clients before 1.6.0 read
 -- no guild in it. (The review of 1.6.0) In an instance or a chat lockdown "i": our popups wait for its end
--- (AwayFromPopups), and "r" made his screen send us the first request and wait out its whole wait.
+-- (AwayFromPopups), and "r" made his screen send us the first request and wait out its whole wait. So
+-- while we paused recruiting (1.6.0, Recruit.Pause).
 function Recruit.SelfWord()
 	if GuildFull() or not (Recruit.CanInvite and Recruit.CanInvite()) then return "x" end
 	-- (Review of this lane) Never the King: the answers never name him (the most asked of all, Contacts),
@@ -1233,6 +1238,7 @@ end
 local function StopRecruiting()
 	recruitingGuild = nil
 	replyTimer = nil
+	pauseTimer = nil -- (its end is kept with the choice: recruiting restored, SchedulePauseEnd looks again)
 	-- (Review of 1.5.9) Any ad's draft, not only a reminder's: the JOINs it asks for would go unanswered.
 	local ad = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
 	if ad then ad:Hide() end
@@ -1283,6 +1289,8 @@ local function RestoreRecruiting()
 	end
 	-- The scan and handoff switches come back with recruiting, after a /reload or a login.
 	if recruitingGuild and saved then RestoreSwitches(saved) end
+	-- (1.6.0) So does a pause, until its end (one that ended meanwhile is forgotten).
+	if recruitingGuild and SchedulePauseEnd then SchedulePauseEnd() end
 end
 
 -- (1.5.8, the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
@@ -1316,7 +1324,8 @@ function Recruit.ToggleWhisperRecruiting()
 	StopRecruiting()
 	local earlier = RecruitmentPreference(guild)
 	local saved = earlier or RecruitmentPreference(guild, true)
-	if saved then saved.enabled = on end
+	-- (1.6.0) Turned off or on again, a pause is over: on, recruiting runs at once.
+	if saved then saved.enabled, saved.pauseUntil = on, nil end
 	if on then
 		recruitingGuild = guild
 		-- (1.5.9, the author's report, 11-12: "ele parece ativar sozinho") What this character left on
@@ -1783,11 +1792,12 @@ end
 local function ReminderDraft(draft)
 	return type(draft) == "table" and draft.reminder == true and (REMINDER_MINUTES[reminderIndex] or 0) > 0
 end
-local LessOften, TurnOffReminder -- (below SetReminder)
+local LessOften -- (below SetReminder)
 
--- 1.6.0: a reminder's draft (Olympus's own window, in both input modes) has Less often and Turn off
--- beside Close and Post, with the line ReminderNote gives; an ad opened from Church > Invites has
--- neither. (Dialog.lua: button3 is OnAlt, the extra button keeps nothing open by itself.)
+-- 1.6.0: a reminder's draft (Olympus's own window, in both input modes) has Less often beside Close
+-- and Post, with the line ReminderNote gives, and under them Pause recruiting and Turn off recruiting
+-- (Recruit.StopRow: its Turn off asks whether the reminder alone, as its own Turn off did before); an
+-- ad opened from Church > Invites has none of them. (Dialog.lua: button3 is OnAlt.)
 StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	text = L.RECRUIT_ANNOUNCE_COPY .. "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
@@ -1796,8 +1806,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	OnButton2 = PostAnnouncement,
 	OnAlt = function(f, draft) LessOften(f, draft) end,
 	button3Shown = function(_, draft) return ReminderDraft(draft) and LongerReminder() ~= nil end,
-	extra = { label = L.RECRUIT_ANNOUNCE_TURN_OFF, shown = function(_, draft) return ReminderDraft(draft) end,
-		onClick = function(f, draft) TurnOffReminder(f, draft) end },
+	more = function(_, draft) if ReminderDraft(draft) then return Recruit.StopRow("ads") end end,
 	EditBoxOnEnterPressed = function(box, draft)
 		if box:HasFocus() then PostAnnouncement(box:GetParent(), draft, "enter") end
 	end,
@@ -1819,7 +1828,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 -- 1.6.0: the other recruiting popups a reminder waits for, as theirs wait for an ad's draft
 -- (PromptReply, the scan's): one on screen at a time.
 local REMINDER_WAITS_FOR = { "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
-	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_HANDOFF_CLAIM", "OLYMPUS_RECRUIT_ACTIVATED" }
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_HANDOFF_CLAIM", "OLYMPUS_RECRUIT_ACTIVATED",
+	"OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }
 
 -- A reminder's tick: one draft at most, and none in combat, an instance, while the player types
 -- (Recruit.PopupsWait), is busy, or has a recruiting popup open; a tick missed waits for the next.
@@ -1877,21 +1887,15 @@ local function SetReminder(index, keep)
 	if keep ~= false then KeepAdChoices() end
 end
 
--- 1.6.0: the reminder's draft's Less often and Turn off, each the player's choice as the menu in
--- Church > Invites makes it (kept, AdChoices: a /reload and a login find it), closing the draft
--- (SetReminder), and one chat line saying where it is set again. Recruiting itself stays on.
+-- 1.6.0: the reminder's draft's Less often (and Turn off recruiting's "only the ad reminder", TurnOff),
+-- each the player's choice as the menu in Church > Invites makes it (kept, AdChoices: a /reload and a
+-- login find it), closing the draft (SetReminder), and one chat line saying where it is set again.
+-- Recruiting itself stays on.
 LessOften = function(f, draft)
 	local index = ReminderDraft(draft) and LongerReminder()
 	if not index then return end
 	SetReminder(index)
 	ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(REMINDER_MINUTES[index]))
-end
-
-TurnOffReminder = function(f, draft)
-	if not ReminderDraft(draft) then return end
-	SetReminder(1)
-	ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED)
-	if f:IsShown() and f.data == draft then f:Hide() end
 end
 
 -- What this character chose for his guild (AdChoices); with none, 1.5.8's interval, kept in his
@@ -1987,6 +1991,247 @@ local function ChurchSwitch()
 	return on
 end
 
+---------------------------------------------------------------------------
+-- 1.6.0 (the author's ask, 11-16: "nos pop-ups que avisam, podiam ter dois botões ... pausar
+-- recrutamento ou desativar recrutamento ... o pausar recrutamento podia perguntar por quanto tempo
+-- você queria pausar ... indefinido vai ser desativar ... o povo está reclamando muito que o negócio
+-- não para de perturbar ... na hora de parar, ele pode perguntar se é parar só aquele de convite,
+-- deixar os outros, ou parar tudo"). Every recruiting popup that opens by itself (a reminder's ad
+-- draft, the invite command of a JOIN, of a claimed player or of a scanned one, a reply to review,
+-- the moderation warning in an invite's place, a handoff's Claim) has Pause recruiting and Turn off
+-- recruiting under its own buttons (Recruit.StopRow), no other key added to the invite's steps.
+-- Pause asks for how long; until then no recruiting popup opens by itself (Recruit.PopupsWait), the
+-- requests wait in Church > Invites as when a popup cannot show, our answers to Join Olympus screens
+-- say a request waits in our list (SelfWord, Contacts) and our hello takes no handoffs (Comm.lua). Its
+-- end is kept in this character's recruiting choice, so a /reload and a login keep it; Church > Invites
+-- says until when and has Resume. Turn off asks whether the switch behind that popup alone (the ad
+-- reminder, the JOIN pop-ups, accepting handoffs, the unguilded scan) or all of recruiting; Church >
+-- Invites turns either back on. Both questions are Olympus's own windows in both input modes, with no
+-- edit box (neither takes the keyboard from the chat's box), and like the automatic popups they wait
+-- out a fight, an instance, a chat lockdown, quiet presence and typing (QuestionWaits).
+---------------------------------------------------------------------------
+Recruit.PAUSE_MINUTES = { 15, 30, 60, 120, 240 }
+Recruit.ASK_RETRY = 2 -- seconds between looks while a question waits
+
+local function Clock(t) return date and date("%H:%M", t) or tostring(t) end
+
+-- The pause's end (epoch seconds) while recruiting is on and it runs, else nil.
+local function PauseEnd()
+	local saved = Recruiting() and RecruitmentPreference(recruitingGuild)
+	local at = saved and tonumber(saved.pauseUntil)
+	if at and at > ns.Now() then return at end
+	return nil
+end
+function Recruit.Paused() return PauseEnd() ~= nil end
+function Recruit.PausedUntil() return PauseEnd() end
+
+-- The pause over (its end, or Resume): forgotten, a chat line, and the popups that waited come.
+local function EndPause()
+	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
+	local was = saved and saved.pauseUntil
+	if saved then saved.pauseUntil = nil end
+	pauseTimer = nil
+	if not was then return false end
+	ns.Print(L.RECRUIT_RESUMED)
+	replyTimer = nil
+	PromptReply()
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+
+-- One timer for the running pause's end; one that ended while the game was closed is forgotten.
+SchedulePauseEnd = function()
+	local at = PauseEnd()
+	if not at then
+		local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
+		if saved and saved.pauseUntil then saved.pauseUntil = nil end
+		pauseTimer = nil
+		return
+	end
+	if pauseTimer and pauseTimer.at == at then return end
+	local timer = { at = at }
+	pauseTimer = timer
+	ns.After(math.max(1, at - ns.Now()), "recruiting pause", function()
+		if pauseTimer ~= timer then return end
+		pauseTimer = nil
+		if PauseEnd() then return SchedulePauseEnd() end -- (not yet: the clock said otherwise)
+		EndPause()
+	end)
+end
+
+-- The recruiting popups that opened by themselves, closed at a pause: what they held waits in Church >
+-- Invites (a JOIN in its list, a handoff's offer under Handoffs while it lasts).
+local function CloseAutomatic()
+	local D = ns.Dialog
+	if not D or D.missing or not D.Find then return end
+	CloseReminderDraft()
+	for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		local f = D.Find(which)
+		if f and type(f.data) == "table" and f.data.automatic then f:Hide() end
+	end
+	for _, which in ipairs({ "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_HANDOFF_CLAIM" }) do
+		local f = D.Find(which)
+		if f then f:Hide() end
+	end
+end
+
+-- Pause recruiting for `minutes` (Recruit.PAUSE_MINUTES on the question; 24 hours at most).
+function Recruit.Pause(minutes)
+	minutes = tonumber(minutes)
+	if not Recruiting() or not minutes or minutes <= 0 or minutes > 1440 then return false end
+	local saved = RecruitmentPreference(recruitingGuild, true)
+	if not saved then return false end
+	saved.pauseUntil = ns.Now() + math.floor(minutes * 60)
+	replyTimer = nil
+	CloseAutomatic()
+	SchedulePauseEnd()
+	ns.Print(L.RECRUIT_PAUSED:format(Clock(saved.pauseUntil)))
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+
+function Recruit.Resume() return EndPause() end
+
+-- Turn off recruiting's answer: `kind` the switch behind the popup it was asked from, or "all" (the
+-- Recruiting switch itself, as Church > Invites turns it off).
+local function TurnOff(kind)
+	if not Recruiting() then return false end
+	if kind == "all" then
+		ChurchSwitch()
+		ns.Print(L.RECRUIT_OFF_ALL)
+	elseif kind == "ads" then
+		SetReminder(1)
+		ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED)
+	elseif kind == "joins" then
+		local saved = RecruitmentPreference(recruitingGuild, true)
+		if saved then saved.queueOnly, replyTimer = true, nil end
+		ns.Print(L.RECRUIT_OFF_JOINS)
+	elseif kind == "handoffs" then
+		if Recruit.Handoff then Recruit.Handoff.SetAccepting(false) end
+		ns.Print(L.RECRUIT_OFF_HANDOFFS)
+	elseif kind == "scan" then
+		if Recruit.Candidates then Recruit.Candidates.SetEnabled(false) end
+		ns.Print(L.RECRUIT_OFF_SCAN)
+	else
+		return false
+	end
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+Recruit.TurnOff = TurnOff
+
+-- What holds a question: what holds the automatic popups (Recruit.PopupsWait) but a full guild, the
+-- interval and the pause, and typing in a box of our own dialogs (the popup it was asked from).
+local function QuestionWaits()
+	local focus = ns.KeyboardFocus()
+	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) or ns.ChatLocked()
+		or ns.QuietPresence() or (focus ~= nil and not (type(focus) == "table" and focus.olympusBox))
+end
+
+local asking, askLook -- the question waiting to show; a look due in ASK_RETRY seconds
+local function ShowQuestion()
+	local q = asking
+	if not q then return end
+	if QuestionWaits() then
+		if not askLook then
+			askLook = true
+			ns.After(Recruit.ASK_RETRY, "recruit question", function()
+				askLook = nil
+				ShowQuestion()
+			end)
+		end
+		return
+	end
+	asking = nil
+	local D = ns.Dialog
+	if not Recruiting() or not D or D.missing then return end
+	D.Show(q.which, nil, nil, q)
+end
+
+-- A question from a popup's button (`f` the popup, `data` its own); the last one asked waits, once.
+local function Ask(which, kind, f, data)
+	if not Recruiting() then return false end
+	asking = { which = which, kind = kind, source = f, sourceData = data }
+	if QuestionWaits() then ns.Print(L.RECRUIT_ASK_LATER) end
+	ShowQuestion()
+	return true
+end
+function Recruit.AskPause(f, data) return Ask("OLYMPUS_RECRUIT_PAUSE", nil, f, data) end
+function Recruit.AskTurnOff(kind, f, data) return Ask("OLYMPUS_RECRUIT_TURN_OFF", kind, f, data) end
+
+-- The popup a question was asked from, closed once it is answered (still showing what it showed).
+local function CloseSource(q)
+	local f = type(q) == "table" and q.source
+	if type(f) == "table" and f.IsShown and f:IsShown() and f.data == q.sourceData then f:Hide() end
+end
+
+-- The row under a recruiting popup that opened by itself (Dialog.lua's `more`). `kind`: the switch
+-- behind it, for Turn off's "only this kind" ("ads", "joins", "handoffs" or "scan").
+function Recruit.StopRow(kind)
+	return {
+		{ label = L.RECRUIT_PAUSE_BUTTON, onClick = function(f, data) Recruit.AskPause(f, data) end },
+		{ label = L.RECRUIT_TURN_OFF_BUTTON, onClick = function(f, data) Recruit.AskTurnOff(kind, f, data) end },
+	}
+end
+-- The switch behind an invite command's popup: a scanned player's, a claimed player's, else a JOIN's.
+local function InviteKind(data)
+	if type(data) ~= "table" then return "joins" end
+	if data.candidate then return "scan" end
+	return data.req and data.req.handedIn and "handoffs" or "joins"
+end
+Recruit.InviteKind = InviteKind
+
+local ONLY = { ads = "RECRUIT_OFF_ONLY_ADS", joins = "RECRUIT_OFF_ONLY_JOINS", handoffs = "RECRUIT_OFF_ONLY_HANDOFFS",
+	scan = "RECRUIT_OFF_ONLY_SCAN" }
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_PAUSE"] = {
+	text = L.RECRUIT_PAUSE_ASK,
+	button1 = CANCEL or "Cancel",
+	more = function()
+		local row = {}
+		for _, minutes in ipairs(Recruit.PAUSE_MINUTES) do
+			row[#row + 1] = {
+				label = minutes < 60 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_POPUP_GAP_HOURS:format(minutes / 60),
+				onClick = function(f, q)
+					if Recruit.Pause(minutes) then CloseSource(q) end
+					if f:IsShown() and f.data == q then f:Hide() end
+				end,
+			}
+		end
+		return row
+	end,
+	moreAbove = true,
+	moreWidth = 60,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_TURN_OFF"] = {
+	text = L.RECRUIT_TURN_OFF_ASK,
+	button1 = CANCEL or "Cancel",
+	more = function(_, q)
+		local function Choose(kind)
+			return function(f)
+				TurnOff(kind)
+				CloseSource(q)
+				if f:IsShown() and f.data == q then f:Hide() end
+			end
+		end
+		local row = {}
+		local only = type(q) == "table" and ONLY[q.kind]
+		if only then row[1] = { label = L[only], onClick = Choose(q.kind) } end
+		row[#row + 1] = { label = L.RECRUIT_OFF_ONLY_ALL, onClick = Choose("all") }
+		return row
+	end,
+	moreAbove = true,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
 -- Church > Invites (ChurchView.lua): Recruiting (its switch, how a JOIN comes in, the JOINs waiting),
 -- Recruiting ads, Find unguilded players, Handoffs (Experimental). With recruiting off the other three
 -- say it comes first. (1.5.9, the review of 1.5.8: a member whose rank the game does not let invite
@@ -2003,6 +2248,12 @@ function Recruit.WhisperLines()
 		lines[#lines + 1] = { id = "recruit-no-invite", indent = 1, text = V.Red(L.RECRUIT_NO_INVITE_SHORT),
 			tooltip = function(tt) tt:AddLine(L.RECRUIT_NO_INVITE_RIGHT, 1, 1, 1, true) end }
 		return lines
+	end
+	-- (1.6.0) A pause: until when, and Resume.
+	local paused = on and PauseEnd()
+	if paused then
+		lines[#lines + 1] = { id = "recruit-paused", indent = 1, text = L.RECRUIT_PAUSED_UNTIL:format(Clock(paused)) }
+		lines[#lines + 1] = { id = "recruit-resume", primary = true, text = L.RECRUIT_RESUME, onClick = Recruit.Resume }
 	end
 	Note(lines, V, on and L.RECRUIT_WHISPER_HINT or L.RECRUIT_WHISPER_OFF_HINT)
 	if on then
@@ -2577,6 +2828,8 @@ local function AcceptRequest(req, confirmed, automatic)
 			on = word.name, at = word.at, by = word.by, reason = word.reason }
 		-- Keep this contextual choice in Olympus's own window in either input mode. The existing
 		-- moderation formatter also preserves the King's stream privacy for free-text reasons.
+		-- (1.6.0) `automatic`: it opened by itself in the invite command's place (its Pause and Turn off).
+		data.automatic = automatic
 		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
 			M.When(word), M.ReasonShown(word)), nil, data)
 		return "warning"
@@ -2610,6 +2863,9 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 		if type(data) ~= "table" then return end
 		-- A changed word presents its new context and keeps the question open for another click.
 		return AcceptRequest(data.req, data) == "warning"
+	end,
+	more = function(_, data)
+		if type(data) == "table" and data.automatic then return Recruit.StopRow(InviteKind(data)) end
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -2744,6 +3000,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		else candidate.inviteAfterWhisper = nil end
 	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
+	-- (1.6.0) Opened by itself (a JOIN's, a claimed player's, the scan's): Pause and Turn off under it.
+	more = function(_, data)
+		if type(data) == "table" and data.automatic then return Recruit.StopRow(InviteKind(data)) end
+	end,
 	hasEditBox = true,
 	editBoxWidth = 360,
 	OnShow = function(f, data)
@@ -2821,6 +3081,8 @@ end
 -- waits, and only while there is a reply left to show.
 PromptReply = function()
 	if not Recruiting() or not CanInvite() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
+	-- (1.6.0) Paused: they wait in Church > Invites; the pause's end looks again (EndPause).
+	if Recruit.Paused() then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
 	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members;
@@ -2864,7 +3126,8 @@ PromptReply = function()
 	-- (RecruitHandoff's Claim question waits for both): with one of them up, 1.5.9 printed his name and
 	-- opened no command, and the name was typed by hand (a Horde recruiter's report of 11-14).
 	local over = false
-	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT",
+		"OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }) do
 		if ns.Dialog.Find(id) then
 			if not (req.handedIn and (id == "OLYMPUS_RECRUIT_OUTREACH" or id == "OLYMPUS_RECRUIT_ANNOUNCEMENT")) then return RetryReply(2) end
 			over = true
@@ -2899,6 +3162,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
 	button1 = L.RECRUIT_WHISPER_PREPARE_BUTTON,
 	button2 = L.RECRUIT_WHISPER_QUEUE,
 	OnAccept = function(_, req) Recruit.Accept(req) end,
+	-- (1.6.0) It opens by itself alone (PromptReply): Pause and Turn off under it, its switch the JOIN pop-ups'.
+	more = function() return Recruit.StopRow("joins") end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -3038,6 +3303,7 @@ end
 function Recruit.ResetForTests()
 	join = {}
 	StopRecruiting()
+	asking, askLook = nil, nil
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	reminderIndex, announcementVariant, lastAnnouncement = 1, 0, nil
 	rotateReminder, lastReminderChannel = true, nil

@@ -176,8 +176,8 @@ recruits should go, and its census answers: the guild the King opened **the gate
 then the guilds with the **most free slots**, and a couple of their Lords and Captains online
 (never the King). From 1.6.0 the answer also says whether a request pops up for that member now,
 waits in his list or can't be taken (no invite right, or a full guild), and names first his own
-guild's members who recruit (himself while his recruiting is on and no instance or chat lockdown
-holds his pop-ups, then those whose hello says they take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
+guild's members who recruit (himself while his recruiting is on and no instance, chat lockdown or
+pause holds his pop-ups, then those whose hello says they take handoffs). It names only what the census confirms: guilds two members' reports agree on, and
 Lords and Captains two reports name. The screen lists them in that order, each once `/who` found
 one of its members (the gates once a second member's answer agrees: one more is asked), the
 guilds found with `/who` too, and a click asks one of that guild's recruiters (from 1.6.0) or
@@ -2765,7 +2765,7 @@ goes where:
 | A guild master's Legates and correspondents: names and each correspondent's department | everyone on the Olympus channel; each client saves up to 300 accepted guild lists, including its own, while the source is offline; verified removal or change of master revokes the duty | only from that guild master's client: after a change and every 5 minutes while online |
 | The King's guild's manually appointed Legates (1.2.4): up to 25 names, original issuer and revision, including an empty removal list | everyone on the Olympus channel; retained appointments use compatible historical ids, with current King/High Council issuer verification | only from the King or an actual High Councillor's client after an authorized edit or repeat; no automatic retirement message |
 | Join Olympus (1.1, outside an Olympus guild): "which guild should I ask?" (J1), and your request (J3: the guild you ask, your level and class) | the one member the screen asks: one found with `/who` at a search, and the one you are about to whisper | J1 at a search (one member every 15 seconds at most, none while a recent answer is known; while only one answer names the gates, one more member at once, three in 10 minutes at most) and just before a whisper (again if that member never answered; from 1.6.0 also, at each click and after a search, to the members the screen would ask next, together, 4 a click at most); J3 with each whisper you send |
-| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King); from 1.6.0 whether a request pops up for you now (your recruiting is on and neither Queue only, the pop-up interval, an instance nor a chat lockdown holds it; the King's answer never says so), waits in your list, or can't be taken (no invite right, or your guild is full), and for your own guild, before its Lords and Captains, yourself while your recruiting is on (not in an instance or a chat lockdown) and the guildmates online whose hello says they take handoffs | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
+| The answer (J2): whether you take recruit whispers, the King's gates, and up to 8 guilds with room the census confirms, each with its free slots and up to 2 of its Lords and Captains online that two reports name (never the King); from 1.6.0 whether a request pops up for you now (your recruiting is on and neither Queue only, the pop-up interval, a pause, an instance nor a chat lockdown holds it; the King's answer never says so), waits in your list, or can't be taken (no invite right, or your guild is full), and for your own guild, before its Lords and Captains, yourself while your recruiting is on (not in an instance, a chat lockdown or a pause) and the guildmates online whose hello says they take handoffs | the recruit who asked, alone | when a recruit's addon asks you, once a minute per recruit and 10 a minute at most (with do not contact on, a bare "no" to the rest) |
 | Who declined a guild invite: a hash of each such player's name (8 hex digits) and when, from the game's decline notice | sent to members of your current guild who use Olympus, through the game's guild addon channel. Your client keeps up to 200 local declines and 200 reports from your guild for 7 days. Received reports only suppress unsolicited invites | when the game reports the decline and your character can invite. A player can still ask to join with **JOIN** |
 | A treasury keeper's book (balance, gold and items given and who gave them, the ranking) and the guild bank of `<Olympus>` (its gold and items) | the parts the King shows the army (his switches): everyone on the Olympus channel. The rest (1.1): the King, his Steward and the keepers alone, by whisper, never on the channel (from a keeper whose addon is 1.1: one still on 1.0 sends his whole book on the channel, as 1.0 did) | only after that keeper says yes (each keeper, the King too, is asked once; `/oly treasurer on\|off`), withdrawn at once when he turns it off, and again every 5 minutes while he plays, for clients that were offline |
 | Your character's name and what you gave, when you give gold or items to a treasury keeper (by trade or mail): in the ranking of donors (the top 100, with each one's total), the items donated (with who gave each last) and the book's latest lines (1.1: never the lines of gold given to the Treasurer's characters, which are the dues; this week's donors only as a count, never by name; in the Treasurer's part of the ranking, your gold to his characters less each week's up to the dues' amount his addon knew that week, and less all you sent with the dues' note) | with the King's ranking or book switch on: everyone on the Olympus channel. Otherwise (1.1): the keepers, the King and his Steward alone, by whisper | while that keeper shares his book: his yes, and a donor is not asked |
@@ -3500,7 +3500,7 @@ Interested players can whisper you **JOIN**, even without Olympus installed. A r
 the **Join Olympus** screen (a player with Olympus) counts as a **JOIN** to your guild: the same
 pop-up, invite limit, handoffs and recruiting log. From 1.6.0, while recruiting is on, your addon
 tells a recruit's Join screen that asks where to go that a request pops up for you (unless Queue
-only, the pop-up interval, an instance or a chat lockdown holds it), and names you (not in an instance or a chat lockdown) and your guildmates who take handoffs before
+only, the pop-up interval, a pause, an instance or a chat lockdown holds it), and names you (not in an instance, a chat lockdown or a pause) and your guildmates who take handoffs before
 its Lords and Captains, so new players reach recruiters first. One from a player on your ignore list is dropped, recruiting or not, as the game drops his
 whisper.
 
@@ -3574,6 +3574,22 @@ invite pop-up comes back once the command closes). With **Incoming JOIN** set to
 command opens by itself, a claimed player's either: his chat line says to open Invites in the
 Church, where **Prepare invite** opens it.
 
+**Pause recruiting** and **Turn off recruiting** (1.6.0) sit under every recruiting pop-up that
+opens by itself: an ad reminder's draft, the invite command of a JOIN, of a claimed player or of a
+scanned one, a reply to review, the moderation warning in an invite's place and a handoff's
+**Claim**. **Pause recruiting** asks for how long (15 or 30 minutes, 1, 2 or 4 hours). Until then no
+recruiting pop-up opens by itself: JOINs and Join Olympus requests wait in **Church → Invites** as
+when a pop-up cannot show, a handoff offer waits under Handoffs while it lasts and a probe is told
+no, your answer to a Join Olympus screen says a request waits in your list and does not name you
+first, and your hello says you take no handoffs. The pause's end is saved for the character, so a
+`/reload` or a login keeps it; **Church → Invites** says until when and has **Resume**, at its end
+the pop-ups come back with a chat line, and turning **Recruiting** off or on ends it. **Turn off recruiting** asks
+whether to turn off only the switch behind that pop-up (the ad reminder, **Incoming JOIN** set to
+Queue only, **Accept recruitment handoffs** or the unguilded scan) or all of recruiting (the
+**Recruiting** switch, as **Church → Invites** turns it off); **Church → Invites** turns each back
+on. Both questions are Olympus windows with no text box, so they never take the keyboard from the
+chat box, and like the pop-ups they wait for the end of a fight, an instance or typing.
+
 ### Public recruiting announcement
 
 In **Church → Invites**, turn **Recruiting** on, then select a joined public channel under
@@ -3591,8 +3607,9 @@ public channel you selected. While recruitment is on, a reminder opens one previ
 unavailable channels and channels where someone recently posted. Each preview waits for your confirmation.
 The reminder waits while you are in combat, in an instance, typing, busy, or have a preview or another
 recruiting pop-up open; a turn it misses waits for the next interval. A reminder's preview (1.6.0) says
-how often it opens and has **Less often** (30 minutes, then twice as long, up to 120) and **Turn off**
-beside **Close** and **Post**. Each is saved as if chosen in the dropdown, which turns the reminder back
+how often it opens and has **Less often** (30 minutes, then twice as long, up to 120) beside **Close**
+and **Post**, and **Pause recruiting** and **Turn off recruiting** under them (its **Only ad reminders**
+turns the reminder off). Each is saved as if chosen in the dropdown, which turns the reminder back
 on; recruiting itself stays on. An interval saved before 1.6.0 is kept until you change it.
 
 ### Attended Army snapshot (not active in releases)

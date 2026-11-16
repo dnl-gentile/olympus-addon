@@ -50,8 +50,9 @@ ns.Locale("deDE", {
 
 - {church} Wenn du auf einem bestätigten Twink rekrutierst, bekommt dein Hauptcharakter als Apostel oder Missionar die üblichen direkten Punkte, sobald das Gildenprotokoll und ein unabhängiger Zeuge den Rekruten bestätigen. Verknüpfe deine Charaktere mit /oly alt add auf deinem Hauptcharakter und bestätige dann auf dem Twink. Auf WoW: Forever fügst du einen Twink auf einem anderen Teilrealm mit seinem bloßen Namen hinzu; sobald deine Twinks bestätigt haben, melde dich noch einmal mit deinem Hauptcharakter an.
 - {church} Rekrutierungsfenster nehmen dir nicht mehr den Tastaturfokus. Gilden ohne Platz für neue Spieler werden übersprungen, und ein Spieler in der Nähe, der nie um Aufnahme gebeten hat, wird nicht automatisch an einen anderen Rekrutierer weitergegeben.
-- {church} Rekrutierungsanzeigen, die du im Zensus einschaltest, erscheinen jetzt alle 30 Minuten statt alle 5, und nie über einem anderen Rekrutierungsfenster. Das Anzeigenfenster hat die Knöpfe Seltener und Ausschalten; unter Kirche > Einladungen änderst du, wie oft es kommt, oder schaltest es wieder ein. Kommt deines noch alle 5 Minuten, klicke auf Seltener.
+- {church} Rekrutierungsanzeigen, die du im Zensus einschaltest, erscheinen jetzt alle 30 Minuten statt alle 5, und nie über einem anderen Rekrutierungsfenster. Das Anzeigenfenster hat den Knopf Seltener; unter Kirche > Einladungen änderst du, wie oft es kommt, oder schaltest es wieder ein. Kommt deines noch alle 5 Minuten, klicke auf Seltener.
 - {church} Weitergaben: Der Einladungsbefehl für einen übernommenen Spieler öffnet sich sofort, auch über einem Anzeigenfenster oder dem Flüsterfenster für einen bei der Suche gefundenen Spieler. Das Mitglied, das den Spieler weitergegeben hat, antwortet auch im Kampf, beschäftigte Mitglieder werden übersprungen, und kommt kein Name an, wird es dir gesagt.
+- {church} Jedes Rekrutierungsfenster, das sich von selbst öffnet (eine Anzeige, ein JOIN, eine Weitergabe oder ein bei der Suche gefundener Spieler), hat jetzt Rekrutierung pausieren und Rekrutierung ausschalten. Pausieren fragt, wie lange, von 15 Minuten bis 4 Stunden: bis dahin öffnet sich nichts von selbst, Anfragen warten unter Kirche > Einladungen, und die Seite Olympus beitreten fragt zuerst andere Rekrutierer; Kirche > Einladungen zeigt, bis wann, mit Fortsetzen. Ausschalten fragt, ob nur diese Art Fenster oder die ganze Rekrutierung; Kirche > Einladungen schaltet sie wieder ein.
 - {guild} Während der Zensus neu aufgebaut wird, behält die letzte bekannte Zählung ihre ursprüngliche Zeit. Aktualisierungsanfragen können mit diesem gespeicherten Stand vergleichen und anfordern, was ihm fehlt.
 - {guild} Wenn keine neuen Zensusberichte dein Addon erreichen, behält der Zensus seine letzte Zählung mit dem Datum, an dem sie gezählt wurde, statt eine Gilde nach der anderen zu verlieren.
 - {guild} Die Seite Olympus beitreten fragt zuerst Mitglieder, die rekrutieren, überspringt Mitglieder, die nicht einladen können, und sagt dir, wenn alle gefundenen Gilden voll sind oder niemand mehr zu fragen ist.
@@ -3006,10 +3007,27 @@ Lang lebe der König. Lang lebe Olympus.]==],
 	RECRUIT_ANNOUNCE_POST_EDITED = "Kopiere den bearbeiteten Entwurf zum Senden in den Spielchat.",
 	RECRUIT_ANNOUNCE_POST_CHECK = "Senden angefordert. Prüfe den Kanal, bevor du erneut sendest.",
 	RECRUIT_ANNOUNCE_LESS = "Seltener",
-	RECRUIT_ANNOUNCE_TURN_OFF = "Ausschalten",
 	RECRUIT_ANNOUNCE_REMINDER_NOTE = "Anzeigen-Erinnerung: alle %d Min. Ändern oder wieder einschalten unter Kirche > Einladungen.",
 	RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Anzeigen-Erinnerung: alle %d Min. Ändern unter Kirche > Einladungen.",
 	RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Anzeigen-Erinnerung aus. Wieder einschalten unter Kirche > Einladungen.",
+	RECRUIT_PAUSE_BUTTON = "Rekrutierung pausieren",
+	RECRUIT_TURN_OFF_BUTTON = "Rekrutierung ausschalten",
+	RECRUIT_PAUSE_ASK = "Rekrutierung wie lange pausieren? Bis dahin öffnet sich kein Rekrutierungsfenster von selbst, und Anfragen warten unter Kirche > Einladungen.",
+	RECRUIT_PAUSED = "Rekrutierung pausiert bis %s. Anfragen warten unter Kirche > Einladungen, wo Fortsetzen die Pause beendet.",
+	RECRUIT_PAUSED_UNTIL = "Pausiert bis %s",
+	RECRUIT_RESUME = "Fortsetzen",
+	RECRUIT_RESUMED = "Rekrutierung fortgesetzt: ihre Fenster öffnen sich wieder.",
+	RECRUIT_TURN_OFF_ASK = "Nur diese Art Fenster ausschalten oder die ganze Rekrutierung? Kirche > Einladungen schaltet sie wieder ein.",
+	RECRUIT_OFF_ONLY_ADS = "Nur Anzeigen-Erinnerungen",
+	RECRUIT_OFF_ONLY_JOINS = "Nur JOIN-Fenster",
+	RECRUIT_OFF_ONLY_HANDOFFS = "Nur Weitergaben",
+	RECRUIT_OFF_ONLY_SCAN = "Nur die Suche",
+	RECRUIT_OFF_ONLY_ALL = "Ganze Rekrutierung",
+	RECRUIT_OFF_JOINS = "JOIN-Fenster aus: Anfragen warten unter Kirche > Einladungen, wo JOIN-Anfragen sie wieder einschaltet.",
+	RECRUIT_OFF_HANDOFFS = "Weitergaben annehmen aus. Wieder einschalten unter Kirche > Einladungen.",
+	RECRUIT_OFF_SCAN = "Suche nach Spielern ohne Gilde aus. Wieder einschalten unter Kirche > Einladungen.",
+	RECRUIT_OFF_ALL = "Rekrutierung aus. Wieder einschalten unter Kirche > Einladungen.",
+	RECRUIT_ASK_LATER = "Diese Frage öffnet sich, sobald du nicht im Kampf und in keiner Instanz bist und nicht tippst.",
 	RECRUIT_ANNOUNCE_CHANNEL_CHANGED = "Der öffentliche Kanal hat sich geändert. Wähle ihn erneut aus.",
 	RECRUIT_ANNOUNCE_REMINDER_TITLE = "Anzeigen-Erinnerung",
 	RECRUIT_ANNOUNCE_REMINDER_ON = "%d Min.",

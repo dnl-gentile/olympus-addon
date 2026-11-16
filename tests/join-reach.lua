@@ -1188,9 +1188,10 @@ end)
 -- and the recruit waited out her 45 s for nothing (the other recruiter's invite after 56 s, 6 s with nobody
 -- in a dungeon). In an instance or a chat lockdown her word says it waits in her list ("i"), and her own
 -- answer names the guild's other recruiter first. Fails before: "r" in the dungeon, she named herself
--- first, the first request went to her and the invite came after 56 s.
-test("join reach (1.6.0): a recruiter in a dungeon or a chat lockdown says a request waits in her list: the screen asks the guild's other recruiter first, and the invite comes within the first request's wait", function()
-	for _, away in ipairs({ "instance", "locked" }) do
+-- first, the first request went to her and the invite came after 56 s. (1.6.0, the author's ask of 11-16)
+-- So while she paused recruiting from a popup's Pause recruiting (Recruit.Pause): fails before it, no pause.
+test("join reach (1.6.0): a recruiter in a dungeon, a chat lockdown or a pause says a request waits in her list: the screen asks the guild's other recruiter first, and the invite comes within the first request's wait", function()
+	for _, away in ipairs({ "instance", "locked", "paused" }) do
 		WithRequester(function(w)
 			local world = World(w, {
 				guilds = { ["Olympus Alpha"] = 500 },
@@ -1200,14 +1201,14 @@ test("join reach (1.6.0): a recruiter in a dungeon or a chat lockdown says a req
 				},
 			})
 			local rae, lia = world.members[1], world.members[2]
-			rae[away] = true
+			if away == "paused" then eq(world.As(rae, rae.R.Pause, 15), true, "she pauses for 15 minutes") else rae[away] = true end
 			local route = assert(R.ParseRoute(world.As(rae, rae.R.RouteAnswer)))
 			eq(route.self, "i", away .. ": a request waits in her list")
 			eq(route.byName["Olympus Alpha"].contacts[1], "Lia Ford", away .. ": her answer names the other recruiter first")
 			local s = Play(w, world, 300)
 			eq(s.sends[1] and s.sends[1].m, lia, away .. ": the first request to the recruiter whose popups are free")
 			assert(s.inviteAfter and s.inviteAfter < 45, away .. ": invited within the first request's wait: " .. tostring(s.inviteAfter))
-			rae[away] = nil
+			if away == "paused" then eq(world.As(rae, rae.R.Resume), true, "she resumes") else rae[away] = nil end
 			eq(R.ParseRoute(world.As(rae, rae.R.RouteAnswer)).self, "r", away .. " over: a request pops up for her again")
 		end)
 	end

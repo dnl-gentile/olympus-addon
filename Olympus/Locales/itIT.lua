@@ -50,8 +50,9 @@ ns.Locale("itIT", {
 
 - {church} Se recluti con un alt confermato, il tuo personaggio principale, Apostolo o Missionario, riceve i soliti punti diretti quando il registro della gilda e un testimone indipendente confermano la recluta. Collega i tuoi personaggi con /oly alt add sul personaggio principale, poi conferma sull'alt. Su WoW: Forever, un alt di un altro sottoreame si aggiunge con il solo nome; quando i tuoi alt hanno confermato, rientra con il personaggio principale.
 - {church} Le finestre di reclutamento non ti tolgono più il focus della tastiera. Le gilde senza posto per nuovi giocatori vengono saltate, e un giocatore vicino che non ha mai chiesto di entrare non viene passato automaticamente a un altro reclutatore.
-- {church} Gli annunci di reclutamento attivati dal Censimento ora compaiono ogni 30 minuti invece che ogni 5, e mai sopra un'altra finestra di reclutamento. La finestra dell'annuncio ha i pulsanti Meno spesso e Disattiva; Chiesa > Inviti cambia ogni quanto compare o lo riattiva. Se il tuo compare ancora ogni 5 minuti, clicca Meno spesso.
+- {church} Gli annunci di reclutamento attivati dal Censimento ora compaiono ogni 30 minuti invece che ogni 5, e mai sopra un'altra finestra di reclutamento. La finestra dell'annuncio ha il pulsante Meno spesso; Chiesa > Inviti cambia ogni quanto compare o lo riattiva. Se il tuo compare ancora ogni 5 minuti, clicca Meno spesso.
 - {church} Inoltri: il comando di invito di un giocatore che hai preso in carico si apre subito, anche sopra una finestra di annuncio o la finestra per sussurrare a un giocatore della ricerca. Il membro che ti ha passato il giocatore risponde anche in combattimento, i membri occupati vengono saltati e, se non arriva nessun nome, vieni avvisato.
+- {church} Ogni finestra di reclutamento che si apre da sola (un annuncio, un JOIN, un inoltro o un giocatore della ricerca) ora ha Sospendi reclutamento e Disattiva reclutamento. Sospendi chiede per quanto tempo, da 15 minuti a 4 ore: fino ad allora non compare nulla da solo, le richieste aspettano in Chiesa > Inviti e la pagina Unisciti a Olympus chiede prima ad altri reclutatori; Chiesa > Inviti mostra fino a quando, con Riprendi. Disattiva chiede se spegnere solo quel tipo di finestra o tutto il reclutamento; Chiesa > Inviti lo riattiva.
 - {guild} Durante la ricostruzione del censimento, l'ultimo conteggio noto mantiene l'ora originale. Le richieste di aggiornamento possono confrontarsi con quei dati salvati e chiedere ciò che manca.
 - {guild} Quando al tuo addon non arrivano nuovi rapporti del censimento, il Censimento mantiene il suo ultimo conteggio, con la data in cui è stato fatto, invece di perdere le gilde una alla volta.
 - {guild} La pagina Unisciti a Olympus contatta prima i membri che stanno reclutando, salta quelli che non possono invitare e ti avvisa quando tutte le gilde trovate sono piene o non resta nessuno da contattare.
@@ -3006,10 +3007,27 @@ Lunga vita al Re. Lunga vita a Olympus.]==],
 	RECRUIT_ANNOUNCE_POST_EDITED = "Copia la bozza modificata nella chat di gioco per pubblicarla.",
 	RECRUIT_ANNOUNCE_POST_CHECK = "Pubblicazione richiesta. Controlla il canale prima di pubblicare di nuovo.",
 	RECRUIT_ANNOUNCE_LESS = "Meno spesso",
-	RECRUIT_ANNOUNCE_TURN_OFF = "Disattiva",
 	RECRUIT_ANNOUNCE_REMINDER_NOTE = "Promemoria annuncio: ogni %d min. Cambialo o riattivalo in Chiesa > Inviti.",
 	RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Promemoria annuncio: ogni %d min. Cambialo in Chiesa > Inviti.",
 	RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Promemoria annuncio disattivato. Riattivalo in Chiesa > Inviti.",
+	RECRUIT_PAUSE_BUTTON = "Sospendi reclutamento",
+	RECRUIT_TURN_OFF_BUTTON = "Disattiva reclutamento",
+	RECRUIT_PAUSE_ASK = "Per quanto tempo sospendere il reclutamento? Fino ad allora nessuna finestra di reclutamento si apre da sola, e le richieste aspettano in Chiesa > Inviti.",
+	RECRUIT_PAUSED = "Reclutamento sospeso fino alle %s. Le richieste aspettano in Chiesa > Inviti, dove Riprendi termina la pausa.",
+	RECRUIT_PAUSED_UNTIL = "Sospeso fino alle %s",
+	RECRUIT_RESUME = "Riprendi",
+	RECRUIT_RESUMED = "Reclutamento ripreso: le sue finestre si aprono di nuovo.",
+	RECRUIT_TURN_OFF_ASK = "Disattivare solo questo tipo di finestra o tutto il reclutamento? Chiesa > Inviti lo riattiva.",
+	RECRUIT_OFF_ONLY_ADS = "Solo promemoria annuncio",
+	RECRUIT_OFF_ONLY_JOINS = "Solo finestre JOIN",
+	RECRUIT_OFF_ONLY_HANDOFFS = "Solo inoltri",
+	RECRUIT_OFF_ONLY_SCAN = "Solo la ricerca",
+	RECRUIT_OFF_ONLY_ALL = "Tutto il reclutamento",
+	RECRUIT_OFF_JOINS = "Finestre JOIN disattivate: le richieste aspettano in Chiesa > Inviti, dove Richieste JOIN le riattiva.",
+	RECRUIT_OFF_HANDOFFS = "Accetta inoltri disattivato. Riattivalo in Chiesa > Inviti.",
+	RECRUIT_OFF_SCAN = "Ricerca di giocatori senza gilda disattivata. Riattivala in Chiesa > Inviti.",
+	RECRUIT_OFF_ALL = "Reclutamento disattivato. Riattivalo in Chiesa > Inviti.",
+	RECRUIT_ASK_LATER = "Questa domanda si aprirà quando non sarai in combattimento né in un'istanza e non starai scrivendo.",
 	RECRUIT_ANNOUNCE_CHANNEL_CHANGED = "Il canale pubblico è cambiato. Selezionalo di nuovo.",
 	RECRUIT_ANNOUNCE_REMINDER_TITLE = "Promemoria annuncio",
 	RECRUIT_ANNOUNCE_REMINDER_ON = "%d min",

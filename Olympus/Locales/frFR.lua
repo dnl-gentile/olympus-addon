@@ -50,8 +50,9 @@ ns.Locale("frFR", {
 
 - {church} Si tu recrutes sur un reroll confirmé, ton personnage principal, Apôtre ou Missionnaire, reçoit les points directs habituels dès que le journal de guilde et un témoin indépendant confirment la recrue. Lie tes personnages avec /oly alt add sur ton personnage principal, puis confirme sur le reroll. Sur WoW: Forever, un reroll d'un autre sous-royaume s'ajoute par son simple nom ; une fois que tes rerolls ont confirmé, reconnecte-toi sur ton personnage principal.
 - {church} Les fenêtres de recrutement ne prennent plus le focus du clavier. Les guildes sans place pour de nouveaux joueurs sont ignorées, et un joueur proche qui n'a jamais demandé à rejoindre n'est pas transmis automatiquement à un autre recruteur.
-- {church} Les annonces de recrutement activées depuis le Recensement s'ouvrent maintenant toutes les 30 minutes au lieu de 5, et jamais par-dessus une autre fenêtre de recrutement. La fenêtre de l'annonce a les boutons Moins souvent et Désactiver ; Église > Invitations change leur fréquence ou les réactive. Si la tienne revient encore toutes les 5 minutes, clique sur Moins souvent.
+- {church} Les annonces de recrutement activées depuis le Recensement s'ouvrent maintenant toutes les 30 minutes au lieu de 5, et jamais par-dessus une autre fenêtre de recrutement. La fenêtre de l'annonce a le bouton Moins souvent ; Église > Invitations change leur fréquence ou les réactive. Si la tienne revient encore toutes les 5 minutes, clique sur Moins souvent.
 - {church} Transferts : la commande d'invitation d'un joueur que tu as pris en charge s'ouvre aussitôt, même par-dessus une fenêtre d'annonce ou la fenêtre pour chuchoter à un joueur de la recherche. Le membre qui t'a transmis le joueur répond même en combat, les membres occupés sont ignorés et, si aucun nom n'arrive, tu en es averti.
+- {church} Chaque fenêtre de recrutement qui s'ouvre seule (une annonce, un JOIN, un transfert ou un joueur de la recherche) a maintenant Suspendre le recrutement et Désactiver le recrutement. Suspendre demande pour combien de temps, de 15 minutes à 4 heures : d'ici là rien ne s'ouvre seul, les demandes attendent dans Église > Invitations et la page Rejoindre Olympus demande d'abord à d'autres recruteurs ; Église > Invitations indique jusqu'à quand, avec Reprendre. Désactiver demande s'il faut couper seulement ce type de fenêtre ou tout le recrutement ; Église > Invitations le réactive.
 - {guild} Pendant la reconstruction du recensement, le dernier compte connu garde son heure d'origine. Les demandes de mise à jour peuvent se comparer à ces données enregistrées et demander ce qui leur manque.
 - {guild} Quand aucun nouveau rapport de recensement n'atteint ton addon, le Recensement garde son dernier compte, avec la date où il a été fait, au lieu de perdre les guildes une à une.
 - {guild} La page Rejoindre Olympus sollicite d'abord les membres qui recrutent, ignore ceux qui ne peuvent pas inviter et te prévient quand toutes les guildes trouvées sont pleines ou qu'il ne reste personne à solliciter.
@@ -3006,10 +3007,27 @@ Vive le Roi. Vive Olympus.]==],
 	RECRUIT_ANNOUNCE_POST_EDITED = "Pour publier le brouillon modifié, copie-le dans la discussion du jeu.",
 	RECRUIT_ANNOUNCE_POST_CHECK = "Publication demandée. Vérifie le canal avant de publier à nouveau.",
 	RECRUIT_ANNOUNCE_LESS = "Moins souvent",
-	RECRUIT_ANNOUNCE_TURN_OFF = "Désactiver",
 	RECRUIT_ANNOUNCE_REMINDER_NOTE = "Rappel d'annonce : toutes les %d min. Change-le ou réactive-le dans Église > Invitations.",
 	RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Rappel d'annonce : toutes les %d min. Change-le dans Église > Invitations.",
 	RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Rappel d'annonce désactivé. Réactive-le dans Église > Invitations.",
+	RECRUIT_PAUSE_BUTTON = "Suspendre le recrutement",
+	RECRUIT_TURN_OFF_BUTTON = "Désactiver le recrutement",
+	RECRUIT_PAUSE_ASK = "Suspendre le recrutement pendant combien de temps ? D'ici là, aucune fenêtre de recrutement ne s'ouvre seule, et les demandes attendent dans Église > Invitations.",
+	RECRUIT_PAUSED = "Recrutement suspendu jusqu'à %s. Les demandes attendent dans Église > Invitations, où Reprendre met fin à la pause.",
+	RECRUIT_PAUSED_UNTIL = "Suspendu jusqu'à %s",
+	RECRUIT_RESUME = "Reprendre",
+	RECRUIT_RESUMED = "Recrutement repris : ses fenêtres s'ouvrent de nouveau.",
+	RECRUIT_TURN_OFF_ASK = "Désactiver seulement ce type de fenêtre, ou tout le recrutement ? Église > Invitations le réactive.",
+	RECRUIT_OFF_ONLY_ADS = "Seulement les rappels d'annonce",
+	RECRUIT_OFF_ONLY_JOINS = "Seulement les fenêtres JOIN",
+	RECRUIT_OFF_ONLY_HANDOFFS = "Seulement les transferts",
+	RECRUIT_OFF_ONLY_SCAN = "Seulement la recherche",
+	RECRUIT_OFF_ONLY_ALL = "Tout le recrutement",
+	RECRUIT_OFF_JOINS = "Fenêtres JOIN désactivées : les demandes attendent dans Église > Invitations, où Demandes JOIN les réactive.",
+	RECRUIT_OFF_HANDOFFS = "Accepter les transferts désactivé. Réactive-le dans Église > Invitations.",
+	RECRUIT_OFF_SCAN = "Recherche de joueurs sans guilde désactivée. Réactive-la dans Église > Invitations.",
+	RECRUIT_OFF_ALL = "Recrutement désactivé. Réactive-le dans Église > Invitations.",
+	RECRUIT_ASK_LATER = "Cette question s'ouvrira quand tu ne seras plus en combat ni en instance et que tu n'écriras plus.",
 	RECRUIT_ANNOUNCE_CHANNEL_CHANGED = "Le canal public a changé. Sélectionne-le de nouveau.",
 	RECRUIT_ANNOUNCE_REMINDER_TITLE = "Rappel d'annonce",
 	RECRUIT_ANNOUNCE_REMINDER_ON = "%d min",

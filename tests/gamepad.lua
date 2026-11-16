@@ -4672,10 +4672,21 @@ test("gamepad recruiting ads (1.6.0): the popup says how often it comes and wher
 			"the popup says every 30 min and where to change it or turn it back on")
 		eq(draft.buttons[1]:GetText(), L.RECRUIT_WHISPER_CLOSE); eq(draft.buttons[2]:GetText(), L.RECRUIT_ANNOUNCE_POST)
 		eq(draft.buttons[3]:IsShown(), true); eq(draft.buttons[3]:GetText(), L.RECRUIT_ANNOUNCE_LESS)
-		eq(draft.extraButton:IsShown(), true); eq(draft.extraButton:GetText(), L.RECRUIT_ANNOUNCE_TURN_OFF)
+		-- (Changed on purpose, the author's ask of 11-16: its Turn off is Turn off recruiting, under its buttons
+		-- beside Pause recruiting as on every recruiting popup that opens by itself; it asks first, and its
+		-- "only ad reminders" does what the Turn off did.)
+		eq(draft.extraButton:IsShown(), false)
+		eq(draft.moreButtons[1]:IsShown(), true); eq(draft.moreButtons[1]:GetText(), L.RECRUIT_PAUSE_BUTTON)
+		eq(draft.moreButtons[2]:IsShown(), true); eq(draft.moreButtons[2]:GetText(), L.RECRUIT_TURN_OFF_BUTTON)
 		C.Switch(not initialPad); C.Advance(1)
 		local printed = #C.printed
-		C.Click(draft.extraButton)
+		C.Click(draft.moreButtons[2])
+		local question = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_TURN_OFF"), "Turn off recruiting asks first")
+		eq(question.moreButtons[1]:GetText(), L.RECRUIT_OFF_ONLY_ADS); eq(question.moreButtons[2]:GetText(), L.RECRUIT_OFF_ONLY_ALL)
+		eq(question.buttons[1]:GetText(), "Cancel")
+		eq(question.editBox:IsShown(), false, "no box of its own to take the keyboard")
+		C.Click(question.moreButtons[1])
+		eq(question:IsShown(), false, "the question closes")
 		eq(draft:IsShown(), false, "Turn off closes it")
 		eq(R.AnnounceReminderMinutes(), 0, "the reminder is off")
 		eq(R.IsWhisperRecruiting(), true, "recruiting stays on")
@@ -4705,6 +4716,93 @@ test("gamepad recruiting ads (1.6.0): the popup says how often it comes and wher
 		Check(C3.ledger, "ad reminder after a login")
 		NoErrors(C3, "ad reminder after a login")
 	end
+end)
+
+-- 1.6.0 (the author's ask, 11-16: "o pausar recrutamento podia perguntar por quanto tempo você queria
+-- pausar ... o povo está reclamando muito que o negócio não para de perturbar"): Pause recruiting under an
+-- ad popup asks for how long, in Olympus's own window with no box, the chat box keeping the keyboard; until
+-- then no recruiting popup opens by itself and a JOIN waits in Church > Invites, across a switch of input
+-- mode, a /reload and a login (the end kept for the character); at its end the popups come back; Resume in
+-- Church > Invites ends one at once. Fails before: no Pause recruiting.
+test("gamepad recruiting pause (1.6.0): Pause recruiting asks for how long; nothing pops up by itself until then, across a switch, a /reload and a login; then the popups come back; Resume", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad, { setup = AdChannels })
+		local R, L = ns.Recruit, ns.L
+		ns.EVERY_SPREAD = 0
+		OfferAllAds(C, ns)
+		local draft = NextAdPopup(C, ns, 29 * 60, 31 * 60)
+		eq(draft.moreButtons[1]:GetText(), L.RECRUIT_PAUSE_BUTTON)
+		local chat = C.env.ChatFrame1EditBox
+		chat:Show(); C.focus = chat -- (he opened the chat box meanwhile)
+		C.Click(draft.moreButtons[1])
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_PAUSE"), nil, "while he types the question waits")
+		C.focus = nil; chat:Hide()
+		C.now = C.now + 3; C.Advance(3)
+		local q = assert(ns.Dialog.Find("OLYMPUS_RECRUIT_PAUSE"), "then it asks for how long")
+		eq(q.editBox:IsShown(), false, "no box of its own")
+		chat:Show(); C.focus = chat
+		C.Advance(1)
+		eq(C.focus, chat, "the chat box keeps the keyboard with the question up")
+		C.focus = nil; chat:Hide()
+		local shown = {}
+		for _, b in ipairs(q.moreButtons) do if b:IsShown() then shown[#shown + 1] = b:GetText() end end
+		eq(table.concat(shown, ","), table.concat({ L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15), L.RECRUIT_ANNOUNCE_REMINDER_ON:format(30),
+			L.RECRUIT_POPUP_GAP_HOURS:format(1), L.RECRUIT_POPUP_GAP_HOURS:format(2), L.RECRUIT_POPUP_GAP_HOURS:format(4) }, ","))
+		C.Click(q.moreButtons[2]) -- 30 minutes
+		local ends = ns.Now() + 30 * 60
+		eq(q:IsShown(), false); eq(draft:IsShown(), false, "the ad popup closes")
+		eq(R.PausedUntil(), ends)
+		C.Fire("CHAT_MSG_WHISPER", "JOIN", "Applicant-Realm")
+		eq(#R.requests, 1, "a JOIN is taken")
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "and pops up nothing")
+		C.Switch(not initialPad); C.Advance(1)
+		C.now = C.now + 600; C.Advance(600)
+		eq(ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil); eq(ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT"), nil)
+		Check(C.ledger, "recruiting paused")
+		NoErrors(C, "recruiting paused")
+		-- A /reload and a login keep it (the game's clock goes on meanwhile).
+		local C2, ns2 = NextSession(C, not initialPad, "reload", { setup = function(N) AdChannels(N); N.now = C.now end })
+		eq(ns2.Recruit.PausedUntil(), ends, "after a /reload still paused")
+		local line
+		for _, l in ipairs(ns2.Recruit.WhisperLines()) do if l.id == "recruit-paused" then line = l end end
+		eq(assert(line, "Church > Invites says so").text, L.RECRUIT_PAUSED_UNTIL:format(C2.env.date("%H:%M", ends)))
+		C2.Fire("CHAT_MSG_WHISPER", "JOIN", "Second-Realm")
+		C2.now = C2.now + 300; C2.Advance(300)
+		eq(ns2.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), nil, "a JOIN after the /reload pops up nothing")
+		NoErrors(C2, "paused after a /reload")
+		local C3, ns3 = NextSession(C2, initialPad, "login", { setup = function(N) AdChannels(N); N.now = C2.now end })
+		local R3 = ns3.Recruit
+		eq(R3.PausedUntil(), ends, "after a login still paused")
+		C3.now = C3.now + 300; C3.Advance(300)
+		eq(ns3.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT"), nil)
+		-- Its end: a chat line, and a JOIN pops up again.
+		local printed = #C3.printed
+		local left = ends - C3.now
+		C3.now = C3.now + left - 1; C3.Advance(left - 1)
+		eq(R3.Paused(), true, "a second before its end")
+		C3.now = C3.now + 2; C3.Advance(2)
+		eq(R3.Paused(), false, "over at its end")
+		local said = false
+		for i = printed + 1, #C3.printed do if C3.printed[i]:find(L.RECRUIT_RESUMED, 1, true) then said = true end end
+		eq(said, true, "a chat line says recruiting resumed")
+		-- (The ads' reminder may open its draft first now: closed, a JOIN's command waits for it.)
+		C3.now = C3.now + 30; C3.Advance(1)
+		local ad = ns3.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
+		if ad then C3.Click(ad.buttons[1]) end
+		C3.Fire("CHAT_MSG_WHISPER", "JOIN", "Third-Realm")
+		C3.Advance(3)
+		local join = assert(ns3.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT"), "a JOIN pops up again")
+		-- Pause from the JOIN's popup, then Resume in Church > Invites.
+		C3.Click(join.moreButtons[1])
+		C3.Click(assert(ns3.Dialog.Find("OLYMPUS_RECRUIT_PAUSE")).moreButtons[1]) -- 15 minutes
+		eq(join:IsShown(), false, "the JOIN's popup closes; he waits in Church > Invites")
+		eq(R3.Paused(), true)
+		RecruitClick(C3, R3, "recruit-resume")
+		eq(R3.Paused(), false, "Resume")
+		Check(C3.ledger, "recruiting resumed")
+		NoErrors(C3, "recruiting resumed")
+	end
+	GP.Covers("popup-focus")
 end)
 
 -- The popup's Less often: a 1.5.9 player's saved 5 minutes stay after the update until he clicks it;
@@ -4742,7 +4840,7 @@ test("gamepad recruiting ads (1.6.0): Less often on the popup: a 1.5.9 player's 
 		draft = NextAdPopup(C3, ns3, 59 * 60, 62 * 60)
 		assert(draft.text:GetText():find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(60), 1, true), "every 60 min, it says")
 		eq(draft.buttons[3]:IsShown(), true, "Less often still offered")
-		eq(draft.extraButton:IsShown(), true, "and Turn off")
+		eq(draft.moreButtons[2]:IsShown(), true, "and Turn off recruiting")
 		C3.Click(draft.buttons[1])
 		eq(ns3.Recruit.AnnounceReminderMinutes(), 60, "Close changes nothing")
 		Check(C3.ledger, "Less often after a /reload")

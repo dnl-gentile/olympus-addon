@@ -50,8 +50,9 @@ ns.Locale({ "esES", "esMX" }, {
 
 - {church} Si reclutas con un alter confirmado, tu personaje principal, Apóstol o Misionero, recibe los puntos directos de siempre cuando el registro de la hermandad y un testigo independiente confirman al recluta. Vincula tus personajes con /oly alt add en tu personaje principal y confirma luego en el alter. En WoW: Forever, un alter de otro subreino se añade solo con su nombre; cuando tus alters hayan confirmado, vuelve a entrar con tu personaje principal.
 - {church} Las ventanas de reclutamiento ya no te quitan el foco del teclado. Las hermandades sin sitio para nuevos jugadores se omiten, y a un jugador cercano que nunca pidió entrar no se le pasa automáticamente a otro reclutador.
-- {church} Los anuncios de reclutamiento activados desde el Censo aparecen ahora cada 30 minutos en lugar de cada 5, y nunca encima de otra ventana de reclutamiento. La ventana del anuncio tiene los botones Menos a menudo y Desactivar; Iglesia > Invitaciones cambia cada cuánto aparece o lo vuelve a activar. Si el tuyo sigue apareciendo cada 5 minutos, haz clic en Menos a menudo.
+- {church} Los anuncios de reclutamiento activados desde el Censo aparecen ahora cada 30 minutos en lugar de cada 5, y nunca encima de otra ventana de reclutamiento. La ventana del anuncio tiene el botón Menos a menudo; Iglesia > Invitaciones cambia cada cuánto aparece o lo vuelve a activar. Si el tuyo sigue apareciendo cada 5 minutos, haz clic en Menos a menudo.
 - {church} Derivaciones: el comando de invitación de un jugador que asumiste se abre al momento, incluso sobre una ventana de anuncio o la ventana para susurrar a un jugador de la búsqueda. El miembro que te pasó el jugador responde aunque esté en combate, los miembros ocupados se omiten y, si no llega ningún nombre, se te avisa.
+- {church} Toda ventana de reclutamiento que se abre sola (un anuncio, un JOIN, una derivación o un jugador de la búsqueda) tiene ahora Pausar reclutamiento y Desactivar reclutamiento. Pausar pregunta cuánto tiempo, de 15 minutos a 4 horas: hasta entonces no aparece nada, las solicitudes esperan en Iglesia > Invitaciones y la página Únete a Olympus pregunta antes a otros reclutadores; Iglesia > Invitaciones muestra hasta cuándo, con Reanudar. Desactivar pregunta si apagar solo ese tipo de ventana o todo el reclutamiento; Iglesia > Invitaciones lo vuelve a activar.
 - {guild} Mientras el censo se reconstruye, el último recuento conocido conserva su hora original. Las peticiones de actualización pueden compararse con esos datos guardados y pedir lo que les falta.
 - {guild} Cuando no llegan informes nuevos del censo a tu addon, el Censo conserva su último recuento, con la fecha en que se hizo, en lugar de ir perdiendo hermandades una a una.
 - {guild} La página Únete a Olympus pregunta primero a los miembros que están reclutando, omite a los que no pueden invitar y te avisa cuando todas las hermandades encontradas están llenas o no queda nadie a quien preguntar.
@@ -3006,10 +3007,27 @@ Larga vida al Rey. Larga vida a Olympus.]==],
 	RECRUIT_ANNOUNCE_POST_EDITED = "Copia el borrador editado en el chat del juego para publicarlo.",
 	RECRUIT_ANNOUNCE_POST_CHECK = "Publicación solicitada. Revisa el canal antes de volver a publicar.",
 	RECRUIT_ANNOUNCE_LESS = "Menos a menudo",
-	RECRUIT_ANNOUNCE_TURN_OFF = "Desactivar",
 	RECRUIT_ANNOUNCE_REMINDER_NOTE = "Recordatorio de anuncio: cada %d min. Cámbialo o vuelve a activarlo en Iglesia > Invitaciones.",
 	RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Recordatorio de anuncio: cada %d min. Cámbialo en Iglesia > Invitaciones.",
 	RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Recordatorio de anuncio desactivado. Vuelve a activarlo en Iglesia > Invitaciones.",
+	RECRUIT_PAUSE_BUTTON = "Pausar reclutamiento",
+	RECRUIT_TURN_OFF_BUTTON = "Desactivar reclutamiento",
+	RECRUIT_PAUSE_ASK = "¿Pausar el reclutamiento cuánto tiempo? Hasta entonces ninguna ventana de reclutamiento se abre sola, y las solicitudes esperan en Iglesia > Invitaciones.",
+	RECRUIT_PAUSED = "Reclutamiento en pausa hasta las %s. Las solicitudes esperan en Iglesia > Invitaciones, donde Reanudar termina la pausa.",
+	RECRUIT_PAUSED_UNTIL = "En pausa hasta las %s",
+	RECRUIT_RESUME = "Reanudar",
+	RECRUIT_RESUMED = "Reclutamiento reanudado: sus ventanas vuelven a abrirse.",
+	RECRUIT_TURN_OFF_ASK = "¿Desactivar solo este tipo de ventana o todo el reclutamiento? Iglesia > Invitaciones lo vuelve a activar.",
+	RECRUIT_OFF_ONLY_ADS = "Solo recordatorios de anuncio",
+	RECRUIT_OFF_ONLY_JOINS = "Solo ventanas de JOIN",
+	RECRUIT_OFF_ONLY_HANDOFFS = "Solo derivaciones",
+	RECRUIT_OFF_ONLY_SCAN = "Solo la búsqueda",
+	RECRUIT_OFF_ONLY_ALL = "Todo el reclutamiento",
+	RECRUIT_OFF_JOINS = "Ventanas de JOIN desactivadas: las solicitudes esperan en Iglesia > Invitaciones, donde Solicitudes JOIN las vuelve a activar.",
+	RECRUIT_OFF_HANDOFFS = "Aceptar derivaciones desactivado. Vuelve a activarlo en Iglesia > Invitaciones.",
+	RECRUIT_OFF_SCAN = "Búsqueda de jugadores sin hermandad desactivada. Vuelve a activarla en Iglesia > Invitaciones.",
+	RECRUIT_OFF_ALL = "Reclutamiento desactivado. Vuelve a activarlo en Iglesia > Invitaciones.",
+	RECRUIT_ASK_LATER = "Esa pregunta se abrirá cuando salgas del combate y de las instancias y dejes de escribir.",
 	RECRUIT_ANNOUNCE_CHANNEL_CHANGED = "El canal público ha cambiado. Vuelve a seleccionarlo.",
 	RECRUIT_ANNOUNCE_REMINDER_TITLE = "Recordatorio de anuncio",
 	RECRUIT_ANNOUNCE_REMINDER_ON = "%d min",
