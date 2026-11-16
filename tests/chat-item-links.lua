@@ -355,3 +355,105 @@ test("1.5.4 Chat tab links: a left click on a link opens the game's link window 
 		end)
 	end)
 end)
+
+-- 1.6.0 (GitHub issue #110, "Addon prevents working link of all professions"): a profession link
+-- sent in the Olympus chat was usable by nobody. Codec let only item, spell, enchant and quest links
+-- through, so the profession link, and an item link carrying its crafter's GUID, reached every reader
+-- as text. Pull request #109 lets Forever's profession link through exactly as the game writes it
+-- (trade:<Player GUID>:<spell id>:<skill line id>), and an item link with one crafter GUID. Here one
+-- player types both, the line leaves on the wire, and another player gets it in the game's chat and
+-- in the Chat tab, where both links hover and open. A malformed profession link stays text on both
+-- sides, as every malformed link always has. Fails before the merge: both links arrive as text, with
+-- no tooltip and no link window. Invented GUIDs.
+local GUID = "Player-4701-0A1B2C3D"
+local TRADE_DATA = "trade:" .. GUID .. ":3100:164"
+local TRADE = "|cffffd000|H" .. TRADE_DATA .. "|h[Blacksmithing]|h|r"
+local CRAFTED_DATA = "item:5765::::::::22:1490::::::::" .. GUID .. ":"
+local CRAFTED = "|cnIQ1:|H" .. CRAFTED_DATA .. "|h[Black Silk Pack]|h|r"
+local CRAFTED_HEX = "|cffffffff|H" .. CRAFTED_DATA .. "|h[Black Silk Pack]|h|r"
+local BAD_DATA = "trade:Player-4701-0a1b2c3d:3100:164" -- (a lowercase player id: no GUID the game writes)
+local BAD = "|cffffd000|H" .. BAD_DATA .. "|h[Tailoring]|h|r"
+
+test("1.6.0 issue #110: a profession link and a crafted item's link one player types reach another player live, in the game's chat and in the Chat tab, where both hover and open; a malformed profession link is text on both sides", function()
+	WithWindow(function(w)
+		WithItemData(function(known, _, refs)
+			known[5765] = { "Black Silk Pack", CRAFTED, 1 }
+			ITEM_QUALITY_COLORS[1] = { r = 1, g = 1, b = 1 }
+			local C = ns.Channels
+			local saved = { me = ns.me, split = ns.splitNames, realm = ns.realm, ready = ns.Comm.ChannelReady, room = ns.Comm.ChatRoom,
+				send = ns.Comm.SendChat, guild = GetGuildInfo, frame = DEFAULT_CHAT_FRAME, windows = ns.db.chatWindows,
+				warned = ns.db.chatWarned, looks = C.itemLooks, asked = C.itemsAsked, tip = GameTooltip.SetHyperlink,
+				roster = ns.Roster.byName }
+			local ok, err = pcall(KeepSendGap, function()
+				ns.me, ns.splitNames, ns.realm = "Tester Surname-Realm", true, "Realm"
+				GetGuildInfo = function() return GUILD, "Member", 3 end
+				ns.Comm.ChannelReady = function() return true end
+				ns.Comm.ChatRoom = function() return 3 end
+				local sent = {}
+				ns.Comm.SendChat = function(msg, done) sent[#sent + 1] = msg; done(true); return true end
+				ns.db.addonChat, ns.db.chatMute, ns.db.chatWindows, ns.db.chatWarned = true, {}, nil, { A = true }
+				C.itemLooks, C.itemsAsked = {}, {} -- (the game chat's own item data, fresh)
+				-- The other player, a guildmate in this client's roster (a line for our guild comes from our roster,
+				-- Channels.VerifiedLevel).
+				ns.Roster.byName = { [ns.FullName("Gg Hh-Realm")] = 3 }
+				local game = { lines = {} }
+				function game.AddMessage(self, text) self.lines[#self.lines + 1] = text end
+				DEFAULT_CHAT_FRAME = game
+				local function Said(i) return assert(game.lines[i], "game chat line " .. i):match(": (.*)$") end
+				-- The sender types both links in one line, and the malformed one in the next.
+				local t = 3000000
+				local line, badLine = "lf " .. TRADE .. " for " .. CRAFTED, "not " .. BAD
+				local shown, badShown = "lf " .. TRADE .. " for " .. CRAFTED_HEX, "not " .. (BAD:gsub("|", "||"))
+				assert(C.Send("A", line, t)); assert(C.Send("A", badLine, t + 10))
+				eq(#sent, 2, "both lines left")
+				assert(not sent[1]:find("|", 1, true), "no pipe on the wire: " .. sent[1])
+				eq(Codec.Plain(sent[1]), sent[1], "the relay's envelopes keep it whole")
+				eq(Codec.DecodeChat(sent[1]).text, line, "both links as typed, for every reader")
+				eq(Codec.DecodeChat(sent[2]).text, badShown, "the malformed link as text")
+				eq(#game.lines, 2, "the sender's own two lines in his game chat")
+				eq(Said(1), shown, "his own line: the links live, the item as his client has it")
+				eq(Said(2), badShown, "his own malformed link: text")
+				-- The other player: his game chat shows both links whole and live, the malformed one as text.
+				local got1, why1 = C.Receive("CHANNEL", "Gg Hh-Realm", sent[1], t + 20)
+				eq(got1, true, "shown: " .. tostring(why1))
+				local got2, why2 = C.Receive("CHANNEL", "Gg Hh-Realm", sent[2], t + 30)
+				eq(got2, true, "shown: " .. tostring(why2))
+				local heard = Said(3)
+				eq(heard, shown, "the profession link byte for byte, the item with its crafter and this client's name and colour")
+				for _, link in ipairs({ TRADE, CRAFTED_HEX }) do
+					eq(Codec.LinkAt(heard, heard:find(link, 1, true)), #link, "a live link in the game's chat: " .. link)
+				end
+				eq(Said(4), badShown, "the malformed link as text in the game's chat")
+				-- His Chat tab: the same lines; both links hover and open the game's link window, the
+				-- malformed one does neither.
+				local f = assert(w.CW.Open("A"), "open")
+				local b, bad
+				for _, x in ipairs(f.bubbles) do
+					local body = x:IsShown() and not x.mine and x.body:GetText() or ""
+					if body:find("[Blacksmithing]", 1, true) then b = x elseif body:find("[Tailoring]", 1, true) then bad = x end
+				end
+				assert(b and bad, "the other player's two lines in the Chat tab")
+				eq(b.body:GetText(), shown); eq(bad.body:GetText(), badShown)
+				eq(b.hyperlinks, true, "the bubble answers its links")
+				local hovered = {}
+				GameTooltip.SetHyperlink = function(_, link) hovered[#hovered + 1] = link end
+				for _, x in ipairs({ { TRADE_DATA, TRADE }, { CRAFTED_DATA, CRAFTED_HEX } }) do
+					b:Fire("OnHyperlinkEnter", x[1], x[2])
+					eq(hovered[#hovered], x[1], "the hover tooltip: " .. x[1])
+					b:Fire("OnHyperlinkLeave")
+					b:Fire("OnHyperlinkClick", x[1], x[2], "LeftButton")
+					eq(refs[#refs] and refs[#refs].link, x[1], "the game's link window: " .. x[1])
+				end
+				eq(#hovered, 2); eq(#refs, 2)
+				bad:Fire("OnHyperlinkEnter", BAD_DATA, BAD)
+				bad:Fire("OnHyperlinkClick", BAD_DATA, BAD, "LeftButton")
+				eq(#hovered, 2, "no tooltip for the malformed link"); eq(#refs, 2, "nor the game's link window")
+			end)
+			ns.me, ns.splitNames, ns.realm, ns.Comm.ChannelReady, ns.Comm.ChatRoom = saved.me, saved.split, saved.realm, saved.ready, saved.room
+			ns.Comm.SendChat, GetGuildInfo, DEFAULT_CHAT_FRAME, ns.db.chatWindows = saved.send, saved.guild, saved.frame, saved.windows
+			ns.db.chatWarned, C.itemLooks, C.itemsAsked, GameTooltip.SetHyperlink = saved.warned, saved.looks, saved.asked, saved.tip
+			ns.Roster.byName = saved.roster
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)

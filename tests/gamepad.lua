@@ -3363,6 +3363,8 @@ end)
 -- client holds none) shows as sent and is asked for once.
 local ITEM_LINK = "item:14342::::::::60:::::"
 local ITEM_TEXT = "|cff1eff00|H" .. ITEM_LINK .. "|h[Mooncloth]|h|r"
+local TRADE_LINK = "trade:Player-6931-017A0447:3100:164"
+local TRADE_TEXT = "|cffffd000|H" .. TRADE_LINK .. "|h[Blacksmithing]|h|r"
 local function LinkBubble(C, ns)
 	ns.db.addonChat = true
 	ns.rdb.chat = { A = { { t = C.now - 30, sender = "Aa Bb-Realm", guild = "Olympus II", text = "look " .. ITEM_TEXT .. " cheap" } } }
@@ -3374,13 +3376,13 @@ local function LinkBubble(C, ns)
 	end
 	error("no bubble with the link")
 end
-local function ClickLink(C, b)
+local function ClickLink(C, b, link, text)
 	local mark = C.Mark()
 	local before = #(C.itemRefs or {})
-	C.RunScript(b, "OnHyperlinkClick", ITEM_LINK, ITEM_TEXT, "LeftButton")
+	C.RunScript(b, "OnHyperlinkClick", link or ITEM_LINK, text or ITEM_TEXT, "LeftButton")
 	return #(C.itemRefs or {}) - before, C.Since(mark)
 end
-test("gamepad pass: a link in the Chat tab: a left click opens the game's link window (SetItemRef) with mouse and keyboard; with the gamepad UI the click reaches nothing of the game's and the hover tooltip stays; nothing at a gamepad login until the switch", function()
+test("gamepad pass: item and exact trade links in the Chat tab: a left click opens the game's link window (SetItemRef) with mouse and keyboard; with the gamepad UI the click reaches nothing of the game's and the hover tooltip stays; nothing at a gamepad login until the switch", function()
 	local C, ns = Session(false)
 	local b = LinkBubble(C, ns)
 	eq(b.body:GetText(), "look " .. ITEM_TEXT .. " cheap", "the link as sent: this client holds no data of the item")
@@ -3392,27 +3394,34 @@ test("gamepad pass: a link in the Chat tab: a left click opens the game's link w
 	Check(ledger, "the click")
 	C.RunScript(b, "OnHyperlinkClick", "player:Someone", "[Someone]", "LeftButton")
 	eq(#C.itemRefs, 1, "a player link opens nothing (the game's chat box)")
+	local tradeOpened, tradeLedger = ClickLink(C, b, TRADE_LINK, TRADE_TEXT)
+	eq(tradeOpened, 1, "the exact validated trade link uses the same native path")
+	eq(C.itemRefs[#C.itemRefs].link, TRADE_LINK); eq(C.itemRefs[#C.itemRefs].handled, "game")
+	eq(Ids(tradeLedger)["item-ref"], 1, "the trade click uses the same gate")
+	eq((ClickLink(C, b, "trade:Player-6931-017A0447:3100", "[blocked]")), 0, "malformed trade data stays blocked")
+	eq(#C.itemRefs, 2)
 	-- The gamepad UI: the hover tooltip in Olympus's bubble; the click reaches nothing of the game's.
 	C.Switch(true); C.Advance(1)
 	local padOpened, padLedger = ClickLink(C, b)
 	eq(padOpened, 0, "nothing with the gamepad UI")
 	eq(#padLedger, 0, "nothing of the game's reached" .. (padLedger[1] and (": " .. Describe(padLedger[1])) or ""))
+	eq((ClickLink(C, b, TRADE_LINK, TRADE_TEXT)), 0, "the trade click is gated with the gamepad UI too")
 	local mark = C.Mark()
-	C.RunScript(b, "OnHyperlinkEnter", ITEM_LINK, ITEM_TEXT)
+	C.RunScript(b, "OnHyperlinkEnter", TRADE_LINK, TRADE_TEXT)
 	eq(C.env.GameTooltip:IsShown(), true, "the hover tooltip with the gamepad UI")
-	eq(C.env.GameTooltip.hyperlink, ITEM_LINK)
+	eq(C.env.GameTooltip.hyperlink, TRADE_LINK)
 	C.RunScript(b, "OnHyperlinkLeave")
 	Check(C.Since(mark), "the hover with the gamepad UI")
 	C.Switch(false); C.Advance(1)
-	eq((ClickLink(C, b)), 1, "again with mouse and keyboard")
+	eq((ClickLink(C, b, TRADE_LINK, TRADE_TEXT)), 1, "the trade link again with mouse and keyboard")
 	Check(C.ledger, "the whole session")
 	NoErrors(C, "the Chat tab's links")
 	-- A gamepad login: the click opens nothing; after the switch to mouse and keyboard, it does.
 	local P, pns = Session(true)
 	local pb = LinkBubble(P, pns)
-	eq((ClickLink(P, pb)), 0, "nothing at a gamepad login")
+	eq((ClickLink(P, pb, TRADE_LINK, TRADE_TEXT)), 0, "the trade link does nothing at a gamepad login")
 	P.Switch(false); P.Advance(1)
-	eq((ClickLink(P, pb)), 1, "after the switch to mouse and keyboard")
+	eq((ClickLink(P, pb, TRADE_LINK, TRADE_TEXT)), 1, "the trade link after the switch to mouse and keyboard")
 	Check(P.ledger, "a gamepad login, then mouse and keyboard")
 	NoErrors(P, "a gamepad login, then mouse and keyboard")
 	GP.Covers("item-ref")

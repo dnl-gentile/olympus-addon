@@ -539,6 +539,101 @@ function Channels.SetGuildNamesShown(shown)
 	return true
 end
 
+-- 1.6.0: one presentation boundary for item links in Olympus's own Chat tab, the game's native
+-- chat frames and Chattynator. Forever's named quality colours (|cnIQ3:) are not rendered by every
+-- FontString/chat addon. Use this client's item name and normalized quality RGB as a traditional
+-- hex colour; with no usable RGB, remove only an unsupported named colour so the original payload
+-- and name remain a clickable uncoloured link. The history and transport retain the received link.
+-- `owner` gives the Chat tab and native chat separate caches while sharing this exact behaviour.
+local function ItemFinite(v)
+	return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function ItemColour(quality) -- gp:lookups
+	if not ns.Gate.Allowed("lookups") then return end
+	if not ItemFinite(quality) or quality < 0 or quality % 1 ~= 0 then return end
+	local colours = ITEM_QUALITY_COLORS
+	local c = type(colours) == "table" and colours[quality]
+	if type(c) ~= "table" or not ItemFinite(c.r) or not ItemFinite(c.g) or not ItemFinite(c.b) then return end
+	local function Byte(v) return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5) end
+	return ("|cff%02x%02x%02x"):format(Byte(c.r), Byte(c.g), Byte(c.b))
+end
+
+Channels.itemLooks = {} -- item id -> { name, colour } as the client has it, false with no API
+Channels.itemsAsked = {} -- item id -> asked the client for its data
+local function ItemState(owner)
+	owner = type(owner) == "table" and owner or Channels
+	if type(owner.itemLooks) ~= "table" then owner.itemLooks = {} end
+	if type(owner.itemsAsked) ~= "table" then owner.itemsAsked = {} end
+	return owner.itemLooks, owner.itemsAsked
+end
+
+function Channels.ItemLook(id, owner) -- gp:lookups
+	if not ns.Gate.Allowed("lookups") then return end
+	local itemLooks, itemsAsked = ItemState(owner)
+	local look = itemLooks[id]
+	if look ~= nil then return look or nil end
+	local I = C_Item
+	local get = type(I) == "table" and type(I.GetItemInfo) == "function" and I.GetItemInfo
+		or (type(GetItemInfo) == "function" and GetItemInfo) or nil
+	if not get then
+		itemLooks[id] = false
+		return nil
+	end
+	local ok, name, link, quality = pcall(get, id)
+	if ok and type(name) == "string" and name ~= "" and #name <= 100 and not name:find("[%[%]|%c]") then
+		local colour = (type(link) == "string" and link:match("^|c%x%x%x%x%x%x%x%x")) or ItemColour(quality)
+		look = { name = name, colour = colour }
+		itemLooks[id] = look
+		return look
+	end
+	if not itemsAsked[id] and type(I) == "table" and type(I.RequestLoadItemDataByID) == "function" then
+		itemsAsked[id] = true
+		pcall(I.RequestLoadItemDataByID, id)
+	end
+	return nil
+end
+
+function Channels.Relink(text, owner)
+	if type(text) ~= "string" or not text:find("|Hitem:", 1, true) then return text end
+	local out, i, n = {}, 1, #text
+	while i <= n do
+		local j = text:find("|", i, true)
+		if not j then
+			out[#out + 1] = text:sub(i)
+			break
+		end
+		if j > i then out[#out + 1] = text:sub(i, j - 1) end
+		local len = text:byte(j + 1) ~= 124 and Codec.LinkAt(text, j) or nil
+		if not len then
+			out[#out + 1] = text:sub(j, j + 1)
+			i = j + 2
+		else
+			local link = text:sub(j, j + len - 1)
+			local colour, data = link:match("^(|c[^|]*)|Hitem:([^|]*)|h%["), nil
+			if colour then data = link:match("^|c[^|]*|Hitem:([^|]*)|h%[") else data = link:match("^|Hitem:([^|]*)|h%[") end
+			if data and colour and colour:sub(1, 3) == "|cn" then
+				link, colour = link:sub(#colour + 1, -3), nil
+			end
+			local look = data and Channels.ItemLook(tonumber(data:match("^(%d+)")), owner)
+			if look then
+				colour = look.colour or colour
+				link = "|Hitem:" .. data .. "|h[" .. look.name .. "]|h"
+				if colour then link = colour .. link .. "|r" end
+			end
+			out[#out + 1] = link
+			i = j + len
+		end
+	end
+	return table.concat(out)
+end
+
+function Channels.ItemInfoReceived(id, owner)
+	id = tonumber(id)
+	local itemLooks, itemsAsked = ItemState(owner)
+	return id ~= nil and itemsAsked[id] == true and not itemLooks[id] and true or false
+end
+
 -- line (1.5.9): the history entry the line is (its ruleset's tag under All, Channels.GroupTag), if any.
 function Channels.FormatLine(tier, sender, guild, class, text, bare, line)
 	-- A moderator's cover name (Cover.lua): that name, plain, without the marks below.
@@ -1191,7 +1286,7 @@ local function Show(tier, sender, guild, class, text, id, e) -- gp:chat-output
 	if not f then return end
 	local c = TIERS[tier].color
 	local bare = f ~= DEFAULT_CHAT_FRAME and Channels.IsTabName(wname)
-	local line = Channels.FormatLine(tier, sender, guild, class, text, bare, e)
+	local line = Channels.FormatLine(tier, sender, guild, class, Channels.Relink(text), bare, e)
 	f:AddMessage(line, c[1], c[2], c[3])
 	-- 1.1.6: what was printed where, so a moderator's deletion can replace it (WatchChat.lua).
 	local WC = ns.WatchChat

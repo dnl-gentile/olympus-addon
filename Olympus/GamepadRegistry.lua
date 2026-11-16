@@ -112,7 +112,7 @@ ns.GAMEPAD = {
 			"Blizzard_ChatFrameBase/Shared/ChatFrame.lua:19 function ChatFrameMixin:OnHyperlinkClick(link, text, button)" } },
 	{ id = "item-ref", kind = "panel", files = { "ChatWindow.lua" },
 		guard = "gate", toPad = "stays", toMouse = "on", safe = "off",
-		why = "1.5.4: a left click on an item, spell, enchant or quest link in a line of the Chat tab opens the game's link window as a click in the game's chat does (SetItemRef, which shows ItemRefTooltip, a game panel); never for another link type (a player link would open the chat box), and never with the gamepad UI, where the hover tooltip in Olympus's own bubble stays and the click does nothing.",
+		why = "1.5.4: a left click on an item, spell, enchant or quest link in a line of the Chat tab opens the game's link window as a click in the game's chat does (SetItemRef, which shows ItemRefTooltip, a game panel); 1.6.0: the same for an exactly validated trade link (a profession link). Never for malformed data or another link type (a player link would open the chat box), and never with the gamepad UI, where the hover tooltip in Olympus's own bubble stays and the click does nothing.",
 		pins = { "Blizzard_UIPanels_Game/Mainline/ItemRef.lua:6 function SetItemRef(link, text, button, frame)",
 			"Blizzard_ChatFrameBase/Shared/ChatFrame.lua:19 function ChatFrameMixin:OnHyperlinkClick(link, text, button)" } },
 	{ id = "issue-reporter", kind = "frame-child", files = { "UI.lua" },
