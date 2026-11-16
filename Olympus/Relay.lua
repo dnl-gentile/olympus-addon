@@ -252,6 +252,8 @@ function Relay.Stats()
 		-- too; and the lines this relay's client heard in that channel (Relay.HeardInChannel).
 		chatAcross = Relay.ChatLanes and Relay.ChatLanes().across or 0, chatCarried = Relay.ChatLanes and Relay.ChatLanes().carried or 0,
 		heardInChannel = stats.heardInChannel or 0,
+		-- (The review of 1.6.0) And their copies let go past Relay.CARRIED_FOR.
+		chatLate = stats.chatLate or 0,
 		-- (1.5.9's review) The drip's whispers handed to Comm: census transfers', the others', and those
 		-- of either that went past its pace (Relay.DRIP_PER_MIN) while nothing else waited.
 		dripCensus = stats.dripCensus or 0, dripOther = stats.dripOther or 0, dripFree = stats.dripFree or 0 }
@@ -2012,10 +2014,33 @@ local function Carried(line, now)
 	local at = line and carried[line]
 	return at ~= nil and now - at < Relay.CHAT_LANE_TTL
 end
--- The front of the lines only the relays carry, once those the channel carried meanwhile went behind.
+-- The front of the lines only the relays carry, once those the channel carried meanwhile went behind
+-- (each with when this relay's client heard its line there).
 local function OnlyFront(now)
-	while ONLY.first <= ONLY.last and Carried(ONLY[ONLY.first].line, now) do Push(CARRIED, Pop(ONLY)) end
+	while ONLY.first <= ONLY.last and Carried(ONLY[ONLY.first].line, now) do
+		local e = Pop(ONLY)
+		e.heard = carried[e.line]
+		Push(CARRIED, e)
+	end
 	return ONLY[ONLY.first]
+end
+-- (The review of 1.6.0) A copy of a line the public channel carried goes within CARRIED_FOR of when
+-- this relay's client heard it there (or was handed it, if sooner), else not at all: a client before
+-- 1.6.0 keeps a line's id 120 s (Channels' window then), so a later copy showed that line a second
+-- time to each such client in the channel. Waiting last in the lane and holding no census back, at a
+-- line every 40 s (90 registrants and a guildmate behind every 10th, half the lines typed in the
+-- channel, every 10th member outside it) 318 copies reached a member in the channel more than 120 s
+-- after he showed the line (the load harness, tests/relay-tree-load.lua; 40 at a line every 50 s, 865
+-- every 35 s; 50 every 20 s with every member in the channel); none now. A copy handed on at
+-- CARRIED_FOR reached its last member up to 14 s later there (its place among the relay's whispers in
+-- flight, then its registrant's hand-on to the guild), hence 100 s and not 120. The cost falls on a
+-- client outside the channel (an older one on another lane, one that failed to join): it misses the
+-- copies let go (Stats().chatLate, apart from the lost). With every 10th member outside, those missed
+-- 15 of the 258 lines they should have shown at a line every 40 s (none before), 61 of 294 every 35 s
+-- (30 before); they still showed every line only the relays carry.
+Relay.CARRIED_FOR = 100
+local function CarriedLate(e, now)
+	return now - math.min(e.t, e.heard or e.t) >= Relay.CARRIED_FOR
 end
 local FeedChat
 -- Fed again after `seconds` (one timer at a time); meanwhile a word that arrives feeds it once it is due.
@@ -2088,6 +2113,10 @@ local function FeedChatNow(now)
 		if now - e.t >= Relay.CHAT_LANE_TTL then
 			Pop(q)
 			stats.chatLost = (stats.chatLost or 0) + 1
+		elseif q == CARRIED and CarriedLate(e, now) then
+			-- (The review of 1.6.0: past CARRIED_FOR, let go.)
+			Pop(q)
+			stats.chatLate = (stats.chatLate or 0) + 1
 		elseif b.tokens < #e.pieces then
 			ChatLater(math.max(1, (#e.pieces - b.tokens) * 60 / Relay.CHAT_PER_MIN))
 			break

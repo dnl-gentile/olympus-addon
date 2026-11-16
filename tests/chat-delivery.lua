@@ -290,7 +290,10 @@ end)
 -- realm key holder's), which waited behind them. The relay's client notes a line the channel carried
 -- (ChatHall.OnChannel -> Relay.HeardInChannel), and its copies wait behind the others. Fails before: the
 -- first line only the relays carry reached its last reporter after 136 s, behind the three others.
-test("chat delivery (1.6.0): three lines the relay's own client heard in the public channel and three it did not, at once, at 92 reporters: the three only the relays carry reach every reporter first, one after another; the others' copies follow, every reporter's, while there is time", function()
+-- (The review of 1.6.0: the others' copies went on to every reporter, the last some 200 s after the
+-- channel's copy, which a client before 1.6.0 in the channel showed again past its 120 s. They go within
+-- Relay.CARRIED_FOR now or are let go, counted: the test after this one.)
+test("chat delivery (1.6.0): three lines the relay's own client heard in the public channel and three it did not, at once, at 92 reporters: the three only the relays carry reach every reporter first, one after another; the others' copies go while in time (Relay.CARRIED_FOR), the rest let go", function()
 	WithMember(function()
 		local n = 92
 		local R, sent, Run = BusyRelay(n)
@@ -327,9 +330,69 @@ test("chat delivery (1.6.0): three lines the relay's own client heard in the pub
 			if x.k <= 3 and x.t < last[6] then ahead = ahead + 1 end
 		end
 		assert(ahead <= R.Relay.CHAT_BURST, ("%d whispers of the lines the channel carried went before the others were done"):format(ahead))
-		for k = 1, 3 do eq(count[k], n, "line " .. k .. "'s copies still reached every reporter, within CHAT_LANE_TTL") end
+		local carriedSent, tooLate = 0, 0
+		for _, x in ipairs(went) do
+			if x.k <= 3 then
+				carriedSent = carriedSent + 1
+				-- (Each pump hands Comm at most CHAT_INFLIGHT more: they leave within two pumps.)
+				if x.t > R.Relay.CARRIED_FOR + 2.4 then tooLate = tooLate + 1 end
+			end
+		end
+		eq(tooLate, 0, "none of their copies left past CARRIED_FOR")
+		eq(carriedSent + R.Relay.Stats().chatLate, 3 * n, "each copy of theirs went in time or was let go, counted (/oly status)")
 		eq(R.Relay.Stats().chatLost, 0)
 		eq(R.Relay.Stats().heardInChannel, 3, "the three lines the relay's client heard in the channel, counted (/oly status)")
+	end)
+end)
+
+-- The review of 1.6.0. A copy of a line the public channel carried waited behind the lines only the relays
+-- carry, as long as Relay.CHAT_LANE_TTL: a client before 1.6.0 keeps a line's id 120 s, so in the channel
+-- it showed the line again when such a copy came later (the load harness: 318 copies past those 120 s at
+-- a line every 40 s, 90 registrants). Its copies go within Relay.CARRIED_FOR of the channel's copy now,
+-- and the rest are let go, counted apart from the lost. Fails before: every reporter's copy of both went,
+-- the last some 140 s after the channel's copies.
+test("chat delivery (1.6.0): two lines the relay's own client heard in the public channel, behind two it did not, at 92 reporters: their copies go once the two are done, until Relay.CARRIED_FOR after the channel's copies; the rest are let go and counted, none lost and none later", function()
+	WithMember(function()
+		local n = 92
+		local R, sent, Run = BusyRelay(n)
+		R.Comm.ChannelName = function() return "OlympusNet" end
+		R.Comm.ChannelIndex = function() return 5 end
+		assert(loadfile(extra.addon .. "ChatHall.lua"))("Olympus", R)
+		local t0, last, count, went, seen = R.clock, {}, {}, {}, 0
+		local function Watch()
+			for i = seen + 1, #sent do
+				local k = tonumber(sent[i].msg:match("^RM~L~[^~]+~M1~A~Olympus Guild(%d+)~"))
+				if k then
+					count[k], last[k] = (count[k] or 0) + 1, R.clock - t0
+					went[#went + 1] = { k = k, t = R.clock - t0 }
+				end
+			end
+			seen = #sent
+		end
+		for k = 1, 2 do
+			eq(R.ChatHall.OnChannel(Line(k), ("Speaker Number%d"):format(k), "", "5. OlympusNet", "", "", 0, 5, "OlympusNet"), true)
+			Say(R, k)
+		end
+		Say(R, 3)
+		Say(R, 4)
+		Run(3000, Watch)
+		for k = 3, 4 do eq(count[k], n, "line " .. k .. " (only the relays carry it) reached every reporter") end
+		local after, tooLate, sentOf = 0, 0, 0
+		for _, x in ipairs(went) do
+			if x.k <= 2 then
+				sentOf = sentOf + 1
+				if x.t > math.max(last[3], last[4]) then after = after + 1 end
+				-- (Each pump hands Comm at most CHAT_INFLIGHT more: they leave within two pumps.)
+				if x.t > R.Relay.CARRIED_FOR + 2.4 then tooLate = tooLate + 1 end
+			end
+		end
+		assert(after > 0, "their copies went on once the two were done")
+		eq(tooLate, 0, "none of their copies left past CARRIED_FOR")
+		local late = R.Relay.Stats().chatLate
+		assert(late > 0, ("the lane was busy past CARRIED_FOR: %d sent, %d let go"):format(sentOf, late))
+		eq(sentOf + late, 2 * n, "each of their copies went or was let go, counted (/oly status)")
+		eq(R.Relay.Stats().chatLost, 0, "none lost")
+		eq(R.Relay.Stats().heardInChannel, 2)
 	end)
 end)
 

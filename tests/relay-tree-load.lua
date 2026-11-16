@@ -142,7 +142,14 @@ local TREE = { new = extra.addon .. "RelayTree.lua", ["1.5.6"] = FIXTURES .. "re
 -- and the members other than the speaker, the lines never shown (missed: relay-only ones apart), those
 -- shown twice, the copies dropped as already heard (dup), the first copy shown's delay and each relay
 -- copy's (the first one that reached the member), and the most lines one member missed; o.chatTtl sets
--- the relay's Relay.CHAT_LANE_TTL.
+-- the relay's Relay.CHAT_LANE_TTL. (The review of 1.6.0) o.outside: every this many members (each
+-- registrant of either relay and each guildmate, in that order) sits outside the public channel, as a
+-- client on an older lane or one that failed to join it does: it hears no channel copy, only what the
+-- relays and its guild hand it. r.chat.members then counts apart the lines those members never showed
+-- (missedOutside, of pairsOutside; relay-only ones missedOutsideRelayOnly) and those the members in the
+-- channel never showed (missedInside); and, as before, late: the relay copies that reached a member
+-- more than two minutes after the copy it showed first, which a client before 1.6.0 (Channels' 120 s
+-- window then) showed a second time.
 local function Run(o)
 	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
 		chat = C_ChatInfo, time = GetTime, join = rawget(_G, "JoinChannelByName") }
@@ -471,9 +478,11 @@ local function Run(o)
 		local members = {}
 		for _, m in ipairs(clients) do members[#members + 1] = m end
 		for _, g in ipairs(mates) do members[#members + 1] = g end
-		for _, m in ipairs(members) do
+		for i, m in ipairs(members) do
 			m.rx = { seen = {}, mine = {}, buckets = {}, stats = {}, lines = {} }
 			m.rxSeen = #m.heard
+			-- (o.outside) Outside the public channel: no channel copy reaches it.
+			m.outside = o.outside ~= nil and i % o.outside == 0 or nil
 		end
 		local function Show(m, sender, text, how)
 			local x = ns.Codec.DecodeChat(text)
@@ -507,7 +516,7 @@ local function Run(o)
 				-- and so do the relays' clients (ChatHall.lua hands it to Relay.HeardInChannel where there is one).
 				if native then
 					for _, m in ipairs(members) do
-						if m ~= from then Show(m, from.c.me, text, "native") end
+						if m ~= from and not m.outside then Show(m, from.c.me, text, "native") end
 					end
 					for _, relay in ipairs({ R, peer or false }) do
 						if relay and relay.c.Relay.HeardInChannel then As(relay, relay.c.Relay.HeardInChannel, Short(from.c.me), text) end
@@ -578,7 +587,9 @@ local function Run(o)
 		end
 		local shown = { lines = 0, native = 0, pairs = 0, missed = 0, missedToPeer = 0, missedFromPeer = 0, missedRelayOnly = 0, pairsRelayOnly = 0, twice = 0, dup = 0,
 			late = 0, worst = 0, members = #members, mates = #mates, laneMost = laneMost, laneOldest = laneOldest,
-			skipped = R.c.Relay.Stats().chatSkipped or 0 }
+			skipped = R.c.Relay.Stats().chatSkipped or 0, outside = 0, pairsOutside = 0, missedOutside = 0, missedOutsideRelayOnly = 0,
+			missedInside = 0, carriedLate = R.c.Relay.Stats().chatLate or 0 }
+		for _, m in ipairs(members) do if m.outside then shown.outside = shown.outside + 1 end end
 		local first, relayed, relayOnly, missedBy = {}, {}, {}, {}
 		local window = 2 * R.c.Relay.CHAT_LANE_TTL + 60
 		for _, line in ipairs(o.chat and lines or {}) do
@@ -590,8 +601,16 @@ local function Run(o)
 						local rec = m.rx.lines[line.text]
 						shown.pairs = shown.pairs + 1
 						if not line.native then shown.pairsRelayOnly = shown.pairsRelayOnly + 1 end
+						if m.outside then shown.pairsOutside = shown.pairsOutside + 1 end
 						if not rec or not rec.first then
 							shown.missed = shown.missed + 1
+							-- (o.outside) Apart: by the members outside the public channel, and by those in it.
+							if m.outside then
+								shown.missedOutside = shown.missedOutside + 1
+								if not line.native then shown.missedOutsideRelayOnly = shown.missedOutsideRelayOnly + 1 end
+							else
+								shown.missedInside = shown.missedInside + 1
+							end
 							-- (o.peerRegs) A line the relay's speaker said, missed by the mesh peer's member, and back.
 							if m.side == "peer" and line.from.side ~= "peer" then shown.missedToPeer = shown.missedToPeer + 1
 							elseif m.side ~= "peer" and line.from.side == "peer" then shown.missedFromPeer = shown.missedFromPeer + 1 end
@@ -1074,8 +1093,10 @@ end)
 -- carry behind the copies of lines everyone in the channel had already, and each relay copy that came
 -- past Channels' two minutes showed its line again. Fails before: the members never saw some 900 of the
 -- 5,586 lines they should (886 to 926 from run to run: the table's order), saw some 1,600 twice, and a line
--- only the relays carry took up to 310 s.
-test("relay tree under load (1.6.0): chat as its members see it: one relay, 90 registrants (ten on 1.5.4) and a guildmate behind every 10th, a line every 20 s for 30 minutes, half of them typed in the public channel too, with peers' snapshots, the author's looks and the King's presence: every member shows every line, once, and the lines only the relays carry within 200 s", function()
+-- only the relays carry took up to 310 s. (The review of 1.6.0) And no relay copy reaches a member more
+-- than two minutes after the copy he showed: a client before 1.6.0 would show the line twice. Fails
+-- before Relay.CARRIED_FOR: 50 such copies.
+test("relay tree under load (1.6.0): chat as its members see it: one relay, 90 registrants (ten on 1.5.4) and a guildmate behind every 10th, a line every 20 s for 30 minutes, half of them typed in the public channel too, with peers' snapshots, the author's looks and the King's presence: every member shows every line, once, the lines only the relays carry within 200 s, and no copy past a 1.5.9 client's two minutes", function()
 	local r = Run({ registrants = 90, guilds = 140, minutes = 30, chat = 20, mix = { new = 90, ["1.5.4"] = 10 }, speak = true, native = 50,
 		mates = 10, crossing = 150, king = 300, look = 600, lookRows = 0, housekeeping = true })
 	Sound(r)
@@ -1084,6 +1105,32 @@ test("relay tree under load (1.6.0): chat as its members see it: one relay, 90 r
 	eq(s.missed, 0, "every member showed every line")
 	eq(s.twice, 0, "and none twice")
 	assert(s.relayOnlyLatency.most <= 200, ("a line only the relays carry reached a member after %d s"):format(s.relayOnlyLatency.most))
+	eq(s.late, 0, "no relay copy came more than two minutes after the copy a member showed")
+end)
+
+-- The review of 1.6.0 (chat on 1.6.0 as its members see it, with a client before 1.6.0 in mind and some
+-- members outside the public channel). The copies of lines the channel carried waited last in the relay's
+-- lane, as long as Relay.CHAT_LANE_TTL, and no longer held the census back: at a line every 40 s, an
+-- ordinary rate, 318 of them reached a member in the channel more than two minutes after he showed the
+-- line, which a client before 1.6.0 (Channels' 120 s then) shows a second time. They go within
+-- Relay.CARRIED_FOR or not at all now. Its cost falls on the members outside the channel (an older client
+-- on another lane, one that failed to join): they miss the copies let go, though never a line only the
+-- relays carry. Fails before: 318 copies past those two minutes.
+test("relay tree under load (1.6.0): one relay, 90 registrants (ten on 1.5.4) and a guildmate behind every 10th, every 10th member outside the public channel, a line every 40 s for 30 minutes, half of them typed in the channel too: no relay copy past a 1.5.9 client's two minutes, every member in the channel shows every line once, those outside every line only the relays carry and most of the others, and the census keeps its share", function()
+	local r = Run({ registrants = 90, guilds = 140, minutes = 30, chat = 40, mix = { new = 90, ["1.5.4"] = 10 }, speak = true, native = 50,
+		mates = 10, outside = 10, crossing = 150, king = 300, look = 600, lookRows = 0, housekeeping = true })
+	Sound(r)
+	local s = r.chat.members
+	assert(s.lines >= 25 and s.native > 0 and s.native < s.lines, ("%d lines measured, %d of them in the channel too"):format(s.lines, s.native))
+	assert(s.outside >= 9 and s.pairsOutside > 0, ("%d members outside the channel"):format(s.outside))
+	eq(s.late, 0, "no relay copy came more than two minutes after the copy a member showed")
+	eq(s.missedInside, 0, "every member in the channel showed every line")
+	eq(s.twice, 0, "and none twice")
+	eq(s.missedOutsideRelayOnly, 0, "every member outside the channel showed every line only the relays carry")
+	assert(s.missedOutside * 10 <= s.pairsOutside, ("the members outside the channel missed %d of %d lines"):format(s.missedOutside, s.pairsOutside))
+	assert(s.carriedLate > 0, "the relay let some copies go past CARRIED_FOR")
+	eq(r.never, 0, "every registrant took a census")
+	assert(r.snapshots >= 3 * r.measured, ("%d census snapshots for %d registrants"):format(r.snapshots, r.measured))
 end)
 
 -- 1.6.0 (the same report). A line's copy to another relay waited behind the line's reporters, so a full lane
@@ -1134,9 +1181,12 @@ end
 -- in a hundred said in the public channel too), OLYMPUS_TREE_LOAD_MINUTES (30) and
 -- OLYMPUS_TREE_LOAD_SHAPE ("one": the relay's 90 registrants; "two": 60 on it and 30 on its mesh
 -- peer; "both": "two" with half of the relay's registrants answered by the peer too) change the cases,
--- and OLYMPUS_TREE_LOAD_TTL the relay's Relay.CHAT_LANE_TTL (o.chatTtl). Each case's second line: the
+-- and OLYMPUS_TREE_LOAD_TTL the relay's Relay.CHAT_LANE_TTL (o.chatTtl), OLYMPUS_TREE_LOAD_OUTSIDE
+-- (o.outside: every this many members outside the public channel). Each case's second line: the
 -- members' own relay counters, the relays they left out (Relay.Stats().dead), the words they hold for
--- a relay and those dropped for want of one.
+-- a relay and those dropped for want of one; the lines the members outside the channel missed (of all
+-- they should have shown; relay-only ones apart) and the relay's copies of channel-carried lines let go
+-- late (Relay.CARRIED_FOR); the registrants' census snapshots and the longest any went without one.
 if loadMode == "chat" then
 	test("relay tree under load: chat at its members (the table)", function()
 		local minutes = tonumber(os.getenv("OLYMPUS_TREE_LOAD_MINUTES")) or 30
@@ -1155,7 +1205,7 @@ if loadMode == "chat" then
 			for _, native in ipairs(List("OLYMPUS_TREE_LOAD_NATIVE", "0,50")) do
 				local o = { guilds = 140, minutes = minutes, chat = every, mix = { new = 90, ["1.5.4"] = 10 }, speak = true, native = native,
 					mates = 10, crossing = 150, king = 300, look = 600, lookRows = 0, housekeeping = true,
-					chatTtl = tonumber(os.getenv("OLYMPUS_TREE_LOAD_TTL")) }
+					chatTtl = tonumber(os.getenv("OLYMPUS_TREE_LOAD_TTL")), outside = tonumber(os.getenv("OLYMPUS_TREE_LOAD_OUTSIDE")) }
 				for k, v in pairs(shapes[shapeName] or shapes.one) do o[k] = v end
 				local r = Run(o)
 				eq(r.errors[1], nil, "no error in any client")
@@ -1164,7 +1214,9 @@ if loadMode == "chat" then
 				print(("| %d s | %d%% | %d | %d | %d (%d; to the peer %d, from it %d) | %d | %d | %d | %s | %s | %s | %d of %d | %d / %d (%d) | %d / %d |"):format(every, native,
 					s.lines, s.pairs, s.missed, s.missedRelayOnly, s.missedToPeer, s.missedFromPeer, s.twice, s.dup, s.late, S(s.latency), S(s.relayOnlyLatency),
 					S(s.relayLatency), s.worst, s.lines, r.chat.lost, s.skipped, r.chat.peerLost, s.laneMost, s.laneOldest))
-				print(("   members' relays left out (dead) %d, words held now %d, dropped for no relay %d"):format(s.dead, s.held, s.norelay))
+				print(("   members' relays left out (dead) %d, words held now %d, dropped for no relay %d; %d members outside the channel missed %d of %d (relay-only %d); carried copies let go late %d; census snapshots %d, longest without one %d s"):format(
+					s.dead, s.held, s.norelay, s.outside, s.missedOutside, s.pairsOutside, s.missedOutsideRelayOnly, s.carriedLate,
+					r.snapshots, r.longest))
 				io.stdout:flush()
 			end
 		end
