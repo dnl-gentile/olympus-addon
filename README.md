@@ -89,8 +89,10 @@ approves it from The Watch's **Guilds** (every Olympus guild still to verify, wi
 members, time left and code, overdue ones first; a click approves it or whispers its guild master,
 who may not have the addon yet; **Copy the list** opens it in a window to copy from) or with
 `/oly verify approve <Guild> [Guild master]` or `<code>`; `/oly verify revoke <Guild>` takes one
-back. The verifiers are told once of each pending guild (and of each new guild master to check)
-and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
+back, even where the verifier's own client never received that approval (1.6.0: the guild master's name
+follows the guild's only when the census doesn't know it). A revocation takes the guild's check off every
+client that receives it. The verifiers are told once of each pending guild (and
+of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
 verified, on the guild's same clock. Past its 7 days an unverified guild is overdue. Member-facing popups, chat warnings and Census
 notices are temporarily paused; the guild master still receives the verification reminder.
@@ -3278,7 +3280,7 @@ Other limits:
 | `/oly recruits` | Lords: your recruits, and a Captain as each one's mentor (one whisper to each, from your click) |
 | `/oly nominees [legate <name> \| correspondent <n> <name> \| remove <name>]` | guild masters: up to 25 Legates and one correspondent per department from their own guild. The King or real High Council explicitly appoints up to 25 Legates of the King's guild; being on the council alone appoints nobody. The historical `centurion` command remains an alias |
 | `/oly verify` · `/oly verify status` | your guild's verification: a guild master's steps (whisper a verifier, or ask the High Council), else its state; the King, the High Council and the author: The Watch's Guilds |
-| `/oly verify approve <Guild> [Guild master]` · `/oly verify approve <code>` · `/oly verify revoke <Guild>` · `/oly verify list` | verifiers (the King, the High Council, the author): approve a guild with its guild master (by default the census's), take one back, or copy the list of guilds still to verify |
+| `/oly verify approve <Guild> [Guild master]` · `/oly verify approve <code>` · `/oly verify revoke <Guild> [Guild master]` · `/oly verify list` | verifiers (the King, the High Council, the author): approve a guild with its guild master (by default the census's), take one back (also one your client never received), or copy the list of guilds still to verify |
 | `/oly nocontact on\|off` | do not contact: recruits' Join screens skip you (on), or may ask you (off) |
 | `/oly patrol` | start or stop the tabard patrol |
 | `/oly mark [note]` | mark your target |

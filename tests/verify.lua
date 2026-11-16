@@ -1501,3 +1501,67 @@ test("verify: on Forever the King's guild, OLYMPUS PRIME, is exempt and wears th
 	ns.realm, ns.faction = savedRealm, savedFaction
 	if not ok then error(err, 0) end
 end)
+
+-- 1.6.0 (a player's report of 11-15: a guild the staff excommunicated still wore its check). A
+-- verifier revokes a guild whose approval reached other clients but never his own: an answer carries
+-- the newest words a store holds alone, so an old approval reaches no verifier who was away when it
+-- was given, and Revoke said "no verification to revoke" there. Fails before: refused, nothing sent.
+test("verify: 1.6.0 a verifier revokes a guild whose approval his client never held: the census's guild master or the one typed names it", function()
+	World(function(w)
+		local hc = w.Client(HC, HEARTH, 3)
+		local member = w.Client(MEMBER, GUILD, 3)
+		local outsider = w.Client(LATE, OTHER, 3)
+		w.Census(GUILD, "Bram Hollow", 990)
+		w.Census(OTHER, "Corin Ash", 400)
+		w.Census("Olympus", "Some Leader", 900) -- (the King's guild in this harness)
+		-- The other councillor approved the guild while this one was away: its members heard it.
+		hc.online = false
+		w.Deliver({ me = HC2 }, "CHANNEL", ("GV~1~A~%d~%s~%s"):format(T0, GUILD, GM))
+		hc.online = true
+		eq(w.As(member, member.Verify.Mark, GUILD), member.Verify.MARK_OK, "the members' check")
+		eq(w.As(outsider, outsider.Verify.Mark, GUILD), outsider.Verify.MARK_OK, "another guild's player's check")
+		eq(w.Status(hc, GUILD) ~= "verified", true, "(this councillor's client never heard it)")
+		local function Words(kind)
+			local n = 0
+			for _, s in ipairs(w.sent) do if s.msg:find("^GV~1~" .. kind .. "~") then n = n + 1 end end
+			return n
+		end
+		w.now = T0 + 60
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD), true)
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKED:format(GUILD)), "said so")
+		eq(Words("R"), 1, "one revocation, on the channel")
+		eq(w.sent[#w.sent].logged, true, "logged, as every verifier's word")
+		for _, c in ipairs({ member, outsider, hc }) do
+			eq(w.As(c, c.Verify.Mark, GUILD), "", c.me .. ": no check")
+			local e = c.rdb.verify.list[ns.Fold(GUILD)]
+			eq(e.k, "R"); eq(e.gm, GM, "the census's guild master"); eq(e.by, HC); eq(e.at, T0 + 60)
+		end
+		assert(Find(member.printed, member.L.VERIFY_HEARD_REVOKED:format(GUILD, ns.DisplayName(HC) or HC)), "the guild's members are told")
+		-- Given again (as an approval can be): a newer revocation goes out.
+		w.now = T0 + 120
+		eq(w.As(hc, hc.Verify.RevokeInput, GUILD), true)
+		eq(Words("R"), 2)
+		eq(outsider.rdb.verify.list[ns.Fold(GUILD)].at, T0 + 120, "the newer one stands")
+		-- No census guild master and no approval here: the name typed after the guild's names it.
+		outsider.Verify.Handle("CHANNEL", HC2, ("GV~1~A~%d~%s~%s"):format(T0, OTHER, GM2))
+		hc.rdb.guilds[OTHER].leader = nil
+		eq(w.As(hc, hc.Verify.RevokeInput, OTHER), nil)
+		assert(Find(hc.printed, hc.L.VERIFY_REVOKE_NO_MASTER:format(OTHER)), "told how to name the guild master")
+		eq(Words("R"), 2, "nothing sent without one")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), outsider.Verify.MARK_OK)
+		eq(w.As(hc, hc.Verify.RevokeInput, OTHER .. " Corin Ash"), true)
+		eq(Words("R"), 3)
+		local e = outsider.rdb.verify.list[ns.Fold(OTHER)]
+		eq(e.k, "R"); eq(e.gm, GM2, "the guild master typed")
+		eq(w.As(outsider, outsider.Verify.Mark, OTHER), "")
+		-- Refused: the King's guild (it needs no verification), a guild nobody knows here, a non-verifier.
+		w.As(hc, hc.Verify.RevokeInput, "Olympus")
+		assert(Find(hc.printed, hc.L.VERIFY_NOTHING:format("Olympus")), "the King's guild")
+		w.As(hc, hc.Verify.RevokeInput, "Distant Olympus")
+		assert(Find(hc.printed, hc.L.VERIFY_BAD_GUILD), "an unknown guild")
+		w.As(member, member.Verify.RevokeInput, GUILD)
+		assert(Find(member.printed, member.L.VERIFY_ONLY), "only a verifier")
+		eq(Words("R"), 3, "none of them sent anything")
+		eq(w.As(member, member.Verify.Revoke, GUILD), false, "(the call itself, for a non-verifier)")
+	end)
+end)

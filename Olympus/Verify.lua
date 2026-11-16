@@ -49,6 +49,14 @@ local L = ns.L
 -- ns.VERIFY_GATE (Core.lua) is off, and ns.GuildSanctioned(guild), the one predicate a feature
 -- would ask, says yes while it is.
 --
+-- (1.6.0, a player's report of 11-15: a guild the staff excommunicated still wore its check.) A
+-- verifier's revocation takes the check away on each client that holds it (the guild stays in the
+-- Census, unmarked). An answer carries only the newest words a store holds (MAX_BYTES: that guild's
+-- approval, of 11-05, had 117 newer words by 11-13), so an old approval reached no verifier who was
+-- away when it was given, and Revoke refused there ("no verification to revoke") while the clients
+-- that heard it kept the check: a verifier now revokes a guild he knows whether or not his client
+-- holds its approval (Verify.Revoke).
+--
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
 --   GV~1~R~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's revocation (logged)
@@ -837,12 +845,27 @@ function Verify.Approve(guild, gm)
 	return true, gm
 end
 
-function Verify.Revoke(guild)
+-- Revokes a guild's verification. (1.6.0) Whether or not this client holds its approval: one an
+-- answer never brought here (it carries the newest words alone) still stands on the clients that
+-- heard it, and Revoke refused it ("none") while they kept the check. With no approval here, the
+-- guild as this client knows it (FindGuild), naming the guild master given, else the census's; a
+-- revocation held already is given again, newer, as Approve gives an approval again. A revocation
+-- stands over any approval of the guild, whoever its guild master (Verify.Status). Never the King's
+-- guild, which needs none (Verify.Exempt). ok, or why not.
+function Verify.Revoke(guild, gm)
 	if not Verify.Trusted(ns.me) or not ns.IsMember() then return false, "trust" end
 	local s = Store()
 	local e = s and type(guild) == "string" and s.list[Key(guild)]
-	if not (Valid(e) and e.k == "A") then return false, "none" end
-	return Say("R", e.guild, e.gm)
+	if Valid(e) and e.k == "A" then return Say("R", e.guild, e.gm) end
+	if not Valid(e) then
+		local known = type(guild) == "string" and Verify.FindGuild(guild)
+		if not known or Key(known) ~= Key(guild) then return false, "unknown" end
+		e = { guild = known }
+	end
+	if Verify.Exempt(e.guild) then return false, "none" end
+	gm = e.gm or ((type(gm) == "string" and gm ~= "") and NameField(gm)) or Verify.GuildMaster(e.guild)
+	if not gm then return false, "revoke master" end
+	return Say("R", e.guild, gm)
 end
 
 -- Called by the relay before it shares a Watch resend. Its retained revocation or newer approval
@@ -944,6 +967,7 @@ end
 local function SayWhy(why, guild)
 	if why == "trust" then return ns.Print(L.VERIFY_ONLY) end
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
+	if why == "revoke master" then return ns.Print(L.VERIFY_REVOKE_NO_MASTER:format(guild)) end -- (1.6.0)
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)
@@ -1095,10 +1119,14 @@ function Verify.ApproveInput(input)
 	return true
 end
 
+-- /oly verify revoke <Guild> [Guild master] | <code> (1.6.0: the guild master's name, or his code as
+-- approve takes it, only where this client holds no approval of the guild and the census names none).
 function Verify.RevokeInput(input)
 	if not Verify.Trusted(ns.me) then return ns.Print(L.VERIFY_ONLY) end
-	local guild = Verify.FindGuild(input) or tostring(input or "")
-	local ok, why = Verify.Revoke(guild)
+	local guild, gm = Verify.FindGuild(input)
+	if not guild then guild, gm = Verify.FromCode(input) end
+	if not guild then guild, gm = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", ""), nil end
+	local ok, why = Verify.Revoke(guild, gm)
 	if not ok then return SayWhy(why, guild) end
 	ns.Print(L.VERIFY_REVOKED:format(guild))
 	return true

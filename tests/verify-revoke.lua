@@ -1,0 +1,203 @@
+-- Taking a guild's verified check away (1.6.0, a player's report of 11-15: a guild the staff
+-- excommunicated still wore its check in the Census, and "addons broken" said the others). Real
+-- Comm + Relay + Verify path, as tests/verify-mesh.lua: only Blizzard's wire and timers are
+-- simulated. Both relays are verifiers here (two High Councillors). A client still on 1.5.9 runs
+-- Verify.lua as that release ships it (tests/fixtures/verify-1.5.9.lua: `git show
+-- 88b6b67f:Olympus/Verify.lua` under a three-line note). Every name is invented.
+--   luajit tests/run.lua "verify revoke:"
+-- runs them alone.
+local ns, test, eq, RelayWorld, ADDON_DIR = ...
+local FIXTURES = (ADDON_DIR:match("^(.*)Olympus/$") or "./") .. "tests/fixtures/"
+local T0 = 1800000000
+local DAY = 86400
+local GUILD, OTHER, THIRD = "Olympus Vanguard", "Olympus Embers", "Olympus Wardens"
+local MASTER = "Guild Master-Realm"
+local HC, HUB = "Max Ran-Realm", "Hildryn Payne-Realm" -- both on the signed list: relays, and verifiers here
+
+local function World(fn)
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo,
+		inGuild = IsInGuild, chat = C_ChatInfo }
+	local dialogs = {}; for k, v in pairs(StaticPopupDialogs) do dialogs[k] = v end
+	local nodes, timers, now = {}, {}, T0
+	GetChannelName = function() return 0 end
+	ns.IsMember = function() return true end
+	IsInGuild = function() return true end
+	local function As(n, f, ...)
+		C_ChatInfo = n.chat
+		GetGuildInfo = function() return n.guild, "Member", 3 end
+		return f(...)
+	end
+	-- opts.old: a client still on 1.5.9 (its Verify.lua as that release ships it).
+	local function Node(name, guild, opts)
+		opts = opts or {}
+		local c, deliver, sent, _, pump, sentOf = RelayWorld(name, guild)
+		local n = { c = c, deliver = deliver, sent = sent, pump = pump, sentOf = sentOf,
+			guild = guild, chat = C_ChatInfo, cursor = 0, printed = {} }
+		c.clock, c.realm, c.RealmPages = now, "Realm", {}
+		c.Relay.PRESENT_REQUIRED_AT = T0 + 60 * DAY -- (tests/relay-admit.lua has the presentation)
+		c.rdb.guilds = { [GUILD] = { leader = MASTER, realm = "Realm", total = 990 },
+			[OTHER] = { leader = MASTER, realm = "Realm", total = 400 }, [THIRD] = { leader = MASTER, realm = "Realm", total = 200 } }
+		c.IsHighCouncillor = function(who)
+			local full = c.FullName(who)
+			return full == HC or full == HUB
+		end
+		c.IsKingCharacter = function() return false end
+		c.Workshop = { IsAuthorName = function() return false end }
+		c.Fire, c.On = function() end, function() end
+		c.UI = { Refresh = function() end }
+		c.Print = function(m) n.printed[#n.printed + 1] = tostring(m) end
+		c.After = function(delay, _, f) timers[#timers + 1] = { at = now + delay, n = n, f = f } end
+		c.Every = function() end
+		c.L = setmetatable({}, { __index = ns.L })
+		As(n, function()
+			assert(loadfile(ADDON_DIR .. "Locales/VerifyText.lua"))("Olympus", c)
+			assert(loadfile(opts.old and (FIXTURES .. "verify-1.5.9.lua") or (ADDON_DIR .. "Verify.lua")))("Olympus", c)
+		end)
+		c.Verify.Clock = function() return now end
+		c.Verify.random = function(a) return a end
+		nodes[#nodes + 1] = n
+		return n
+	end
+	local function Flush()
+		for _ = 1, 80 do
+			local moved = false
+			for _, n in ipairs(nodes) do
+				As(n, n.pump, 60)
+				while n.cursor < #n.sent do
+					n.cursor = n.cursor + 1
+					local p = n.sent[n.cursor]
+					for _, to in ipairs(nodes) do
+						if to ~= n and ((p.dist == "WHISPER" and ns.ShortName(to.c.me) == ns.ShortName(p.target))
+							or (p.dist == "GUILD" and to.guild == n.guild)) then
+							As(to, to.deliver, p.dist, n.c.me, p.msg); moved = true
+						end
+					end
+				end
+			end
+			if not moved then return end
+		end
+		error("verification wire did not settle")
+	end
+	local function Advance(seconds)
+		now = now + seconds
+		for _, n in ipairs(nodes) do n.c.clock = now end
+		local due = timers; timers = {}
+		for _, t in ipairs(due) do
+			if t.at <= now then As(t.n, t.f) else timers[#timers + 1] = t end
+		end
+		Flush()
+	end
+	local ok, err = pcall(fn, Node, As, Flush, Advance, function() return now end)
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, C_ChatInfo = saved.channel, saved.member, saved.guild, saved.inGuild, saved.chat
+	for k in pairs(StaticPopupDialogs) do StaticPopupDialogs[k] = dialogs[k] end
+	if not ok then error(err, 0) end
+end
+
+-- A client of `guild` whose sweep its relay answered and whose guild registered there (the last of a
+-- guild to register is its reporter, which hands the relay's words to its guildmates over GUILD).
+local function Register(As, relay, m)
+	As(m, m.deliver, "WHISPER", relay.c.me, "RY~")
+	As(relay, relay.deliver, "WHISPER", m.c.me, "RL~P~RR~" .. m.guild)
+end
+local function Member(Node, As, name, guild, relay, opts)
+	local m = Node(name, guild, opts)
+	Register(As, relay, m)
+	return m
+end
+
+-- The mark the Census draws before the guild's name on that client (Views.lua's VerifyMark).
+local function Checked(As, n, guild) return As(n, n.c.Verify.Mark, guild) == n.c.Verify.MARK_OK end
+local function CountChecked(As, list, guild)
+	local k = 0
+	for _, n in ipairs(list) do if Checked(As, n, guild) then k = k + 1 end end
+	return k
+end
+local function Printed(n, text)
+	for _, line in ipairs(n.printed) do if line == text then return true end end
+	return false
+end
+
+-- Approvals a verifier's client holds besides the guild's (a realm group's store held 132 words by
+-- 11-13): each with a guild master of another realm, as on Forever's sub-realms, so its row in an answer
+-- is nearly as long as a real one. An answer carries what fits in Verify.MAX_BYTES, the newest first.
+local function Fill(As, n, from, count)
+	for i = 1, count do
+		local at = from + i
+		As(n, n.c.Verify.Handle, "CHANNEL", HC, ("GV~1~A~%d~Olympus Legion %d~Legion Master%d-CAMWOWUS1Realm1PvE"):format(at, i, i))
+	end
+end
+
+test("verify revoke: a verifier whose client never held a guild's old approval revokes it, and every client drops the check, 1.5.9 and 1.6.0 alike", function()
+	World(function(Node, As, Flush, Advance)
+		local approver = Node(HC, "Olympus Crown")
+		-- Two of the guild's members and four players of two other guilds (one who left it since), half on
+		-- 1.5.9; the last of each guild to register is its reporter (on 1.5.9 here, but the third guild's).
+		local clients = {
+			Member(Node, As, "Vanguard Ally-Realm", GUILD, approver),
+			Member(Node, As, "Vanguard Elder-Realm", GUILD, approver, { old = true }),
+			Member(Node, As, "Embers Ally-Realm", OTHER, approver),
+			Member(Node, As, "Embers Elder-Realm", OTHER, approver, { old = true }),
+			Member(Node, As, "Wardens Elder-Realm", THIRD, approver, { old = true }),
+			Member(Node, As, "Wardens Ally-Realm", THIRD, approver),
+		}
+		eq(As(approver, approver.c.Verify.Approve, GUILD, MASTER), true)
+		eq(As(approver, approver.c.Verify.Approve, OTHER, MASTER), true)
+		Flush(); Advance(10)
+		eq(CountChecked(As, clients, GUILD), 6, "the approval reached every client: the check")
+		eq(CountChecked(As, clients, OTHER), 6)
+		-- The approvals of the days after: an answer carries the newest words a store holds.
+		Fill(As, approver, T0 + 60, 150)
+		Advance(DAY)
+		-- Another councillor's client, away when the guild was approved, asks: its answer is full of newer words.
+		local other = Node(HUB, "Olympus Hearth")
+		eq(As(other, other.c.Verify.Ask), true)
+		Flush(); Advance(10); Advance(10)
+		assert(other.c.Verify.Digest() >= 60, "the other councillor's client took an answer")
+		assert(As(other, other.c.Verify.Status, GUILD) ~= "verified", "the guild's old approval was not in it")
+		-- (The reporters registered again since, as they do every Relay.REGISTER_EVERY; the third guild
+		-- with the other councillor's relay now, so the revocation reaches guilds of both relays.)
+		for i, n in ipairs(clients) do Register(As, i <= 4 and approver or other, n) end
+		-- The staff excommunicate the guild: this councillor revokes its verification.
+		As(other, other.c.Verify.RevokeInput, GUILD)
+		Flush(); Advance(10)
+		eq(CountChecked(As, clients, GUILD), 0, "clients still showing the check (of 6)")
+		eq(Checked(As, approver, GUILD), false, "nor the verifier who approved it")
+		assert(not Printed(other, other.c.L.VERIFY_NOTHING:format(GUILD)), "not refused for an approval this client never held")
+		assert(Printed(other, other.c.L.VERIFY_REVOKED:format(GUILD)), "the revocation was given")
+		for _, n in ipairs(clients) do
+			local e = n.c.rdb.verify.list[ns.Fold(GUILD)]
+			eq(e.k, "R", n.c.me .. " holds the revocation")
+			eq(e.by, HUB, n.c.me .. ": by the councillor who gave it")
+			assert(e.at > T0, n.c.me .. ": newer than the approval")
+			eq(As(n, n.c.Verify.Status, GUILD) ~= "verified", true, n.c.me .. " no longer verified")
+		end
+		eq(CountChecked(As, clients, OTHER), 6, "the other guild keeps its check")
+	end)
+end)
+
+-- The staff's way on 1.5.9 (which cannot change): a councillor whose client holds no approval of the
+-- guild approves it and revokes it at once; the revocation, newer, stands over every approval. This pins
+-- what a 1.5.9 councillor's two commands do on clients of both versions.
+test("verify revoke: on 1.5.9 a councillor holding no approval of the guild approves and revokes it at once, and every client drops the check", function()
+	World(function(Node, As, Flush, Advance)
+		local approver = Node(HC, "Olympus Crown")
+		local clients = {
+			Member(Node, As, "Vanguard Ally-Realm", GUILD, approver),
+			Member(Node, As, "Embers Elder-Realm", OTHER, approver, { old = true }),
+		}
+		eq(As(approver, approver.c.Verify.Approve, GUILD, MASTER), true)
+		Flush(); Advance(DAY)
+		for _, n in ipairs(clients) do Register(As, approver, n) end
+		local old = Node(HUB, "Olympus Hearth", { old = true })
+		As(old, old.c.Verify.RevokeInput, GUILD)
+		assert(Printed(old, old.c.L.VERIFY_NOTHING:format(GUILD)), "1.5.9 refuses the revocation alone")
+		eq(CountChecked(As, clients, GUILD), 2)
+		As(old, old.c.Verify.ApproveInput, GUILD)
+		As(old, old.c.Verify.RevokeInput, GUILD)
+		Flush(); Advance(10)
+		assert(Printed(old, old.c.L.VERIFY_REVOKED:format(GUILD)))
+		eq(CountChecked(As, clients, GUILD), 0, "clients still showing the check (of 2)")
+		eq(Checked(As, approver, GUILD), false)
+		for _, n in ipairs(clients) do eq(n.c.rdb.verify.list[ns.Fold(GUILD)].k, "R", n.c.me) end
+	end)
+end)
