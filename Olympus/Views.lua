@@ -1583,7 +1583,7 @@ end
 local function SortedGuilds(list, sort)
 	sort = sort or Views.sort
 	local key, desc = sort.key, sort.desc
-	local get = SORTERS[key] or SORTERS.members
+	local get = sort.get or SORTERS[key] or SORTERS.members
 	local level = key == "level"
 	local guilds = {}
 	for i, e in ipairs(list) do guilds[i] = e end
@@ -2435,9 +2435,10 @@ end
 function Views.RealmOrdered(guilds)
 	local key = RealmOrder().key
 	if key == "members" then return guilds end
-	return SortedGuilds(guilds, { key = key, desc = key ~= "name" and key ~= "lord" })
+	local leader = key == "lord" and function(e) return (Leadership(e).g.leader or ""):lower() end
+	return SortedGuilds(guilds, { key = key, desc = key ~= "name" and key ~= "lord", get = leader })
 end
-local function RealmOrderLine()
+local function RealmOrderLine(multipleGuilds)
 	local current, options = RealmOrder(), {}
 	for _, o in ipairs(Views.REALM_ORDERS) do
 		local key = o.key
@@ -2450,13 +2451,14 @@ local function RealmOrderLine()
 	local function ChooseLeadership(on)
 		return function() realmLeadersOnly = on; ns.UI.Refresh() end
 	end
+	local view = { label = L.REALM_GUILD_VIEW, value = realmLeadersOnly and L.REALM_LEADERSHIP or L.REALM_ALL_GUILDS,
+		options = {
+			{ text = L.REALM_ALL_GUILDS, selected = not realmLeadersOnly, onClick = ChooseLeadership(false) },
+			{ text = L.REALM_LEADERSHIP, selected = realmLeadersOnly, onClick = ChooseLeadership(true) },
+		}, understated = true }
+	if not multipleGuilds then return { id = "realm-leadership-view", filters = { view } } end
 	return { id = "realm-order", filters = {
-		{ label = L.REALM_ORDER, value = L[current.label], options = options, understated = true },
-		{ label = L.REALM_GUILD_VIEW, value = realmLeadersOnly and L.REALM_LEADERSHIP or L.REALM_ALL_GUILDS,
-			options = {
-				{ text = L.REALM_ALL_GUILDS, selected = not realmLeadersOnly, onClick = ChooseLeadership(false) },
-				{ text = L.REALM_LEADERSHIP, selected = realmLeadersOnly, onClick = ChooseLeadership(true) },
-			}, understated = true },
+		{ label = L.REALM_ORDER, value = L[current.label], options = options, understated = true }, view,
 	} }
 end
 
@@ -2743,7 +2745,7 @@ local function RealmLines(s, q)
 	end
 	-- (1.2.4's review: in the Realm's own order, chosen on its line above its guilds; by default
 	-- Data.Summary's own, the shared order, as before. A search's guilds in it too.)
-	if not q and (#s.guilds > 0 or leadershipOnly) then lines[#lines + 1] = RealmOrderLine() end
+	if not q and (#s.guilds > 0 or leadershipOnly) then lines[#lines + 1] = RealmOrderLine(#s.guilds > 1) end
 	for _, e in ipairs(Views.RealmOrdered(s.guilds)) do
 		if not q or LookHolds(ctx.lq, e.name) then
 			-- (Found by its name: the guild as ever, opened or not.)
