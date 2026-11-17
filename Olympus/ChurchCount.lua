@@ -689,7 +689,7 @@ end
 function Count.OnLogUpdate()
 	if ns.KingsScreen and ns.KingsScreen() then return end
 	local events = Count.Events()
-	ns.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+	ns.Fire("FEDERATION_NATIVE_GUILD_LOG", events)
 	Count.Process(events)
 end
 

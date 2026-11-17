@@ -102,10 +102,10 @@ test("federation fugitives: native removals are reviewed locally with no inferre
 		local function Find(text)
 			for _, row in ipairs(page.Lines()) do if row.text:find(text, 1, true) then return row end end
 		end
-		c.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+		c.Fire("FEDERATION_NATIVE_GUILD_LOG", events)
 		eq(Find("Arden Frost"), nil, "the request must be attended")
 		assert(Find(c.L.FUGITIVES_READ_REMOVALS).onClick())
-		c.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+		c.Fire("FEDERATION_NATIVE_GUILD_LOG", events)
 		local row = assert(Find("Arden Frost"))
 		assert(row.right:find(c.L.FUGITIVES_CHECK_REALM, 1, true))
 		eq(Find("Quill Dawn"), nil)

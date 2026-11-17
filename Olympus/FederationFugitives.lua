@@ -449,7 +449,7 @@ ns.RegisterEvent("GUILD_ROSTER_UPDATE", AuditSoon)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", AuditSoon)
 ns.On("FEDERATION_FUGITIVES_CHANGED", AuditSoon)
 ns.On("GROUPS_ROSTER", CheckGroup)
-ns.On("CHURCH_NATIVE_GUILD_LOG", ProcessRemovals)
+ns.On("FEDERATION_NATIVE_GUILD_LOG", ProcessRemovals)
 ns.Comm.Handle("FZ", F.Receive)
 ns.RealmPages = ns.RealmPages or {}
 table.insert(ns.RealmPages, { key = "fugitive-roster", Link = ReviewLink, Lines = ReviewLines })
