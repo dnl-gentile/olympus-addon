@@ -3367,6 +3367,41 @@ test("gamepad pass 7: the chat's channel names as links: hooked once with mouse 
 	GP.Covers("chat-links"); GP.Covers("chat-box")
 end)
 
+-- A public M1 call-out's self-contained recruit link can only prefill the existing command in
+-- mouse mode. It needs no local JOIN or handoff state and stays inert under the gamepad UI.
+test("gamepad public recruit call-out link prepares the exact invite command only in mouse mode", function()
+	local C, ns = Session(false, { realmFrom = function() return "CAMWOWUS2Realm1PvE" end, surname = "Recruiter" })
+	local R, commandName = ns.Recruit, "New Recruit"
+	local shown = assert(ns.Codec.RecruitLink(commandName))
+	local link = assert(shown:match("|H([^|]+)|h"))
+	assert(ns.Codec.PackLinks(shown):find("[New Recruit](addon:Olympus:recruit:", 1, true), "readable packed fallback")
+	eq(#R.requests, 0, "a remote recipient needs no local request")
+	local mark = C.Mark()
+	C.chatBox = nil
+	InClick(C, function() C.env.SetItemRef(link, shown, "LeftButton", C.env.ChatFrame1) end)
+	eq(C.chatBox and C.chatBox.text, "/ginvite " .. commandName)
+	eq(#R.requests, 0, "no claim or reservation state")
+	for _, reach in ipairs(C.Since(mark)) do
+		assert(reach.sym ~= "C_GuildInfo.Invite" and reach.sym ~= "GuildInvite"
+			and reach.sym ~= "C_ChatInfo.SendChatMessage" and reach.sym ~= "SendChatMessage",
+			"the link only prepares chat, never sends or invites: " .. tostring(reach.sym))
+	end
+
+	C.Switch(true); C.Advance(1)
+	C.chatBox = nil
+	local padMark = C.Mark()
+	InClick(C, function() C.env.SetItemRef(link, shown, "LeftButton", C.env.ChatFrame1) end)
+	eq(C.chatBox, nil, "a public link cannot open gamepad chat")
+	eq(#C.Since(padMark), 0, "the retained hook is inert from its first line")
+
+	C.Switch(false); C.Advance(1)
+	eq(TagHooks(C), 1, "the shared SetItemRef hook remains installed once")
+	C.chatBox = nil
+	InClick(C, function() C.env.SetItemRef(link, shown, "LeftButton", C.env.ChatFrame1) end)
+	eq(C.chatBox and C.chatBox.text, "/ginvite " .. commandName)
+	NoErrors(C, "the public recruit call-out player link")
+end)
+
 -- 1.5.4: a link in a line of the Chat tab (ChatWindow.lua). A left click opens the game's link
 -- window as the game's chat does (SetItemRef, the gate's item-ref) with mouse and keyboard; with
 -- the gamepad UI the click reaches nothing of the game's, and the hover tooltip (GameTooltip owned

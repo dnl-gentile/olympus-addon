@@ -1,5 +1,7 @@
 local ns, test, eq, X = ...
 local Codec = ns.Codec
+local ROOT = debug.getinfo(1, "S").source:match("^@(.*/)tests/[^/]+$") or ""
+local Secret = assert(loadfile(ROOT .. "tests/arena/lib/secret.lua"))()
 local WithWindow, WithGamepadUI, RelayWorld = X.WithWindow, X.WithGamepadUI, X.RelayWorld
 local Line, BubbleWith, T0, KeepSendGap = X.Line, X.BubbleWith, X.T0, X.KeepSendGap
 
@@ -31,6 +33,43 @@ local function Links(text)
 	return table.concat(out, ",")
 end
 
+test("recruit call-out link: exact name survives M1 packing; fallback is readable and forged labels stay text", function()
+	for _, name in ipairs({ "New Recruit", "Realm Recruit-OtherRealm", "Zoë Fírè-OtherRealm" }) do
+		local link = assert(Codec.RecruitLink(name), name)
+		local data = assert(link:match("|H([^|]+)|h"))
+		eq(Codec.RecruitLinkName(data), name)
+		eq(Codec.SanitizeChat(link), link, "the exact recruit link alone is admitted")
+		local packed = Codec.PackLinks(link)
+		assert(not packed:find("|", 1, true), packed)
+		assert(packed:find("^%[" .. name:gsub("(%W)", "%%%1") .. "%]%("), "old clients see the name first: " .. packed)
+		local msg = assert(Codec.EncodeChat("A", GUILD, 77, "PA", "Recruit " .. link))
+		assert(not msg:find("|", 1, true), "existing M1 packed transport only")
+		eq(Codec.DecodeChat(msg).text, "Recruit " .. link, "remote recipient reconstructs the exact link")
+	end
+
+	local savedSplit = ns.splitNames
+	ns.splitNames = true
+	local noncanonical = "[First-Surname](addon:Olympus:recruit:Rmlyc3QtU3VybmFtZQ/)"
+	local decoded = assert(Codec.DecodeChat(Codec.EncodeChat("A", GUILD, 76, "PA", noncanonical))).text
+	ns.splitNames = savedSplit
+	assert(not decoded:find("|H", 1, true),
+		"a payload that is not this client's exact command spelling stays readable text: " .. decoded)
+
+	local good = assert(Codec.RecruitLink("New Recruit"))
+	local packed = Codec.PackLinks(good)
+	local wrong = packed:gsub("^%[New Recruit%]", "[Other Recruit]")
+	local shown = assert(Codec.DecodeChat(Codec.EncodeChat("A", GUILD, 78, "PA", wrong))).text
+	assert(not shown:find("|H", 1, true), "a forged visible name never becomes a link: " .. shown)
+	for _, token in ipairs({
+		"[New Recruit](addon:Olympus:recruit:not_base64! /)",
+		"[New Recruit](addon:Other:recruit:TmV3IFJlY3J1aXQ/)",
+		"[New Recruit](player:New Recruit/)",
+		"[New Recruit](addon:Olympus:other:TmV3IFJlY3J1aXQ/)",
+	}) do
+		local decoded = assert(Codec.DecodeChat(Codec.EncodeChat("A", GUILD, 79, "PA", token))).text
+		assert(not decoded:find("|H", 1, true), "malformed/foreign token stays readable text: " .. token)
+	end
+end)
 test("1.5.4 chat links on the wire: a line's links leave as tokens without a pipe, so Codec.Plain leaves them whole, and come back as the same links", function()
 	for _, link in ipairs({ ITEM, SPELL, ENCHANT, QUEST, BARE, NAMED }) do
 		local text = "look " .. link .. " cheap, ~2g: a=b"
@@ -174,6 +213,34 @@ test("1.5.4 chat links at the sender: a line with a link leaves without a pipe, 
 	if not ok then error(err, 0) end
 end)
 
+test("recruit call-out link: Channels.Send A and remote Receive use the existing public M1 route", function()
+	local C = ns.Channels
+	local saved = { me = ns.me, split = ns.splitNames, ready = ns.Comm.ChannelReady, room = ns.Comm.ChatRoom,
+		send = ns.Comm.SendChat, guild = GetGuildInfo, realm = ns.realm }
+	local ok, err = pcall(KeepSendGap, function()
+		ns.me, ns.splitNames, ns.realm = "Caller Member-Realm", false, "Realm"
+		GetGuildInfo = function() return GUILD, "Member", 3 end
+		ns.Comm.ChannelReady = function() return true end
+		ns.Comm.ChatRoom = function() return 3 end
+		local sent
+		ns.Comm.SendChat = function(msg, done) sent = msg; done(true); return true end
+		local name = "Realm Recruit-OtherRealm"
+		local line = ns.L.RECRUIT_CALLOUT_TEXT:format(assert(Codec.RecruitLink(name)))
+		assert(C.Send("A", line, 3000000))
+		assert(sent and sent:find("^M1~A~"), tostring(sent))
+		assert(not sent:find("|", 1, true), "the M1 wire uses the existing packed textual fallback")
+		assert(sent:find("[Realm Recruit-OtherRealm](addon:Olympus:recruit:", 1, true), "old clients see the exact readable name first")
+		eq(Codec.DecodeChat(sent).text, line)
+		-- A roster-backed remote member: Receive must exercise its real public-room admission too.
+		local heard, why = C.Receive("CHANNEL", "Member2-Realm", sent, 3000001)
+		eq(heard, true, why)
+		local history = C.History("A")
+		eq(history[#history].text, line, "the remote public room retains the reconstructed exact link")
+	end)
+	ns.me, ns.splitNames, ns.Comm.ChannelReady, ns.Comm.ChatRoom, ns.Comm.SendChat = saved.me, saved.split, saved.ready, saved.room, saved.send
+	GetGuildInfo, ns.realm = saved.guild, saved.realm
+	if not ok then error(err, 0) end
+end)
 -- The Chat tab's stand-ins for the client's item data and link window.
 local function WithItemData(fn)
 	local savedItem, savedRef, savedInfo, savedShift = rawget(_G, "C_Item"), rawget(_G, "SetItemRef"), rawget(_G, "GetItemInfo"), IsShiftKeyDown
@@ -353,6 +420,120 @@ test("1.5.4 Chat tab links: a left click on a link opens the game's link window 
 				end)
 			end
 		end)
+	end)
+end)
+
+test("recruit call-out link: Olympus Chat tab accepts complete rendered hyperlink text and keeps Shift, right, gates inert", function()
+	WithWindow(function(w)
+		local C = ns.Channels
+		local saved = {
+			open = C.OpenLinkChat, shift = IsShiftKeyDown, locked = ns.ChatLocked,
+			combat = rawget(_G, "InCombatLockdown"), send = rawget(_G, "SendChatMessage"),
+			guild = rawget(_G, "GuildInvite"), info = rawget(_G, "C_GuildInfo"),
+			canInvite = rawget(_G, "CanGuildInvite"),
+		}
+		local opened, sent, invited = {}, 0, 0
+		C.OpenLinkChat = function(command, frame)
+			opened[#opened + 1] = { command = command, frame = frame }
+			return true
+		end
+		IsShiftKeyDown = function() return false end
+		CanGuildInvite = function() return true end
+		ns.ChatLocked = function() return false end
+		InCombatLockdown = function() return false end
+		SendChatMessage = function() sent = sent + 1 end
+		GuildInvite = function() invited = invited + 1 end
+		C_GuildInfo = { Invite = function() invited = invited + 1 end }
+		local ok, err = pcall(function()
+			local shown = assert(Codec.RecruitLink("New Recruit"))
+			local link = assert(shown:match("|H([^|]+)|h"))
+			ns.rdb.chat = { A = { Line(T0, "Caller Member-Realm", ns.L.RECRUIT_CALLOUT_TEXT:format(shown)) } }
+			local f = w.CW.Open()
+			local b = assert(BubbleWith(f, "[New Recruit]"), "the public call-out bubble")
+			b:Fire("OnHyperlinkClick", link, shown, "LeftButton")
+			eq(opened[1].command, "/ginvite New Recruit")
+			eq(opened[1].frame, nil, "the Chat tab lets the game choose its chat edit box")
+			b:Fire("OnHyperlinkClick", link, shown, "RightButton")
+			eq(#opened, 1, "right-click is inert")
+			IsShiftKeyDown = function() return true end
+			f.input:SetText("keep ")
+			b:Fire("OnHyperlinkClick", link, shown, "LeftButton")
+			eq(#opened, 1, "Shift-click is inert"); eq(f.input:GetText(), "keep ", "and inserts no forged draft")
+			IsShiftKeyDown = function() return false end
+			b:Fire("OnHyperlinkClick", link, shown:gsub("%[New Recruit%]", "[Other Recruit]"), "LeftButton")
+			eq(#opened, 1, "a mismatched visible label is inert")
+			ns.ChatLocked = function() return true end
+			b:Fire("OnHyperlinkClick", link, shown, "LeftButton")
+			eq(#opened, 1, "chat lockdown")
+			ns.ChatLocked = function() return false end
+			InCombatLockdown = function() return true end
+			b:Fire("OnHyperlinkClick", link, shown, "LeftButton")
+			eq(#opened, 1, "combat")
+			InCombatLockdown = function() return false end
+			WithGamepadUI(true, function()
+				b:Fire("OnHyperlinkClick", link, shown, "LeftButton")
+				eq(#opened, 1, "gamepad UI")
+			end)
+			eq(sent, 0, "no chat submitted"); eq(invited, 0, "no invite API")
+		end)
+		C.OpenLinkChat, IsShiftKeyDown, ns.ChatLocked = saved.open, saved.shift, saved.locked
+		InCombatLockdown, SendChatMessage = saved.combat, saved.send
+		GuildInvite, C_GuildInfo, CanGuildInvite = saved.guild, saved.info, saved.canInvite
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("recruit call-out link: Olympus Chat tab rejects secret arguments before decode", function()
+	WithWindow(function(w)
+		local C = ns.Channels
+		local saved = {
+			open = C.OpenLinkChat, secret = rawget(_G, "issecretvalue"),
+			send = rawget(_G, "SendChatMessage"), guild = rawget(_G, "GuildInvite"),
+			info = rawget(_G, "C_GuildInfo"),
+		}
+		local shown = assert(Codec.RecruitLink("New Recruit"))
+		local link = assert(shown:match("|H([^|]+)|h"))
+		ns.rdb.chat = { A = { Line(T0, "Caller Member-Realm", ns.L.RECRUIT_CALLOUT_TEXT:format(shown)) } }
+		local f = w.CW.Open()
+		local b = assert(BubbleWith(f, "[New Recruit]"), "the public call-out bubble")
+		local original = Codec.RecruitLinkName
+		local decoded, opened, sent, invited = 0, 0, 0, 0
+		issecretvalue = Secret.Is
+		C.OpenLinkChat = function()
+			opened = opened + 1
+			return true
+		end
+		SendChatMessage = function() sent = sent + 1 end
+		GuildInvite = function() invited = invited + 1 end
+		C_GuildInfo = { Invite = function() invited = invited + 1 end }
+		Codec.RecruitLinkName = function(value)
+			decoded = decoded + 1
+			if Secret.Is(value) then error("secret link reached recruit decoder") end
+			return original(value)
+		end
+		local results = {}
+		for i, field in ipairs({ "link", "text", "button" }) do
+			local args = { link, shown, "LeftButton" }
+			args[i] = Secret.New()
+			decoded, opened = 0, 0
+			local ok, err = pcall(function()
+				b:Fire("OnHyperlinkClick", args[1], args[2], args[3])
+			end)
+			results[i] = {
+				field = field, ok = ok, err = err, decoded = decoded, opened = opened,
+				sent = sent, invited = invited,
+			}
+		end
+		Codec.RecruitLinkName = original
+		C.OpenLinkChat, issecretvalue = saved.open, saved.secret
+		SendChatMessage, GuildInvite, C_GuildInfo = saved.send, saved.guild, saved.info
+		for _, result in ipairs(results) do
+			eq(result.ok, true, "secret " .. result.field .. " raises no callback fault: " .. tostring(result.err))
+			eq(result.decoded, 0, "secret " .. result.field .. " is rejected before recruit decode")
+			eq(result.opened, 0, "secret " .. result.field .. " opens no chat box")
+			eq(result.sent, 0, "secret " .. result.field .. " sends no chat")
+			eq(result.invited, 0, "secret " .. result.field .. " invokes no invite API")
+		end
 	end)
 end)
 
