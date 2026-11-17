@@ -631,7 +631,13 @@ function Count.Process(events)
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
-				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild, realm = ns.realm } end
+				if e.unsure then
+					inv[Key(e.p2)] = nil
+				else
+					local conversions = ns.ChurchConversions
+					local absent = conversions and conversions.ObserveAbsence and conversions.ObserveAbsence(e.p2, guild)
+					inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild, realm = ns.realm, absent = absent }
+				end
 				if person and Key(e.p1) == meKey then
 					local m = Mine()
 					m.inv[day] = (m.inv[day] or 0) + 1
@@ -651,7 +657,7 @@ function Count.Process(events)
 					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
 					local conversions = ns.ChurchConversions
 					if conversions and conversions.ObserveNativePair and i.g == guild and i.realm == ns.realm then
-						ns.SafeCall("recruit conversion pair", conversions.ObserveNativePair, i.by, e.p1, guild, i.h * 3600, tj * 3600)
+						ns.SafeCall("recruit conversion pair", conversions.ObserveNativePair, i.by, e.p1, guild, i.h * 3600, tj * 3600, i.absent)
 					end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then

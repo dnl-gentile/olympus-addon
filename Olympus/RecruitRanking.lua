@@ -983,11 +983,18 @@ end
 function RR.TakeEvidence(sender, text)
 	if not IsKeeper(ns.me) or Off() then return Drop("not keeper") end
 	local kind = tostring(text or ""):match("^NE~1~(%a)~")
-	if kind ~= "w" and kind ~= "y" and kind ~= "h" then return Drop("kind") end
+	if kind ~= "w" and kind ~= "y" and kind ~= "h" and kind ~= "v" then return Drop("kind") end
 	local now = Clock()
 	local M = ns.Moderation
 	if M and M.Hides and M.Hides(sender, nil) then return Drop("netoff") end
 	if not Budget(sender, now, true) then return Drop("budget") end
+	if kind == "v" then
+		local conversions = ns.ChurchConversions
+		if not conversions or not conversions.TakeRosterWitness or not conversions.TakeRosterWitness(sender, text) then
+			return Drop("unverified")
+		end
+		return true
+	end
 	local sk = Key(sender)
 	if kind == "w" then
 		local inviter, invitee, guild, ti, tj, src = text:match("^NE~1~w~([^~]+)~([^~]+)~([^~]+)~([0-9a-z]+)~([0-9a-z]+)~([^~]+)$")
@@ -1680,7 +1687,7 @@ function RR.Receive(dist, sender, text)
 			serving[k] = ns.Now()
 		end
 	end
-	if kind == "w" or kind == "y" or kind == "h" then
+	if kind == "w" or kind == "y" or kind == "h" or kind == "v" then
 		local ok, why = RR.TakeEvidence(sender, text)
 		RR.Receipt(sender, text, ok, why)
 		return ok, why

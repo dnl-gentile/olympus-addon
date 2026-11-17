@@ -2,6 +2,8 @@
 
 During signed rollout, a new confirmed handoff into an enrolled guild counts automatically. The recipient's client must see the native invitation and join pair and one matching character on the guild's current native roster. The keeper also needs the source's acknowledgement of the same handoff and independent strong guild-log evidence in the same scope. Scanned-player offers and earlier rolling ledger rows cannot create a conversion. The workflow counts characters for Apostles and missionaries.
 
+The destination's signed caretaker or operator can provide the independent guild-log evidence to a remote keeper when their native roster confirms the local grant. A participant in the handoff or their linked character cannot serve as that observer. For a join in the partial first hour of a grant, that observer needs a fresh roster from after activation that still showed the recruit absent when the invitation was read. Without that lower bound the guild log's hour does not establish the join's eligibility.
+
 ## Recover a reviewed handoff
 
 The offline signed workflow is available for recovery. It uses the exact original candidate and still requires the matching independent witness at the keeper.

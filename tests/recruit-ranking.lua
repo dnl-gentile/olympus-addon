@@ -333,6 +333,47 @@ test("Church conversion automatic: an enrolled native join and both sides of a n
 	eq(w:As(keeper, K.Ranking, "a")[1].count, 1, "a replay cannot duplicate the automatic conversion")
 end)
 
+test("Church conversion observer: signed roster witness reaches a remote keeper during the grant's first partial hour", function()
+	local w, c = Cast()
+	local keeper, recipient, source, observer = c.a1, c.ivo, c.a2, c.wes
+	local recruit, tx = "New Guy-Realm", "100-c4-1"
+	keeper.guild, recipient.rank, observer.rank = World.GUILD2, 0, 1
+	w:Run(30)
+	w:RefreshRosters()
+	local hour, started = math.floor(w.clock / 3600) * 3600, w.clock - 10
+	assert(started > hour)
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, started, w.clock + DAY, World.GUILD)
+	local sig = string.rep("a", 512)
+	for _, k in ipairs({ keeper, recipient, source, observer }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({ Verify = function(text, signature) return text == title and signature == sig end }, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K = keeper.c.ChurchConversions
+	local function Count() return #w:As(keeper, K.Ranking, "a") end
+	w:As(recipient, recipient.c.Fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, source.name, recipient.name, World.GUILD2, World.GUILD, tx)
+	w:Act(source, source.c.Fire, "RECRUIT_HANDOFF_ACKNOWLEDGED", recruit, source.name, recipient.name, World.GUILD, tx)
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "New Guy")
+	w:ReadLog(observer)
+	eq(Count(), 0, "the signed observer saw the recruit was absent, but there is no join yet")
+	local absent = w.clock
+	w:Run(10)
+	w:LogEvent(World.GUILD, "join", "New Guy")
+	Join(w, World.GUILD, "New Guy")
+	w:ReadLog(recipient)
+	local fake = ("NE~1~v~Realm:Alliance:-~%s~%s~%s~%d~%d~%d"):format(World.GUILD, recipient.name, recruit, hour, hour, absent)
+	w:Act(c.sid, c.sid.c.Comm.Whisper, keeper.name, fake)
+	eq(Count(), 0, "an ordinary guild member cannot attest the partial hour")
+	w:ReadLog(observer)
+	eq(w:As(keeper, keeper.RR.ConfirmedHandoff, recruit), nil, "old ranking data is not the strong authority for this route")
+	eq(Count(), 1, "the same scoped native pair and precise prior roster absence prove the enrolled join")
+	local _, saved = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(saved.joinedAt, absent)
+	eq(saved.recruit, nil)
+end)
+
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()
 	local w, c = Cast()
 	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)

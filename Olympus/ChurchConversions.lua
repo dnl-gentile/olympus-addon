@@ -159,14 +159,15 @@ ns.On("RECRUIT_HANDOFF_ACCEPTED", function(recruit, source, inviter, from, to, i
 end)
 
 -- Both native events were observed in the current guild and local realm.
-function Conversions.ObserveNativePair(inviter, recruit, guild, invited, joined)
+function Conversions.ObserveNativePair(inviter, recruit, guild, invited, joined, absentSince)
+	if Conversions.ReportRosterWitness then Conversions.ReportRosterWitness(inviter, recruit, guild, invited, joined, absentSince) end
 	local rows = Candidates(false)
 	if not rows or not Member() or Church.Key(inviter) ~= Church.Key(ns.me) then return false end
 	local entry = rows[CandidateKey(ns.me, recruit)]
 	if not entry or entry.joined or not Same(entry.guild, guild)
 		or not Time(invited, joined) or not Time(joined, Church.Clock())
 		or invited + 3600 <= entry.accepted or invited - entry.accepted > 12 * 3600
-		or not ns.FederationProgram.IsEnrolled(guild, joined) then return false end
+		or not ns.FederationProgram.IsEnrolled(guild, math.max(joined, entry.accepted)) then return false end
 	entry.invited, entry.joined = invited, joined
 	if Conversions.FlushAutomatic then Conversions.FlushAutomatic() end
 	return true
@@ -223,10 +224,10 @@ local function Index(store)
 	end
 end
 
-local function Record(recruit, evidence, verifier)
+local function Record(recruit, evidence, verifier, scopedJoin)
 	if not verifier or not Member() or not Church.IsKeeper(ns.me) then return false, "unavailable" end
 	local RR = ns.RecruitRanking
-	local join = RR and RR.ConfirmedHandoff and RR.ConfirmedHandoff(recruit)
+	local join = scopedJoin or (RR and RR.ConfirmedHandoff and RR.ConfirmedHandoff(recruit))
 	if not join or not join.guild then return false, "handoff" end
 	local guild, program = join.guild, ns.FederationProgram
 	if not program.IsEnrolled(guild) then return false, "enrollment" end
@@ -466,7 +467,29 @@ local function FinishAutomatic(scope, key, entry)
 	local c, h = entry.c, entry.h
 	if not c or not h or math.abs(c.accepted - h.accepted) > 120 then return false end
 	local paired = ScopeTable("conversionWitnesses", false)
-	if not paired or not paired[c.pair] then return false end
+	local evidence = paired and paired[c.pair]
+	if not evidence or type(evidence.observers) ~= "table" then return false end
+	local function Independent(name)
+		return ActorKey(name) ~= ActorKey(c.source) and ActorKey(name) ~= ActorKey(c.inviter)
+			and ActorKey(name) ~= ActorKey(c.recruit) and not Count.Linked(name, c.source)
+			and not Count.Linked(name, c.inviter) and not Count.Linked(name, c.recruit)
+	end
+	local eligibleAt, rosterProof
+	for _, observer in pairs(evidence.observers) do
+		if Independent(observer.name) then
+			if observer.roster and observer.inviter == ActorKey(c.inviter) and observer.recruit == ActorKey(c.recruit)
+				and ns.FederationProgram.Role(observer.name, c.guild, observer.joinedAt) then
+				eligibleAt, rosterProof = observer.joinedAt, true
+				break
+			elseif not observer.roster then
+				eligibleAt = c.joined
+			end
+		end
+	end
+	if not eligibleAt then return false end
+	if Count.Linked(c.inviter, c.recruit) or Count.Linked(c.source, c.recruit) then return false end
+	local scopedJoin = rosterProof and { recruit = c.recruit, inviter = c.inviter, source = c.source, guild = c.guild,
+		invitedAt = c.invited, joinedAt = c.joined } or nil
 	local now = Church.Clock()
 	local ok, why = Record(c.recruit, nil, function(_, join)
 		if join.invitedAt ~= c.invited or join.joinedAt ~= c.joined or not Same(join.guild, c.guild)
@@ -474,8 +497,8 @@ local function FinishAutomatic(scope, key, entry)
 		local _, region = Scope()
 		return { group = ns.group, region = region, faction = ns.faction, guild = join.guild, source = c.source,
 			automatic = true, member = Digest("conversion character\0" .. ActorKey(c.recruit)),
-			handoff = key, verification = Digest(key .. c.pair), joinedAt = c.joined, verifiedAt = now }
-	end)
+			handoff = key, verification = Digest(key .. c.pair), joinedAt = eligibleAt, verifiedAt = now }
+	end, scopedJoin)
 	if not ok and why ~= "duplicate" then return false end
 	Ack(c.inviter, scope, key)
 	Ack(c.source, scope, key)
@@ -484,15 +507,78 @@ local function FinishAutomatic(scope, key, entry)
 	return true
 end
 
-function Conversions.NoteStrongWitness(sender, inviter, recruit, guild, invited, joined)
-	if not ShareScope() or not Keeper(ns.me) or not ActorKey(sender) or not ns.FederationProgram.IsEnrolled(guild, joined) then return end
+local function StoreWitness(sender, inviter, recruit, guild, invited, joined, eligibleAt, roster)
+	local actor = ActorKey(sender)
+	if not ShareScope() or not Keeper(ns.me) or not actor or not ns.FederationProgram.IsEnrolled(guild, eligibleAt) then return false end
 	local now, key = Church.Clock(), PairKey(inviter, recruit, guild, invited, joined)
-	if not key or not Time(invited, joined) or not Time(joined, now) then return end
-	if not Note("conversionWitnesses", key, now) then return end
+	if not key or not Time(invited, joined) or not Time(joined, now) then return false end
+	local row = Note("conversionWitnesses", key, now)
+	if not row then return false end
+	row.observers = row.observers or {}
+	local count = 0
+	for _ in pairs(row.observers) do count = count + 1 end
+	if count >= 4 and not row.observers[actor] then return false end
+	if not row.observers[actor] or roster then
+		row.observers[actor] = { name = sender, joinedAt = eligibleAt, roster = roster,
+			inviter = roster and ActorKey(inviter) or nil, recruit = roster and ActorKey(recruit) or nil }
+	end
 	local inbox, scope = ScopeTable("conversionInbox", false), BoardScope()
 	for tx, row in pairs(inbox or {}) do
 		if row.c and row.c.pair == key then FinishAutomatic(scope, tx, row) end
 	end
+	return true
+end
+
+function Conversions.NoteStrongWitness(sender, inviter, recruit, guild, invited, joined)
+	return StoreWitness(sender, inviter, recruit, guild, invited, joined, joined, false)
+end
+
+-- A roster read before the recruit appeared gives a real lower bound for the join
+-- even when the native log rounds back to an hour before the signed grant began.
+local rosterRows, rosterGeneration, present
+function Conversions.ObserveAbsence(recruit, guild)
+	local program = ns.FederationProgram
+	if not Member() or not program.Role(ns.me, guild) then return nil end
+	local roster = ns.Roster.Fresh()
+	local at, key = roster and roster.serverAt, Church.Key(recruit)
+	if not key or not Time(at, Church.Clock()) or not Same(program.LocalEnrollment(at), guild)
+		or type(roster.members) ~= "table" then return nil end
+	if rosterRows ~= roster.members or rosterGeneration ~= roster.generation then
+		rosterRows, rosterGeneration, present = roster.members, roster.generation, {}
+		for _, row in ipairs(rosterRows) do
+			local name = Church.Key(row.full)
+			if name then present[name] = true end
+		end
+	end
+	return not present[key] and at or nil
+end
+
+function Conversions.ReportRosterWitness(inviter, recruit, guild, invited, joined, absentSince)
+	local scope, program = BoardScope(), ns.FederationProgram
+	if not scope or not ShareScope() or not ActorKey(inviter) or not ActorKey(recruit)
+		or ActorKey(ns.me) == ActorKey(inviter) or ActorKey(ns.me) == ActorKey(recruit)
+		or Count.Linked(ns.me, inviter) or Count.Linked(ns.me, recruit)
+		or not program.Role(ns.me, guild) or not Same(program.LocalEnrollment(), guild) then return false end
+	local absent = Time(absentSince, Church.Clock()) and absentSince < joined + 3600
+	local eligibleAt = absent and math.max(joined, absentSince) or joined
+	if not program.Role(ns.me, guild, eligibleAt) then return false end
+	local text = ("NE~1~v~%s~%s~%s~%s~%d~%d~%d"):format(scope, guild, inviter, recruit, invited, joined, eligibleAt)
+	if #text > 255 then return false end
+	return ns.RecruitRanking.Report(text)
+end
+
+function Conversions.TakeRosterWitness(sender, text)
+	local scope, guild, inviter, recruit, invited, joined, eligibleAt =
+		text:match("^NE~1~v~([^~]+)~([^~]+)~([^~]+)~([^~]+)~(%d+)~(%d+)~(%d+)$")
+	invited, joined, eligibleAt = tonumber(invited), tonumber(joined), tonumber(eligibleAt)
+	local actor, program, now = ActorKey(sender), ns.FederationProgram, Church.Clock()
+	if not scope or scope ~= BoardScope() or not ShareScope() or not actor
+		or not ActorKey(inviter) or not ActorKey(recruit) or actor == ActorKey(inviter) or actor == ActorKey(recruit)
+		or Count.Linked(sender, inviter) or Count.Linked(sender, recruit)
+		or not Time(eligibleAt, now) or not Time(joined, eligibleAt) or eligibleAt >= joined + 3600
+		or not Time(invited, joined) or invited % 3600 ~= 0 or joined % 3600 ~= 0
+		or not program.Role(sender, guild, eligibleAt) then return false end
+	return StoreWitness(sender, inviter, recruit, guild, invited, joined, eligibleAt, true)
 end
 
 local function ReceiveAutomatic(sender, scope, kind, body)
@@ -519,7 +605,7 @@ local function ReceiveAutomatic(sender, scope, kind, body)
 	if not key or not ns.FederationProgram.IsEnrolled(guild) then return false end
 	if kind == "c" and (not Time(invited, joined) or not Time(joined, now) or invited % 3600 ~= 0 or joined % 3600 ~= 0
 		or invited + 3600 <= accepted or invited - accepted > 12 * 3600
-		or not ns.FederationProgram.IsEnrolled(guild, joined)) then return false end
+		or not ns.FederationProgram.IsEnrolled(guild, math.max(joined, accepted))) then return false end
 	if kind == "h" and (invited ~= 0 or joined ~= 0) then return false end
 	local entry = Note("conversionInbox", key, now)
 	if not entry then return false end
