@@ -5613,6 +5613,14 @@ L.HELP_ACCORD = "  /oly accord - the Olympus Accord, Olympus's terms of use · /
 -- (Every "members only" refusal says this instead in an Olympus guild before the Accord: ns.MembersOnlyText.)
 L.ACCORD_DECLINED = "Olympus stays off until you accept the Olympus Accord: /oly accord."
 L.FEDERATION_TOOLS_LOCKED = "Shared tools are available after your guild joins the Olympus program."
+L.HELP_FEDERATION_CARETAKER = "  /oly caretaker - find your guild's caretaker for guild master actions"
+L.FEDERATION_CARETAKER = "Whisper %s for actions that require the guild master."
+L.FEDERATION_CARETAKER_UNAVAILABLE = "No caretaker is confirmed for your current guild. Check with your guild officers."
+if GetLocale and GetLocale() == "ptBR" then
+	L.HELP_FEDERATION_CARETAKER = "  /oly caretaker - encontre o responsável pelas ações de mestre da guilda"
+	L.FEDERATION_CARETAKER = "Envie um sussurro para %s para pedir uma ação que exige o mestre da guilda."
+	L.FEDERATION_CARETAKER_UNAVAILABLE = "Nenhum responsável foi confirmado para sua guilda atual. Confira com seus oficiais."
+end
 L.FEDERATION_INVITE_REFUSED = "Olympus cannot prepare an invite for this player while a fugitive decision is active."
 L.HELP_CHAT = "  /oly chat on|off - the Olympus chats on this client (off: nothing sent, nothing shown)"
 L.INSPECTION_OPT_UNANSWERED = "You don't take part in Royal Inspections until you say yes (/oly inspection on, or the Olympus page: /oly privacy). You still hear the King's call."

@@ -379,20 +379,25 @@ with open(sys.argv[1], "w") as f:
         "faction": "Alliance", "region": "US", "mode": "enforce",
         "issued": now - 60, "expires": now + 3600,
         "guilds": [{"guild": "Olympus Azure", "caretaker": "Silver Rock-CAMWOWUS2Realm5PvE",
-                    "official": "Amber Vale-CAMWOWUS1Realm2PvE", "officialRankIndex": 2}]
+                    "official": "Amber Vale-CAMWOWUS1Realm2PvE"}]
     }]}, f)
 PY
 OLYMPUS_COUNCIL_OUT="$scratch/council13.lua" python3 "$signer" council "$scratch/program.json" > /dev/null
-python3 - "$scratch/program.json" <<'PY'
+python3 - "$scratch/program.json" "$scratch/program-bad-rank.json" "$scratch/program-bad-region.json" <<'PY'
 import json, sys
-path = sys.argv[1]
+path, bad_rank, bad_region = sys.argv[1:]
 with open(path) as f: d = json.load(f)
 row = d["program"][0]["guilds"][0]
+row["officialRankIndex"] = 2
+with open(bad_rank, "w") as f: json.dump(d, f)
+row["officialRankIndex"] = 1
 row["official"] = row["official"].replace("CAMWOWUS", "CAMWOWEU")
-with open(path, "w") as f: json.dump(d, f)
+with open(bad_region, "w") as f: json.dump(d, f)
 PY
 before=$(last_at)
-if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratch/program.json" > refused.txt 2>&1; then fail 'signed a program identity for another region'; fi
+if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratch/program-bad-rank.json" > refused.txt 2>&1; then fail 'signed a program role in the third slot'; fi
+grep -Fq 'native index 1' refused.txt || fail 'third slot was refused for an unexpected reason'
+if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratch/program-bad-region.json" > refused.txt 2>&1; then fail 'signed a program identity for another region'; fi
 [ "$(last_at)" = "$before" ] || fail 'a refused guild program moved the key time'
 
 luajit "$repo_root/tests/sign-roundtrip.lua" "$repo_root" "$OLYMPUS_COUNCIL_KEY" "$future" \

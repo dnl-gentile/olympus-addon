@@ -3078,6 +3078,7 @@ local function Help()
 	print(L.HELP_ROLLCALL)
 	print(L.HELP_ACCORD) -- (1.2.5.1)
 	if rawget(L, "HELP_VERIFY") then print(L.HELP_VERIFY) end -- (guild verification, Verify.lua)
+	if ns.FederationProgram and ns.FederationProgram.Active() then print(L.HELP_FEDERATION_CARETAKER) end
 	print(L.HELP_PRIVACY_PAGE)
 	print(L.HELP_PROFILE)
 	print(L.HELP_BUILDS) -- (1.5.4: modified builds, Builds.lua)
@@ -3529,6 +3530,8 @@ local function Slash(input)
 		elseif cmd == "netoff" or cmd == "neton" then
 			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
 			ns.Moderation.Slash(cmd == "netoff", rest)
+		elseif cmd == "caretaker" then
+			if ns.FederationProgram then ns.FederationProgram.ShowCaretaker() else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "fugitives" then
 			if ns.FederationFugitives then ns.FederationFugitives.Slash(rest:lower()) else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "alt" or cmd == "alts" then

@@ -729,7 +729,7 @@ def load_council(path):
     return data
 
 # The signer's attestation that the named native owner is an approved caretaker, the
-# other named character is the official GM, and the roster and Discord checks are done.
+# other named character is the official GM, and the Council's manual checks are done.
 def program_entries(v, realm):
     if v is None: return []
     if not isinstance(v, list): sys.exit("program is a list of faction and region policies")
@@ -764,9 +764,9 @@ def program_entries(v, realm):
                     sys.exit("a guild program identity is outside the policy's region")
                 if name.casefold() in people_set: sys.exit("a guild program identity twice")
                 people_set.add(name.casefold())
-            rank = row.get("officialRankIndex")
-            if type(rank) is not int or rank not in (1, 2): sys.exit("program officialRankIndex must be native index 1 or 2")
-            rows.append("%s=%s,%s,%d" % (guild, caretaker, official, rank))
+            rank = row.get("officialRankIndex", 1)
+            if type(rank) is not int or rank != 1: sys.exit("program officialRankIndex must be native index 1 (the second slot)")
+            rows.append("%s=%s,%s,1" % (guild, caretaker, official))
         entries.append("^program^%s^%s^%s^%d^%d^%s" % (faction, region, mode, issued, expires, "!".join(sorted(rows)) or "-"))
     return sorted(entries)
 

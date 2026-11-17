@@ -4,7 +4,7 @@ local _, ns = ...
 -- Only the author-signed HT1 extension can name a guild, its native GM and its designated operator.
 -- An explicit signed rollout stays active after expiry or omission from a newer titles list.
 -- Lists without a current grant then allow no guild. A newer signed "off" entry ends the rollout.
-local Program = {}
+local Program, L = {}, ns.L
 ns.FederationProgram = Program
 
 local MAX_BLOB, MAX_GUILDS = 3000, 20
@@ -35,7 +35,7 @@ local function Entries(body, group, region)
 	if body == "-" then return out end
 	if body == "" or body:find("^!") or body:find("!$") or body:find("!!", 1, true) then return nil end
 	for item in body:gmatch("[^!]+") do
-		local guild, caretaker, official, rank = item:match("^([^=]+)=([^,]+),([^,]+),([12])$")
+		local guild, caretaker, official = item:match("^([^=]+)=([^,]+),([^,]+),1$")
 		if not guild or #guild > 72 or not guild:match("^[%a\128-\255][%a\128-\255 ]*$")
 			or guild:find(" $") or select(2, guild:gsub("[^\128-\191]", "")) > 24 then return nil end
 		local key = ns.Fold(guild)
@@ -43,7 +43,7 @@ local function Entries(body, group, region)
 		count = count + 1
 		if count > MAX_GUILDS or out[key] or not owner or not gm or owner == gm or people[owner] or people[gm] then return nil end
 		people[owner], people[gm] = true, true
-		out[key] = { caretaker = caretaker, official = official, rank = tonumber(rank) }
+		out[key] = { caretaker = caretaker, official = official }
 	end
 	return out
 end
@@ -135,10 +135,21 @@ end
 
 -- Our roster is stronger evidence for our own guild. Incomplete, stale or contradictory native
 -- ranks deny local access even when another guild still holds its signed program record.
-function Program.LocalEnrollment(at)
+local function LocalEnrollment(at)
 	local r = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
 	local enrolled = r and Enrollment(r.guild, at)
-	if enrolled and ns.Roster.RankOf(enrolled.caretaker) == 0 and ns.Roster.RankOf(enrolled.official) == enrolled.rank then
-		return r.guild
+	if enrolled and ns.Roster.RankOf(enrolled.caretaker) == 0 and ns.Roster.RankOf(enrolled.official) == 1 then
+		return r.guild, enrolled
 	end
+end
+
+
+function Program.LocalEnrollment(at)
+	local guild = LocalEnrollment(at)
+	return guild
+end
+
+function Program.ShowCaretaker()
+	local _, enrolled = LocalEnrollment()
+	ns.Print(enrolled and L.FEDERATION_CARETAKER:format(enrolled.caretaker) or L.FEDERATION_CARETAKER_UNAVAILABLE)
 end

@@ -8,7 +8,7 @@ local GUILD = "Olympus Azure"
 local ROW = ("%s=%s,%s,1"):format(GUILD, CARETAKER, OFFICIAL)
 
 local function World(run)
-	local old = { ns.rdb, ns.realm, ns.group, ns.faction, ns.Data.ServerTime, ns.Sign.Verify, ns.Roster.Fresh, ns.Roster.RankOf }
+	local old = { ns.rdb, ns.realm, ns.group, ns.faction, ns.Data.ServerTime, ns.Sign.Verify, ns.Roster.Fresh, ns.Roster.RankOf, ns.Print }
 	local allowed, time = {}, T
 	ns.rdb, ns.realm, ns.group, ns.faction = {}, REALM, GROUP, "Alliance"
 	ns.Data.ServerTime = function() return time end
@@ -26,7 +26,7 @@ local function World(run)
 		P.RememberPolicy()
 	end
 	local ok, err = pcall(run, Blob, Install, function(now) time = now end)
-	ns.rdb, ns.realm, ns.group, ns.faction, ns.Data.ServerTime, ns.Sign.Verify, ns.Roster.Fresh, ns.Roster.RankOf = unpack(old, 1, 8)
+	ns.rdb, ns.realm, ns.group, ns.faction, ns.Data.ServerTime, ns.Sign.Verify, ns.Roster.Fresh, ns.Roster.RankOf, ns.Print = unpack(old, 1, 9)
 	if not ok then error(err, 0) end
 end
 
@@ -64,6 +64,8 @@ test("federation program: enrollment requires both exact scoped roles and a fres
 		ns.Roster.Fresh = function() return roster end
 		ns.Roster.RankOf = function(name) return ranks[name] end
 		eq(P.LocalEnrollment(), GUILD)
+		ranks[OFFICIAL] = 2
+		eq(P.LocalEnrollment(), nil, "the official must keep the second slot")
 		ranks[CARETAKER], ranks[OFFICIAL] = 1, 0
 		eq(P.LocalEnrollment(), nil, "fresh contradictory roster")
 		roster.guild = "Olympus Azure Two"
@@ -105,5 +107,28 @@ test("federation program: signed malformed grants keep the rollout active withou
 		eq(P.IsEnrolled(GUILD), false, "cross-region owners")
 		Install(Blob(T + 2, (ROW:gsub(",1$", ",0"))))
 		eq(P.IsEnrolled(GUILD), false, "the official cannot claim native owner rank")
+	end)
+end)
+
+
+test("federation program: third-slot grants fail and caretaker contact needs a confirmed current roster", function()
+	World(function(Blob, Install, Move)
+		Install(Blob(T, (ROW:gsub(",1$", ",2"))))
+		eq(P.Active(), true)
+		eq(P.IsEnrolled(GUILD), false, "a third-slot attestation grants neither guild nor role")
+		eq(P.Role(OFFICIAL, GUILD), nil)
+		Install(Blob(T + 1, ROW))
+		local output
+		ns.Print = function(message) output = message end
+		ns.Roster.Fresh = function() return nil end
+		SlashCmdList.OLYMPUS("caretaker")
+		eq(output, ns.L.FEDERATION_CARETAKER_UNAVAILABLE)
+		ns.Roster.Fresh = function() return { guild = GUILD } end
+		ns.Roster.RankOf = function(name) return ({ [CARETAKER] = 0, [OFFICIAL] = 1 })[name] end
+		SlashCmdList.OLYMPUS("caretaker")
+		eq(output, ns.L.FEDERATION_CARETAKER:format(CARETAKER))
+		Move(T + 10)
+		SlashCmdList.OLYMPUS("caretaker")
+		eq(output, ns.L.FEDERATION_CARETAKER_UNAVAILABLE)
 	end)
 end)
