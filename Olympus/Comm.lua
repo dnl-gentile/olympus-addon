@@ -60,7 +60,7 @@ local guildAsm = Codec.NewAssembler() -- pieces over GUILD (1.0.0)...
 local outsiderAsm = Codec.NewAssembler()
 local whisperAsm = Codec.NewAssembler() -- private signed-authority answers (1.2)
 local GUILD_PIECES = { HS = true, HT = true, XB = true, WZ = true, WU = true }
-local WHISPER_PIECES = { H2 = true } -- ...and over WHISPER (1.4.3: the relay's RL and RM too, Comm.RelayPieces)
+local WHISPER_PIECES = { H2 = true, FZ = true } -- independently signed authority and fugitive answers
 -- 1.4.3: the relay (Relay.lua) names the kinds its pieces carry over GUILD and WHISPER.
 function Comm.RelayPieces(kinds)
 	for k in pairs(kinds or {}) do GUILD_PIECES[k], WHISPER_PIECES[k] = true, true end
@@ -2705,8 +2705,7 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		return
 	end
 	if dist == "WHISPER" then
-		-- H2 is the only long private payload. It carries an independently signed authority part;
-		-- Authority.lua still checks the route, signature, complete-set digest and replay boundary.
+		-- Private assemblies still have to pass their own route, scope and signature checks.
 		local full = Codec.Feed(whisperAsm, sender, text, now)
 		local kind = full and full:sub(1, 2)
 		if kind and WHISPER_PIECES[kind] and full:sub(3, 3) == "~" and handlers[kind] then Dispatch(handlers[kind], dist, sender, full) end

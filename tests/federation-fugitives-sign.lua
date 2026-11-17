@@ -12,7 +12,7 @@ CreateFrame = function() return setmetatable({}, { __index = function() return N
 StaticPopupDialogs, SlashCmdList = {}, {}
 GetLocale = function() return "enUS" end
 time, date = os.time, os.date
-local ns = {}
+local ns = { Comm = { Handle = Noop } }
 for _, file in ipairs({ "Locales", "Core", "Sign", "Locales/FugitivesText", "FederationFugitives" }) do
 	assert(loadfile(root .. "/Olympus/" .. file .. ".lua"))("Olympus", ns)
 end

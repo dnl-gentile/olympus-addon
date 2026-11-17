@@ -79,6 +79,7 @@ end
 -- The question answered: the game removes that one member. From the player's click only.
 function Members.Remove(m)
 	if not (Members.CanRemove() and Members.Removable(m)) then return false end
+	if m.fugitiveGuild and not (ns.FederationFugitives and ns.FederationFugitives.RemovalAllowed(m)) then return false end
 	-- A Justice request references this exact manual click, never a new removal permission.
 	if m.justiceTask and not (ns.JusticeTasks and ns.JusticeTasks.MayRemove(m)) then return false end
 	local now = GetTime()

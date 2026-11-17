@@ -10,7 +10,7 @@ import stat
 
 MIN_TIME, MAX_TIME = 1577836800, 9999999999
 MAX_LIFETIME = 31 * 86400
-MAX_REVISION, MAX_NAMES, MAX_NAME_BYTES, MAX_BLOB = 2**31 - 1, 96, 96, 8192
+MAX_REVISION, MAX_NAMES, MAX_NAME_BYTES, MAX_BLOB = 2**31 - 1, 96, 96, 7400
 FIELDS = {"region", "group", "faction", "revision", "issued", "expires", "names"}
 NATIVE_REALM = re.compile(r"CAMWOW([A-Z]{2})[0-9]+Realm[0-9]+[A-Za-z]+")
 

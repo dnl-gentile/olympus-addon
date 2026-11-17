@@ -11,28 +11,45 @@ local function Client(db)
 	local t = {
 		now = NOW, enrolled = true, role = "official", events = {}, listeners = {}, alerts = {},
 		links = {}, printed = {}, timers = {}, guild = GUILD, roster = { guild = GUILD, byName = { [ON] = 3, [GM] = 2 } },
+		requests = {}, replies = {}, handlers = {}, peers = {}, caretakers = {}, roles = {},
 	}
 	local c = setmetatable({
-		realm = "CAMWOWUS2Realm5PvE", group = "ForeverPvE", faction = "Alliance", me = GM, db = db or {}, L = {},
+		realm = "CAMWOWUS2Realm5PvE", group = "ForeverPvE", faction = "Alliance", me = GM, db = db or {},
+		L = setmetatable({}, { __index = ns.L }), RealmPages = {},
 		Data = { ServerTime = function() return t.now end },
 		FederationProgram = {
 			IsEnrolled = function(guild) return t.enrolled and guild == t.guild end,
 			LocalEnrollment = function() return t.enrolled and t.guild or nil end,
-			Role = function(name, guild) return name == GM and guild == GUILD and t.role or nil end,
+			Role = function(name, guild) return t.roles[name] == guild and "caretaker" or name == GM and guild == GUILD and t.role or nil end,
+			Caretakers = function() return t.caretakers end,
+		},
+		Comm = {
+			Handle = function(kind, handler) t.handlers[kind] = handler end,
+			Peers = function() return t.peers end,
+			Whisper = function(target, word, _, _, _, _, options)
+				t.requests[#t.requests + 1] = { target = target, word = word, guard = options.guard }
+				return true
+			end,
+			SendBatch = function(dist, pieces, _, target, _, _, options)
+				t.replies[#t.replies + 1] = { dist = dist, pieces = pieces, target = target, guard = options.guard }
+				return true
+			end,
 		},
 		Alts = { Linked = function(name) return t.links[name] or {} end },
 		Groups = { GroupMembers = function() return t.members or {} end },
-		Roster = { Fresh = function() return t.roster end },
+		Roster = { Fresh = function() return t.roster end, RankOf = function(name) return t.roster and t.roster.byName[name] end },
 		Dialog = { Show = function(id, text)
 			if t.refuseDialog then return nil end
 			t.alerts[#t.alerts + 1] = { id = id, text = text }
 			return true
 		end },
 		ChatLocked = function() return t.chatLocked == true end,
+		QuietPresence = function() return t.quiet == true end,
+		IsMember = function() return t.member ~= false end,
 		KingsScreen = function() return t.stream == true end,
 		RegisterEvent = function(event, fn) t.events[event] = fn end,
 		On = function(event, fn) t.listeners[event] = fn end,
-		Fire = function(event) if t.listeners[event] then t.listeners[event]() end end,
+		Fire = function(event, ...) if t.listeners[event] then t.listeners[event](...) end end,
 		After = function(_, _, fn) t.timers[#t.timers + 1] = fn end,
 		Print = function(text) t.printed[#t.printed + 1] = text end,
 	}, { __index = ns })
@@ -40,6 +57,115 @@ local function Client(db)
 	assert(loadfile(ROOT .. "Olympus/FederationFugitives.lua"))("Olympus", c)
 	return t, c, c.FederationFugitives
 end
+
+test("federation fugitives: leader roster review rechecks the signed decision before a native removal", function()
+	ns.Sign.WithKey(proofs.N, proofs.MU, proofs.K, function()
+		local t, c, f = Client()
+		c.Members = {
+			CanRemove = function() return t.canRemove end,
+			Removable = function(m) return m.rankIndex > 1 end,
+			AskRemove = function(m) t.removal = m end,
+		}
+		local page = assert(c.RealmPages[1])
+		assert(f.Import(proofs.INITIAL))
+		t.roster.members = { { full = ON, raw = "Arden Frost", name = "Arden Frost", rankIndex = 3 } }
+		t.role = "member"
+		eq(page.Link(), nil)
+		t.role = "official"
+		assert(page.Link())
+		eq(page.Lines()[2].onClick, nil, "the existing native permission controls the action")
+		t.canRemove = true
+		page.Lines()[2].onClick()
+		assert(t.removal and f.RemovalAllowed(t.removal))
+		t.roster.members[1].rankIndex = 1
+		eq(f.RemovalAllowed(t.removal), false, "changing the role while the prompt is open denies")
+		t.roster.members[1].rankIndex = 3
+		assert(f.Import(proofs.CLEARED))
+		eq(f.RemovalAllowed(t.removal), false, "an appeal overturned this decision while the prompt was open")
+		eq(page.Lines()[2].text, c.L.FUGITIVES_ROSTER_EMPTY)
+	end)
+end)
+
+test("federation fugitives: native removals are reviewed locally with no inferred realm or signed decision", function()
+	ns.Sign.WithKey(proofs.N, proofs.MU, proofs.K, function()
+		local t, c, f = Client()
+		local page = c.RealmPages[1]
+		local hour = math.floor(t.now / 3600)
+		c.ChurchCount = { Read = function() return true end }
+		c.UI = { ShowCopy = function(_, text) t.copied = text end }
+		local events = {
+			{ kind = "remove", p1 = GM, p2 = ALT, hour = hour - 50, removerExact = true, removedExact = true },
+			{ kind = "remove", p1 = ALT, p2 = ON, hour = hour, removerExact = true, removedExact = true },
+			{ kind = "quit", p1 = ON, p2 = ALT, hour = hour, removerExact = true, removedExact = true },
+			{ kind = "remove", p1 = GM, p2 = ON, hour = hour, removerExact = true, removedExact = false },
+		}
+		local function Find(text)
+			for _, row in ipairs(page.Lines()) do if row.text:find(text, 1, true) then return row end end
+		end
+		c.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+		eq(Find("Arden Frost"), nil, "the request must be attended")
+		assert(Find(c.L.FUGITIVES_READ_REMOVALS).onClick())
+		c.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+		local row = assert(Find("Arden Frost"))
+		assert(row.right:find(c.L.FUGITIVES_CHECK_REALM, 1, true))
+		eq(Find("Quill Dawn"), nil)
+		row.onClick()
+		assert(t.copied:find(c.L.FUGITIVES_REVIEW_ONLY, 1, true))
+		eq(t.copied:find(ON, 1, true), nil, "we never present an inferred realm as the native realm")
+		eq(f.IsListed(ON, GUILD), false, "a removal is evidence for review, never a decision")
+		t.now = t.now + 301
+		eq(Find("Arden Frost"), nil)
+	end)
+end)
+
+test("federation fugitives: signed decisions sync privately between scoped enrolled clients and survive a clearing revision", function()
+	ns.Sign.WithKey(proofs.N, proofs.MU, proofs.K, function()
+		local sender, s, source = Client()
+		local receiver, c, incoming = Client()
+		local keeper, G2 = "Alder Fall-CAMWOWUS2Realm7PvE", "Olympus Azure"
+		s.me, sender.guild, sender.roster.guild = keeper, G2, G2
+		sender.roles[keeper], sender.roles[c.me] = G2, GUILD
+		receiver.roles[keeper], receiver.caretakers[G2] = G2, keeper
+		local function Request()
+			assert(incoming.Sync(), "eligible client requests the next revision")
+			local request = receiver.requests[#receiver.requests]
+			eq(request.target, keeper)
+			return request
+		end
+		local function Assemble(reply)
+			local asm, body = ns.Codec.NewAssembler(), nil
+			for _, piece in ipairs(reply.pieces) do body = ns.Codec.Feed(asm, s.me, piece, sender.now) end
+			return assert(body)
+		end
+		assert(source.Import(proofs.INITIAL))
+		local request = Request()
+		eq(incoming.Sync(), false, "only one outstanding request")
+		eq(sender.handlers.FZ("CHANNEL", c.me, request.word), false)
+		eq(sender.handlers.FZ("WHISPER", ALT, request.word), false, "another guild's unproven member gets no list")
+		eq(sender.handlers.FZ("WHISPER", c.me, request.word), true)
+		local reply = sender.replies[1]
+		eq(reply.dist, "WHISPER"); eq(reply.target, c.me); eq(reply.guard(), true)
+		local body = Assemble(reply)
+		eq(receiver.handlers.FZ("WHISPER", ALT, body), false, "only the requested peer may answer")
+		eq(receiver.handlers.FZ("WHISPER", s.me, (body:gsub("Arden", "Alden"))), false)
+		eq(receiver.handlers.FZ("WHISPER", s.me, body), true)
+		eq(incoming.IsListed(ON, GUILD), true)
+		eq(receiver.handlers.FZ("WHISPER", s.me, body), false, "unsolicited repeat")
+		assert(source.Import(proofs.CLEARED))
+		eq(reply.guard(), false, "never sends an older list from the queue after a clearing decision")
+		sender.now, receiver.now = NOW + 120, NOW + 120
+		request = Request()
+		assert(sender.handlers.FZ("WHISPER", c.me, request.word))
+		local cleared = Assemble(sender.replies[2])
+		receiver.enrolled = false
+		eq(request.guard(), false)
+		eq(receiver.handlers.FZ("WHISPER", s.me, cleared), false)
+		receiver.enrolled = true
+		assert(receiver.handlers.FZ("WHISPER", s.me, cleared))
+		eq(incoming.IsListed(ON, GUILD), false)
+		eq(incoming.Import(proofs.INITIAL), false)
+	end)
+end)
 
 test("federation fugitives: signed scope, expiration and clearing are checked after reload", function()
 	ns.Sign.WithKey(proofs.N, proofs.MU, proofs.K, function()

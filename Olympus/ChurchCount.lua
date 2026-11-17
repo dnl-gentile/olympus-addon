@@ -524,7 +524,12 @@ function Count.Events()
 		local a = EventName(p1)
 		if type(kind) == "string" and a then
 			local ago = ((tonumber(y) or 0) * 365 + (tonumber(mo) or 0) * 30 + (tonumber(d) or 0)) * 24 + (tonumber(h) or 0)
-			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
+			local event = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
+			if kind == "remove" then
+				event.removerExact = p1:find("-", 1, true) ~= nil
+				event.removedExact = event.p2 ~= nil and p2:find("-", 1, true) ~= nil
+			end
+			out[#out + 1] = event
 		end
 	end
 	-- 1: the log lists the oldest first; -1: the newest first; 0: no way to tell (one hour).
@@ -673,7 +678,9 @@ end
 
 function Count.OnLogUpdate()
 	if ns.KingsScreen and ns.KingsScreen() then return end
-	Count.Process(Count.Events())
+	local events = Count.Events()
+	ns.Fire("CHURCH_NATIVE_GUILD_LOG", events)
+	Count.Process(events)
 end
 
 -- (1.6.0) Another character of this account that no keeper can tell from another player: one the
