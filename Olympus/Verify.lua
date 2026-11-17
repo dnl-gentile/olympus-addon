@@ -413,7 +413,8 @@ function Verify.Status(guild, now)
 	-- (1.5.5) Nobody here who can verify (Verify.VerifierHere): no deadline runs, the guild waits.
 	-- (1.6.0.1) Nor on Forever's groups but PvE before OTHER_GROUPS_WAIT_UNTIL.
 	local other = Verify.OtherForeverGroup()
-	if not Verify.VerifierHere(now) or (other and now < Verify.OTHER_GROUPS_WAIT_UNTIL) then
+	if other and now < Verify.OTHER_GROUPS_WAIT_UNTIL then info.paused = true end
+	if info.paused or not Verify.VerifierHere(now) then
 		info.waiting, info.deadline, info.left = true, now + Verify.GRACE, Verify.GRACE
 		return "pending", info
 	end
@@ -1447,6 +1448,9 @@ local function StatusText(guild, status, info)
 		local e = info.entry
 		return L.VERIFY_STATUS_VERIFIED:format(guild, Shown(e.gm), Shown(e.by), date("%Y-%m-%d", e.at))
 	end
+	if info.paused then
+		return L.VERIFY_STATUS_PAUSED:format(guild, date("!%Y-%m-%d", Verify.OTHER_GROUPS_WAIT_UNTIL))
+	end
 	if info.waiting then return L.VERIFY_STATUS_WAITING:format(guild) end
 	if status == "pending" then return L.VERIFY_STATUS_GRACE:format(guild, Verify.Duration(info.left)) end
 	return L.VERIFY_STATUS_LATE:format(guild)
@@ -1564,6 +1568,7 @@ function Verify.Pending(now)
 end
 
 local function StateText(r)
+	if r.info.paused then return L.VERIFY_COUNCIL_PAUSED end
 	if r.status == "overdue" then return r.info.lapsed and L.VERIFY_COUNCIL_LAPSED_LATE or L.VERIFY_COUNCIL_LATE end
 	if r.info.lapsed then return L.VERIFY_COUNCIL_LAPSED:format(Verify.Duration(r.info.left)) end
 	return L.VERIFY_COUNCIL_GRACE:format(Verify.Duration(r.info.left))

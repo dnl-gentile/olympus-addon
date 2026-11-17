@@ -5031,6 +5031,8 @@ ns.Locale("ruRU", {
 	VERIFY_COUNCIL_GRACE = "ожидается, осталось %s",
 	VERIFY_COUNCIL_LAPSED = "новый глава гильдии на проверку, осталось %s",
 	VERIFY_COUNCIL_LAPSED_LATE = "новый глава гильдии на проверку, просрочено",
+	VERIFY_STATUS_PAUSED = "<%s>: отсчёт срока проверки гильдии приостановлен до %s (UTC). Гильдию можно одобрить и раньше.",
+	VERIFY_COUNCIL_PAUSED = "срок приостановлен",
 	VERIFY_COUNCIL_LATE = "просрочено: напомнить",
 	VERIFY_COUNCIL_MASTER = "Глава гильдии: %s",
 	VERIFY_COUNCIL_MEMBERS = "Участники: %s",

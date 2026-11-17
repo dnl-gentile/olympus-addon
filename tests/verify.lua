@@ -1740,8 +1740,8 @@ local function OnRealm(w, realm)
 	return gm, hc
 end
 
-test("verify: 1.6.0.1 on Forever's PvP and RP realm groups a guild past its deadline waits until 2026-11-30 (pending, its guild master told nothing and not held, nothing overdue for the verifiers); an approval still verifies; then GRACE from the end of the wait", function()
-	for _, realm in ipairs({ PVP, RP }) do
+test("verify: 1.6.0.1 on Forever's PvP, RP and RP-PvP realm groups a guild past its deadline waits until 2026-11-30 (pending, its guild master told nothing and not held, nothing overdue for the verifiers); an approval still verifies; then GRACE from the end of the wait", function()
+	for _, realm in ipairs({ PVP, RP, RPPVP }) do
 		World(function(w)
 			local gm, hc = OnRealm(w, realm)
 			eq(gm.VERIFY_HOLD, true, "(the hold on, as Core.lua ships it)")
@@ -1770,10 +1770,18 @@ test("verify: 1.6.0.1 on Forever's PvP and RP realm groups a guild past its dead
 				eq(w.As(gm, gm.MasterHeld, GUILD), false, when .. ": his powers not held")
 				local line = w.As(gm, gm.Verify.Lines)[1]
 				assert(line and line.text:find(gm.L.VERIFY_LINE_WAITING, 1, true), when .. ": his Census line says verification waits")
+				assert(w.As(gm, gm.Verify.ShowNotice), when .. ": the GM can view the status")
+				local detail = gm.copies[#gm.copies].text
+				assert(not detail:find(gm.L.VERIFY_STATUS_WAITING:format(GUILD), 1, true), when .. ": the detail does not blame a missing verifier")
+				eq(detail, gm.L.VERIFY_STATUS_PAUSED:format(GUILD, "2026-11-30"), when .. ": the detail gives the end date")
 				eq(w.As(hc, hc.Verify.Mark, GUILD), "", when .. ": no overdue mark for the verifiers")
 				local rows = 0
 				for _, l in ipairs(w.As(hc, hc.Verify.CouncilLines)) do
-					if tostring(l.text):find("<" .. GUILD .. ">", 1, true) or tostring(l.text):find("<" .. OTHER .. ">", 1, true) then rows = rows + 1 end
+					if tostring(l.text):find("<" .. GUILD .. ">", 1, true) or tostring(l.text):find("<" .. OTHER .. ">", 1, true) then
+						rows = rows + 1
+						assert(l.right:find(hc.L.VERIFY_COUNCIL_PAUSED, 1, true), when .. ": paused state instead of a countdown")
+						assert(not l.right:find(hc.Verify.Duration(GRACE), 1, true), when .. ": no seven-day countdown")
+					end
 					assert(not tostring(l.text):find(hc.Verify.MARK_LATE, 1, true), when .. ": no overdue row: " .. tostring(l.text))
 					assert(not tostring(l.right):find("overdue", 1, true), when .. ": no overdue state: " .. tostring(l.right))
 				end
