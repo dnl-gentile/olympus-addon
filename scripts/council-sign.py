@@ -30,6 +30,7 @@
                                   # the realm group the lists are for, kept in the council file ("realm")
   python3 scripts/council-sign.py check [CouncilList.lua]                 # (or --check) read back what was signed
   python3 scripts/council-sign.py seal "RS1~..."                         # reviewed monthly Records request; prints its signed seal
+  python3 scripts/council-sign.py conversion-review <candidate.txt>     # one reviewed Church handoff; prints its signed receipt
 
 The private key never leaves ~/.olympus. The addon carries only the public key (Sign.lua) and
 checks the signature: RSA-2048, e = 3, PKCS#1 v1.5 over SHA-256. CouncilList.lua holds the lists:
@@ -315,6 +316,43 @@ def seal(request):
     fits(request, 900, "records seal")
     with open(KEY) as f: key = json.load(f)
     return request + "~" + signature(request, key)
+
+def conversion_review(path):
+    """Sign one manually reviewed handoff without rewriting council lists or outputs."""
+    with open(path, encoding="utf-8") as candidate_file:
+        request = candidate_file.read(1201).strip()
+    parts = request.split("~")
+    if len(parts) != 13 or parts[0] != "OCJ1" or len(request.encode()) > 650:
+        sys.exit("expected one complete Church handoff candidate")
+    _, group, faction, region, source_guild, guild, recruit, source, inviter, tx, accepted, invited, joined = parts
+    check([], group)
+    if faction not in FACTIONS or re.fullmatch(r"-|[A-Z]{2}", region) is None:
+        sys.exit("wrong candidate faction or region")
+    for name in (recruit, source, inviter):
+        pin_name(name, "Church handoff character", group)
+        realm = name.rsplit("-", 1)[-1]
+        found = re.fullmatch(r"CAMWOW([A-Z]{2})[0-9]+Realm[0-9]+[A-Za-z]+", realm)
+        if (found.group(1) if found else "-") != region:
+            sys.exit("candidate includes a character from another region")
+    if len({name.lower() for name in (recruit, source, inviter)}) != 3:
+        sys.exit("expected three different characters")
+    for name in (source_guild, guild):
+        if not plain(name) or len(name.encode()) > 72:
+            sys.exit("invalid candidate guild")
+    if len(tx) > 40 or not re.fullmatch(r"[0-9]+-[0-9a-fA-F]+-[0-9]+", tx):
+        sys.exit("invalid handoff transaction")
+    if any(not re.fullmatch(r"[0-9]{1,10}", v) for v in (accepted, invited, joined)):
+        sys.exit("invalid handoff time")
+    accepted, invited, joined = map(int, (accepted, invited, joined))
+    reviewed = int(time.time())
+    if not (0 < invited <= joined <= reviewed and 0 < accepted <= reviewed
+            and reviewed - accepted <= 14 * 86400 and invited - 12 * 3600 <= accepted < invited + 3600
+            and invited % 3600 == 0 and joined % 3600 == 0):
+        sys.exit("candidate is expired, unpaired or dated in the future")
+    text = f"OCV1~{reviewed}~{request}"
+    fits(text, 1200, "Church handoff receipt")
+    with open(KEY) as f: key = json.load(f)
+    return text + "~" + signature(text, key)
 
 # The council file (see the top): every field checked as the addon reads it, before anything is
 # signed. Returns the realm group, public, the councillors outside any department and the
@@ -1347,6 +1385,8 @@ if __name__ == "__main__":
         print(OUT, "written:", text)
     elif len(sys.argv) == 3 and sys.argv[1] == "seal":
         print(seal(sys.argv[2]))
+    elif len(sys.argv) == 3 and sys.argv[1] == "conversion-review":
+        print(conversion_review(sys.argv[2]))
     elif len(sys.argv) in (2, 3) and sys.argv[1] == "council":
         path = sys.argv[2] if len(sys.argv) == 3 else COUNCIL
         data = load_council(path)

@@ -631,7 +631,7 @@ function Count.Process(events)
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
-				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild } end
+				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild, realm = ns.realm } end
 				if person and Key(e.p1) == meKey then
 					local m = Mine()
 					m.inv[day] = (m.inv[day] or 0) + 1
@@ -649,6 +649,10 @@ function Count.Process(events)
 					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
 					-- records of its own type (RecruitRanking.lua), never this ledger's.
 					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
+					local conversions = ns.ChurchConversions
+					if conversions and conversions.ObserveNativePair and i.g == guild and i.realm == ns.realm then
+						ns.SafeCall("recruit conversion pair", conversions.ObserveNativePair, i.by, e.p1, guild, i.h * 3600, tj * 3600)
+					end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then
 				FillOf(guild, day).l = FillOf(guild, day).l + 1

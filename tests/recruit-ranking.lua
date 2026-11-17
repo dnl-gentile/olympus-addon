@@ -173,6 +173,66 @@ test("Church conversions: require signed guild enrollment and independent scoped
 	eq(Page(), false)
 end)
 
+test("Church conversion review: a new scoped handoff and native join can be reviewed and imported once", function()
+	local w, c = Cast(nil, { view = true })
+	local keeper, recipient, recruit = c.a1, c.ivo, "New Guy-Realm"
+	c.ivo.rank, c.wes.rank = 0, 1
+	w:RefreshRosters()
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, w.clock - 7200, w.clock + DAY, World.GUILD)
+	local sig, reviewed = string.rep("a", 512), nil
+	for _, k in ipairs({ keeper, recipient }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({
+			Plausible = function(signature) return signature == sig end,
+			Verify = function(text, signature) return (text == title or text == reviewed) and signature == sig end,
+		}, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K, R = keeper.c.ChurchConversions, recipient.c.ChurchConversions
+	local function Candidates() return w:As(recipient, R.ReviewCandidates) end
+	eq(w:As(keeper, K.Available), false, "no leaderboard just for a guild's opt-in")
+	eq(w:As(recipient, recipient.c.FederationProgram.LocalEnrollment), World.GUILD)
+	local fire = recipient.c.Fire
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", "Untrusted-Realm", "Bera Stone-Wrong", recipient.name, World.GUILD2, World.GUILD, "100-a3-1")
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", "Scanning-Realm", A2, recipient.name, World.GUILD2, World.GUILD, "100-a3-1-0")
+	eq(recipient.c.rdb.church.conversionCandidates, nil, "foreign and scanned offers create no candidate")
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, A2, recipient.name, World.GUILD2, World.GUILD, "100-a3-1")
+	eq(#Candidates(), 0, "a real accepted handoff is not a completed recruit")
+	eq(w:As(recipient, recipient.RR.HandedIn, recruit, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, recruit, recipient.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy")
+	w:ReadLog(recipient)
+	local row = Candidates()[1]
+	assert(row and row:find("~New Guy-Realm~Bera Stone-Realm~Ivo Plain-Realm~100-a3-1~", 1, true), row)
+	w:As(recipient, recipient.Church.Slash, "conversions review")
+	eq(recipient.copied.text, row)
+	reviewed = ("OCV1~%d~%s"):format(w.clock, row)
+	local ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "handoff", "a signed review still needs an independent strong witness")
+	w:ReadLog(c.wes)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "handoff", "a weak witness cannot complete it")
+	w:ReadLog(keeper)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed:gsub("~Realm~Alliance~%-~", "~Realm~Alliance~EU~") .. "~" .. sig)
+	eq(ok, false); eq(reason, "scope")
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. string.rep("b", 512))
+	eq(ok, false); eq(reason, "proof")
+	w:As(keeper, keeper.Church.Slash, "conversions import")
+	eq(keeper.dialogs[#keeper.dialogs].which, "OLYMPUS_CONVERSION_REVIEW")
+	eq(w:As(keeper, K.ImportReview, reviewed .. "~" .. sig), true)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "duplicate")
+	eq(w:As(keeper, K.Available), true)
+	for _, window in ipairs({ "w", "a" }) do eq(w:As(keeper, K.Ranking, window)[1].count, 1) end
+	local _, saved = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(saved.recruit, nil); eq(saved.inviter, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
+	w.clock = w.clock + 8 * DAY
+	eq(#w:As(keeper, K.Ranking, "w"), 0)
+	eq(#w:As(keeper, K.Ranking, "a"), 1)
+end)
+
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()
 	local w, c = Cast()
 	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)

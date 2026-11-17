@@ -1879,6 +1879,8 @@ function Church.Slash(rest)
 		local started = C and C.ReplayRecent and C.ReplayRecent()
 		ns.Print(started and L.CHURCH_RECOVER_STARTED or L.CHURCH_RECOVER_WAIT)
 		return started == true
+	elseif verb == "conversions" and ns.ChurchConversions then
+		return ns.ChurchConversions.Slash(arg)
 	elseif verb == "name" or verb == "nomear" then
 		return Church.NameMissionary(arg)
 	elseif verb == "apostle" or verb == "apostolo" or verb == "apóstolo" then
