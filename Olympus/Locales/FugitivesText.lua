@@ -38,7 +38,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.FUGITIVES_REMOVALS = "Remoções recentes para revisão"
 	L.FUGITIVES_READ_REMOVALS = "Ler histórico da guilda"
 	L.FUGITIVES_REMOVALS_EMPTY = "Nenhuma remoção recente por uma autoridade identificada no histórico."
-	L.FUGITIVES_REMOVAL_RECORD = "%s · removido por %s · cerca de %s"
+	L.FUGITIVES_REMOVAL_RECORD = "%s · removido por %s · %s"
 	L.FUGITIVES_CHECK_REALM = "Confirme o reino"
 	L.FUGITIVES_REVIEW_ONLY = "Revise a remoção no jogo e confirme o reino do personagem antes de pedir uma decisão assinada."
 	L.FUGITIVES_APPEAL = "Peça uma revisão ao High Council na próxima sessão do Tribunal. Use /oly fugitives appeal quando o Tribunal estiver aberto na sua região."

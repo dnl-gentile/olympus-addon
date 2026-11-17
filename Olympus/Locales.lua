@@ -3399,7 +3399,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.REALM_LEADERSHIP = "Líderes e oficiais"
 	L.REALM_LEADERSHIP_UNKNOWN = "Liderança ainda não reportada"
 	L.REALM_LEADERSHIP_REPORT = "Lista atualizada %s"
-	L.REALM_LEADERSHIP_LAST_SEEN = "Visto há cerca de %s"
+	L.REALM_LEADERSHIP_LAST_SEEN = "Visto %s"
 	L.REALM_LEADERSHIP_PRESENCE_UNKNOWN = "Presença desconhecida"
 	L.COL_LEADER = "Líder"
 	L.COPY_DISCORD = "Copiar p/ Discord"
