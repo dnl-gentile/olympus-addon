@@ -43003,12 +43003,13 @@ do
 		WithDues(function(w, K, T, mail, trade)
 			WithWindows(function(g)
 				-- The events Dues.lua listens to, loaded again on its own: the game refusing the trade's
-				-- gold, plus F26-10's local inbox/trade reminder observations: no fill-in or popup.
+				-- gold, local inbox/trade observations, and removal of the daily Prime reminder
+				-- when the player leaves that guild. No event fills in a payment.
 				local alone = {}
 				LoadAlone(alone)
 				alone.on.LOGIN()
 				table.sort(alone.events)
-				eq(table.concat(alone.events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN,MAIL_INBOX_UPDATE,TRADE_SHOW")
+				eq(table.concat(alone.events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN,MAIL_INBOX_UPDATE,PLAYER_GUILD_UPDATE,TRADE_SHOW")
 				-- The mailbox and a trade with the Treasurer open, as a payer: the Treasury's own hooks fill nothing.
 				AsSoldier("Payer")
 				MailFrame:Show(); SendMailFrame:Show(); TradeFrame:Show(); trade.npc = "Pyralis Ashandar"
