@@ -2168,10 +2168,13 @@ function Workshop.TakeTitles(blob, sender, guild)
 	-- (1.2.5.1: an Olympus guild, the Olympus Accord accepted or not: ns.InOlympusGuild.)
 	local wasMember = ns.InOlympusGuild()
 	local hold = HoldBefore() -- (1.5.5, above)
+	local program = ns.FederationProgram
+	if program then program.RememberPolicy() end
 	-- 1.2: the signed arbiters and auditors of the Blood Arena (Core.lua: ns.ReadArbiters), an entry
 	-- of their own, as the Steward's.
 	ns.rdb.councilTitles = { at = at, public = public == "1", realm = realm ~= "" and realm or nil, depts = depts, blob = blob, stewards = stewards,
 		guilds = ns.ReadApprovedGuilds(list), arbiters = ns.ReadArbiters(list) }
+	if program then program.RememberPolicy() end
 	HoldAfter(hold)
 	-- 1.2's legacy HT1 migration marker records its one-way activation boundary here. The scalable
 	-- HA1 sets are separate and enter through Authority.lua; either path makes a later absent,

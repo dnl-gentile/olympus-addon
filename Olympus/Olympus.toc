@@ -71,6 +71,7 @@ PlayerMenu.lua
 Codec.lua
 Sign.lua
 Authority.lua
+FederationProgram.lua
 Zones.lua
 Who.lua
 Data.lua

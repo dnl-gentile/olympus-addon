@@ -10,8 +10,8 @@
 -- then without him ("arbiter --remove"): the addon's own code makes him one, then no longer.
 -- Council 1 and 3-8 carry a separate signed leadership set; council 9 is its empty, higher-epoch
 -- tombstone, council 10 omits it to prove the sticky boundary, council 11 is a realistic 92-guild
--- multipart set, and council 12 is the 128-guild/512-person parser and signing bound.
---   luajit tests/sign-roundtrip.lua <repo root> <key file> <future> <list.lua> x3 <council.lua> x12
+-- multipart set, and council 12 is the 128-guild/512-person parser and signing bound. Council 13 carries the optional guild program.
+--   luajit tests/sign-roundtrip.lua <repo root> <key file> <future> <list.lua> x3 <council.lua> x13
 local root, keyPath, future = arg[1], arg[2], tonumber(arg[3])
 
 -- The addon's files that read the lists, with the few game functions they touch while loading
@@ -25,7 +25,7 @@ GetGuildInfo = function() return ourGuild end
 GetLocale = function() return "enUS" end
 time, date = os.time, os.date
 local ns = {}
-for _, file in ipairs({ "Locales", "Core", "Codec", "Sign", "Authority", "Workshop" }) do
+for _, file in ipairs({ "Locales", "Core", "Codec", "Sign", "Authority", "FederationProgram", "Workshop" }) do
 	if file == "Workshop" then ns.Comm = { Handle = stub } end
 	assert(loadfile(root .. "/Olympus/" .. file .. ".lua"))("Olympus", ns)
 end
@@ -57,7 +57,7 @@ for i = 4, #arg do
 			authority = lns.COUNCIL_AUTHORITY }
 	end
 end
-assert(#lists == 3 and #councils == 12, "three lists and twelve councils")
+assert(#lists == 3 and #councils == 13, "three lists and thirteen councils")
 local function Parts(blob)
 	local text, at, realm, names, sig = blob:match("^(HS1~(%d+)~([^~]*)~([^~]*))~(%x+)$")
 	return text, tonumber(at), realm, names, sig
@@ -290,6 +290,16 @@ Sign.WithKey(n, mu, k, function()
 	for _ in pairs(manifest and manifest.people or {}) do people = people + 1 end
 	check(count == ns.Authority.MAX_GUILDS and people == ns.Authority.MAX_TOTAL,
 		("the maximum manifest keeps all %d guilds and %d people"):format(count, people))
+
+	ns.realm, ns.group, ns.me, ns.rdb = "CAMWOWUS1Realm2PvE", "ForeverPvE", "Tester-CAMWOWUS1Realm2PvE", {}
+	local c13, program = councils[13], ns.FederationProgram
+	check(not program.Active(), "the guild program starts inactive")
+	check(W.TakeTitles(c13.titles) and program.Active(), "the signed guild program is accepted through Workshop")
+	check(program.IsEnrolled("Olympus Azure") and program.Role("Amber Vale-CAMWOWUS1Realm2PvE", "Olympus Azure") == "official"
+		and program.Role("Silver Rock-CAMWOWUS2Realm5PvE", "Olympus Azure") == "caretaker",
+		"the signed program preserves both exact roleholders across the local region's realms")
+	ns.rdb.councilTitles = nil
+	check(program.Active() and not program.IsEnrolled("Olympus Azure"), "an absent group list clears grants but does not disable policy")
 end)
 -- Back to the author's key: the test key's lists are nobody's.
 local text1, _, _, _, sig1 = Parts(lists[1])

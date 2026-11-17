@@ -194,6 +194,7 @@ MAX_NAMES, MAX_NAME, MAX_BLOB = 30, 48, 2000 # what the addon takes (Workshop.Ta
 MAX_TITLE, MAX_DEPT, MAX_DEPTS, MAX_TITLES_BLOB = 48, 40, 8, 3000 # and of the titles (Workshop.TakeTitles)
 MAX_STEWARDS, MAX_REALM, FACTIONS = 3, 40, ("Alliance", "Horde") # the King's Steward (Core.lua: ns.ReadStewards)
 MAX_GUILDS, MAX_GUILD_CHARS, MAX_GUILD_BYTES = 20, 24, 72 # the approved guilds (Core.lua: ns.ReadApprovedGuilds)
+MAX_PROGRAM_GUILDS, MAX_PROGRAM_LIFETIME = 20, 31 * 86400 # FederationProgram.lua
 MAX_ARBITERS = 5 # the arena's signed arbiters per faction (Core.lua: ns.ReadArbiters, 1.2)
 MAX_APOSTLES = 12 # the Church's Twelve Apostles per faction (Church.lua: Church.ReadApostles, 1.1.6)
 # The launch identities (1.3.4, Core.lua: ns.ReadPins, ns.PINS_MAX, ns.REALM_KINDS, ns.REALM_REGIONS, ns.REALMS_MAX).
@@ -695,7 +696,7 @@ def group_conflicts(data, realm):
 
 def read_council(data):
     fields(data, "the council", ("realm", "public", "departments", "members", "stewards", "guilds", "arbiters", "apostles", "leadership",
-        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor"))
+        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program"))
     realm = data.get("realm", REALM)
     if not isinstance(realm, str): sys.exit("not a realm group the addon takes: %r" % (realm,))
     group_conflicts(data, realm)
@@ -726,6 +727,48 @@ def load_council(path):
         with open(path, encoding="utf-8") as f: data = json.load(f)
     except (OSError, ValueError) as e: sys.exit("cannot read the council file %s: %s" % (path, e))
     return data
+
+# The signer's attestation that the named native owner is an approved caretaker, the
+# other named character is the official GM, and the roster and Discord checks are done.
+def program_entries(v, realm):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("program is a list of faction and region policies")
+    entries, scopes = [], set()
+    for policy in v:
+        fields(policy, "a guild program policy", ("faction", "region", "mode", "issued", "expires", "guilds"))
+        faction = faction_of(policy.get("faction"), "a guild program policy")
+        region = policy.get("region")
+        if not realm or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}" if realm.startswith("Forever") else "-", region):
+            sys.exit("program needs an explicit realm group and its region (two uppercase letters on Forever, '-' elsewhere)")
+        if (faction, region) in scopes: sys.exit("a guild program scope twice")
+        scopes.add((faction, region))
+        mode = policy.get("mode")
+        issued, expires = policy.get("issued"), policy.get("expires")
+        if mode not in ("enforce", "off"): sys.exit("program mode is enforce or off")
+        if type(issued) is not int or type(expires) is not int or issued < 1577836800 or not 0 < expires - issued <= MAX_PROGRAM_LIFETIME:
+            sys.exit("program needs valid issued and expires Unix times no more than 31 days apart")
+        guilds = policy.get("guilds")
+        if not isinstance(guilds, list) or len(guilds) > MAX_PROGRAM_GUILDS or (mode == "off" and guilds):
+            sys.exit("program needs a bounded guild list (empty in off mode)")
+        rows, names, people_set = [], set(), set()
+        for row in guilds:
+            fields(row, "a guild program enrollment", ("guild", "caretaker", "official", "officialRankIndex"))
+            guild = guild_name(row.get("guild"))
+            if guild.casefold() in names: sys.exit("a guild program guild twice")
+            names.add(guild.casefold())
+            caretaker = pin_name(row.get("caretaker"), "program caretaker", realm)
+            official = pin_name(row.get("official"), "program official GM", realm)
+            for name in (caretaker, official):
+                home = name.partition("-")[2]
+                if region != "-" and not home.startswith("CAMWOW" + region):
+                    sys.exit("a guild program identity is outside the policy's region")
+                if name.casefold() in people_set: sys.exit("a guild program identity twice")
+                people_set.add(name.casefold())
+            rank = row.get("officialRankIndex")
+            if type(rank) is not int or rank not in (1, 2): sys.exit("program officialRankIndex must be native index 1 or 2")
+            rows.append("%s=%s,%s,%d" % (guild, caretaker, official, rank))
+        entries.append("^program^%s^%s^%s^%d^%d^%s" % (faction, region, mode, issued, expires, "!".join(sorted(rows)) or "-"))
+    return sorted(entries)
 
 # Both lists from the council file: the names (HS1) and, one second newer, the titles (HT1).
 def sign_council(path):
@@ -767,6 +810,7 @@ def sign_council_data(data):
     realm, public, loose, depts, stewards, guilds, arbiters, leaders_epoch, leaders_factions, leaders, leaders_issued, leaders_expires, apostles, pins = read_council(data)
     names = [m[0] for m in loose] + [m[0] for d in depts for m in d[2]]
     check(names, realm)
+    program = program_entries(data.get("program"), realm)
     with open(KEY) as f: key = json.load(f)
     at = next_at(key)
     names_text = "HS1~%d~%s~%s" % (at, realm, ",".join(names))
@@ -791,6 +835,7 @@ def sign_council_data(data):
     # (1.5.5) The Quaestors of each side, after the Speedrunner.
     entries += ["^quaestor^%s^%s" % (faction, ",".join(pins["quaestor"][faction])) for faction in FACTIONS if pins.get("quaestor", {}).get(faction)]
     entries += ["^realms^%s^%s" % (region, ",".join("%s=%s" % r for r in pins["realms"][region])) for region in REGIONS if pins["realms"].get(region)]
+    entries += program
     titles_text = "HT1~%d~%s~%d~%s" % (at + 1, realm, 1 if public else 0, ";".join(entries))
     fits(names_text, MAX_BLOB, "the name list")
     fits(titles_text, MAX_TITLES_BLOB, "the titles list")
