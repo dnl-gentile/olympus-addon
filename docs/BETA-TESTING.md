@@ -19,9 +19,12 @@ test enrollment, including across a `/reload`.
 - **Recruiting:** From a configured primary guild, stage a `JOIN OLYMPUS` request. Use two enrolled
   guilds and exact recipients on different Forever sub-realms. The offer must wait on fresh full
   evidence for each primary and spare capacity at the destination. The invite draft should appear
-  only after the chosen recruiter claims the offer. Finish the normal attended invite and let the
-  Church keeper receive both handoff acknowledgements and a direct native join witness. The same
-  scoped character should count automatically once in the weekly and all-time views.
+  only after the chosen recruiter claims the offer. Finish the normal attended invite. Keep a
+  destination caretaker or GM, separate from the recruiting parties, online to read the native
+  event log. The Church keeper should receive both handoff acknowledgements and the native witness
+  from that character. The same scoped recruit should count automatically once in the weekly and
+  all-time views. For a grant issued mid-hour, take a fresh destination roster snapshot before the
+  recruit joins so the keeper can distinguish that join from one before approval.
 - **Fugitives:** Seed an approved test list at an enrolled caretaker. Pull it from a second guild
   and a member of that guild. Check roster review, a whisper in both directions, a tooltip on
   mouseover, and a party join. While a removal confirmation is open, import a newer signed clearing
