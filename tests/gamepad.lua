@@ -1719,6 +1719,20 @@ for line in assert(io.open(ADDON_DIR .. "Olympus.toc")):lines() do
 	if f then TOC[#TOC + 1] = (f:gsub("\\", "/")) end
 end
 
+-- Every simulated client loads the same addon files. Transform each source once,
+-- but compile a fresh function for each client so its environment stays isolated.
+local sources = {}
+local function ClientChunk(file)
+	local path = ADDON_DIR .. file
+	if not sources[file] then
+		local f = assert(io.open(path, "rb"))
+		local src = f:read("*a")
+		f:close()
+		sources[file] = NoTailCalls(src)
+	end
+	return assert(loadstring(sources[file], "@" .. path))
+end
+
 -- A client with the addon loaded (opts.gamepad: the gamepad UI on from the start; opts.saved: the
 -- saved variables, OlympusDB). Returns the client and the addon's namespace.
 local function Boot(opts)
@@ -1732,10 +1746,7 @@ local function Boot(opts)
 	if opts.saved then rawset(C.env, "OlympusDB", opts.saved) end
 	rawset(C.env, "OlympusTailCall__", function(...) return ... end)
 	for _, file in ipairs(TOC) do
-		local f = assert(io.open(ADDON_DIR .. file, "rb"))
-		local src = f:read("*a")
-		f:close()
-		local chunk = assert(loadstring(NoTailCalls(src), "@" .. ADDON_DIR .. file))
+		local chunk = ClientChunk(file)
 		setfenv(chunk, C.env)
 		-- (A file that fails as it loads: the client reports it and loads the next one.)
 		local ok, err = pcall(chunk, "Olympus", ns)
