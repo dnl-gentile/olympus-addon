@@ -1664,9 +1664,19 @@ function Data.Summary()
 				-- A count-only snapshot can be newer than a valid roster detail report. Keep
 				-- recent player levels beside the display row, without attaching ranks to it.
 				local levels = g.relayed and localGuilds[direct[name:lower()]] or g
-				if fresh and type(levels.top) == "table" and #levels.top > 0 and now - ObservationTime(levels) <= Data.FRESH
-					and (levels.faction or "Alliance") == (ns.faction or "Alliance") then
-					row.topLevels, row.topRealm = levels.top, levels.realm
+				if (levels.faction or "Alliance") == (ns.faction or "Alliance") then
+					local detailAt = ObservationTime(levels)
+					if fresh and type(levels.top) == "table" and #levels.top > 0 and now - detailAt <= Data.FRESH then
+						row.topLevels, row.topRealm = levels.top, levels.realm
+					end
+					-- The Realm can still show the last roster's leaders. Their observation
+					-- time and presence must not inherit freshness from a count-only reply.
+					if g.relayed and levels ~= g and (levels.leader or #(levels.officers or {}) > 0) then
+						detailAt = math.min(detailAt, tonumber(levels.t) or 0)
+						if detailAt > 0 and detailAt <= now and now - detailAt <= Data.KEEP then
+							row.leadership = { name = name, g = levels, observed = detailAt, fresh = now - detailAt <= Data.FRESH }
+						end
+					end
 				end
 				s.guilds[#s.guilds + 1] = row
 				if age <= Data.TOTAL_KEEP then s.total = s.total + math.min(g.total or 0, ns.Codec.GUILD_CAP) end

@@ -856,6 +856,58 @@ test("census scope: a validated scoped snapshot restores an empty login immediat
 	eq(late.D.Summary().characters, 900); eq(late.D.Summary().snapshot, nil)
 end)
 
+test("realm guild leadership: recent roster details survive a newer count-only snapshot with their own timestamp", function()
+	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvP"
+	local relay = "Council-" .. realm
+	w.ns.group, w.ns.realm = "ForeverPvP", realm
+	w.ns.Church.IsLedgerRelay = function(name) return name == relay end
+	w.ns.UI = { Refresh = function() end }
+	assert(loadfile(ROOT .. "Olympus/Views.lua"))("Olympus", w.ns)
+	local day = 86400
+	local function Roster(at, home, leader, officer)
+		return { total = 90, online = 10, t = w.clock - 10, st = at, realm = home, from = home,
+			leader = leader, leaderOnline = true, officers = { { name = officer, online = false, days = 4 } } }
+	end
+	local guilds = w.ns.rdb.guilds
+	guilds["OLYMPUS DAWN"] = Roster(w.clock - 2 * day, realm, "Dawn Keeper", "Dawn Officer")
+	guilds["Olympus Dusk"] = Roster(w.clock - 30, realm, "Dusk Keeper", "Dusk Officer")
+	guilds["Olympus Noon"] = Roster(w.clock - 20, "CAMWOWUS1Realm8PvE", "Foreign Keeper", "Foreign Officer")
+	local rows = {}
+	for i, guild in ipairs({ "Olympus Dawn", "Olympus Dusk", "Olympus Noon" }) do
+		rows[i] = ("%s,100,10,400,%d"):format(guild, w.clock)
+	end
+	local wire = ("CG~2~S~%d~ForeverPvP~Alliance~%s"):format(w.clock, table.concat(rows, ";"))
+	assert(w.D.ReceiveGlobalCensus("CHANNEL", relay, wire))
+	local Views, L = w.ns.Views, w.ns.L
+	local function Lines()
+		local byKey = {}
+		for _, line in ipairs(Views.RealmLines()) do
+			byKey[line.key or line.id or line.text or ""] = line
+		end
+		return byKey
+	end
+	local lines = Lines()
+	local mode = assert(lines["realm-order"].filters[2], "leadership view is available from the Realm filters")
+	mode.options[2].onClick()
+	lines = Lines()
+	assert(lines["Dawn Keeper"].right:find(L.ONLINE_DAYS_AGO:format(2), 1, true))
+	assert(lines["Dawn Officer"].right:find(L.OFFLINE_DAYS:format(4), 1, true))
+	assert(lines["Dusk Keeper"].right:find("|cff40ff40" .. L.ONLINE_NOW, 1, true))
+	assert(lines["Dusk Officer"], "fresh officer is listed even when offline")
+	assert(not lines["Foreign Keeper"] and not lines["Foreign Officer"])
+	assert(lines[Views.GuildId("Olympus Noon")].right:find(L.REALM_LEADERSHIP_UNKNOWN, 1, true))
+	local age
+	lines["Dawn Officer"].tooltip({ AddLine = function(_, line) age = line end })
+	eq(age, L.REALM_LEADERSHIP_REPORT:format(w.ns.Ago(w.clock - 2 * day)))
+	for _, e in ipairs(w.D.Summary().guilds) do
+		eq(e.g.total, 100)
+		eq(e.g.leader, nil, "display data does not become census authority")
+	end
+	eq(assert(Views.Person("Dawn Keeper-" .. realm)).online, nil, "saved presence is not online now on the player page either")
+	lines["realm-order"].filters[2].options[1].onClick()
+	assert(not Lines()["Dawn Officer"], "return to the regular collapsed guild view")
+end)
+
 test("census Top Levels: fresh same-scope player details survive a newer count-only snapshot", function()
 	local w, realm = GroupWorld(), "CAMWOWUS1Realm8PvP"
 	local relay = "Council-" .. realm

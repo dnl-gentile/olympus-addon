@@ -109,6 +109,8 @@ function Views.PresenceNow(e, name, online, days)
 	return online, days, e.fresh == false
 end
 
+local function Leadership(e) return e.leadership or e end
+
 ---------------------------------------------------------------------------
 -- Column layouts, as fractions of the list width (so they follow the window size)
 ---------------------------------------------------------------------------
@@ -2388,7 +2390,7 @@ end
 -- someone is found and only when `rows` (the guild will show): otherwise `n` counts a member found
 -- as one.
 local function GuildMatches(e, ctx, rows)
-	local g, lq = e.g, ctx.lq
+	local g, lq = Leadership(e).g, ctx.lq
 	local found = { lord = LookHolds(lq, g.leader), officers = {}, members = {}, all = {} }
 	for _, o in ipairs(g.officers or {}) do
 		if LookHolds(lq, o.name) then found.officers[#found.officers + 1] = o end
@@ -2420,6 +2422,7 @@ end
 -- having no column titles, and never by a title clicked in the Census (the Realm followed it
 -- unseen). The author's ask: its guilds sorted by their average level too.
 Views.realmSort = "members"
+local realmLeadersOnly = false
 Views.REALM_ORDERS = {
 	{ key = "members", label = "COL_MEMBERS" }, { key = "online", label = "COL_ONLINE" }, { key = "level", label = "AVG_LEVEL" },
 	{ key = "name", label = "COL_GUILD" }, { key = "lord", label = "COL_LORD" },
@@ -2444,7 +2447,17 @@ local function RealmOrderLine()
 				ns.UI.Refresh()
 			end or nil }
 	end
-	return { id = "realm-order", filters = { { label = L.REALM_ORDER, value = L[current.label], options = options, understated = true } } }
+	local function ChooseLeadership(on)
+		return function() realmLeadersOnly = on; ns.UI.Refresh() end
+	end
+	return { id = "realm-order", filters = {
+		{ label = L.REALM_ORDER, value = L[current.label], options = options, understated = true },
+		{ label = L.REALM_GUILD_VIEW, value = realmLeadersOnly and L.REALM_LEADERSHIP or L.REALM_ALL_GUILDS,
+			options = {
+				{ text = L.REALM_ALL_GUILDS, selected = not realmLeadersOnly, onClick = ChooseLeadership(false) },
+				{ text = L.REALM_LEADERSHIP, selected = realmLeadersOnly, onClick = ChooseLeadership(true) },
+			}, understated = true },
+	} }
 end
 
 -- `q`, the search (Views.Query): the High Council's names (for whoever may see it), then each
@@ -2460,6 +2473,7 @@ local function RealmLines(s, q)
 	-- Our guild's members page (1.1, Members.lua).
 	if ns.Members and ns.Members.Shown and ns.Members.Shown() then return ns.Members.Lines(q) end
 	local lines = {}
+	local leadershipOnly = realmLeadersOnly and not q
 	-- A councillor's mark and own icon after their name in the rows below (0.9.9), for whoever
 	-- may see the council here; none on the King's screen while the names are hidden (his
 	-- stream: a whole name next to the mark would give the councillor away).
@@ -2583,15 +2597,18 @@ local function RealmLines(s, q)
 	-- closes and opens what the search opened, instead of the guild itself.
 	local function Guild(e, open, only, folds)
 		local g = e.g
-		local lordOn, lordDays, lordDim, lordAt = Views.PresenceNow(e, g.leader, g.leaderOnline, g.leaderDays)
+		local leaderSource = Leadership(e)
+		local roster = leaderSource.g
+		local lordOn, lordDays, lordDim, lordAt = Views.PresenceNow(leaderSource, roster.leader, roster.leaderOnline, roster.leaderDays)
+		local prefix = leadershipOnly and "" or (open and "[-] " or "[+] ")
 		lines[#lines + 1] = {
 			id = Views.GuildId(e.name),
-			text = (open and "[-] " or "[+] ") .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(g.leader or "?"),
+			text = prefix .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(roster.leader or "?"),
 			-- (1.2.4, the author's ask: its average level too, in parentheses after its Lord's online
 			-- or offline, both kept whole up to half the row.)
-			right = Presence(lordOn, lordDays, lordDim, lordAt) .. AvgTag(g, not e.fresh),
+			right = (roster.leader and Presence(lordOn, lordDays, lordDim, lordAt) or Grey(L.REALM_LEADERSHIP_UNKNOWN)) .. AvgTag(g, not e.fresh),
 			rightWide = true,
-			onClick = function()
+			onClick = not leadershipOnly and function()
 				if folds then
 					folded[e.name] = not folded[e.name] or nil
 					return ns.UI.Refresh()
@@ -2601,23 +2618,29 @@ local function RealmLines(s, q)
 				-- game allows it). Our own guild is in our roster already.
 				if expanded[e.name] and e.name ~= GetGuildInfo("player") then ns.SafeCall("guild who", ns.Who.SearchGuild, e.name) end
 				ns.UI.Refresh()
-			end,
+			end or nil,
 			tooltip = GuildTooltip(e),
 			color = e.fresh and "GameFontHighlightSmall" or "GameFontDisableSmall",
 		}
 		if not open then return end
-		if g.leader and (not only or only.lord) then
-			local lord = { name = g.leader, realm = g.realm, class = g.leaderClass, level = g.leaderLevel, zone = g.leaderZone,
+		local function RosterAge(tt)
+			if leaderSource.observed then
+				tt:AddLine(L.REALM_LEADERSHIP_REPORT:format(ns.Ago(leaderSource.observed)), 0.8, 0.8, 0.8)
+			end
+		end
+		if roster.leader and (not only or only.lord) then
+			local lord = { name = roster.leader, realm = roster.realm, class = roster.leaderClass, level = roster.leaderLevel, zone = roster.leaderZone,
 				guild = e.name, rank = L.LORD, online = lordOn, days = lordDays }
 			lines[#lines + 1] = {
-				key = g.leader, player = g.leader, offline = not lordOn,
-				indent = 1, text = Mark(g.leader, g.realm, lordOn) .. CROWN .. Gold(L.LORD) .. "  " .. ClassColored(g.leader, lord.class and ns.CLASS_FILES[lord.class])
-					.. Tag(g.leader, g.realm),
+				key = roster.leader, player = roster.leader, offline = not lordOn,
+				indent = 1, text = Mark(roster.leader, roster.realm, lordOn) .. CROWN .. Gold(L.LORD) .. "  " .. ClassColored(roster.leader, lord.class and ns.CLASS_FILES[lord.class])
+					.. Tag(roster.leader, roster.realm),
 				right = Presence(lordOn, lordDays, lordDim, lordAt),
+				tooltip = lordDim and RosterAge or nil,
 				onClick = function() ns.UI.ShowPerson(lord) end,
 			}
 		end
-		local officers = g.officers or {}
+		local officers = roster.officers or {}
 		local listed = only and only.officers or officers
 		if #listed > 0 or not only then
 			lines[#lines + 1] = { indent = 1, text = Gold(L.CAPTAINS:format(#officers)),
@@ -2630,18 +2653,20 @@ local function RealmLines(s, q)
 				end }
 		end
 		for _, o in ipairs(listed) do
-			local on, days, dim, at = Views.PresenceNow(e, o.name, o.online, o.days)
-			local person = { name = o.name, realm = g.realm, class = o.class, level = o.level, zone = o.zone, guild = e.name,
+			local on, days, dim, at = Views.PresenceNow(leaderSource, o.name, o.online, o.days)
+			local person = { name = o.name, realm = roster.realm, class = o.class, level = o.level, zone = o.zone, guild = e.name,
 				rank = L.CAPTAIN, online = on, days = days }
 			lines[#lines + 1] = {
 				key = o.name, player = o.name, offline = not on,
-				indent = 2, text = Mark(o.name, g.realm, on) .. ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
-					.. Tag(o.name, g.realm) .. (ns.IsTreasurer(o.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
+				indent = 2, text = Mark(o.name, roster.realm, on) .. ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
+					.. Tag(o.name, roster.realm) .. (ns.IsTreasurer(o.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
 				right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Presence(on, days, dim, at),
+				tooltip = dim and RosterAge or nil,
 				onClick = function() ns.UI.ShowPerson(person) end,
 			}
 		end
 		if #officers == 0 and not only then lines[#lines + 1] = { indent = 2, text = Grey(L.NONE_REPORTED) } end
+		if leadershipOnly then return end
 		-- Actual own-guild leaders only: reports from other guilds cannot manufacture
 		-- squad authority or private room membership. Keep the guild's collapse/search.
 		if e.name == GetGuildInfo("player") and ns.WarSquads then
@@ -2649,7 +2674,7 @@ local function RealmLines(s, q)
 		end
 		-- Everyone else online: our roster, or /who for other guilds.
 		local members, fromWho
-		if only then members, fromWho = only.all, only.fromWho else members, fromWho = Views.MembersOf(e.name, g) end
+		if only then members, fromWho = only.all, only.fromWho else members, fromWho = Views.MembersOf(e.name, roster) end
 		listed = only and only.members or members
 		if #listed > 0 or not only then
 			lines[#lines + 1] = {
@@ -2718,12 +2743,12 @@ local function RealmLines(s, q)
 	end
 	-- (1.2.4's review: in the Realm's own order, chosen on its line above its guilds; by default
 	-- Data.Summary's own, the shared order, as before. A search's guilds in it too.)
-	if not q and #s.guilds > 1 then lines[#lines + 1] = RealmOrderLine() end
+	if not q and (#s.guilds > 0 or leadershipOnly) then lines[#lines + 1] = RealmOrderLine() end
 	for _, e in ipairs(Views.RealmOrdered(s.guilds)) do
 		if not q or LookHolds(ctx.lq, e.name) then
 			-- (Found by its name: the guild as ever, opened or not.)
 			if q then found = found + 1 end
-			Guild(e, expanded[e.name])
+			Guild(e, leadershipOnly or expanded[e.name])
 		else
 			local room = rows < searchRows
 			local only = GuildMatches(e, ctx, room)
@@ -2740,6 +2765,7 @@ local function RealmLines(s, q)
 			end
 		end
 	end
+	if leadershipOnly then return lines end
 	if q then
 		if more > 0 then
 			lines[#lines + 1] = {
@@ -2930,14 +2956,16 @@ local function RealmPeople(s)
 
 	for _, e in ipairs(s.guilds or {}) do
 		local g = e.g or {}
-		if g.leader then
-			local on, days = Views.PresenceNow(e, g.leader, g.leaderOnline, g.leaderDays)
-			Add({ name = g.leader, realm = g.realm, guild = e.name, class = g.leaderClass,
-				level = g.leaderLevel, zone = g.leaderZone, rank = L.LORD, online = on, days = days, source = "report" })
+		local source = Leadership(e)
+		local roster = source.g or {}
+		if roster.leader then
+			local on, days = Views.PresenceNow(source, roster.leader, roster.leaderOnline, roster.leaderDays)
+			Add({ name = roster.leader, realm = roster.realm, guild = e.name, class = roster.leaderClass,
+				level = roster.leaderLevel, zone = roster.leaderZone, rank = L.LORD, online = on, days = days, source = "report" })
 		end
-		for _, o in ipairs(g.officers or {}) do
-			local on, days = Views.PresenceNow(e, o.name, o.online, o.days)
-			Add({ name = o.name, realm = g.realm, guild = e.name, class = o.class, level = o.level,
+		for _, o in ipairs(roster.officers or {}) do
+			local on, days = Views.PresenceNow(source, o.name, o.online, o.days)
+			Add({ name = o.name, realm = roster.realm, guild = e.name, class = o.class, level = o.level,
 				zone = o.zone, rank = L.CAPTAIN, online = on, days = days, source = "report" })
 		end
 		for _, top in ipairs(g.top or {}) do
