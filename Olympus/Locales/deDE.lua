@@ -42,8 +42,8 @@ ns.Locale("deDE", {
 	PLAYER_TOOLTIP_SIZE = "Tooltip-Größe: %d%%",
 	RECORDS_LAG = "Zeit vom Sendeplatz bis zum Versand der Prüfsummen: %d Messungen, im Schnitt %.1f s, höchstens %.1f s",
 	RECORDS_NET = "Runde %d: Prüfsummen empfangen %s, Antworten gesendet %d, Budget %d von %d, Suchanfragen gesendet %d",
-	LETTER_1_6_1_TITLE = "Gildenleitung in Das Reich",
-	LETTER_1_6_1 = [==[- Unter Das Reich kannst du Gildenmeister und Offiziere wieder gemeinsam anzeigen. Nutze den Filter Anzeigen über der Gildenliste. Bei älteren Beobachtungen siehst du, wie lange sie zurückliegen. Für Gilden ohne gemeldete Mitgliederliste bleibt die Leitung unbekannt.
+	LETTER_1_6_1_TITLE = "Gildenleitung im Reich",
+	LETTER_1_6_1 = [==[- Unter „Das Reich“ kannst du Gildenmeister und Offiziere wieder gemeinsam anzeigen. Nutze den Filter Anzeigen über der Gildenliste. Bei älteren Beobachtungen siehst du, wie lange sie zurückliegen. Für Gilden ohne gemeldete Mitgliederliste bleibt die Leitung unbekannt.
 
 - Dieses Update ergänzt Werkzeuge für die signierte Teilnahme von Gilden, bestätigte Weitergaben von Rekruten und signierte Entscheidungen zu Flüchtigen. Dafür gelten die Regeln, die deine Gilde und der Hohe Rat für die Teilnahme festgelegt haben.]==],
 	LETTER_1_6_0_1_TITLE = "Zwei weitere Wochen",
