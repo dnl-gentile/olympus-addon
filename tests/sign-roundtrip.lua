@@ -298,6 +298,8 @@ Sign.WithKey(n, mu, k, function()
 	check(W.TakeTitles(c13.titles) and program.Active(), "the signed guild program is accepted through Workshop")
 	local active, enabled = program.ContributionsPolicy()
 	check(active and enabled, "the separate signed contributions policy is accepted through Workshop")
+	check(ns.rdb.councilTitles.blob:find("^contributionmilestones^Alliance^US^Silver Rock-CAMWOWUS1Realm2PvE^Crafting day=Guild workshop held", 1, true),
+		"the Treasurer's informational milestone survives the real signer and accepted titles list")
 	check(program.IsEnrolled("Olympus Azure") and program.Role("Amber Vale-CAMWOWUS1Realm2PvE", "Olympus Azure") == "official"
 		and program.Role("Silver Rock-CAMWOWUS2Realm5PvE", "Olympus Azure") == "caretaker",
 		"the signed program preserves both exact roleholders across the local region's realms")

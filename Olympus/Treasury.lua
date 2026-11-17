@@ -284,7 +284,7 @@ Treasury.TreasurerPin = TreasurerPin
 -- Here, not in Dues.lua, so that it holds even while that file is missing (a restart owed).
 local function DuesLine(keeper, e)
 	if type(e) ~= "table" or e.out or e.item or e.kind == "transfer" or (tonumber(e.money) or 0) <= 0 then return false end
-	return TreasurerPin(keeper) ~= nil
+	return e.kind == "charity" or TreasurerPin(keeper) ~= nil
 end
 Treasury.DuesLine = DuesLine
 
@@ -513,7 +513,7 @@ local function Add(s, e, sign, now)
 	end
 	-- 1.2: the arena's fee (an "Arena fee <ref>" mail) is the guild's money: in the balance and the
 	-- day's gold in, never a donation, never dues, never a line on the channel (the design).
-	if e.kind == "fee" then
+	if e.kind == "fee" or e.kind == "charity" then
 		if e.out then s.allOut = math.max(0, s.allOut + copper) else s.allIn = math.max(0, s.allIn + copper) end
 		DayCount(s, e, copper, now, true)
 		return
@@ -554,6 +554,7 @@ local function Count(b, e, sign)
 	local s = Sums(b)
 	local now = ns.Now()
 	Add(s, e, sign, now)
+	if e.kind == "charity" and ns.Contributions then ns.Contributions.Count(b, e, sign) end
 	local oldest = DayKey(now - Treasury.DAYS_KEPT * 86400)
 	for k in pairs(s.days) do if k < oldest then s.days[k] = nil end end
 end
@@ -680,6 +681,7 @@ function Treasury.Record(name, copper, how, out, o)
 		item = item, count = item and count or nil }
 	-- 1.1: its week, and a gift's giver's guild (Dues.lua; kept here, never sent).
 	ns.Dues.Stamp(e, name, o)
+	if o.observed == true and ns.Contributions then ns.Contributions.ProtectTrade(b, e, name, o.guild) end
 	b.lines[#b.lines + 1] = e
 	while #b.lines > Treasury.MAX do table.remove(b.lines, 1) end
 	if not e.excluded then Count(b, e, 1) end
@@ -1281,7 +1283,7 @@ function Treasury.DonationRecords(since)
 			local last = {}
 			for i = #b.lines, 1, -1 do
 				local e = b.lines[i]
-				if not last[e.name] then last[e.name] = tonumber(e.t) or 0 end
+				if e.kind ~= "charity" and not last[e.name] then last[e.name] = tonumber(e.t) or 0 end
 			end
 			for _, g in ipairs(PublicRanking(b)) do
 				out[#out + 1] = { name = g.name, money = g.money, t = last[g.name] or tonumber(b.opened) or 0, window = "all" }
@@ -5062,12 +5064,16 @@ function Treasury.RestoreBook(saved)
 	for i, e in ipairs(saved.lines or {}) do base.lines[i] = e end
 	Sums(base) -- (the backup's own sums, or rebuilt from its lines when they are of another shape)
 	local seen, added = {}, 0
-	for _, e in ipairs(base.lines) do seen[LineKey(e)] = true end
+	for i, e in ipairs(base.lines) do seen[LineKey(e)] = i end
 	for _, e in ipairs(b.lines) do
-		if not seen[LineKey(e)] then
+		local matching = seen[LineKey(e)]
+		if not matching then
 			base.lines[#base.lines + 1] = e
 			if not e.excluded then Count(base, e, 1) end
 			added = added + 1
+		elseif e.kind == "charity" and e.patron then
+			-- Do not replace a local native receipt with its anonymized copy from the backup.
+			base.lines[matching] = e
 		end
 	end
 	table.sort(base.lines, function(x, y) return (tonumber(x.t) or 0) < (tonumber(y.t) or 0) end)

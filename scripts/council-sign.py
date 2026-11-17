@@ -734,7 +734,7 @@ def group_conflicts(data, realm):
 
 def read_council(data):
     fields(data, "the council", ("realm", "public", "departments", "members", "stewards", "guilds", "arbiters", "apostles", "leadership",
-        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program", "contributions"))
+        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program", "contributions", "contributionMilestones"))
     realm = data.get("realm", REALM)
     if not isinstance(realm, str): sys.exit("not a realm group the addon takes: %r" % (realm,))
     group_conflicts(data, realm)
@@ -831,6 +831,34 @@ def contribution_entries(v, realm):
         entries.append("^contributions^%s^%s^%s^%d^%d^-" % (faction, region, mode, issued, expires))
     return sorted(entries)
 
+def contribution_milestone_entries(v, realm, treasurers):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("contributionMilestones is a list")
+    entries, scopes = [], set()
+    for scope in v:
+        fields(scope, "contribution milestones", ("faction", "region", "issuer", "milestones"))
+        faction = faction_of(scope.get("faction"), "contribution milestones")
+        region = scope.get("region")
+        if not realm.startswith("Forever") or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}", region):
+            sys.exit("contribution milestones need an explicit Forever realm group and region")
+        if (faction, region) in scopes: sys.exit("a contribution milestone scope twice")
+        scopes.add((faction, region))
+        issuer = pin_name(scope.get("issuer"), "contribution milestone Treasurer", realm)
+        current = treasurers.get(faction)
+        if not current or current[0] != issuer or not issuer.partition("-")[2].startswith("CAMWOW" + region):
+            sys.exit("contribution milestone issuer must match the signed regional Federal Treasurer")
+        milestones = scope.get("milestones")
+        if not isinstance(milestones, list) or not 1 <= len(milestones) <= 4: sys.exit("contribution milestones needs one to four entries")
+        rows = []
+        for row in milestones:
+            fields(row, "a contribution milestone", ("title", "description"))
+            title = text_field(row.get("title"), "contribution milestone title", 40, True)
+            description = text_field(row.get("description"), "contribution milestone description", 120, True)
+            if not plain(title + description, "^!;=|"): sys.exit("a contribution milestone contains a reserved character")
+            rows.append("%s=%s" % (title, description))
+        entries.append("^contributionmilestones^%s^%s^%s^%s" % (faction, region, issuer, "!".join(rows)))
+    return sorted(entries)
+
 # Both lists from the council file: the names (HS1) and, one second newer, the titles (HT1).
 def sign_council(path):
     return sign_council_data(load_council(path))
@@ -898,6 +926,7 @@ def sign_council_data(data):
     entries += ["^realms^%s^%s" % (region, ",".join("%s=%s" % r for r in pins["realms"][region])) for region in REGIONS if pins["realms"].get(region)]
     entries += program
     entries += contribution_entries(data.get("contributions"), realm)
+    entries += contribution_milestone_entries(data.get("contributionMilestones"), realm, pins["treasurer"])
     titles_text = "HT1~%d~%s~%d~%s" % (at + 1, realm, 1 if public else 0, ";".join(entries))
     fits(names_text, MAX_BLOB, "the name list")
     fits(titles_text, MAX_TITLES_BLOB, "the titles list")

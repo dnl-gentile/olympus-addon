@@ -101,6 +101,7 @@ Groups.lua
 Week.lua
 Treasury.lua
 Dues.lua
+Contributions.lua
 DuesHistory.lua
 DuesGrace.lua
 Bank.lua

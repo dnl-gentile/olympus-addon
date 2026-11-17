@@ -297,7 +297,14 @@ function Backup.Data()
 	local d = { v = 1, t = ns.Now(), char = ns.me, group = ns.group, faction = ns.faction, version = ns.VERSION, settings = {} }
 	local books = {}
 	for _, b in ipairs(ns.Treasury and ns.Treasury.BackupBooks and ns.Treasury.BackupBooks() or {}) do
-		books[#books + 1] = { name = b.name, opening = b.opening, openedAt = b.openedAt, opened = b.opened, lines = Copy(b.lines), sums = Copy(b.sums) }
+		local lines = Copy(b.lines)
+		for _, e in ipairs(lines) do
+			if e.kind == "charity" then
+				-- Keep the money in a book backup without copying its private donor key.
+				e.name, e.patron, e.guild, e.gv, e.contributionScope = "Anonymous Patron", nil, nil, nil, nil
+			end
+		end
+		books[#books + 1] = { name = b.name, opening = b.opening, openedAt = b.openedAt, opened = b.opened, lines = lines, sums = Copy(b.sums) }
 	end
 	if #books > 0 then d.books = books end
 	-- The King's word, from his client or a Steward's (never the author's Asmon's view).
@@ -338,14 +345,15 @@ local function CheckBook(b)
 	if type(b) ~= "table" or type(b.name) ~= "string" or #b.name > 80 or b.name:find("[|%c]") then return nil end
 	local out = { name = b.name, opening = Num(b.opening, 0, MAX), openedAt = Num(b.openedAt, 0, 2 ^ 31), opened = Num(b.opened, 0, 2 ^ 31), lines = {} }
 	if not out.opening then return nil end
-	local KINDS = { transfer = true, sale = true, purchase = true, own = true }
+	local KINDS = { transfer = true, sale = true, purchase = true, own = true, charity = true }
 	for _, e in ipairs(type(b.lines) == "table" and b.lines or {}) do
 		if #out.lines >= ns.Treasury.MAX then break end
 		if type(e) == "table" and type(e.name) == "string" and #e.name <= 80 and not e.name:find("[|%c]") and (e.how == "trade" or e.how == "mail")
 			and Num(e.money, 0, MAX) and Num(e.t, 0, 2 ^ 31) and (e.kind == nil or KINDS[e.kind]) then
 			local item, count = e.item ~= nil and Num(e.item, 1, 2 ^ 31) or nil, e.count ~= nil and Num(e.count, 1, COUNT) or nil
 			if e.item == nil or (item and count) then
-				out.lines[#out.lines + 1] = { name = e.name, money = e.money, how = e.how, t = e.t, out = e.out == true or nil, excluded = e.excluded == true or nil,
+				out.lines[#out.lines + 1] = { name = e.kind == "charity" and "Anonymous Patron" or e.name, money = e.money, how = e.how, t = e.t,
+					out = e.out == true or nil, excluded = e.excluded == true or nil,
 					kind = e.kind, item = item, count = item and count or nil, returned = e.returned == true or nil,
 					noted = e.noted == true or nil } -- (sent with the dues' note: Dues.Stamp, Konig's review of 1.1)
 			end

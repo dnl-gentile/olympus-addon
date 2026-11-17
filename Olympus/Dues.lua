@@ -247,6 +247,10 @@ local function ContributionLines()
 		lines[#lines + 1] = { header = true, text = L.CONTRIBUTIONS_TITLE, right = guild, gapAfter = true }
 		Para(lines, L.CONTRIBUTIONS_DETAIL)
 		Para(lines, L.CONTRIBUTIONS_HOW)
+		if ns.Contributions then
+			ns.Contributions.RankLines(lines)
+			ns.Contributions.MilestoneLines(lines)
+		end
 	end
 	return lines
 end
@@ -255,7 +259,10 @@ local function ContributionLink()
 	if not Dues.ContributionGuild() then return nil end
 	return { key = "charitable-contributions", text = Gold("> " .. L.CONTRIBUTIONS_TITLE),
 		onClick = function()
-			if Dues.ContributionGuild() then ns.Views.ShowPage("contributions") end
+			if Dues.ContributionGuild() then
+				ns.Views.ShowPage("contributions")
+				if ns.Contributions then ns.Contributions.Request() end
+			end
 		end }
 end
 
@@ -542,7 +549,7 @@ end
 -- one of the WEEKS_KEPT; older weeks are dropped (folded first: Fold).
 function Dues.WeekAdd(s, e, copper)
 	-- (1.2: the arena's fee and a keeper's arena money are never dues, whoever rebuilds the sums.)
-	if type(s) ~= "table" or type(e) ~= "table" or e.item or e.out or e.kind == "transfer" or e.kind == "fee" or e.kind == "arena" then return end
+	if type(s) ~= "table" or type(e) ~= "table" or e.item or e.out or e.kind == "transfer" or e.kind == "fee" or e.kind == "charity" or e.kind == "arena" then return end
 	copper = math.floor(tonumber(copper) or 0)
 	local key = Dues.Key(e.name)
 	if not key or copper == 0 then return end
@@ -2109,7 +2116,36 @@ function Dues.DismissPayerReminder(off)
 	ns.Fire("TREASURY_CHANGED")
 	return true
 end
+local DAILY_REMINDER = "OLYMPUS_DUES_DAILY"
+StaticPopupDialogs[DAILY_REMINDER] = {
+	text = "%s",
+	button1 = OKAY or "OK",
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+function Dues.DailyReminder()
+	local _, enabled = ContributionPolicy()
+	if not enabled or not Dues.Pays() or not PrimeGuild(GetGuildInfo("player"))
+		or ns.King.Preview() or (ns.ViewAs and ns.ViewAs.Previewing and ns.ViewAs.Previewing())
+		or (IsInInstance and IsInInstance()) or (InCombatLockdown and InCombatLockdown()) then return false end
+	local s = PayerStore()
+	local day = math.floor(Clock() / 86400)
+	if not s or s.reminderOff or s.dismissed == Dues.Week() or s.reminderDay == day then return false end
+	local status = Dues.PayerStatus()
+	if status == "counted" then return false end
+	local payment = L.DUES_DAILY_PAYMENT:format(Coins(Dues.Amount()))
+	local description = payment .. "\n\n" .. Dues.PaymentText() .. "\n\n" .. L.DUES_DAILY_GRACE
+	if not ns.ShowDialog(DAILY_REMINDER, description) then return false end
+	s.reminderDay = day
+	ns.Print(payment .. " " .. Dues.PaymentText())
+	return true
+end
+
 function Dues.PayerReminder(kind)
+	if ContributionPolicy() then return false end
 	-- F26-10 explicitly keeps this unsolicited reminder out of instances. As with the nearby
 	-- Treasury/Consent/Letters notices, combat also waits; neither consumes this reset's reminder.
 	if (IsInInstance and IsInInstance()) or (InCombatLockdown and InCombatLockdown()) then return false end
@@ -2265,6 +2301,10 @@ StaticPopupDialogs["OLYMPUS_DUES_AMOUNT"] = {
 	preferredIndex = 3,
 }
 
+ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit)
+	if unit == "player" and ContributionPolicy() and not PrimeGuild(GetGuildInfo("player")) then ns.HideDialog(DAILY_REMINDER) end
+end)
+
 ns.On("LOGIN", function()
 	Dues.StartNativePayerTracking()
 	Dues.MarkMail()
@@ -2281,6 +2321,7 @@ ns.On("LOGIN", function()
 	ns.RegisterEvent("TRADE_SHOW", function() Dues.PayerReminder("trade") end)
 	ns.After(45, "own dues receipt", Dues.RequestPayerReceipt)
 	ns.Every(Dues.ASK_EVERY, "own dues receipt", Dues.RequestPayerReceipt)
+	ns.Every(60, "daily dues reminder", Dues.DailyReminder)
 end)
 
 -- Tests start from a clean state.
