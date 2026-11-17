@@ -3318,6 +3318,8 @@ function Count.Tick(now)
 	-- (1.5.9) The recruiting ranking for everyone: its reports, stays, and a keeper's ledger work.
 	local RR = ns.RecruitRanking
 	if RR and RR.Tick then ns.SafeCall("recruit ranking", RR.Tick, now) end
+	local conversions = ns.ChurchConversions
+	if conversions and conversions.FlushAutomatic then ns.SafeCall("recruit conversions", conversions.FlushAutomatic) end
 	if ns.ChurchView and ns.ChurchView.PollRanking then ns.ChurchView.PollRanking() end
 end
 

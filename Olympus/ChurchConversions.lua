@@ -103,17 +103,27 @@ local function Same(a, b)
 	return a and b and ns.Fold(a) == ns.Fold(b)
 end
 
-local function Candidates(write)
+local function ActorKey(name)
+	local _, region = Scope()
+	local exact = ExactName(name, region)
+	if not exact then return nil end
+	-- The Forever server sometimes supplies same-region whisper senders bare.
+	return ns.Fold(region ~= "-" and ns.ShortName(exact) or exact)
+end
+
+local function ScopeTable(field, write)
 	local scope = Scope()
 	if not scope then return nil end
 	local c = write and Church.Store() or ns.rdb and ns.rdb.church
 	if not c then return nil end
-	if write and c.conversionCandidates == nil then c.conversionCandidates = {} end
-	local store = c.conversionCandidates
+	if write and c[field] == nil then c[field] = {} end
+	local store = c[field]
 	if type(store) ~= "table" then return nil end
 	if write and store[scope] == nil then store[scope] = {} end
 	return type(store[scope]) == "table" and store[scope] or nil
 end
+
+local function Candidates(write) return ScopeTable("conversionCandidates", write) end
 
 local function CandidateKey(inviter, recruit)
 	local key = Church.Key(recruit)
@@ -158,10 +168,11 @@ function Conversions.ObserveNativePair(inviter, recruit, guild, invited, joined)
 		or invited + 3600 <= entry.accepted or invited - entry.accepted > 12 * 3600
 		or not ns.FederationProgram.IsEnrolled(guild, joined) then return false end
 	entry.invited, entry.joined = invited, joined
+	if Conversions.FlushAutomatic then Conversions.FlushAutomatic() end
 	return true
 end
 
-function Conversions.ReviewCandidates()
+local function ReadyCandidates()
 	local result, rows = {}, Candidates(false)
 	if not rows or not Member() then return result end
 	local guild = ns.FederationProgram.LocalEnrollment()
@@ -175,13 +186,19 @@ function Conversions.ReviewCandidates()
 		end
 	end
 	PruneCandidates(rows, Church.Clock())
-	local _, region = Scope()
 	for _, entry in pairs(rows) do
 		if entry.joined and Same(entry.inviter, ns.me) and Same(entry.guild, guild)
-			and Same(names[Church.Key(entry.recruit)], entry.recruit) then
-			result[#result + 1] = table.concat({ "OCJ1", ns.group, ns.faction, region, entry.from, entry.guild, entry.recruit,
-				entry.source, entry.inviter, entry.id, entry.accepted, entry.invited, entry.joined }, "~")
-		end
+			and ActorKey(names[Church.Key(entry.recruit)]) == ActorKey(entry.recruit) then result[#result + 1] = entry end
+	end
+	return result
+end
+
+function Conversions.ReviewCandidates()
+	local result = {}
+	local _, region = Scope()
+	for _, entry in ipairs(ReadyCandidates()) do
+		result[#result + 1] = table.concat({ "OCJ1", ns.group, ns.faction, region, entry.from, entry.guild, entry.recruit,
+			entry.source, entry.inviter, entry.id, entry.accepted, entry.invited, entry.joined }, "~")
 	end
 	table.sort(result)
 	return result
@@ -239,10 +256,10 @@ local function Record(recruit, evidence, verifier)
 	end
 	if Scope() ~= scope or not Member() or not Church.IsKeeper(ns.me) then return false, "unavailable" end
 	if not program.IsEnrolled(guild, attestation.joinedAt) then return false, "enrollment" end
-	if attestation.manual == true then
+	if attestation.manual == true or attestation.automatic == true then
 		local source = ExactName(attestation.source, region)
 		local appointed = source and (Count.RecruitMain(source) or source)
-		if not appointed or not Same(ExactName(appointed, region), ExactName(place.n, region)) then return false, "role" end
+		if not appointed or not ActorKey(appointed) or ActorKey(appointed) ~= ActorKey(place.n) then return false, "role" end
 	end
 	local character = Digest("church conversion\0" .. scope .. "\0" .. recruitKey)
 	local store = Store(scope, true)
@@ -253,9 +270,9 @@ local function Record(recruit, evidence, verifier)
 	if refCount >= MAX then return false, "full" end
 	store[member] = { recruiter = place.n, role = role, joinedAt = attestation.joinedAt,
 		verifiedAt = attestation.verifiedAt, handoff = handoff, verification = proof, character = character,
-		reviewed = attestation.manual == true or nil }
+		reviewed = (attestation.manual == true or attestation.automatic == true) or nil }
 	refs[handoffKey], refs[proofKey], refs[characterKey], refCount = true, true, true, refCount + 1
-	if attestation.manual == true then
+	if attestation.manual == true or attestation.automatic == true then
 		local c = Church.Store()
 		if type(c.reviewedConversionScopes) ~= "table" then c.reviewedConversionScopes = {} end
 		c.reviewedConversionScopes[scope] = true
@@ -360,15 +377,6 @@ local asks, pages, served = {}, {}, {}
 local requestSerial = 0
 local ASK_GAP, REPLY_TTL, REFRESH, REPLY_BUDGET = 30, 90, 5 * 60, 8
 
-local function ActorKey(name)
-	local _, region = Scope()
-	local exact = ExactName(name, region)
-	if not exact then return nil end
-	-- Forever delivers some private addon senders bare, then Comm gives them our
-	-- sub-realm. Native names there are unique within the region.
-	return ns.Fold(region ~= "-" and ns.ShortName(exact) or exact)
-end
-
 local function Audience(name)
 	local key = ActorKey(name)
 	local M = ns.Moderation
@@ -403,6 +411,196 @@ end
 
 local function ShareScope()
 	return InScope() and not (ns.QuietPresence and ns.QuietPresence()) and ns.FederationProgram.Active()
+end
+
+-- Conversion evidence is private to the keepers. The receiver's accepted transaction and native
+-- join, the sender's acknowledgement of the same transaction, and a direct strong native witness
+-- are all required. Old recruiting ledger pages cannot supply any missing part.
+local AUTO_LIMIT, AUTO_GAP, AUTO_AGE = 256, 180, REVIEW_DAYS * 86400
+local autoAt, autoIdentity, flushActive
+
+local function TxId(id)
+	return Field(id, 40) and id:match("^%d+%-%x+%-%d+$") ~= nil
+end
+
+local function TxKey(source, inviter, recruit, guild, id)
+	local from, to, key = ActorKey(source), ActorKey(inviter), ActorKey(recruit)
+	if not from or not to or not key or from == to or from == key or to == key then return nil end
+	return Digest(table.concat({ from, to, key, ns.Fold(guild), id }, "\0"))
+end
+
+local function PairKey(inviter, recruit, guild, invited, joined)
+	local a, b = Church.Key(inviter), Church.Key(recruit)
+	if not a or not b then return nil end
+	return Digest(table.concat({ a, b, ns.Fold(guild), invited, joined }, "\0"))
+end
+
+local function Note(field, key, now)
+	local rows = ScopeTable(field, true)
+	if not rows then return nil end
+	local n, oldest, first = 0
+	for k, row in pairs(rows) do
+		if type(row) ~= "table" or not Time(row.at, now) or now - row.at > AUTO_AGE then
+			rows[k] = nil
+		else
+			n = n + 1
+			if not first or row.at < first then oldest, first = k, row.at end
+		end
+	end
+	if rows[key] then return rows[key] end
+	if n >= AUTO_LIMIT then rows[oldest] = nil end
+	local row = { at = now }
+	rows[key] = row
+	return row
+end
+
+local function Ack(who, scope, key)
+	if ActorKey(who) == ActorKey(ns.me) then return end
+	ns.Comm.Whisper(who, ("NY~1~k~%s~%s"):format(scope, key), nil, false, false, nil, {
+		owner = Conversions, guard = function() return ShareScope() and Keeper(ns.me) ~= nil and BoardScope() == scope end,
+	})
+end
+
+local function FinishAutomatic(scope, key, entry)
+	if not scope then return false end
+	local c, h = entry.c, entry.h
+	if not c or not h or math.abs(c.accepted - h.accepted) > 120 then return false end
+	local paired = ScopeTable("conversionWitnesses", false)
+	if not paired or not paired[c.pair] then return false end
+	local now = Church.Clock()
+	local ok, why = Record(c.recruit, nil, function(_, join)
+		if join.invitedAt ~= c.invited or join.joinedAt ~= c.joined or not Same(join.guild, c.guild)
+			or Church.Key(join.source) ~= Church.Key(c.source) or Church.Key(join.inviter) ~= Church.Key(c.inviter) then return nil end
+		local _, region = Scope()
+		return { group = ns.group, region = region, faction = ns.faction, guild = join.guild, source = c.source,
+			automatic = true, member = Digest("conversion character\0" .. ActorKey(c.recruit)),
+			handoff = key, verification = Digest(key .. c.pair), joinedAt = c.joined, verifiedAt = now }
+	end)
+	if not ok and why ~= "duplicate" then return false end
+	Ack(c.inviter, scope, key)
+	Ack(c.source, scope, key)
+	-- Retain only the completed receipt key for retries during its window.
+	entry.c, entry.h, entry.done = nil, nil, true
+	return true
+end
+
+function Conversions.NoteStrongWitness(sender, inviter, recruit, guild, invited, joined)
+	if not ShareScope() or not Keeper(ns.me) or not ActorKey(sender) or not ns.FederationProgram.IsEnrolled(guild, joined) then return end
+	local now, key = Church.Clock(), PairKey(inviter, recruit, guild, invited, joined)
+	if not key or not Time(invited, joined) or not Time(joined, now) then return end
+	if not Note("conversionWitnesses", key, now) then return end
+	local inbox, scope = ScopeTable("conversionInbox", false), BoardScope()
+	for tx, row in pairs(inbox or {}) do
+		if row.c and row.c.pair == key then FinishAutomatic(scope, tx, row) end
+	end
+end
+
+local function ReceiveAutomatic(sender, scope, kind, body)
+	local peer = ActorKey(sender)
+	local M = ns.Moderation
+	if not peer or (M and M.Hides and M.Hides(sender, nil)) then return false end
+	if kind == "k" then
+		if not Keeper(sender) or #body ~= 64 or not body:match("^%x+$") then return false end
+		for _, field in ipairs({ "conversionCandidates", "conversionSources" }) do
+			for _, entry in pairs(ScopeTable(field, false) or {}) do
+				if entry.key == body and ActorKey(entry.owner) == ActorKey(ns.me) then entry.acked = true end
+			end
+		end
+		return true
+	end
+	if not Keeper(ns.me) then return false end
+	local id, guild, recruit, other, accepted, invited, joined =
+		body:match("^([^~]+)~([^~]+)~([^~]+)~([^~]+)~(%d+)~(%d+)~(%d+)$")
+	accepted, invited, joined = tonumber(accepted), tonumber(invited), tonumber(joined)
+	local now = Church.Clock()
+	if not TxId(id) or not Field(guild, 72) or not Time(accepted, now + 60) or now - accepted > AUTO_AGE then return false end
+	local source, inviter = kind == "h" and sender or other, kind == "h" and other or sender
+	local key = TxKey(source, inviter, recruit, guild, id)
+	if not key or not ns.FederationProgram.IsEnrolled(guild) then return false end
+	if kind == "c" and (not Time(invited, joined) or not Time(joined, now) or invited % 3600 ~= 0 or joined % 3600 ~= 0
+		or invited + 3600 <= accepted or invited - accepted > 12 * 3600
+		or not ns.FederationProgram.IsEnrolled(guild, joined)) then return false end
+	if kind == "h" and (invited ~= 0 or joined ~= 0) then return false end
+	local entry = Note("conversionInbox", key, now)
+	if not entry then return false end
+	if entry.done then Ack(sender, scope, key); return true end
+	if kind == "h" then
+		if not entry.h then entry.h = { accepted = accepted } end
+	else
+		entry.c = entry.c or { accepted = accepted, invited = invited, joined = joined, guild = guild, source = source,
+			inviter = inviter, recruit = recruit, pair = PairKey(inviter, recruit, guild, invited, joined) }
+	end
+	FinishAutomatic(scope, key, entry)
+	return true
+end
+
+ns.On("RECRUIT_HANDOFF_ACKNOWLEDGED", function(recruit, source, inviter, guild, id)
+	if not Member() or ActorKey(source) ~= ActorKey(ns.me) or not TxId(id) or not Field(guild, 72)
+		or not ns.FederationProgram.IsEnrolled(guild) then return end
+	local key = TxKey(source, inviter, recruit, guild, id)
+	local now = Church.Clock()
+	local row = key and Note("conversionSources", key, now)
+	if not row or row.owner then return end
+	row.owner, row.key, row.id, row.guild, row.recruit, row.other, row.accepted = source, key, id, guild, recruit, inviter, now
+	Conversions.FlushAutomatic()
+end)
+
+function Conversions.FlushAutomatic()
+	if not ShareScope() or flushActive then return end
+	local scope, now = BoardScope(), Church.Clock()
+	if not scope then return end
+	local candidates = Candidates(false)
+	local sources = ScopeTable("conversionSources", false)
+	local inbox = Keeper(ns.me) and ScopeTable("conversionInbox", false) or nil
+	if not candidates and not sources and not inbox then return end
+	local identity = Identity(scope)
+	if autoIdentity == identity and autoAt and now - autoAt < 15 then return end
+	autoIdentity, autoAt, flushActive = identity, now, true
+	for key, row in pairs(inbox or {}) do
+		if not Time(row.at, now) or now - row.at > AUTO_AGE then inbox[key] = nil
+		elseif not row.done then FinishAutomatic(scope, key, row) end
+	end
+	local me, destinations = ActorKey(ns.me), {}
+	for _, keeper in ipairs(Church.KeepersOnline(true)) do
+		local key = Keeper(keeper.name)
+		if key then destinations[#destinations + 1] = { name = keeper.name, key = key } end
+		if #destinations >= 4 then break end
+	end
+	local budget = 8
+	local function Send(row, kind, other)
+		if budget <= 0 or row.acked or ActorKey(row.owner) ~= me or now - row.accepted > AUTO_AGE
+			or (row.sent and now - row.sent < AUTO_GAP) then return end
+		local body = table.concat({ row.id, row.guild, row.recruit, other, row.accepted, row.invited or 0, row.joined or 0 }, "~")
+		local text = ("NY~1~%s~%s~%s"):format(kind, scope, body)
+		if #text > 255 then return end
+		for _, keeper in ipairs(destinations) do
+			if budget <= 0 then break end
+			if keeper.key == me then ReceiveAutomatic(ns.me, scope, kind, body)
+			else
+				ns.Comm.Whisper(keeper.name, text, nil, false, false, nil, {
+					owner = Conversions,
+					guard = function() return ShareScope() and BoardScope() == scope and Identity(scope) == identity and Keeper(keeper.name) == keeper.key end,
+				})
+			end
+			row.sent, budget = now, budget - 1
+		end
+	end
+	for key, row in pairs(sources or {}) do
+		if not Time(row.at, now) or now - row.at > AUTO_AGE then sources[key] = nil
+		elseif row.owner then Send(row, "h", row.other) end
+	end
+	local pending
+	for _, row in pairs(candidates or {}) do
+		if row.joined and not row.acked and (not row.sent or now - row.sent >= AUTO_GAP) then pending = true break end
+	end
+	if pending then
+		for _, row in ipairs(ReadyCandidates()) do
+			row.owner = row.inviter
+			row.key = TxKey(row.source, row.inviter, row.recruit, row.guild, row.id)
+			if row.key then Send(row, "c", row.source) end
+		end
+	end
+	flushActive = false
 end
 
 function Conversions.Ask(window, force)
@@ -519,6 +717,8 @@ end
 
 ns.Comm.Handle("NY", function(dist, sender, text)
 	if dist ~= "WHISPER" or type(text) ~= "string" or #text > 255 or not ShareScope() then return false end
+	local evidence, proofScope, proof = text:match("^NY~1~([hck])~([^~]+)~(.+)$")
+	if evidence then return proofScope == BoardScope() and ReceiveAutomatic(sender, proofScope, evidence, proof) end
 	local kind, scope, window, token, body = text:match("^NY~1~([qre])~([^~]+)~([wa])~([0-9a-f%-]+)~(.+)$")
 	if not token or #token > 32 or scope ~= BoardScope() then return false end
 	if kind == "q" then return body == "-" and Answer(sender, scope, window, token) end

@@ -1210,6 +1210,13 @@ test("verified overflow: only a federation JOIN goes from full primaries to an e
 	WithWorld(function(w)
 		local first, second, side = OverflowMembers(w)
 		local applicant = Full("Aster Vale")
+		local accepted, acknowledged
+		first.ns.Fire = function(event, ...)
+			if event == "RECRUIT_HANDOFF_ACKNOWLEDGED" then acknowledged = { ... } end
+		end
+		side.ns.Fire = function(event, ...)
+			if event == "RECRUIT_HANDOFF_ACCEPTED" then accepted = { ... } end
+		end
 		local function Offer(req)
 			return As(w, first, first.H.Offer, req, side.name, side.guild)
 		end
@@ -1233,6 +1240,7 @@ test("verified overflow: only a federation JOIN goes from full primaries to an e
 		eq(Offer(req), true)
 		Deliver(w)
 		eq(Count(w, "N"), 0)
+		eq(accepted, nil); eq(acknowledged, nil)
 		for _, message in ipairs(w.sent) do
 			eq(message.word:find(applicant, 1, true), nil, "all preliminary packets omit the name")
 		end
@@ -1243,6 +1251,10 @@ test("verified overflow: only a federation JOIN goes from full primaries to an e
 		eq(side.R.requests[1].name, applicant)
 		eq(side.R.requests[1].overflowFrom, first.guild)
 		eq(first.H.State(req), "assigned")
+		eq(accepted[1], applicant); eq(accepted[2], first.name); eq(accepted[3], side.name)
+		eq(accepted[5], side.guild); eq(accepted[6], acknowledged[5])
+		eq(acknowledged[1], applicant); eq(acknowledged[2], first.name); eq(acknowledged[3], side.name)
+		eq(acknowledged[4], side.guild)
 		side.capacity = ns.Codec.GUILD_CAP
 		eq(As(w, side, side.R.Accept, side.R.requests[1]), false, "native full destination blocks another draft")
 	end)

@@ -292,6 +292,47 @@ test("Church conversion review: a new scoped handoff and native join can be revi
 	eq(select(2, Board(b, "a")), nil, "an appointment change invalidates retained standings on the receiver")
 end)
 
+test("Church conversion automatic: an enrolled native join and both sides of a new handoff count without manual review", function()
+	local w, c = Cast()
+	local keeper, recipient, source, recruit = c.a1, c.ivo, c.a2, "New Guy-Realm"
+	recipient.rank, c.wes.rank = 0, 1
+	w:RefreshRosters()
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, w.clock - 7200, w.clock + DAY, World.GUILD)
+	local sig = string.rep("a", 512)
+	for _, k in ipairs({ keeper, recipient, source }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({ Verify = function(text, signature) return text == title and signature == sig end }, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K, tx = keeper.c.ChurchConversions, "100-b4-1"
+	local function Count() return #w:As(keeper, K.Ranking, "a") end
+	w:As(recipient, recipient.c.Fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, source.name, recipient.name, World.GUILD2, World.GUILD, tx)
+	w:As(recipient, recipient.RR.HandedIn, recruit, source.name)
+	w:Act(source, source.RR.HandedOut, recruit, recipient.name)
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy")
+	w:ReadLog(recipient)
+	eq(Count(), 0, "the invitee's join alone is not independent proof")
+	w:ReadLog(c.wes)
+	eq(Count(), 0, "a weak witness is insufficient")
+	w:ReadLog(keeper)
+	eq(Count(), 0, "the rolling evidence does not supply the origin's matching transaction")
+	local bad = ("NY~1~h~Realm:Alliance:EU~%s~%s~%s~%s~%d~0~0"):format(tx, World.GUILD, recruit, recipient.name, w.clock)
+	w:Act(source, source.c.Comm.Whisper, keeper.name, bad)
+	eq(Count(), 0, "another scope cannot complete the transaction")
+	w:Act(source, source.c.Fire, "RECRUIT_HANDOFF_ACKNOWLEDGED", recruit, source.name, recipient.name, World.GUILD, tx)
+	eq(Count(), 1)
+	local week = w:As(keeper, K.Ranking, "w")
+	eq(week[1].name, source.name); eq(week[1].count, 1)
+	local _, row = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(row.recruit, nil); eq(row.discordId, nil); eq(row.reviewed, true)
+	local sourceProof = w:Sent(source, "NY", "WHISPER", "h")[1]
+	assert(sourceProof, "source acknowledges to a keeper")
+	w:Deliver(sourceProof)
+	eq(w:As(keeper, K.Ranking, "a")[1].count, 1, "a replay cannot duplicate the automatic conversion")
+end)
+
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()
 	local w, c = Cast()
 	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 1)

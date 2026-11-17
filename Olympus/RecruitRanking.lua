@@ -1033,6 +1033,10 @@ function RR.TakeEvidence(sender, text)
 		local localOnly = ours and Mate(sender) and not Signed(sender)
 		RR.MergeIn(id, { n = Short(invitee), bn = Short(inviter), g = guild, tc = ti * 3600, tj = tj * 3600,
 			ws = strong and { sk } or nil, wk = (not strong) and { sk } or nil }, localOnly)
+		local conversions = ns.ChurchConversions
+		if strong and conversions and conversions.NoteStrongWitness then
+			ns.SafeCall("conversion witness", conversions.NoteStrongWitness, sender, inviter, invitee, guild, ti * 3600, tj * 3600)
+		end
 		return true
 	end
 	if kind == "h" then

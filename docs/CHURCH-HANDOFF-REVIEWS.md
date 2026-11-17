@@ -1,6 +1,10 @@
-# Church handoff reviews
+# Church conversions
 
-This optional workflow counts manually reviewed characters for Apostles and missionaries. It records a new, accepted recruiting handoff to an enrolled guild and waits until the native log pairs the recipient's invitation with the recruit's join. The recipient's client must see one exact matching character on its current native roster before it offers the candidate for review. Scanned-player offers and earlier rolling ledger rows cannot create a candidate.
+During signed rollout, a new confirmed handoff into an enrolled guild counts automatically. The recipient's client must see the native invitation and join pair and one matching character on the guild's current native roster. The keeper also needs the source's acknowledgement of the same handoff and independent strong guild-log evidence in the same scope. Scanned-player offers and earlier rolling ledger rows cannot create a conversion. The workflow counts characters for Apostles and missionaries.
+
+## Recover a reviewed handoff
+
+The offline signed workflow is available for recovery. It uses the exact original candidate and still requires the matching independent witness at the keeper.
 
 1. The recipient runs `/oly church conversions review` in the destination guild and deliberately copies the appropriate candidate to the reviewer. A candidate line contains scoped in-game character and guild names, the handoff reference and times. Expired local candidates are dropped when logging in, reviewing or capturing another handoff.
 2. The reviewer checks that it is the intended recruit and completed handoff in the exact guild, region, faction and realm group. If the team asks for a manual Discord check, the reviewer does that separately. Guild opt-in is its own signed decision, described in [Federation program enrollment](FEDERATION-PROGRAM.md).

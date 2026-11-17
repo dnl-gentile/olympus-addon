@@ -711,6 +711,9 @@ function H.Receive(dist, sender, word)
 			if ranking and ranking.HandedOut and not ref.request.scanned then
 				ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender)
 			end
+			if not ref.request.scanned then
+				ns.Fire("RECRUIT_HANDOFF_ACKNOWLEDGED", NameOf(ref.request), ns.me, sender, ref.to, ref.id)
+			end
 		end
 	end
 	Changed()
