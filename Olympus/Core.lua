@@ -3529,6 +3529,8 @@ local function Slash(input)
 		elseif cmd == "netoff" or cmd == "neton" then
 			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
 			ns.Moderation.Slash(cmd == "netoff", rest)
+		elseif cmd == "fugitives" then
+			if ns.FederationFugitives then ns.FederationFugitives.Slash(rest:lower()) else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "alt" or cmd == "alts" then
 			-- 1.1: this account's characters linked as one player (Alts.lua).
 			ns.Alts.Slash(rest)

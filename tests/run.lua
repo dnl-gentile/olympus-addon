@@ -8949,6 +8949,7 @@ assert(loadfile(ROOT .. "tests/verify-relay.lua"))(ns, test, eq, RelayWorld, ADD
 assert(loadfile(ROOT .. "tests/verify-mesh.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
 -- 1.6.0: taking a guild's verified check away on every client (tests/verify-revoke.lua).
 assert(loadfile(ROOT .. "tests/verify-revoke.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
+assert(loadfile(ROOT .. "tests/federation-fugitives.lua"))(ns, test, eq)
 
 -- 1.5.0 (the dev's relay: 51 reporters, every guild's three-piece report to each, 2,700 pieces a
 -- minute against 200 sent). Fails before: every word to every reporter, no snapshot of the relay's.

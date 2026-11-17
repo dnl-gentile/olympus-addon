@@ -3700,6 +3700,26 @@ test("gamepad first unguilded login opens Join once and sends nothing", function
 	NoErrors(C, "first Join window after combat")
 end)
 
+test("gamepad federation fugitives paste uses only the Olympus dialog across style changes", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		InClick(C, function() ns.FederationFugitives.Slash("paste") end)
+		local f = assert(ns.Dialog.Find("OLYMPUS_FUGITIVES_PASTE"))
+		eq(f:IsShown(), true)
+		eq(C.gamePopups or 0, 0, "no native popup")
+		C.Switch(not initialPad); C.Advance(1)
+		eq(f:IsShown(), true)
+		C.Switch(initialPad); C.Advance(1)
+		eq(f:IsShown(), true)
+		InClick(C, function() f.buttons[2]:Click() end)
+		eq(f:IsShown(), false)
+		eq(C.gamePopups or 0, 0)
+		Check(C.ledger, "fugitive paste across both input styles")
+		NoErrors(C, "fugitive paste across both input styles")
+	end
+	GP.Covers("dialogs")
+end)
+
 test("gamepad Join Olympus onboarding searches, waits and retries through attended clicks", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad, { setup = function(c)
