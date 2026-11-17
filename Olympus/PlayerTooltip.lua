@@ -66,6 +66,10 @@ function P.Apply(tooltip, unit, name, guild) -- gp:player-tooltip
 			tooltip:SetScale(held.applied)
 		end
 	end
+	if not held.fugitive and ns.FederationFugitives and ns.FederationFugitives.Visible(name) then
+		tooltip:AddLine(L.FUGITIVES_TAG, 1, 0.62, 0.32)
+		held.fugitive = true
+	end
 	if held.line or type(guild) ~= "string" or not ns.IsFederation(guild) then return true end
 	local liveGuild, rank = GetGuildInfo(unit)
 	if Secret(liveGuild) or Secret(rank) or liveGuild ~= guild or type(rank) ~= "string" or rank == "" then return true end

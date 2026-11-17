@@ -177,6 +177,21 @@ test("1.5.9 one channel on Forever: the chat hall is off for a client holding a 
 	end
 end)
 
+test("federation chat: an active guild program keeps shared lines off the native public channel", function()
+	WithClient({ lane = 0 }, function(w)
+		local active = true
+		w.cns.SharedToolsActive = function() return active end
+		assert(loadfile(ADDON .. "ChatHall.lua"))("Olympus", w.cns)
+		local word = "M1~A~Olympus Dawn~8~WL~scoped line"
+		eq(w.C.SendChat(word), true)
+		eq(#w.said, 0, "no native public-channel copy")
+		eq(w.cns.ChatHall.OnChannel(word, "Other-Realm", nil, nil, nil, nil, nil, nil, "OlympusNet"), false)
+		active = false
+		eq(w.C.SendChat(word), true)
+		eq(#w.said, 1, "native path is available again with the program inactive")
+	end)
+end)
+
 -- Fails before: an officer's key left the public channel for the sealed one, and the chat lines waiting
 -- for the old channel were dropped.
 test("1.5.9 one channel on Forever: a realm key that arrives from an officer is kept, and the client stays on the public channel: nothing left, nothing joined, no chat line dropped", function()

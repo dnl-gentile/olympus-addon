@@ -3700,6 +3700,26 @@ test("gamepad first unguilded login opens Join once and sends nothing", function
 	NoErrors(C, "first Join window after combat")
 end)
 
+test("gamepad federation fugitives paste uses only the Olympus dialog across style changes", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		InClick(C, function() ns.FederationFugitives.Slash("paste") end)
+		local f = assert(ns.Dialog.Find("OLYMPUS_FUGITIVES_PASTE"))
+		eq(f:IsShown(), true)
+		eq(C.gamePopups or 0, 0, "no native popup")
+		C.Switch(not initialPad); C.Advance(1)
+		eq(f:IsShown(), true)
+		C.Switch(initialPad); C.Advance(1)
+		eq(f:IsShown(), true)
+		InClick(C, function() f.buttons[2]:Click() end)
+		eq(f:IsShown(), false)
+		eq(C.gamePopups or 0, 0)
+		Check(C.ledger, "fugitive paste across both input styles")
+		NoErrors(C, "fugitive paste across both input styles")
+	end
+	GP.Covers("dialogs")
+end)
+
 test("gamepad Join Olympus onboarding searches, waits and retries through attended clicks", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad, { setup = function(c)
@@ -6592,11 +6612,12 @@ for _, initialPad in ipairs({ false, true }) do
 		GP.Covers("player-tooltip")
 		local P, tip = assert(ns.PlayerTooltip), C.env.GameTooltip
 		C.units.mouseover = { name = "Someone", realm = "Realm", guid = "Player-1-00000002", guild = "Olympus II", rank = "Titan", rankIndex = 1 }
+		ns.FederationFugitives.Visible = function(name) return name == "Someone-Realm" end
 		assert(P.Set("scale", 120))
 		tip:SetScale(0.9)
-		local function RankLines()
+		local function CountLines(text)
 			local n = 0
-			for _, line in ipairs(tip.lines or {}) do if line == "Olympus II · Titan" then n = n + 1 end end
+			for _, line in ipairs(tip.lines or {}) do if line == text then n = n + 1 end end
 			return n
 		end
 		for _, mode in ipairs({ initialPad, not initialPad, initialPad, false }) do
@@ -6606,14 +6627,16 @@ for _, initialPad in ipairs({ false, true }) do
 			local owner, anchor = tip.owner, tip.anchor
 			C.Isolated(ns.Inspect.TooltipUnit, tip)
 			C.Isolated(ns.Inspect.TooltipUnit, tip)
-			eq(RankLines(), mode and 0 or 1, "one observed guild rank, no duplicate on repeated post-calls")
+			eq(CountLines("Olympus II · Titan"), mode and 0 or 1, "one observed guild rank, no duplicate on repeated post-calls")
+			eq(CountLines(ns.L.FUGITIVES_TAG), mode and 0 or 1, "one label only in mouse mode")
 			eq(tip:GetScale(), mode and 0.9 or 1.08, "optional scale follows native player's original size")
 			eq(tip.owner, owner); eq(tip.anchor, anchor)
 			if not mode then
 				C.Switch(true); C.Advance(0.1) -- Gate parks native additions on the next frame.
 				eq(tip:GetScale(), 0.9, "switch restores a visible tooltip before leaving mouse mode")
 				C.Isolated(ns.Inspect.TooltipUnit, tip)
-				eq(RankLines(), 1, "retained callback is inert under gamepad")
+				eq(CountLines("Olympus II · Titan"), 1, "retained callback is inert under gamepad")
+				eq(CountLines(ns.L.FUGITIVES_TAG), 1, "retained callback does not add a second label")
 			end
 			tip:Hide(); eq(tip:GetScale(), 0.9)
 		end

@@ -421,6 +421,7 @@ local function RecruitMain(name)
 	local role = Church.Role(main)
 	if role == "A" or role == "M" then return main end
 end
+Count.RecruitMain = RecruitMain
 -- (1.6.0) The Apostle or Missionary main an inviter's own alt claim names (Alts.ClaimedMain): his word
 -- alone, which no keeper credits on (TakeEvidence asks RecruitMain: both claims). On Forever a guildmate
 -- hears that claim over GUILD (Alts.Send) while the main's own claim, said in another guild, reaches him
@@ -523,7 +524,12 @@ function Count.Events()
 		local a = EventName(p1)
 		if type(kind) == "string" and a then
 			local ago = ((tonumber(y) or 0) * 365 + (tonumber(mo) or 0) * 30 + (tonumber(d) or 0)) * 24 + (tonumber(h) or 0)
-			out[#out + 1] = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
+			local event = { kind = kind, p1 = a, p2 = EventName(p2), hour = hourNow - ago, i = i }
+			if kind == "remove" then
+				event.removerExact = p1:find("-", 1, true) ~= nil
+				event.removedExact = event.p2 ~= nil and p2:find("-", 1, true) ~= nil
+			end
+			out[#out + 1] = event
 		end
 	end
 	-- 1: the log lists the oldest first; -1: the newest first; 0: no way to tell (one hour).
@@ -625,7 +631,13 @@ function Count.Process(events)
 			stats.events = stats.events + 1
 			local day = Day(e.hour * 3600)
 			if e.kind == "invite" and e.p2 then
-				if e.unsure then inv[Key(e.p2)] = nil else inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild } end
+				if e.unsure then
+					inv[Key(e.p2)] = nil
+				else
+					local conversions = ns.ChurchConversions
+					local absent = conversions and conversions.ObserveAbsence and conversions.ObserveAbsence(e.p2, guild)
+					inv[Key(e.p2)] = { by = e.p1, h = e.hour, g = guild, realm = ns.realm, absent = absent }
+				end
 				if person and Key(e.p1) == meKey then
 					local m = Mine()
 					m.inv[day] = (m.inv[day] or 0) + 1
@@ -643,6 +655,10 @@ function Count.Process(events)
 					-- (1.5.9) Every member's pair, whoever invited, for the recruiting ranking for everyone:
 					-- records of its own type (RecruitRanking.lua), never this ledger's.
 					if RR and RR.Pair then ns.SafeCall("recruit ranking pair", RR.Pair, i.by, e.p1, guild, i.h, tj) end
+					local conversions = ns.ChurchConversions
+					if conversions and conversions.ObserveNativePair and i.g == guild and i.realm == ns.realm then
+						ns.SafeCall("recruit conversion pair", conversions.ObserveNativePair, i.by, e.p1, guild, i.h * 3600, tj * 3600, i.absent)
+					end
 				end
 			elseif e.kind == "quit" or e.kind == "remove" then
 				FillOf(guild, day).l = FillOf(guild, day).l + 1
@@ -672,7 +688,9 @@ end
 
 function Count.OnLogUpdate()
 	if ns.KingsScreen and ns.KingsScreen() then return end
-	Count.Process(Count.Events())
+	local events = Count.Events()
+	ns.Fire("FEDERATION_NATIVE_GUILD_LOG", events)
+	Count.Process(events)
 end
 
 -- (1.6.0) Another character of this account that no keeper can tell from another player: one the
@@ -3306,6 +3324,8 @@ function Count.Tick(now)
 	-- (1.5.9) The recruiting ranking for everyone: its reports, stays, and a keeper's ledger work.
 	local RR = ns.RecruitRanking
 	if RR and RR.Tick then ns.SafeCall("recruit ranking", RR.Tick, now) end
+	local conversions = ns.ChurchConversions
+	if conversions and conversions.FlushAutomatic then ns.SafeCall("recruit conversions", conversions.FlushAutomatic) end
 	if ns.ChurchView and ns.ChurchView.PollRanking then ns.ChurchView.PollRanking() end
 end
 

@@ -2,7 +2,7 @@
 ## Title: |cffe6c35cOlympus|r
 ## Notes: Live census of every Olympus guild: army size, leaders and where everyone is on the map.
 ## Author: Olympus addon contributors
-## Version: 1.6.0.1
+## Version: 1.6.1
 ## SavedVariables: OlympusDB, OlympusRecordDB
 ## IconTexture: Interface\AddOns\Olympus\media\logo64
 ## X-License: MIT
@@ -51,6 +51,7 @@ Locales\AccordText.lua
 Locales\RecordText.lua
 Locales\CensusStatsText.lua
 Locales\VerifyText.lua
+Locales\FugitivesText.lua
 Locales\SelfTestText.lua
 Locales\MapNamesText.lua
 Locales\PlayerTooltipText.lua
@@ -70,11 +71,13 @@ PlayerMenu.lua
 Codec.lua
 Sign.lua
 Authority.lua
+FederationProgram.lua
 Zones.lua
 Who.lua
 Data.lua
 Roster.lua
 Comm.lua
+FederationMembership.lua
 Relay.lua
 RelayTree.lua
 RelayFallback.lua
@@ -98,6 +101,7 @@ Groups.lua
 Week.lua
 Treasury.lua
 Dues.lua
+Contributions.lua
 DuesHistory.lua
 DuesGrace.lua
 Bank.lua
@@ -108,6 +112,7 @@ Campaign.lua
 GuildFinance.lua
 Moderation.lua
 Alts.lua
+FederationFugitives.lua
 CensusClean.lua
 Keys.lua
 Loot.lua
@@ -122,6 +127,7 @@ LinkLoader.lua
 ArmyExport.lua
 GuildCharter.lua
 Recruit.lua
+RecruitOverflow.lua
 RecruitHandoff.lua
 RecruitCandidates.lua
 PartyGuard.lua
@@ -152,6 +158,7 @@ Church.lua
 ChurchCount.lua
 ChurchFullness.lua
 RecruitRanking.lua
+ChurchConversions.lua
 ChurchView.lua
 TabardsV2.lua
 Letters.lua

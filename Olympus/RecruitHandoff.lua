@@ -73,6 +73,7 @@ end
 -- census reports, never the packet's own claim.
 local function Member(name, guild)
 	if not InScope(name) or not Field(guild, MAX_GUILD) or not ns.IsFederation(guild) then return false end
+	if not ns.SharedGuildAllowed(guild) then return false end
 	if ns.db and ns.db.blocked and ns.db.blocked[name:lower()] then return false end
 	if ns.Moderation and ns.Moderation.Hides and ns.Moderation.Hides(name, guild, true) then return false end
 	local rank, source, support
@@ -80,6 +81,8 @@ local function Member(name, guild)
 		if not ns.Roster.Fresh() then return false end
 		rank = ns.Roster.RankOf(name)
 	else
+		local program = ns.FederationProgram
+		if program and program.Role and program.Role(name, guild) then return true end
 		if not ns.Data.CanRank(guild) then return false end
 		rank, source, support = ns.Data.AuthorizedRank(name, guild)
 		if source ~= "signed" and (source ~= "census" or (support or 0) < 2) then return false end
@@ -89,7 +92,7 @@ end
 
 local function LocalGuild()
 	local guild = ns.group and ns.faction and ns.IsMember() and GetGuildInfo("player") or nil
-	if guild and R.CanInvite() and Member(ns.me, guild) then return guild end
+	if guild and ns.SharedToolsHere() and R.CanInvite() and Member(ns.me, guild) then return guild end
 end
 
 local function Accepting()
@@ -126,7 +129,7 @@ local function Room(rows, limit)
 end
 
 local function Transmit(op, ref, peer, applicant, guard, done)
-	local word = table.concat({ "J4", op, ref.id, ref.expires, ns.group, ns.faction, ref.from, ref.to, applicant or "" }, "~")
+	local word = table.concat({ ref.verified and "J6" or "J4", op, ref.id, ref.expires, ns.group, ns.faction, ref.from, ref.to, applicant or "" }, "~")
 	if #word > 255 then return false end
 	-- (1.5.8) The recruiting log: each packet sent, and its check refusing it at the send, once.
 	local refused
@@ -197,13 +200,34 @@ local function AutoAllowed(own)
 	return own ~= nil and (autoGuild == own or passGuild == own) and AvailableNow()
 end
 
+-- Once signed enrollment is active, only the upgraded offer protocol can cross guilds.
+-- Recheck capacity without starting new network queries in transport guards.
+local function Route(from, to, verified, ask)
+	if Same(from, to) then return not verified end
+	if verified ~= ns.SharedToolsActive() then return false end
+	if not verified then return true end
+	local overflow = R.VerifiedOverflow
+	return overflow ~= nil and not ns.ChatLocked() and not ns.QuietPresence() and overflow.Allowed(from, to, ask)
+end
+
+function H.OverflowAllowed(from, to, ask)
+	return Route(from, to, true, ask)
+end
+
+local function SamePeer(a, b, verified)
+	if verified then return Same(a, b) end
+	return SamePlayer(a, b)
+end
+
 -- `claimed` (1.6.0): a member's claim of the offer, and the name it sends back. Combat no longer holds
 -- these: the name is one addon whisper, which a fight does not stop. 1.5.8 and 1.5.9 refused the claim,
 -- or dropped the name waiting to leave, while the member who passed the player was fighting, and the
 -- one who claimed heard nothing (a Horde recruiter's report of 11-14: "and then nothing happens"). The
 -- probes and offers still wait for the end of a fight; a chat lockdown and quiet presence hold all of it.
 local function SourceReady(ref, claimed)
-	if not Source(ref.request, nil, claimed) then return false end
+	if ref.verified and (ref.request.scanned or ref.request.handoffIntent ~= "federation") then return false end
+	if not Source(ref.request, nil, claimed) or not Route(ref.from, ref.to, ref.verified) then return false end
+	if not R.FederationInviteAllowed(NameOf(ref.request), ref.to) then return false end
 	if not ref.automatic then return true end
 	local own, allowed = ref.from, nil
 	if claimed then
@@ -233,18 +257,27 @@ function H.Offer(req, peer, guild, automatic)
 	if not own or not Source(req) or H.State(req) or not Room(outgoing) or Duplicate(req)
 		or not Member(peer, guild) or SamePlayer(peer, ns.me)
 		or (req.handoffIntent ~= "federation" and not Same(own, guild)) then return false end
+	local verified = not Same(own, guild) and ns.SharedToolsActive()
+	if not Route(own, guild, verified, true) or not R.FederationInviteAllowed(NameOf(req), guild) then return false end
 	if automatic and (not AutoAllowed(own) or not Same(own, guild)
 		or PromptOpen(req) or not Room(outgoing, LIMIT - 1)) then return false end
 	local ref = {
 		id = NextID(now) .. (req.scanned and SIGHTING or ""), expires = now + TTL, from = own, to = guild, peer = peer,
-		request = req, state = "offered", automatic = automatic,
+		request = req, state = "offered", automatic = automatic, verified = verified,
 	}
 	req.handoff, outgoing[ref.id] = ref, ref
 	local function Guard()
-		return ref.expires > ns.Now() and ref.from == LocalGuild() and ref.state == "offered"
+		local allowed = ref.expires > ns.Now() and ref.from == LocalGuild() and ref.state == "offered"
 			and SourceReady(ref) and Member(peer, guild)
+		return allowed, "invalid"
 	end
-	if not Transmit("O", ref, peer, nil, Guard) then
+	local function Done(sent, why)
+		if verified and not sent and why == "invalid" and req.handoff == ref and ref.state == "offered" then
+			req.handoff, outgoing[ref.id] = nil, nil
+			Changed()
+		end
+	end
+	if not Transmit("O", ref, peer, nil, Guard, Done) then
 		req.handoff, outgoing[ref.id] = nil, nil
 		return false
 	end
@@ -256,11 +289,11 @@ end
 function H.Claim(ref)
 	if type(ref) ~= "table" or incoming[ref.id] ~= ref or ref.state ~= "offered"
 		or ref.expires <= ns.Now() or not Accepting() or not Same(acceptingGuild, ref.to)
-		or not Member(ref.peer, ref.from) then return false end
+		or not Member(ref.peer, ref.from) or not Route(ref.from, ref.to, ref.verified, true) then return false end
 	ref.state = "claiming"
 	local function Guard()
 		return incoming[ref.id] == ref and ref.expires > ns.Now() and Accepting()
-			and Same(acceptingGuild, ref.to) and Member(ref.peer, ref.from)
+			and Same(acceptingGuild, ref.to) and Member(ref.peer, ref.from) and Route(ref.from, ref.to, ref.verified)
 	end
 	if not Transmit("C", ref, ref.peer, nil, Guard) then ref.state = "offered"; return false end
 	-- (1.6.0) Once its time is out, a claim no name answered is said (Prune).
@@ -504,12 +537,17 @@ end
 
 -- The offer to ask about next: still to claim, its question not shown yet, the one ending first.
 local function Unasked(now)
-	local nextRef
+	local nextRef, waiting
 	for _, ref in pairs(incoming) do
-		if ref.state == "offered" and not ref.asked and ref.expires > now and Same(ref.to, acceptingGuild)
-			and (not nextRef or ref.expires < nextRef.expires) then nextRef = ref end
+		if ref.state == "offered" and not ref.asked and ref.expires > now and Same(ref.to, acceptingGuild) then
+			if Route(ref.from, ref.to, ref.verified, true) then
+				if not nextRef or ref.expires < nextRef.expires then nextRef = ref end
+			else
+				waiting = true
+			end
+		end
 	end
-	return nextRef
+	return nextRef, waiting
 end
 
 local looking -- a look due in ASK_RETRY seconds
@@ -526,8 +564,10 @@ end
 Ask = function()
 	local now = ns.Now()
 	Prune(now)
-	local ref = Accepting() and Unasked(now)
-	if not ref then return end
+	if not Accepting() then return end
+	local ref, waiting = Unasked(now)
+	if not ref then if waiting then AskLater() end; return end
+	if not ref.notified then Notify(ref, true) end
 	if not CanAsk() then return AskLater() end
 	ref.asked = true
 	local D = ns.Dialog
@@ -540,21 +580,25 @@ Ask = function()
 			Ask()
 		end)
 	end
-	if Unasked(now) then AskLater() end
+	local more, pending = Unasked(now)
+	if more or pending then AskLater() end
 end
 
-Notify = function(ref)
+Notify = function(ref, withoutAsk)
+	ref.notified = true
 	local who = ns.DisplayName(ref.peer) or ref.peer
 	local scan = Sighting(ref.id)
 	ns.Print((scan and L.RECRUIT_HANDOFF_ARRIVED_SCAN or L.RECRUIT_HANDOFF_ARRIVED):format(who, ref.from))
-	Ask()
+	if not withoutAsk then Ask() end
 end
 
 function H.Receive(dist, sender, word)
 	if dist ~= "WHISPER" or type(word) ~= "string" or #word > 255 or SamePlayer(sender, ns.me) then return false end
-	local op, id, expires, group, faction, from, to, applicant =
-		word:match("^J4~([OCNAPVD])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
+	local protocol, op, id, expires, group, faction, from, to, applicant =
+		word:match("^(J[46])~([OCNAPVD])~([%d%x%-]+)~(%d+)~([^~]+)~([^~]+)~([^~]+)~([^~]+)~([^~]*)$")
 	expires = tonumber(expires)
+	local verified = protocol == "J6"
+	if verified and (Same(from, to) or Sighting(id) or (ns.Relay and ns.Relay.Hop and ns.Relay.Hop())) then return false end
 	local now, own = ns.Now(), LocalGuild()
 	-- (Review of 1.5.8) A member who may not invite still answers a probe, with a no (below).
 	if not own and op == "P" then
@@ -566,7 +610,7 @@ function H.Receive(dist, sender, word)
 		or (op ~= "N" and applicant ~= "") then return false end
 	Prune(now)
 	if op == "P" or op == "V" or op == "D" then
-		if not AvailableNow() or expires - now > PROBE_TTL + 5 or not Same(own, from) or not Same(own, to)
+		if verified or not AvailableNow() or expires - now > PROBE_TTL + 5 or not Same(own, from) or not Same(own, to)
 			or not Member(sender, own) then return false end
 		if op == "V" or op == "D" then
 			local ref = autoProbe
@@ -601,28 +645,36 @@ function H.Receive(dist, sender, word)
 		end)
 	end
 	if op == "O" or op == "N" then
-		if not Accepting() or not Same(own, to) or not Member(sender, from) then return false end
+		if not Accepting() or not Same(own, to) or not Member(sender, from)
+			or (not Same(from, to) and verified ~= ns.SharedToolsActive()) then return false end
 		if op == "O" then
 			if incoming[id] or not Room(incoming) then return false end
-			incoming[id] = { id = id, expires = expires, from = from, to = to, peer = sender, state = "offered" }
-			Notify(incoming[id])
+			local overflow = R.VerifiedOverflow
+			if verified and not (overflow and overflow.ScopeAllowed(from, to)) then return false end
+			incoming[id] = { id = id, expires = expires, from = from, to = to, peer = sender, state = "offered", verified = verified }
+			if Route(from, to, verified, true) then Notify(incoming[id])
+			elseif verified then AskLater() end
 		else
 			local ref = incoming[id]
-			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or not SamePlayer(ref.peer, sender)
-				or ref.from ~= from or ref.to ~= to or not InScope(applicant) or SamePlayer(applicant, ns.me) then return false end
+			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or ref.verified ~= verified or not SamePeer(ref.peer, sender, verified)
+				or ref.from ~= from or ref.to ~= to or not Route(from, to, verified) or not InScope(applicant)
+				or SamePlayer(applicant, ns.me) then return false end
 			ref.named = true -- (a name came: whatever this client does with it, no "no name" line, Prune)
+			if not R.FederationInviteAllowed(applicant, own) then return false end
 			for _, req in ipairs(R.requests) do
 				if SamePlayer(applicant, req.name) then return false end
 			end
-			if not R.TakeHandoff(applicant, sender, Sighting(id)) then return false end
+			if not R.TakeHandoff(applicant, sender, Sighting(id), verified and ref.from or nil) then return false end
 			ref.state = "received"
+			ns.Fire("RECRUIT_HANDOFF_ACCEPTED", applicant, sender, ns.me, ref.from, ref.to, ref.id)
 			Transmit("A", ref, sender, nil, function()
 				return ref.expires > ns.Now() and Accepting() and Same(acceptingGuild, to) and Member(sender, from)
 			end)
 		end
 	else
 		local ref = outgoing[id]
-		if not ref or ref.expires ~= expires or ref.from ~= from or ref.to ~= to or not SamePlayer(ref.peer, sender)
+		if not ref or ref.expires ~= expires or ref.verified ~= verified or ref.from ~= from or ref.to ~= to
+			or not SamePeer(ref.peer, sender, verified)
 			or ref.from ~= own or not Member(sender, to) then return false end
 		if op == "C" then
 			if ref.state ~= "offered" or not SourceReady(ref, true) then return false end
@@ -639,7 +691,7 @@ function H.Receive(dist, sender, word)
 			local function Done(sent, why)
 				-- Only a guard refusal proves the queued name never left. Retain the lock for
 				-- an ambiguous transport result so a second member cannot receive that name.
-				if not sent and why == "invalid" and ref.automatic and ref.request.handoff == ref then
+				if not sent and why == "invalid" and (ref.automatic or ref.verified) and ref.request.handoff == ref then
 					ref.request.handoff, outgoing[ref.id], handed[key] = nil, nil, nil
 					Changed()
 				end
@@ -659,6 +711,9 @@ function H.Receive(dist, sender, word)
 			if ranking and ranking.HandedOut and not ref.request.scanned then
 				ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender)
 			end
+			if not ref.request.scanned then
+				ns.Fire("RECRUIT_HANDOFF_ACKNOWLEDGED", NameOf(ref.request), ns.me, sender, ref.to, ref.id)
+			end
 		end
 	end
 	Changed()
@@ -666,6 +721,7 @@ function H.Receive(dist, sender, word)
 end
 -- (The handler is bound late: H.Receive is wrapped below by the recruiting log, one registration.)
 ns.Comm.Handle("J4", function(...) return H.Receive(...) end)
+ns.Comm.Handle("J6", function(...) return H.Receive(...) end)
 
 local function Contacts(req, own)
 	local result, seen = {}, {}
@@ -698,7 +754,16 @@ local function Contacts(req, own)
 		if #result >= ownLimit then break end
 		Add(entry.name, own)
 	end
-	if req.handoffIntent == "federation" then
+	if req.handoffIntent == "federation" and ns.SharedToolsActive() then
+		local program, overflow = ns.FederationProgram, R.VerifiedOverflow
+		for guild in pairs(program and program.Caretakers and program.Caretakers() or {}) do
+			if #result >= LIMIT then break end
+			if overflow and not Same(own, guild) then
+				local eligible, peer = overflow.Allowed(own, guild, true)
+				if eligible then Add(peer, guild) end
+			end
+		end
+	elseif req.handoffIntent == "federation" then
 		for _, entry in ipairs(R.OpenGuilds()) do
 			local report = entry.e.g
 			if not Same(entry.name, own) then
@@ -754,7 +819,7 @@ function H.Controls(lines, V, hint)
 	if hint then lines[#lines + 1] = { indent = 1, text = V.Grey(hint) } end
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
-		if Same(ref.to, own) and Member(ref.peer, ref.from) and ref.state ~= "received" then
+		if Same(ref.to, own) and Member(ref.peer, ref.from) and ref.state ~= "received" and Route(ref.from, ref.to, ref.verified) then
 			local scan = Sighting(ref.id)
 			local label = ref.state == "offered" and (scan and L.RECRUIT_HANDOFF_CLAIM_SCAN or L.RECRUIT_HANDOFF_CLAIM)
 				or (scan and L.RECRUIT_HANDOFF_WAITING_SCAN or L.RECRUIT_HANDOFF_WAITING)
@@ -918,11 +983,11 @@ function H.LogItem(code, item, extra)
 	H.Log(code, ("%s%s%s"):format(item.scanned and "scan " or "", H.Tag(NameOf(item)), extra and (" " .. extra) or ""))
 end
 
--- Every J4 packet heard, accepted or refused (the transport's handler is this one).
+-- Every handoff packet heard, accepted or refused (the transport's handler is this one).
 local ReceivePacket = H.Receive
 function H.Receive(dist, sender, word)
 	local ok = ReceivePacket(dist, sender, word)
-	local op = dist == "WHISPER" and type(word) == "string" and #word <= 255 and word:match("^J4~(%u)~") or nil
+	local op = dist == "WHISPER" and type(word) == "string" and #word <= 255 and word:match("^J[46]~(%u)~") or nil
 	if op then H.LogPacket(ok and "RX" or "REFUSED", op, sender, op == "N" and word:match("~([^~]*)$") or nil) end
 	return ok
 end

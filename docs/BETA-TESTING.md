@@ -4,6 +4,40 @@ An automated pass and an in-game pass are different evidence. Record both. A gre
 repository check means the Lua, fixtures and package invariants passed offline; it does not mean
 that a World of Warcraft client, gamepad flow or exchange between real players was observed.
 
+## Olympus 1.6.1 live checks
+
+On one Forever client, use **The Realm → Show → Guild Masters & Officers**, open a guild and then
+reload. A stale sighting should show its age, and a count-only row with no roster detail should show
+unknown leadership. Verify the dropdown with keyboard and gamepad.
+
+Use a controlled signed test scope for the guild-to-guild checks. Confirm the caretaker's native
+index `0` and the day-to-day GM's index `1`. Once a complete roster arrives, check `/oly caretaker`
+and shared chat and crafting from an ordinary enrolled guildmate. A client in a guild outside the
+program should show the lock. Check the receiving and sending clients again after withdrawing the
+test enrollment, including across a `/reload`.
+
+- **Recruiting:** From a configured primary guild, stage a `JOIN OLYMPUS` request. Use two enrolled
+  guilds and exact recipients on different Forever sub-realms. The offer must wait on fresh full
+  evidence for each primary and spare capacity at the destination. The invite draft should appear
+  only after the chosen recruiter claims the offer. Finish the normal attended invite. Keep a
+  destination caretaker or GM, separate from the recruiting parties, online to read the native
+  event log. The Church keeper should receive both handoff acknowledgements and the native witness
+  from that character. The same scoped recruit should count automatically once in the weekly and
+  all-time views. For a grant issued mid-hour, take a fresh destination roster snapshot before the
+  recruit joins so the keeper can distinguish that join from one before approval.
+- **Fugitives:** Seed an approved test list at an enrolled caretaker. Pull it from a second guild
+  and a member of that guild. Check roster review, a whisper in both directions, a tooltip on
+  mouseover, and a party join. While a removal confirmation is open, import a newer signed clearing
+  revision. The confirmation should no longer remove the character. Ensure a plain character name
+  from the native event log is visibly marked for realm confirmation.
+- **Contributions:** Enable the independent test policy. Verify voluntary copy and privacy in an
+  enrolled non-Prime guild, then confirm the Prime tithes and private notices still use only covered
+  records. Use fictional observations or attended, explicitly authorized test transactions.
+
+Record both client build strings, the signed test scope, exact message routing, and any `/oly bug`
+output. If an installed relay requires published versions, verify its admitted-version rule before
+a rollout so it serves the 1.6.1 clients.
+
 ## 1. Build gate (automated)
 
 Start from the exact commit to be tested, in a clean Git worktree. `package.sh` refuses tracked

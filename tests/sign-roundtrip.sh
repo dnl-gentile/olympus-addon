@@ -370,10 +370,47 @@ if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratc
 [ "$(last_at)" = "$before" ] || fail 'a refused maximum leadership list moved the key time'
 printf 'ok: 92-guild and maximum multipart authority signed; one past the maximum refused\n'
 
+# A test eligibility policy goes through the normal signer and the production Workshop reader.
+python3 - "$scratch/program.json" <<'PY'
+import json, sys, time
+now = int(time.time())
+with open(sys.argv[1], "w") as f:
+    json.dump({"realm": "ForeverPvE", "program": [{
+        "faction": "Alliance", "region": "US", "mode": "enforce",
+        "issued": now - 60, "expires": now + 3600,
+        "guilds": [{"guild": "Olympus Azure", "caretaker": "Silver Rock-CAMWOWUS2Realm5PvE",
+                    "official": "Amber Vale-CAMWOWUS1Realm2PvE", "primary": True}]
+    }], "contributions": [{
+        "faction": "Alliance", "region": "US", "mode": "enforce",
+        "issued": now - 60, "expires": now + 3600,
+    }], "treasurer": {"Alliance": ["Silver Rock-CAMWOWUS1Realm2PvE"]},
+        "contributionMilestones": [{"faction": "Alliance", "region": "US",
+            "issuer": "Silver Rock-CAMWOWUS1Realm2PvE",
+            "milestones": [{"title": "Crafting day", "description": "Guild workshop held"}]}]}, f)
+PY
+OLYMPUS_COUNCIL_OUT="$scratch/council13.lua" python3 "$signer" council "$scratch/program.json" > /dev/null
+python3 - "$scratch/program.json" "$scratch/program-bad-rank.json" "$scratch/program-bad-region.json" <<'PY'
+import json, sys
+path, bad_rank, bad_region = sys.argv[1:]
+with open(path) as f: d = json.load(f)
+row = d["program"][0]["guilds"][0]
+row["officialRankIndex"] = 2
+with open(bad_rank, "w") as f: json.dump(d, f)
+row["officialRankIndex"] = 1
+row["official"] = row["official"].replace("CAMWOWUS", "CAMWOWEU")
+with open(bad_region, "w") as f: json.dump(d, f)
+PY
+before=$(last_at)
+if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratch/program-bad-rank.json" > refused.txt 2>&1; then fail 'signed a program role in the third slot'; fi
+grep -Fq 'native index 1' refused.txt || fail 'third slot was refused for an unexpected reason'
+if OLYMPUS_COUNCIL_OUT="$scratch/refused.lua" python3 "$signer" council "$scratch/program-bad-region.json" > refused.txt 2>&1; then fail 'signed a program identity for another region'; fi
+[ "$(last_at)" = "$before" ] || fail 'a refused guild program moved the key time'
+
 luajit "$repo_root/tests/sign-roundtrip.lua" "$repo_root" "$OLYMPUS_COUNCIL_KEY" "$future" \
 	"$scratch/list1.lua" "$scratch/list2.lua" "$scratch/list3.lua" "$scratch/council1.lua" "$scratch/council2.lua" \
 	"$scratch/council3.lua" "$scratch/council4.lua" "$scratch/council5.lua" "$scratch/council6.lua" \
-	"$scratch/council7.lua" "$scratch/council8.lua" "$scratch/council9.lua" "$scratch/council10.lua" "$scratch/council11.lua" "$scratch/council12.lua"
+	"$scratch/council7.lua" "$scratch/council8.lua" "$scratch/council9.lua" "$scratch/council10.lua" "$scratch/council11.lua" "$scratch/council12.lua" \
+	"$scratch/council13.lua"
 
 # 1.5.5: the lists a release carries (scripts/ship-lists.lua, then scripts/package.sh's OLY_SIGNED_LISTS): a council
 # with the Twelve Apostles signed with the throwaway key, written for the zip and checked with the key a copy of

@@ -101,7 +101,7 @@ Relay.PRESENT_FOR = 1800     -- a presentation is kept this long past its last w
 Relay.PRESENT_GAP = 60       -- a client presents itself to one relay once this long at most
 Relay.MAX_PRESENTED = 4000   -- characters a relay keeps a presentation for: every client that may whisper it, not only reporters
 Relay.MAX_REFUSED = 200      -- refusals a relay notes for /oly relay admitted
-Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7", "1.5.8", "1.5.9", "1.6.0", "1.6.0.1" }
+Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7", "1.5.8", "1.5.9", "1.6.0", "1.6.0.1", "1.6.1" }
 Relay.RULES_EVERY = 1800     -- a relay asks the others for the rules this often; the author's client hands them out this often
 Relay.MAX_RULE_VERSIONS = 40 -- versions one word of rules may name
 Relay.VERIFY_ASK_EVERY = 180 -- one recovery ask across the signed relays, never per reporter
@@ -1014,13 +1014,27 @@ end
 -- reporter hands its guild every word its relay sends, at one whisper every 1.2 s, and an ordinary
 -- chat line was the first a full queue pushed out, for its whole guild and for good. (1.5.9's review)
 -- A census word (`census`) goes by the census lane to our own guild, above.
+Relay.FEDERATION_WORDS = { M1 = true, W0 = true, W1 = true, WQ = true }
+function Relay.GuildWordAllowed(guild, word)
+	return not Relay.FEDERATION_WORDS[word:sub(1, 2)] or ns.SharedGuildAllowed(guild)
+end
+
 ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
+	local options
+	if Relay.FEDERATION_WORDS[text:sub(1, 2)] then
+		local guild = GetGuildInfo("player")
+		local function Guard()
+			return not ns.SharedToolsActive() or (guild == GetGuildInfo("player") and Relay.GuildWordAllowed(guild, text) and ns.SharedToolsHere())
+		end
+		if not Guard() then return false end
+		options = { guard = Guard }
+	end
 	local pieces = Envelope("RG", "RG~" .. flag .. "~" .. origin .. "~" .. text)
 	if census == true then return GuildLane(pieces) end
 	local urgent = flag == "L" or Relay.ApprovalResendGuild(text) ~= nil
-	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false) ~= false end
-	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent) ~= false
+	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false, nil, options) ~= false end
+	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent, nil, options) ~= false
 end
 
 -- A word to every guild's reporter we hold (ours included: delivered here and handed to our
@@ -2091,8 +2105,13 @@ local function ChatSend(e)
 	end
 	-- (The check of the lane: a send that throws is that whisper lost, its place in flight given back.)
 	local ok = ns.SafeCall("relay chat send", function()
-		if #e.pieces == 1 then ns.Comm.Whisper(e.name, e.pieces[1], nil, true, false, done)
-		else ns.Comm.SendBatch("WHISPER", e.pieces, nil, e.name, true, done) end
+		local options = not e.across and Relay.FEDERATION_WORDS[e.body:sub(1, 2)] and { guard = function()
+			if not ns.SharedToolsActive() then return true end
+			local reporter = reporters[e.guild]
+			return reporter ~= nil and reporter.name == e.name and Relay.GuildWordAllowed(reporter.guild, e.body)
+		end } or nil
+		if #e.pieces == 1 then ns.Comm.Whisper(e.name, e.pieces[1], nil, true, false, done, options)
+		else ns.Comm.SendBatch("WHISPER", e.pieces, nil, e.name, true, done, options) end
 	end)
 	if not ok then done(false, "error") end
 end
@@ -2107,7 +2126,8 @@ local function ChatAddressee(e, now)
 		return e.name
 	end
 	local r = reporters[e.guild]
-	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now) then return nil end
+	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now)
+		or not Relay.GuildWordAllowed(r.guild, e.body) then return nil end
 	return r.name
 end
 -- (1.6.0) The whisper to send next and its queue: a sanction's (across first), else the first of the copies
@@ -2495,6 +2515,8 @@ local function ToReporters(flag, origin, body, sender, ahead)
 			reporters[g] = nil
 		elseif approvalGuild and g ~= approvalGuild then
 			-- The re-send is for the guild whose approval it carries.
+		elseif not Relay.GuildWordAllowed(r.guild, body) then
+			-- Shared words follow the signed guild policy. Census and verification remain separate.
 		elseif not Served(r, body, now) then
 			-- (1.5.4) A reporter the relay does not serve (no presentation from the deadline on, or
 			-- denied): nothing to him (counted, Stats().unserved).
@@ -2570,8 +2592,11 @@ local function ToReporters(flag, origin, body, sender, ahead)
 				local word = presence and "T1~o" or ListKind(body) or QueueWord(body)
 				local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " " .. word) or nil
 				local urgent = presence or approvalGuild ~= nil
-				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, urgent, false)
-				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, urgent) end
+				local options = Relay.FEDERATION_WORDS[body:sub(1, 2)] and { guard = function()
+					return not ns.SharedToolsActive() or (reporters[g] == r and Relay.GuildWordAllowed(r.guild, body))
+				end } or nil
+				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, urgent, false, nil, options)
+				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, urgent, nil, options) end
 			else
 				stats.trickled = (stats.trickled or 0) + 1
 			end

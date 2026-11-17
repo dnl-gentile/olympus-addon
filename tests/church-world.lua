@@ -202,6 +202,7 @@ function World:Client(name, opts)
 			assert(loadfile(ROOT .. "Olympus/ChurchCount.lua"))("Olympus", c)
 			assert(loadfile(ROOT .. "Olympus/ChurchFullness.lua"))("Olympus", c)
 			if not opts.release158 then assert(loadfile(ROOT .. "Olympus/RecruitRanking.lua"))("Olympus", c) end
+			assert(loadfile(ROOT .. "Olympus/ChurchConversions.lua"))("Olympus", c)
 			if opts.view then assert(loadfile(ROOT .. "Olympus/ChurchView.lua"))("Olympus", c) end
 		end)
 		c.Church.after = function(seconds, _, fn) w:Later(cl, seconds, fn) end

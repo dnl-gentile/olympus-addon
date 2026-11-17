@@ -175,7 +175,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Contributions", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -8949,6 +8949,7 @@ assert(loadfile(ROOT .. "tests/verify-relay.lua"))(ns, test, eq, RelayWorld, ADD
 assert(loadfile(ROOT .. "tests/verify-mesh.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
 -- 1.6.0: taking a guild's verified check away on every client (tests/verify-revoke.lua).
 assert(loadfile(ROOT .. "tests/verify-revoke.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
+assert(loadfile(ROOT .. "tests/federation-fugitives.lua"))(ns, test, eq)
 
 -- 1.5.0 (the dev's relay: 51 reporters, every guild's three-piece report to each, 2,700 pieces a
 -- minute against 200 sent). Fails before: every word to every reporter, no snapshot of the relay's.
@@ -43002,12 +43003,13 @@ do
 		WithDues(function(w, K, T, mail, trade)
 			WithWindows(function(g)
 				-- The events Dues.lua listens to, loaded again on its own: the game refusing the trade's
-				-- gold, plus F26-10's local inbox/trade reminder observations: no fill-in or popup.
+				-- gold, local inbox/trade observations, and removal of the daily Prime reminder
+				-- when the player leaves that guild. No event fills in a payment.
 				local alone = {}
 				LoadAlone(alone)
 				alone.on.LOGIN()
 				table.sort(alone.events)
-				eq(table.concat(alone.events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN,MAIL_INBOX_UPDATE,TRADE_SHOW")
+				eq(table.concat(alone.events, ","), "ADDON_ACTION_BLOCKED,ADDON_ACTION_FORBIDDEN,MAIL_INBOX_UPDATE,PLAYER_GUILD_UPDATE,TRADE_SHOW")
 				-- The mailbox and a trade with the Treasurer open, as a payer: the Treasury's own hooks fill nothing.
 				AsSoldier("Payer")
 				MailFrame:Show(); SendMailFrame:Show(); TradeFrame:Show(); trade.npc = "Pyralis Ashandar"
@@ -53022,7 +53024,7 @@ end -- (the pinned line's review)
 		local Cr = ns.Crafters
 		local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, dialog = ns.ShowDialog, now = ns.Now,
 			after = Cr.after, random = Cr.random, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me, guild = GetGuildInfo,
-			queue = ns.Comm.QueueSize, show = ns.Views.ShowPage, ui = ns.UI }
+			queue = ns.Comm.QueueSize, show = ns.Views.ShowPage, ui = ns.UI, program = ns.FederationProgram }
 		local w = { sent = {}, whispers = {}, printed = {}, later = {}, clock = 5000000 }
 		local ok, err = pcall(function()
 			Cr.Reset()
@@ -53047,9 +53049,97 @@ end -- (the pinned line's review)
 		ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.dialog, saved.now
 		Cr.after, Cr.random, ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.after, saved.random, saved.choice, saved.data, saved.me
 		GetGuildInfo, ns.Comm.QueueSize, ns.Views.ShowPage, ns.UI = saved.guild, saved.queue, saved.show, saved.ui
+		ns.FederationProgram = saved.program
 		Cr.Reset()
 		if not ok then error(err, 0) end
 	end
+
+	test("1.6.1 federation shared tools: a guild outside the active program cannot send, receive or read shared chat and crafting data", function()
+		WithCrafters(function(w, Cr)
+			local active, enrolled = false, false
+			ns.FederationProgram = {
+				Active = function() return active end,
+				LocalEnrollment = function() return enrolled and "Olympus II" or nil end,
+				IsEnrolled = function(guild) return enrolled and guild == "Olympus II" end,
+			}
+			local smith = "Sample Smith-Realm"
+			local listing = "W1~Olympus II~164:Blacksmithing:100:150:4"
+			Cr.HandleListing("CHANNEL", smith, listing)
+			eq(#Cr.Board(), 1, "the existing directory is still available before activation")
+			active = true
+			eq(#Cr.Board(), 0, "cached shared listings are invisible while the local guild is outside")
+			eq(Cr.AskList(smith, "164"), false)
+			Cr.Ask("item:100")
+			eq(#w.sent, 0)
+			eq(#w.whispers, 0)
+			eq(select(2, ns.Channels.Send("A", "hello")), "federation")
+			eq(select(2, ns.Channels.Receive("CHANNEL", smith, "unused")), "federation")
+			eq(#ns.Channels.History("A"), 0)
+			enrolled = true
+			eq(#Cr.Board(), 1, "the directory returns when the local guild enrolls")
+			local ask = Cr.Ask("item:100")
+			eq(ask.item, 100)
+			eq(#w.sent, 1)
+			Cr.HandleListing("CHANNEL", "Outside Smith-Realm", "W1~Olympus Outside~164:Blacksmithing:100:150:4")
+			eq(#Cr.Board(), 1, "the outside guild's listing is refused")
+		end)
+	end)
+
+
+	test("federation membership witness: the shared chat and Crafters replay after authorization and keep existing restrictions", function()
+		WithCrafters(function(w, Cr)
+			local chat, rank, fresh, claimed, bridge, membership = ns.db.addonChat, ns.Roster.RankOf, ns.Roster.Fresh,
+				ns.Data.ClaimedGuild, ns.RecordChat, ns.FederationMembership
+			local own, remote = "Olympus II", "Olympus Fir"
+			local smith, friend = "New Smith-Realm", "New Friend-Realm"
+			local allowed, pending, recorded = {}, {}, 0
+			local ok, err = pcall(function()
+				ns.FederationProgram = {
+					Active = function() return true end,
+					LocalEnrollment = function() return own end,
+					IsEnrolled = function(guild) return guild == own or guild == remote end,
+				}
+				ns.FederationMembership = {
+					Allowed = function(name, guild) return allowed[name] == remote and (guild == nil or guild == remote) end,
+					Request = function(name, guild, callback)
+						eq(guild, remote)
+						pending[name] = callback
+					end,
+				}
+				ns.db.addonChat = true
+				ns.Roster.Fresh = function() return ns.Roster end
+				ns.Roster.RankOf = function(name) return name == ns.me and 0 or nil end
+				ns.Data.ClaimedGuild = function() return nil end
+				ns.RecordChat = function(tier, author, text)
+					if tier == "A" and author == friend and text == "membership proof test" then recorded = recorded + 1 end
+				end
+				Cr.HandleListing("CHANNEL", smith, "W1~Olympus Fir~164:Blacksmithing:100:150:4")
+				eq(#Cr.Board(), 0)
+				eq(type(pending[smith]), "function")
+				allowed[smith] = remote
+				pending[smith]()
+				eq(Cr.Board()[1].name, smith, "the listing appears only after the exact-guild witness")
+				eq(Cr.AskList(smith, "164"), true)
+				eq(w.whispers[#w.whispers], smith .. " WR~164~" .. own)
+				local word = ns.Codec.EncodeChat("A", remote, 829, "", "membership proof test")
+				eq(select(2, ns.Channels.Receive("CHANNEL", friend, word)), "federation")
+				eq(recorded, 0)
+				eq(type(pending[friend]), "function")
+				allowed[friend] = remote
+				pending[friend]()
+				eq(recorded, 1, "the bridge sees the admitted line once")
+				local restricted = ns.Codec.EncodeChat("C", remote, 830, "", "ordinary member cannot use a restricted tier")
+				eq(ns.Channels.Receive("CHANNEL", friend, restricted), false, "native membership never grants officer authority")
+				local before = #w.sent
+				Cr.Ask("item:100")
+				eq(#w.sent, before + 1)
+				assert(w.sent[#w.sent]:match("~i~100~Olympus II$"), w.sent[#w.sent])
+			end)
+			ns.db.addonChat, ns.Roster.RankOf, ns.Roster.Fresh = chat, rank, fresh
+			ns.Data.ClaimedGuild, ns.RecordChat, ns.FederationMembership = claimed, bridge, membership
+			if not ok then error(err, 0) end
+		end)
+	end)
 
 	test("1.1 Konig's review (item 5): the crafters: a crafter the moderators took off (or his guild) is not listed, his answers and recipe lists are not taken, and his own client sends none", function()
 		WithCrafters(function(w, Cr)
@@ -64744,9 +64834,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.6.0.1") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.1") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.6.0.1", 1, true))
+		assert(toc:find("## Version: 1.6.1", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -64830,6 +64920,10 @@ test("hop sighting mixed versions: a client without LY ignores the new word", fu
 	if not ok then error(err, 0) end
 end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
+assert(loadfile(ROOT .. "tests/federation-program.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-membership.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-contributions.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-contributor-privacy.lua"))(ns, test, eq)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",
 		"church", "church-count", "church-alts", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
@@ -65194,7 +65288,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.6.0.1")
+		eq(ns.VERSION, "1.6.1")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)

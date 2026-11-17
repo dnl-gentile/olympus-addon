@@ -60,7 +60,7 @@ local guildAsm = Codec.NewAssembler() -- pieces over GUILD (1.0.0)...
 local outsiderAsm = Codec.NewAssembler()
 local whisperAsm = Codec.NewAssembler() -- private signed-authority answers (1.2)
 local GUILD_PIECES = { HS = true, HT = true, XB = true, WZ = true, WU = true }
-local WHISPER_PIECES = { H2 = true } -- ...and over WHISPER (1.4.3: the relay's RL and RM too, Comm.RelayPieces)
+local WHISPER_PIECES = { H2 = true, FZ = true } -- independently signed authority and fugitive answers
 -- 1.4.3: the relay (Relay.lua) names the kinds its pieces carry over GUILD and WHISPER.
 function Comm.RelayPieces(kinds)
 	for k in pairs(kinds or {}) do GUILD_PIECES[k], WHISPER_PIECES[k] = true, true end
@@ -497,7 +497,7 @@ end
 --   Inspect S1 U0 U1 | TabardsV2 U2 U3 U4 | King T1 T2 T3 | Court T4 T5 | Acts T6 T7 | Treasury T8 TB TE TQ TR TX
 --   Bank T9 | Vox Y1 Y3 | Loot X1 XQ XB | Crafters W0 W1 WA WL WQ WR
 --   Workshop HA HI HK HQ HR HS HT V1 V2 V3 V4 V5 V6 | Olympus Link (its own addon, Olympus_Link) DA DB DC DE DK DR DV DW
---   Authority H2 H3
+--   Authority H2 H3 | FederationMembership FM (direct roster witnesses)
 --   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   OfficerMuster OM (bounded, zone-only officer gathering, logged)
 --   Other 1.1 work: Recruit J1 J3 JD (guild-only decline hints) | RecruitHandoff J4 | GuildCharter recruiting help J5 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
@@ -537,6 +537,9 @@ end
 --   1.2, The Watch's judgments: Judgment MJ (a case to the King, the High Council's votes, his final
 --   word; logged whispers between an officer's or a councillor's client and the King's).
 --   1.1.6, the Missionary Church: Church NB NK | ChurchCount NV NS NL NR (whole messages, version 1).
+--   1.6.1, federation: fugitive signed-list sync FZ | verified invite handoff J6
+--   and native capacity J7 | Church conversion standings NY | contributions and display consent CP
+--   | private Prime interest CI. These use direct whispers and independent scope/authority checks.
 --   1.1.6, chat moderation: WatchChat MD (lines deleted, recent lines deleted, timeouts and their
 --   lifts, a guild master's Watchers, the Olympus moderators, a target's own word, appeals and their
 --   answers, a case's decision told to its player; logged, over GUILD or the channel).
@@ -2705,8 +2708,7 @@ local function OnAddonMessage(prefix, text, dist, sender, target, zoneChannelID,
 		return
 	end
 	if dist == "WHISPER" then
-		-- H2 is the only long private payload. It carries an independently signed authority part;
-		-- Authority.lua still checks the route, signature, complete-set digest and replay boundary.
+		-- Private assemblies still have to pass their own route, scope and signature checks.
 		local full = Codec.Feed(whisperAsm, sender, text, now)
 		local kind = full and full:sub(1, 2)
 		if kind and WHISPER_PIECES[kind] and full:sub(3, 3) == "~" and handlers[kind] then Dispatch(handlers[kind], dist, sender, full) end

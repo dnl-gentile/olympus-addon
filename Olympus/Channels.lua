@@ -437,6 +437,7 @@ end
 -- Our own rank always comes from the server.
 function Channels.MyLevel()
 	if not ns.IsMember() then return 0 end
+	if not ns.SharedToolsHere() then return 0 end
 	return Channels.LevelOf(GetGuildInfo("player"), ns.Roster.MyRank())
 end
 
@@ -1365,6 +1366,13 @@ end
 function Channels.History(tier, memo)
 	if not Channels.CanUse(tier) or not Channels.ChatOn() then return {} end
 	local list = Store(tier)
+	if ns.SharedToolsActive() then
+		local enrolled = {}
+		for _, e in ipairs(list) do
+			if ns.SharedGuildAllowed(e.guild) then enrolled[#enrolled + 1] = e end
+		end
+		list = enrolled
+	end
 	-- 1.1: lines kept before the moderators took their writer off leave the view too (net-off).
 	local M = ns.Moderation
 	if not (M.Any and M.Any()) then return list end
@@ -1399,6 +1407,10 @@ function Channels.Send(tier, text, now, keepMute, to)
 	if not ns.IsMember() then
 		ns.Print(ns.MembersOnlyText())
 		return false, "member"
+	end
+	if not ns.SharedToolsHere() then
+		ns.Print(L.FEDERATION_TOOLS_LOCKED)
+		return false, "federation"
 	end
 	if not Channels.CanUse(tier) then
 		ns.Print(L[t.deny]:format(Label(tier)))
@@ -1853,8 +1865,9 @@ local function File(sender, m)
 end
 
 -- Returns shown, reason.
-function Channels.Receive(dist, sender, text, now)
+function Channels.Receive(dist, sender, text, now, checked)
 	if dist ~= "CHANNEL" then return false, "dist" end
+	if not ns.SharedToolsHere() then return false, "federation" end
 	-- The chats off on this client (1.1): dropped before anything reads or keeps the line.
 	if not Channels.ChatOn() then
 		stats.off = (stats.off or 0) + 1
@@ -1870,6 +1883,14 @@ function Channels.Receive(dist, sender, text, now)
 	if not m or not ns.IsFederation(m.guild) then
 		stats.bad = stats.bad + 1
 		return false, "bad"
+	end
+	if not ns.SharedPeerAllowed(sender, m.guild) then
+		local membership, relay = ns.FederationMembership, ns.Relay
+		if not checked and membership and m.tier == "A" and not Ignored(sender)
+			and (not relay or not relay.HopTrusted or relay.HopTrusted()) then
+			membership.Request(sender, m.guild, function() Channels.Receive(dist, sender, text, nil, true) end)
+		end
+		return false, "federation"
 	end
 	local ok, reason = Channels.Admit(sender, m.guild, m.text, now, { tier = m.tier, id = m.id, chat = m.tier, line = m.id, evidence = true })
 	if not ok then
@@ -2760,6 +2781,8 @@ function Channels.CanWrite(tier, tell)
 	local why
 	if not ns.IsMember() then
 		why = ns.MembersOnlyText()
+	elseif not ns.SharedToolsHere() then
+		why = L.FEDERATION_TOOLS_LOCKED
 	elseif not Channels.CanUse(tier) then
 		why = L[t.deny]:format(Label(tier))
 	elseif not Channels.ChatOn() then

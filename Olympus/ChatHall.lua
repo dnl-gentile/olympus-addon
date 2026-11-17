@@ -31,6 +31,7 @@ function Hall.Taking() return taking, taking and takingGuid or nil end
 
 function Hall.On() -- gp:chat-box
 	if not ns.Gate.Allowed("chat-box") then return false end
+	if ns.SharedToolsActive() then return false end
 	if ns.splitNames ~= true or not ns.Comm or type(ns.Comm.ChannelIndex) ~= "function" then return false end
 	-- (1.5.9) Not for a client holding a realm key on Forever: every client sits on the public first lane
 	-- there (Comm.ChannelSpec), and a sealed guild's lines never show as text in it. They go the hidden
@@ -73,6 +74,7 @@ end
 
 -- (1.5.9) guid: CHAT_MSG_CHANNEL's twelfth value, the sender's GUID ("Player-<server id>-<hex>").
 function Hall.OnChannel(text, sender, _, _, _, _, _, _, baseName, _, _, guid)
+	if ns.SharedToolsActive() then return false end
 	-- (1.5.5) In a chat lockdown the line, its sender and the channel's name may be secret: none is
 	-- read (ChatHall.lua:72 on 1.5.3 and :60 on 1.5.4 in the players' /oly bug).
 	if ns.Secret("chat hall", text, sender, baseName) then return false end

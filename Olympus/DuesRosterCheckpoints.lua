@@ -16,7 +16,7 @@ local function Name(s)
 	return type(n) == "string" and #n <= 96 and ns.RealmOf(n) and n or nil
 end
 local function Same(a, b) return Name(a) and Name(b) and Name(a):lower() == Name(b):lower() end
-local function Guild(s) return type(s) == "string" and #s <= 72 and s ~= "" and not s:find("[~|^;%c]") and ns.IsFederation(s) end
+local function Guild(s) return type(s) == "string" and #s <= 72 and s ~= "" and not s:find("[~|^;%c]") and ns.IsFederation(s) and D.MandatoryGuild(s) end
 local function Digest(s) return E.ToHex(ns.Sign.SHA256(s)) end
 local function Raw(s, n)
 	local ok, v = pcall(E.FromB64, s or "")

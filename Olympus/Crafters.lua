@@ -22,6 +22,7 @@ local L = ns.L
 --   WR~<key>                                         "which recipes do you have?" (WHISPER)
 --   WL~<key>~<part>/<parts>~<recipe>:<item>,...      his recipes of that profession (WHISPER, a
 --                                                   part each LIST_PACE); WL~<key>~0/0~: he is busy
+-- A signed federation rollout adds the exact asking guild after the WQ or WR fields.
 -- Ids travel as numbers; each client names them itself (the item's name in its own language).
 -- Versions before 1.1 have no handler for these and drop them.
 -- A crafter the moderators took off (net-off, Moderation.lua; 1.1, Konig's review): his listing,
@@ -299,8 +300,32 @@ function Crafters.Opened(craft)
 	Changed()
 end
 
+local sharedSend = { guard = function() return ns.SharedToolsHere() end }
+
+local function PeerPacket(handler, dist, sender, text, guild, checked)
+	if ns.SharedPeerAllowed(sender, guild) then return true end
+	local membership, relay = ns.FederationMembership, ns.Relay
+	if not checked and membership and type(guild) == "string" and not Off(sender, guild)
+		and (not relay or not relay.HopTrusted or relay.HopTrusted()) then
+		membership.Request(ns.FullName(sender), guild, function() handler(dist, sender, text, true) end)
+	end
+	return false
+end
+
+local function RequestGuild(word)
+	if not ns.SharedToolsActive() then return word end
+	local own = GetGuildInfo("player")
+	if type(own) ~= "string" or ns.IsSecret(own) then return nil end
+	return word .. "~" .. Clean(own, 72)
+end
+
+local function PeerSend(name, guild)
+	return { guard = function() return ns.SharedPeerAllowed(name, guild) end }
+end
+
 -- The player's answer for one profession (the dialog), or every one (/oly crafter on|off).
 function Crafters.Choose(key, yes)
+	if yes and not ns.SharedToolsHere() then return ns.Print(L.FEDERATION_TOOLS_LOCKED) end
 	local choices = Crafters.Choices()
 	local was = #Crafters.Listed()
 	if key then
@@ -320,7 +345,9 @@ function Crafters.Choose(key, yes)
 		-- Unlisted: the board forgets us at once (1.1 clients), or shows what is still listed.
 		if now == 0 then
 			lastListing, lastListingText, lastListingKeys = -math.huge, nil, nil
-			if not Crafters.Quiet() then ns.Comm.Send("CHANNEL", "W0~", "crafterlist") end
+			if ns.SharedToolsHere() and not Crafters.Quiet() then
+				ns.Comm.Send("CHANNEL", "W0~", "crafterlist", nil, nil, nil, sharedSend)
+			end
 		else
 			Crafters.SendListing(true)
 		end
@@ -352,7 +379,7 @@ local loginWait = false -- after login, our first listing waits for its own draw
 function Crafters.SendListing(force)
 	-- (1.1, Konig's review: while the moderators have us off, nothing: the next tick sends it once
 	-- we are back on. 1.2.5.1, quiet presence: the same, Crafters.Quiet.)
-	if not ns.IsMember() or SelfOff() then return false end
+	if not ns.IsMember() or not ns.SharedToolsHere() or SelfOff() then return false end
 	if Crafters.Quiet() then changedWaiting = true return false end
 	local listed = Crafters.Listed()
 	if #listed == 0 then return false end
@@ -374,7 +401,7 @@ function Crafters.SendListing(force)
 		end
 	end
 	lastListing, lastListingText, lastListingKeys, changedWaiting = now, text, keyText, false
-	ns.Comm.Send("CHANNEL", text, "crafterlist")
+	ns.Comm.Send("CHANNEL", text, "crafterlist", nil, nil, nil, sharedSend)
 	return true
 end
 
@@ -382,8 +409,9 @@ end
 -- The board: everyone's listings (this session, from the channel)
 ---------------------------------------------------------------------------
 
-function Crafters.HandleListing(dist, sender, text)
+function Crafters.HandleListing(dist, sender, text, checked)
 	if dist ~= "CHANNEL" or type(text) ~= "string" or #text > 255 then return end
+	if not ns.SharedToolsHere() then return end
 	sender = ns.FullName(sender)
 	Held()
 	if text == "W0~" then
@@ -403,7 +431,6 @@ function Crafters.HandleListing(dist, sender, text)
 		end
 		return
 	end
-	if not ns.Data.ClaimGuild(sender, guild) then return end
 	local profs = {}
 	for entry in list:gmatch("[^,]+") do
 		local key, name, rank, max, n = entry:match("^([^:]+):([^:]+):(%d+):(%d+):(%d+)$")
@@ -412,7 +439,8 @@ function Crafters.HandleListing(dist, sender, text)
 			profs[#profs + 1] = { key = key, name = name, rank = rank, max = max, n = n }
 		end
 	end
-	if #profs == 0 then return end
+	if #profs == 0 or not PeerPacket(Crafters.HandleListing, dist, sender, text, guild, checked) then return end
+	if not ns.Data.ClaimGuild(sender, guild) then return end
 	if not board[sender] then
 		if boardCount >= Crafters.BOARD_MAX then
 			-- (The one heard longest ago goes.)
@@ -443,10 +471,11 @@ end
 -- crafter the moderators took off since (1.1, Konig's review): back on, his next listing shows.
 -- (Built and sorted for its page, while that shows: Crafters.Lines, the Realm's professions.)
 function Crafters.Board()
+	if not ns.SharedToolsHere() then return {} end
 	Crafters.Prune()
 	local out = {}
 	for name, e in pairs(board) do
-		if not Off(name, e.guild) then
+		if ns.SharedGuildAllowed(e.guild) and not Off(name, e.guild) then
 			out[#out + 1] = { name = name, guild = e.guild, profs = e.profs, t = e.t }
 		end
 	end
@@ -469,6 +498,7 @@ end
 -- An ask: an item link (or "item:<id>") or words (3 to 40 bytes). On a click or /oly craft.
 function Crafters.Ask(what)
 	if not ns.IsMember() then return ns.Print(ns.MembersOnlyText()) end
+	if not ns.SharedToolsHere() then return ns.Print(L.FEDERATION_TOOLS_LOCKED) end
 	what = tostring(what or "")
 	local id = tonumber(what:match("|Hitem:(%d+)") or what:match("^%s*item:(%d+)"))
 	local words = not id and Clean(what, 40) or nil
@@ -480,13 +510,14 @@ function Crafters.Ask(what)
 	askCounter = askCounter + 1
 	local askId = ns.Codec.Base36(askCounter % 1296)
 	myAsk = { id = askId, t = now, item = id, label = id and ItemName(id) or words, answers = {}, count = 0 }
-	ns.Comm.Send("CHANNEL", id and ("WQ~%s~i~%d"):format(askId, id) or ("WQ~%s~t~%s"):format(askId, ns.Fold(words)), "crafterask", true)
+	local ask = RequestGuild(id and ("WQ~%s~i~%d"):format(askId, id) or ("WQ~%s~t~%s"):format(askId, ns.Fold(words)))
+	if ask then ns.Comm.Send("CHANNEL", ask, "crafterask", true, nil, nil, sharedSend) end
 	ns.Print(L.CRAFTER_ASKED:format(myAsk.label))
 	ns.UI.SelectTab("crafters")
 	Changed()
 	return myAsk
 end
-function Crafters.MyAsk() return myAsk end
+function Crafters.MyAsk() return ns.SharedToolsHere() and myAsk or nil end
 
 -- Our recipes that answer an ask: an item's id, or words in the recipe's name (ours: our language).
 local function Matches(kind, what)
@@ -509,9 +540,14 @@ end
 
 -- Someone's ask on the channel: answered by whisper, 1 to 8 seconds later, when a profession we
 -- listed has a recipe for it (our budget of answers allowing).
-function Crafters.HandleAsk(dist, sender, text)
+function Crafters.HandleAsk(dist, sender, text, checked)
 	if dist ~= "CHANNEL" or not ns.IsMember() or #Crafters.Listed() == 0 or SelfOff() or Crafters.Quiet() then return end
-	local askId, kind, what = text:match("^WQ~([0-9a-z][0-9a-z]?)~([it])~(.+)$")
+	local askId, kind, what, guild = text:match("^WQ~([0-9a-z][0-9a-z]?)~([it])~([^~]+)~([^~]+)$")
+	if guild then
+		if not ns.SharedToolsActive() or not ns.IsFederation(guild) then return end
+	else
+		askId, kind, what = text:match("^WQ~([0-9a-z][0-9a-z]?)~([it])~([^~]+)$")
+	end
 	if not askId then return end
 	if kind == "i" then
 		what = Num(what, 999999999)
@@ -520,6 +556,7 @@ function Crafters.HandleAsk(dist, sender, text)
 	end
 	if not what then return end
 	sender = ns.FullName(sender)
+	if not PeerPacket(Crafters.HandleAsk, dist, sender, text, guild or ns.Data.ClaimedGuild(sender), checked) then return end
 	local now = ns.Now()
 	if now - (answered[sender] or -math.huge) < Crafters.ANSWER_SAME then return end
 	if Recent(answerTimes, 60) >= Crafters.ANSWER_PER_MIN then return end
@@ -531,7 +568,8 @@ function Crafters.HandleAsk(dist, sender, text)
 	for _, r in ipairs(best.found) do entries[#entries + 1] = ("%d:%d"):format(r.r or 0, r.i or 0) end
 	local msg = ("WA~%s~%s~%s~%d~%s"):format(askId, Clean(GetGuildInfo("player"), 72), best.p.name, best.p.rank or 0, table.concat(entries, ","))
 	Crafters.after(1 + Crafters.random() * 7, "crafter answer", function()
-		ns.Comm.Whisper(sender, ns.Cut(msg, 250), "crafteranswer " .. sender)
+		if not ns.SharedPeerAllowed(sender, guild) then return end
+		ns.Comm.Whisper(sender, ns.Cut(msg, 250), "crafteranswer " .. sender, nil, nil, nil, PeerSend(sender, guild))
 	end)
 end
 ns.Comm.Handle("WQ", function(...) Crafters.HandleAsk(...) end)
@@ -547,10 +585,11 @@ local function Recipes(list, max)
 end
 
 -- A crafter's answer to our last ask (a whisper, within ASK_WAIT).
-function Crafters.HandleAnswer(dist, sender, text)
+function Crafters.HandleAnswer(dist, sender, text, checked)
 	if dist ~= "WHISPER" or not myAsk or ns.Now() - myAsk.t > Crafters.ASK_WAIT then return end
 	local askId, guild, prof, rank, list = text:match("^WA~([0-9a-z]+)~([^~]+)~([^~]+)~(%d+)~([^~]*)$")
 	if askId ~= myAsk.id or not ns.IsFederation(guild) or #prof > 24 or not Num(rank, 9999) then return end
+	if not PeerPacket(Crafters.HandleAnswer, dist, sender, text, guild, checked) then return end
 	sender = ns.FullName(sender)
 	if Off(sender, guild) then return end -- (1.1, Konig's review: net-off)
 	if myAsk.answers[sender] then return end
@@ -567,13 +606,21 @@ ns.Comm.Handle("WA", function(...) Crafters.HandleAnswer(...) end)
 -- A crafter's recipes, on a click
 ---------------------------------------------------------------------------
 
-function Crafters.AskList(crafter, key)
+function Crafters.AskList(crafter, key, checked)
+	local guild = board[crafter] and board[crafter].guild
+	if not ns.SharedPeerAllowed(crafter, guild) then
+		local membership = ns.FederationMembership
+		return not checked and membership and guild
+			and membership.Request(crafter, guild, function() Crafters.AskList(crafter, key, true) end) or false
+	end
+	local word = RequestGuild("WR~" .. key)
+	if not word then return false end
 	local k = crafter .. "~" .. key
 	local now = ns.Now()
 	if now - (asked[k] or -math.huge) < Crafters.LIST_SAME then return false end
 	asked[k] = now
 	lists[k] = { parts = {}, t = now }
-	ns.Comm.Whisper(crafter, "WR~" .. key, "crafterlistask " .. k)
+	ns.Comm.Whisper(crafter, word, "crafterlistask " .. k, nil, nil, nil, PeerSend(crafter, guild))
 	Changed()
 	return true
 end
@@ -587,12 +634,15 @@ local function PumpLists()
 		listPumping = false
 		return
 	end
-	if ns.Comm.QueueSize and ns.Comm.QueueSize() > Crafters.LIST_QUEUE then
+	if not ns.SharedPeerAllowed(job.to, job.guild) then
+		table.remove(listJobs, 1)
+	elseif ns.Comm.QueueSize and ns.Comm.QueueSize() > Crafters.LIST_QUEUE then
 		job.stalls = job.stalls + 1
 		if job.stalls * Crafters.LIST_PACE >= 60 then table.remove(listJobs, 1) end
 	else
 		job.i = job.i + 1
-		ns.Comm.Whisper(job.to, ("WL~%s~%d/%d~%s"):format(job.key, job.i, #job.parts, table.concat(job.parts[job.i], ",")), "crafterlist " .. job.to .. job.i)
+		ns.Comm.Whisper(job.to, ("WL~%s~%d/%d~%s"):format(job.key, job.i, #job.parts, table.concat(job.parts[job.i], ",")),
+			"crafterlist " .. job.to .. job.i, nil, nil, nil, PeerSend(job.to, job.guild))
 		if job.i >= #job.parts then table.remove(listJobs, 1) end
 	end
 	if not listJobs[1] then
@@ -602,19 +652,25 @@ local function PumpLists()
 	Crafters.after(Crafters.LIST_PACE, "crafter list", PumpLists)
 end
 
-function Crafters.HandleListAsk(dist, sender, text)
+function Crafters.HandleListAsk(dist, sender, text, checked)
 	if dist ~= "WHISPER" or not ns.IsMember() or SelfOff() or Crafters.Quiet() then return end
-	local key = text:match("^WR~([^~]+)$")
+	local key, guild = text:match("^WR~([^~]+)~([^~]+)$")
+	if guild then
+		if not ns.SharedToolsActive() or not ns.IsFederation(guild) then return end
+	else
+		key = text:match("^WR~([^~]+)$")
+	end
 	local p = key and Crafters.Mine()[key]
 	if not p or Crafters.Choices()[key] ~= true then return end
 	sender = ns.FullName(sender)
+	if not PeerPacket(Crafters.HandleListAsk, dist, sender, text, guild or ns.Data.ClaimedGuild(sender), checked) then return end
 	local now = ns.Now()
 	if now - (listSent[sender] or -math.huge) < Crafters.LIST_SAME or Recent(listTimes, 60) >= Crafters.LISTS_PER_MIN then return end
 	if #listJobs >= Crafters.LIST_JOBS then
 		-- Busy with other players' lists: he is told so (and may ask again in a minute).
 		if Recent(busyTimes, 60) < Crafters.BUSY_PER_MIN then
 			busyTimes[#busyTimes + 1] = now
-			ns.Comm.Whisper(sender, ("WL~%s~0/0~"):format(key), "crafterbusy " .. sender)
+			ns.Comm.Whisper(sender, ("WL~%s~0/0~"):format(key), "crafterbusy " .. sender, nil, nil, nil, PeerSend(sender, guild))
 		end
 		return
 	end
@@ -633,7 +689,7 @@ function Crafters.HandleListAsk(dist, sender, text)
 	end
 	if #cur > 0 and #parts < Crafters.LIST_PARTS then parts[#parts + 1] = cur end
 	if #parts == 0 then return end
-	listJobs[#listJobs + 1] = { to = sender, key = key, parts = parts, i = 0, stalls = 0 }
+	listJobs[#listJobs + 1] = { to = sender, guild = guild, key = key, parts = parts, i = 0, stalls = 0 }
 	if not listPumping then
 		listPumping = true
 		PumpLists()
@@ -641,7 +697,7 @@ function Crafters.HandleListAsk(dist, sender, text)
 end
 ns.Comm.Handle("WR", function(...) Crafters.HandleListAsk(...) end)
 
-function Crafters.HandleList(dist, sender, text)
+function Crafters.HandleList(dist, sender, text, checked)
 	if dist ~= "WHISPER" then return end
 	local key, part, parts, list = text:match("^WL~([^~]+)~(%d+)/(%d+)~([^~]*)$")
 	sender = ns.FullName(sender)
@@ -651,6 +707,7 @@ function Crafters.HandleList(dist, sender, text)
 	local now = ns.Now()
 	-- (Paced: a part each LIST_PACE; taken while they keep coming, ASK_WAIT after the last.)
 	if not l or not part or not parts or now - (l.last or l.t) > Crafters.ASK_WAIT then return end
+	if not PeerPacket(Crafters.HandleList, dist, sender, text, board[sender] and board[sender].guild, checked) then return end
 	if part == 0 and parts == 0 and not l.n then
 		-- He is busy sending other players' lists: asked again, on a click, BUSY_WAIT later.
 		l.busy = now
@@ -666,6 +723,7 @@ ns.Comm.Handle("WL", function(...) Crafters.HandleList(...) end)
 
 -- The recipes a crafter sent of a profession, as far as they came: { { r, i } }, or nil.
 function Crafters.ListOf(crafter, key)
+	if not ns.SharedPeerAllowed(crafter, board[crafter] and board[crafter].guild) then return nil end
 	local l = lists[crafter .. "~" .. key]
 	if not l then return nil end
 	local out = {}
@@ -726,6 +784,7 @@ end
 
 -- The tab's lines; `q`, its search: crafters whose name, guild or profession holds it.
 function Crafters.Lines(q)
+	if not ns.SharedToolsHere() then return { { text = L.FEDERATION_TOOLS_LOCKED, wrap = true } } end
 	local lines = {}
 	local requests = ns.CraftRequests
 	-- 1.2: the request board first (its own ask line on top), so a crafter sees work he can do
@@ -771,7 +830,7 @@ function Crafters.Lines(q)
 		if a then
 			local answers = {}
 			for name, e in pairs(a.answers) do
-				if not Off(name, e.guild) then answers[#answers + 1] = { name = name, e = e } end -- (1.1: net-off)
+				if ns.SharedGuildAllowed(e.guild) and not Off(name, e.guild) then answers[#answers + 1] = { name = name, e = e } end
 			end
 			table.sort(answers, function(x, y)
 				if x.e.rank ~= y.e.rank then return x.e.rank > y.e.rank end

@@ -30,6 +30,7 @@
                                   # the realm group the lists are for, kept in the council file ("realm")
   python3 scripts/council-sign.py check [CouncilList.lua]                 # (or --check) read back what was signed
   python3 scripts/council-sign.py seal "RS1~..."                         # reviewed monthly Records request; prints its signed seal
+  python3 scripts/council-sign.py conversion-review <candidate.txt>     # one reviewed Church handoff; prints its signed receipt
 
 The private key never leaves ~/.olympus. The addon carries only the public key (Sign.lua) and
 checks the signature: RSA-2048, e = 3, PKCS#1 v1.5 over SHA-256. CouncilList.lua holds the lists:
@@ -194,6 +195,7 @@ MAX_NAMES, MAX_NAME, MAX_BLOB = 30, 48, 2000 # what the addon takes (Workshop.Ta
 MAX_TITLE, MAX_DEPT, MAX_DEPTS, MAX_TITLES_BLOB = 48, 40, 8, 3000 # and of the titles (Workshop.TakeTitles)
 MAX_STEWARDS, MAX_REALM, FACTIONS = 3, 40, ("Alliance", "Horde") # the King's Steward (Core.lua: ns.ReadStewards)
 MAX_GUILDS, MAX_GUILD_CHARS, MAX_GUILD_BYTES = 20, 24, 72 # the approved guilds (Core.lua: ns.ReadApprovedGuilds)
+MAX_PROGRAM_GUILDS, MAX_PROGRAM_LIFETIME = 20, 31 * 86400 # FederationProgram.lua
 MAX_ARBITERS = 5 # the arena's signed arbiters per faction (Core.lua: ns.ReadArbiters, 1.2)
 MAX_APOSTLES = 12 # the Church's Twelve Apostles per faction (Church.lua: Church.ReadApostles, 1.1.6)
 # The launch identities (1.3.4, Core.lua: ns.ReadPins, ns.PINS_MAX, ns.REALM_KINDS, ns.REALM_REGIONS, ns.REALMS_MAX).
@@ -314,6 +316,43 @@ def seal(request):
     fits(request, 900, "records seal")
     with open(KEY) as f: key = json.load(f)
     return request + "~" + signature(request, key)
+
+def conversion_review(path):
+    """Sign one manually reviewed handoff without rewriting council lists or outputs."""
+    with open(path, encoding="utf-8") as candidate_file:
+        request = candidate_file.read(1201).strip()
+    parts = request.split("~")
+    if len(parts) != 13 or parts[0] != "OCJ1" or len(request.encode()) > 650:
+        sys.exit("expected one complete Church handoff candidate")
+    _, group, faction, region, source_guild, guild, recruit, source, inviter, tx, accepted, invited, joined = parts
+    check([], group)
+    if faction not in FACTIONS or re.fullmatch(r"-|[A-Z]{2}", region) is None:
+        sys.exit("wrong candidate faction or region")
+    for name in (recruit, source, inviter):
+        pin_name(name, "Church handoff character", group)
+        realm = name.rsplit("-", 1)[-1]
+        found = re.fullmatch(r"CAMWOW([A-Z]{2})[0-9]+Realm[0-9]+[A-Za-z]+", realm)
+        if (found.group(1) if found else "-") != region:
+            sys.exit("candidate includes a character from another region")
+    if len({name.lower() for name in (recruit, source, inviter)}) != 3:
+        sys.exit("expected three different characters")
+    for name in (source_guild, guild):
+        if not plain(name) or len(name.encode()) > 72:
+            sys.exit("invalid candidate guild")
+    if len(tx) > 40 or not re.fullmatch(r"[0-9]+-[0-9a-fA-F]+-[0-9]+", tx):
+        sys.exit("invalid handoff transaction")
+    if any(not re.fullmatch(r"[0-9]{1,10}", v) for v in (accepted, invited, joined)):
+        sys.exit("invalid handoff time")
+    accepted, invited, joined = map(int, (accepted, invited, joined))
+    reviewed = int(time.time())
+    if not (0 < invited <= joined <= reviewed and 0 < accepted <= reviewed
+            and reviewed - accepted <= 14 * 86400 and invited - 12 * 3600 <= accepted < invited + 3600
+            and invited % 3600 == 0 and joined % 3600 == 0):
+        sys.exit("candidate is expired, unpaired or dated in the future")
+    text = f"OCV1~{reviewed}~{request}"
+    fits(text, 1200, "Church handoff receipt")
+    with open(KEY) as f: key = json.load(f)
+    return text + "~" + signature(text, key)
 
 # The council file (see the top): every field checked as the addon reads it, before anything is
 # signed. Returns the realm group, public, the councillors outside any department and the
@@ -695,7 +734,7 @@ def group_conflicts(data, realm):
 
 def read_council(data):
     fields(data, "the council", ("realm", "public", "departments", "members", "stewards", "guilds", "arbiters", "apostles", "leadership",
-        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor"))
+        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program", "contributions", "contributionMilestones"))
     realm = data.get("realm", REALM)
     if not isinstance(realm, str): sys.exit("not a realm group the addon takes: %r" % (realm,))
     group_conflicts(data, realm)
@@ -726,6 +765,104 @@ def load_council(path):
         with open(path, encoding="utf-8") as f: data = json.load(f)
     except (OSError, ValueError) as e: sys.exit("cannot read the council file %s: %s" % (path, e))
     return data
+
+# The signer's attestation that the named native owner is an approved caretaker, the
+# other named character is the official GM, and the Council's manual checks are done.
+def program_entries(v, realm):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("program is a list of faction and region policies")
+    entries, scopes = [], set()
+    for policy in v:
+        fields(policy, "a guild program policy", ("faction", "region", "mode", "issued", "expires", "guilds"))
+        faction = faction_of(policy.get("faction"), "a guild program policy")
+        region = policy.get("region")
+        if not realm or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}" if realm.startswith("Forever") else "-", region):
+            sys.exit("program needs an explicit realm group and its region (two uppercase letters on Forever, '-' elsewhere)")
+        if (faction, region) in scopes: sys.exit("a guild program scope twice")
+        scopes.add((faction, region))
+        mode = policy.get("mode")
+        issued, expires = policy.get("issued"), policy.get("expires")
+        if mode not in ("enforce", "off"): sys.exit("program mode is enforce or off")
+        if type(issued) is not int or type(expires) is not int or issued < 1577836800 or not 0 < expires - issued <= MAX_PROGRAM_LIFETIME:
+            sys.exit("program needs valid issued and expires Unix times no more than 31 days apart")
+        guilds = policy.get("guilds")
+        if not isinstance(guilds, list) or len(guilds) > MAX_PROGRAM_GUILDS or (mode == "off" and guilds):
+            sys.exit("program needs a bounded guild list (empty in off mode)")
+        rows, names, people_set = [], set(), set()
+        for row in guilds:
+            fields(row, "a guild program enrollment", ("guild", "caretaker", "official", "officialRankIndex", "primary"))
+            guild = guild_name(row.get("guild"))
+            if guild.casefold() in names: sys.exit("a guild program guild twice")
+            names.add(guild.casefold())
+            caretaker = pin_name(row.get("caretaker"), "program caretaker", realm)
+            official = pin_name(row.get("official"), "program official GM", realm)
+            for name in (caretaker, official):
+                home = name.partition("-")[2]
+                if region != "-" and not home.startswith("CAMWOW" + region):
+                    sys.exit("a guild program identity is outside the policy's region")
+                if name.casefold() in people_set: sys.exit("a guild program identity twice")
+                people_set.add(name.casefold())
+            rank = row.get("officialRankIndex", 1)
+            if type(rank) is not int or rank != 1: sys.exit("program officialRankIndex must be native index 1 (the second slot)")
+            primary = row.get("primary", False)
+            if type(primary) is not bool: sys.exit("program primary must be true or false")
+            rows.append("%s=%s,%s,1%s" % (guild, caretaker, official, "p" if primary else ""))
+        entries.append("^program^%s^%s^%s^%d^%d^%s" % (faction, region, mode, issued, expires, "!".join(sorted(rows)) or "-"))
+    return sorted(entries)
+
+# A separate decision switches the enrolled guilds to voluntary contributions.
+def contribution_entries(v, realm):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("contributions is a list of faction and region policies")
+    entries, scopes = [], set()
+    for policy in v:
+        fields(policy, "a contributions policy", ("faction", "region", "mode", "issued", "expires"))
+        faction = faction_of(policy.get("faction"), "a contributions policy")
+        region = policy.get("region")
+        if not realm or not realm.startswith("Forever") or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}", region):
+            sys.exit("contributions needs an explicit Forever realm group and region")
+        if (faction, region) in scopes: sys.exit("a contributions scope twice")
+        scopes.add((faction, region))
+        mode = policy.get("mode")
+        issued, expires = policy.get("issued"), policy.get("expires")
+        if mode not in ("enforce", "off"): sys.exit("contributions mode is enforce or off")
+        if type(issued) is not int or type(expires) is not int or issued < 1577836800 or not 0 < expires - issued <= MAX_PROGRAM_LIFETIME:
+            sys.exit("contributions needs valid issued and expires Unix times no more than 31 days apart")
+        entries.append("^contributions^%s^%s^%s^%d^%d^-" % (faction, region, mode, issued, expires))
+    return sorted(entries)
+
+def contribution_milestone_entries(v, realm, treasurers):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("contributionMilestones is a list")
+    entries, scopes = [], set()
+    for scope in v:
+        fields(scope, "contribution milestones", ("faction", "region", "issuer", "milestones"))
+        faction = faction_of(scope.get("faction"), "contribution milestones")
+        region = scope.get("region")
+        if not realm.startswith("Forever") or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}", region):
+            sys.exit("contribution milestones need an explicit Forever realm group and region")
+        if (faction, region) in scopes: sys.exit("a contribution milestone scope twice")
+        scopes.add((faction, region))
+        issuer = pin_name(scope.get("issuer"), "contribution milestone Treasurer", realm)
+        current = treasurers.get(faction)
+        if not current or current[0] != issuer or not issuer.partition("-")[2].startswith("CAMWOW" + region):
+            sys.exit("contribution milestone issuer must match the signed regional Federal Treasurer")
+        milestones = scope.get("milestones")
+        if not isinstance(milestones, list) or not 1 <= len(milestones) <= 4: sys.exit("contribution milestones needs one to four entries")
+        rows = []
+        for row in milestones:
+            fields(row, "a contribution milestone", ("title", "description"))
+            parts = []
+            for name, limit in (("title", 40), ("description", 120)):
+                value = row.get(name)
+                if not isinstance(value, str): sys.exit("a contribution milestone %s must be text" % name)
+                value = value.strip()
+                if not value or len(value.encode()) > limit or not plain(value, "^!;="):
+                    sys.exit("not a contribution milestone %s the addon takes" % name)
+                parts.append(value)
+            rows.append("=".join(parts))
+        entries.append("^contributionmilestones^%s^%s^%s^%s" % (faction, region, issuer, "!".join(rows)))
+    return sorted(entries)
 
 # Both lists from the council file: the names (HS1) and, one second newer, the titles (HT1).
 def sign_council(path):
@@ -767,6 +904,7 @@ def sign_council_data(data):
     realm, public, loose, depts, stewards, guilds, arbiters, leaders_epoch, leaders_factions, leaders, leaders_issued, leaders_expires, apostles, pins = read_council(data)
     names = [m[0] for m in loose] + [m[0] for d in depts for m in d[2]]
     check(names, realm)
+    program = program_entries(data.get("program"), realm)
     with open(KEY) as f: key = json.load(f)
     at = next_at(key)
     names_text = "HS1~%d~%s~%s" % (at, realm, ",".join(names))
@@ -791,6 +929,9 @@ def sign_council_data(data):
     # (1.5.5) The Quaestors of each side, after the Speedrunner.
     entries += ["^quaestor^%s^%s" % (faction, ",".join(pins["quaestor"][faction])) for faction in FACTIONS if pins.get("quaestor", {}).get(faction)]
     entries += ["^realms^%s^%s" % (region, ",".join("%s=%s" % r for r in pins["realms"][region])) for region in REGIONS if pins["realms"].get(region)]
+    entries += program
+    entries += contribution_entries(data.get("contributions"), realm)
+    entries += contribution_milestone_entries(data.get("contributionMilestones"), realm, pins["treasurer"])
     titles_text = "HT1~%d~%s~%d~%s" % (at + 1, realm, 1 if public else 0, ";".join(entries))
     fits(names_text, MAX_BLOB, "the name list")
     fits(titles_text, MAX_TITLES_BLOB, "the titles list")
@@ -1278,6 +1419,8 @@ if __name__ == "__main__":
         print(OUT, "written:", text)
     elif len(sys.argv) == 3 and sys.argv[1] == "seal":
         print(seal(sys.argv[2]))
+    elif len(sys.argv) == 3 and sys.argv[1] == "conversion-review":
+        print(conversion_review(sys.argv[2]))
     elif len(sys.argv) in (2, 3) and sys.argv[1] == "council":
         path = sys.argv[2] if len(sys.argv) == 3 else COUNCIL
         data = load_council(path)

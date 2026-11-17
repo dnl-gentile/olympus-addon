@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.6.0.1"
+ns.VERSION = "1.6.1"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -2298,6 +2298,46 @@ end
 function ns.IsMember()
 	return ns.AccordAccepted() and ns.InOlympusGuild()
 end
+
+-- Participation in the shared tools has its own signed policy. Membership and
+-- personal privacy consent still apply to their existing flows.
+function ns.SharedToolsActive()
+	local program = ns.FederationProgram
+	return program ~= nil and program.Active() == true
+end
+
+function ns.SharedToolsHere()
+	if not ns.SharedToolsActive() then return true end
+	return ns.FederationProgram.LocalEnrollment() and true or false
+end
+
+function ns.SharedGuildAllowed(guild)
+	if not ns.SharedToolsActive() then return true end
+	return ns.FederationProgram.IsEnrolled(guild) == true
+end
+
+-- A chat/listing claim alone does not establish a sender's membership in an
+-- enrolled guild. Confirm it in our native roster or the authenticated guild
+-- leadership evidence already used by recruiting handoffs, or in a short-lived
+-- native-roster witness from the other guild's exact signed caretaker.
+function ns.SharedPeerAllowed(sender, guild)
+	if not ns.SharedToolsActive() then return true end
+	if not ns.SharedToolsHere() or ns.IsSecret(sender, guild) or type(sender) ~= "string" or sender == "" then return false end
+	local who, own = ns.FullName(sender), GetGuildInfo("player")
+	if ns.IsSecret(own) then return false end
+	local realm = ns.RealmOf(who)
+	local region = (ns.realm or ""):match("^CAMWOW(%u%u)")
+	if not ns.InGroup(realm) or (region and realm:match("^CAMWOW(%u%u)") ~= region) then return false end
+	local localGuild = type(guild) == "string" and type(own) == "string" and ns.Fold(guild) == ns.Fold(own)
+	if ns.Roster.Fresh() and ns.Roster.RankOf(who) ~= nil then return guild == nil or localGuild end
+	if localGuild then return false end
+	local membership = ns.FederationMembership
+	if membership and membership.Allowed(who, guild) then return true end
+	guild = guild or ns.Data.ClaimedGuild(who)
+	if type(guild) ~= "string" or not ns.SharedGuildAllowed(guild) or not ns.Data.CanRank(guild) then return false end
+	local rank, source, support = ns.Data.AuthorizedRank(who, guild)
+	return rank ~= nil and (source == "signed" or (source == "census" and (support or 0) >= 2))
+end
 -- What a "members only" refusal says: in an Olympus guild before the Olympus Accord, that it waits
 -- for the Accord (and where it is), never that he is no member; elsewhere the usual line.
 function ns.MembersOnlyText()
@@ -3040,6 +3080,7 @@ local function Help()
 	print(L.HELP_ROLLCALL)
 	print(L.HELP_ACCORD) -- (1.2.5.1)
 	if rawget(L, "HELP_VERIFY") then print(L.HELP_VERIFY) end -- (guild verification, Verify.lua)
+	if ns.FederationProgram and ns.FederationProgram.Active() then print(L.HELP_FEDERATION_CARETAKER) end
 	print(L.HELP_PRIVACY_PAGE)
 	print(L.HELP_PROFILE)
 	print(L.HELP_BUILDS) -- (1.5.4: modified builds, Builds.lua)
@@ -3491,6 +3532,10 @@ local function Slash(input)
 		elseif cmd == "netoff" or cmd == "neton" then
 			-- 1.1: a character or a guild off Olympus for the army, or back on (Moderation.lua).
 			ns.Moderation.Slash(cmd == "netoff", rest)
+		elseif cmd == "caretaker" then
+			if ns.FederationProgram then ns.FederationProgram.ShowCaretaker() else ns.Print(L.RESTART_NEEDED) end
+		elseif cmd == "fugitives" then
+			if ns.FederationFugitives then ns.FederationFugitives.Slash(rest:lower()) else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "alt" or cmd == "alts" then
 			-- 1.1: this account's characters linked as one player (Alts.lua).
 			ns.Alts.Slash(rest)

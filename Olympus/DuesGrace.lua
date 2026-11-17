@@ -125,6 +125,7 @@ end
 function G.Rows(name, liveMembers, guild)
 	if not G.Keeper() or type(name) ~= "string" or name == "" then return {} end
 	local batch, out = Batch(liveMembers, guild), {}
+	if not D.MandatoryGuild(batch.guild) then return out end
 	local s, key = batch.store, ns.FullName(ns.Normal(name)):lower()
 	for week = D.Week() - G.WEEKS + 1, D.Week() - 1 do
 		local row = s and s.weeks[week]
@@ -248,7 +249,7 @@ function G.Pump()
 	for key, q in pairs(queue) do
 		local guild = q.guild or GetGuildInfo("player")
 		local batch = batches[guild]; if not batch then batch = Batch(nil, guild); batches[guild] = batch end
-		if not Current(q.identity) or q.week ~= D.Week() - 1 or Clock() - q.at < 0 or Clock() - q.at > G.NOTICE_FOR
+		if not D.MandatoryGuild(guild) or not Current(q.identity) or q.week ~= D.Week() - 1 or Clock() - q.at < 0 or Clock() - q.at > G.NOTICE_FOR
 			or not batch.members or not batch.members[q.payer:lower()] or Hidden(q.payer, guild) then queue[key] = nil
 		elseif not q.retryAt or Clock() >= q.retryAt then
 			local p = G.Progress(q.payer, batch)
@@ -294,7 +295,7 @@ T.OnPrivate("DG", {
 	send = function(to, text)
 		if not G.Keeper() or not T.CanSend() then return false end
 		for _, q in pairs(queue) do
-			if Current(q.identity) and q.text == text and Same(q.to, to) and q.week == D.Week() - 1
+			if D.MandatoryGuild(q.guild) and Current(q.identity) and q.text == text and Same(q.to, to) and q.week == D.Week() - 1
 				and Clock() - q.at >= 0 and Clock() - q.at <= G.NOTICE_FOR and not Hidden(q.payer, q.guild) then
 				local guild = q.guild or GetGuildInfo("player")
 				if guild == GetGuildInfo("player") and (not ns.Roster.Fresh(G.BOUNDARY) or ns.Roster.RankOf(q.payer) == nil) then return false end

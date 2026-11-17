@@ -100,6 +100,24 @@ local function GrantWorld(fn)
 	if not ok then error(err, 0) end
 end
 
+test("federation relay: shared payloads go to enrolled guild reporters while census traffic stays general", function()
+	GrantWorld(function(R, Hand, Reached)
+		local active = true
+		R.SharedToolsActive = function() return active end
+		R.SharedGuildAllowed = function(guild) return not active or guild == "Olympus Dawn" end
+		local craft, other = "W1~Olympus Dawn~crafting profile", "ZZ~1~non-federation word"
+		Hand(R.me, craft)
+		local n, _, names = Reached(craft)
+		eq(n, 1); eq(names, "Dawn Keeper")
+		Hand(R.me, other)
+		eq(Reached(other), 11)
+		active = false
+		local legacy = "W1~Olympus Dawn~legacy crafting profile"
+		Hand(R.me, legacy)
+		eq(Reached(legacy), 11, "legacy program state has the old fan-out")
+	end)
+end)
+
 -- The review of the 1.5.4 candidate: a grant (G) and a close (C) name the issuer's own guild, so the
 -- scoping above kept them from every other guild, whose members could then never present. Fails
 -- before: every grant and the close reached Dawn Keeper alone.

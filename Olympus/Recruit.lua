@@ -2668,6 +2668,7 @@ local function CurrentRequest(req, allowHandoff)
 	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
 	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
 	if req.viaWhisper and (not Recruiting() or ns.ChatLocked()) then return false end
+	if req.overflowFrom and (GuildFull() or not Recruit.Handoff or not Recruit.Handoff.OverflowAllowed(req.overflowFrom, req.guild, true)) then return false end
 	if not allowHandoff and Recruit.Handoff and Recruit.Handoff.State(req) then return false end
 	Prune(ns.Now())
 	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
@@ -2709,8 +2710,9 @@ end
 -- JOIN whispered to us opens (no Prepare step), and it is never offered onward (no intent).
 -- (1.5.9) `sighting`: a scanned player the member saw, not a JOIN (the offer's id says so; a 1.5.8
 -- member's offer reads as a JOIN).
-function Recruit.TakeHandoff(name, officer, sighting)
+function Recruit.TakeHandoff(name, officer, sighting, overflowFrom)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
+	if overflowFrom and not (Recruit.Handoff and Recruit.Handoff.OverflowAllowed(overflowFrom, recruitingGuild)) then return false end
 	if sighting and Recruit.ScanDeclined(name) then
 		if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
 		return false
@@ -2720,7 +2722,7 @@ function Recruit.TakeHandoff(name, officer, sighting)
 	local shown = copy:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting, true)
 	if not accepted then return false end
-	req.handedIn, req.handedBy = true, officer
+	req.handedIn, req.handedBy, req.overflowFrom = true, officer, overflowFrom
 	-- Only a player who asked to join can earn referral credit for the member who passed the request.
 	local ranking = ns.RecruitRanking
 	if not sighting and ranking and ranking.HandedIn then
@@ -2811,9 +2813,17 @@ local function InviteDraftText(name, req, item, automatic)
 	return text
 end
 
+function Recruit.FederationInviteAllowed(name, guild, tell)
+	local fugitives = ns.FederationFugitives
+	if not fugitives or not fugitives.IsListed(name, guild) then return true end
+	if tell then ns.Print(L.FEDERATION_INVITE_REFUSED) end
+	return false
+end
+
 local function AcceptRequest(req, confirmed, automatic)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
+	if not Recruit.FederationInviteAllowed(req.name, req.guild, not automatic) then return false end
 	local prepare = req.viaWhisper or ns.OnForever()
 	local invite
 	if not prepare then
@@ -2875,6 +2885,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 
 function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
+	if not Recruit.FederationInviteAllowed(candidate.full, GetGuildInfo("player"), not automatic) then return false end
 	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
 	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate, automatic), nil,
@@ -2902,6 +2913,8 @@ end
 local PASTE_STEP, PASTE_WINDOW, PASTE_OPEN = 0.01, 30, 120
 local function InviteCommand(data)
 	if type(data) ~= "table" then return nil end
+	local target = data.candidate and data.candidate.full or data.req and data.req.name
+	if not Recruit.FederationInviteAllowed(target, GetGuildInfo("player"), false) then return nil end
 	local name = data.candidate and data.candidate.name or data.req and NameForCommand(data.req.name)
 	return name and ("/ginvite " .. name) or nil
 end
@@ -2945,6 +2958,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	if data.candidate then
 		if not Recruit.Candidates.Check(data.candidate) then return end
 	elseif not CurrentRequest(req) then return end
+	if not InviteCommand(data) then return end
 	local util = ChatFrameUtil
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end

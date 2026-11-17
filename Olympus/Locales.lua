@@ -300,6 +300,10 @@ Long live the King. Long live Olympus.]==]
 -- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
 -- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
 L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_1_TITLE = "Guild Leadership in The Realm"
+L.LETTER_1_6_1 = [==[- The Realm can show guild masters and officers together again. Use the Show filter above the guild list. Older roster sightings are dated, and guilds without roster detail show that leadership is still unknown.
+
+- This update also adds tools to support signed guild participation, confirmed recruiting handoffs and signed fugitive decisions. These tools follow the participation rules set up by your guild and the High Council.]==]
 L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_6_0_1 = [==[Your Majesty. Soldiers of Olympus.
 
@@ -582,6 +586,10 @@ Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_1_TITLE = "Líderes e oficiais em The Realm"
+	L.LETTER_1_6_1 = [==[- Agora é possível ver os líderes e oficiais das guildas juntos em The Realm. Use o filtro Mostrar acima da lista. A presença de um registro antigo vem com o tempo da observação. Se ainda não chegou uma lista de membros, a liderança aparece como desconhecida.
+
+- Esta atualização também traz ferramentas de adesão assinada das guildas, repasse confirmado de recrutas e decisões assinadas sobre fugitivos. Elas seguem as regras de participação definidas pela sua guilda e pelo High Council.]==]
 	L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_6_0_1 = [==[Vossa Majestade. Soldados do Olympus.
 
@@ -722,6 +730,13 @@ L.COL_MEMBERS_SHORT = "Memb."
 L.COL_ONLINE_SHORT = "Onl."
 L.COL_AVG_LEVEL_SHORT = "Avg"
 L.REALM_ORDER = "Order"
+L.REALM_GUILD_VIEW = "Show"
+L.REALM_ALL_GUILDS = "Guilds"
+L.REALM_LEADERSHIP = "Guild Masters & Officers"
+L.REALM_LEADERSHIP_UNKNOWN = "Leadership not reported"
+L.REALM_LEADERSHIP_REPORT = "Roster updated %s"
+L.REALM_LEADERSHIP_LAST_SEEN = "Last seen about %s"
+L.REALM_LEADERSHIP_PRESENCE_UNKNOWN = "Presence unknown"
 L.COL_LEADER = "Leader"
 L.COPY_DISCORD = "Copy for Discord"
 L.REPORT_BUG = "Report a bug"
@@ -3379,6 +3394,13 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.COL_ONLINE_SHORT = "Onl."
 	L.COL_AVG_LEVEL_SHORT = "Média"
 	L.REALM_ORDER = "Ordem"
+	L.REALM_GUILD_VIEW = "Mostrar"
+	L.REALM_ALL_GUILDS = "Guildas"
+	L.REALM_LEADERSHIP = "Líderes e oficiais"
+	L.REALM_LEADERSHIP_UNKNOWN = "Liderança ainda não reportada"
+	L.REALM_LEADERSHIP_REPORT = "Lista atualizada %s"
+	L.REALM_LEADERSHIP_LAST_SEEN = "Visto %s"
+	L.REALM_LEADERSHIP_PRESENCE_UNKNOWN = "Presença desconhecida"
 	L.COL_LEADER = "Líder"
 	L.COPY_DISCORD = "Copiar p/ Discord"
 	L.REPORT_BUG = "Reportar bug"
@@ -5602,6 +5624,16 @@ L.ACCORD_READ = "Read the Accord"
 L.HELP_ACCORD = "  /oly accord - the Olympus Accord, Olympus's terms of use · /oly accord follow|unfollow <name> - on a moderation team client, that player's sanction follows his BattleTag, or no longer does"
 -- (Every "members only" refusal says this instead in an Olympus guild before the Accord: ns.MembersOnlyText.)
 L.ACCORD_DECLINED = "Olympus stays off until you accept the Olympus Accord: /oly accord."
+L.FEDERATION_TOOLS_LOCKED = "Shared tools are available after your guild joins the Olympus program."
+L.HELP_FEDERATION_CARETAKER = "  /oly caretaker - find your guild's caretaker for guild master actions"
+L.FEDERATION_CARETAKER = "Whisper %s for actions that require the guild master."
+L.FEDERATION_CARETAKER_UNAVAILABLE = "No caretaker is confirmed for your current guild. Check with your guild officers."
+if GetLocale and GetLocale() == "ptBR" then
+	L.HELP_FEDERATION_CARETAKER = "  /oly caretaker - encontre o responsável pelas ações de mestre da guilda"
+	L.FEDERATION_CARETAKER = "Envie um sussurro para %s para pedir uma ação que exige o mestre da guilda."
+	L.FEDERATION_CARETAKER_UNAVAILABLE = "Nenhum responsável foi confirmado para sua guilda atual. Confira com seus oficiais."
+end
+L.FEDERATION_INVITE_REFUSED = "Olympus cannot prepare an invite for this player while a fugitive decision is active."
 L.HELP_CHAT = "  /oly chat on|off - the Olympus chats on this client (off: nothing sent, nothing shown)"
 L.INSPECTION_OPT_UNANSWERED = "You don't take part in Royal Inspections until you say yes (/oly inspection on, or the Olympus page: /oly privacy). You still hear the King's call."
 L.ROLLCALL_UNANSWERED = "The author's roll calls are not answered until you say yes (/oly rollcall on, or the Olympus page: /oly privacy). His update notices still show."
@@ -5682,6 +5714,8 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.ACCORD_READ = "Ler o Acordo"
 	L.HELP_ACCORD = "  /oly accord - o Acordo do Olympus, os termos de uso do Olympus · /oly accord follow|unfollow <nome> - num cliente da equipe de moderação, a sanção daquele jogador acompanha a BattleTag dele, ou deixa de acompanhar"
 	L.ACCORD_DECLINED = "O Olympus fica desligado até você aceitar o Acordo do Olympus: /oly accord."
+	L.FEDERATION_TOOLS_LOCKED = "As ferramentas compartilhadas ficam disponíveis quando sua guilda entrar no programa Olympus."
+	L.FEDERATION_INVITE_REFUSED = "O Olympus não pode preparar um convite para este jogador enquanto houver uma decisão de fugitivo ativa."
 	L.HELP_CHAT = "  /oly chat on|off - os chats Olympus neste cliente (desligados: nada é mandado nem mostrado)"
 	L.INSPECTION_OPT_UNANSWERED = "Você não participa das Inspeções Reais até dizer sim (/oly inspection on, ou a página do Olympus: /oly privacy). Você ainda ouve o chamado do Rei."
 	L.ROLLCALL_UNANSWERED = "As chamadas do autor não são respondidas até você dizer sim (/oly rollcall on, ou a página do Olympus: /oly privacy). Os avisos de atualização dele ainda aparecem."

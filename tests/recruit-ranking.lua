@@ -20,11 +20,11 @@ local function Loud(cl) cl.c.SafeCall = function(_, fn, ...) fn(...) return true
 -- Two guilds: Aldric (an Apostle, a keeper) with Ivo (a plain member who invites), Wes (a plain member,
 -- a witness) and Sid (a plain member who passes players on) in Olympus Ember; Bera (an Apostle) and Vik (a
 -- plain member) in Olympus Vale. The Head, the King and the author are offline unless a test brings them.
-local function Cast(more)
+local function Cast(more, keeperOptions)
 	local w = World.New({ apostles = { A1, A2 } })
 	local c = {
 		head = w:Client(World.HEAD), king = w:Client(World.KING), author = w:Client(World.AUTHOR),
-		a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }),
+		a1 = w:Client(A1, keeperOptions), a2 = w:Client(A2, { guild = World.GUILD2 }),
 		ivo = w:Client("Ivo Plain"), wes = w:Client("Wes Brook"), sid = w:Client("Sid Pass"),
 		vik = w:Client("Vik Stone", { guild = World.GUILD2 }),
 	}
@@ -73,6 +73,306 @@ end
 local function Plain(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 -- Letters, not bytes: a Cyrillic or accented letter is one on screen.
 local function Letters(s) local _, n = Plain(s):gsub("[^\128-\191]", "") return n end
+
+test("Church conversions: require signed guild enrollment and independent scoped proof, and preserve the points rankings", function()
+	local w, c = Cast(nil, { view = true })
+	local keeper, recruit = c.a1, "New Guy"
+	local conversions = keeper.c.ChurchConversions
+	local function Page()
+		for _, page in ipairs(w:As(keeper, keeper.c.ChurchView.Pages)) do
+			if page == "conversions" then return true end
+		end
+		return false
+	end
+	eq(Page(), false, "no conversion tab without a configured provider")
+	local ok, why = w:As(keeper, conversions.Record, recruit, "no proof")
+	eq(ok, false); eq(why, "unavailable")
+	eq(keeper.c.rdb.church.conversions, nil)
+
+	local start, finish = w.clock - 7200, w.clock + DAY
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, start, finish, World.GUILD)
+	local signature = string.rep("a", 512)
+	keeper.c.InGroup = function(realm) return realm == "Realm" end
+	keeper.c.Sign = setmetatable({ Verify = function(text, sig) return text == title and sig == signature end }, { __index = keeper.c.Sign })
+	assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", keeper.c)
+	keeper.c.rdb.councilTitles = { blob = title .. "~" .. signature }
+	eq(w:As(keeper, keeper.c.FederationProgram.IsEnrolled, World.GUILD), true)
+	eq(Page(), true, "the signed rollout makes the keeper request tab available")
+	eq(select(2, w:As(keeper, conversions.RankingView, "a")), nil, "a guild approval supplies no standings")
+
+	local attempts, reused, wrongRegion, newRefs = 0, false, false, false
+	local request
+	w:As(keeper, conversions.SetVerifier, function(evidence, query)
+		attempts = attempts + 1
+		request = query
+		if evidence ~= "trusted proof" then return nil end
+		local suffix = newRefs and "03" or reused and "02" or "01"
+		return { group = query.group, region = wrongRegion and "EU" or query.region, faction = query.faction, guild = query.guild,
+			member = "member_ref_00000000000000000" .. (newRefs and "02" or "01"),
+			handoff = "handoff_ref_0000000000000000" .. suffix, verification = "verify_ref_0000000000000000" .. suffix,
+			joinedAt = query.joinedAt, verifiedAt = w.clock }
+	end)
+	eq(Page(), true)
+	eq(w:As(c.ivo, c.ivo.RR.HandedIn, recruit, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, recruit, c.ivo.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", recruit)
+	w:ReadLog(c.ivo)
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "handoff"); eq(attempts, 0)
+	w:ReadLog(c.wes)
+	eq(State(w, keeper, recruit, "Ivo Plain"), "credited", "a weak witness suffices for the points ledger")
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "handoff"); eq(attempts, 0, "a weak witness never reaches the trusted provider")
+	w:ReadLog(c.a1)
+	ok, why = w:As(keeper, conversions.Record, recruit, "missing proof")
+	eq(ok, false); eq(why, "proof")
+	eq(Key(request.recruit), Key(recruit))
+	eq(Key(request.source), Key(A2))
+	eq(request.guild, World.GUILD)
+	wrongRegion = true
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "proof", "an attestation from a different region does not count")
+	eq(keeper.c.rdb.church.conversions, nil)
+	wrongRegion = false
+	eq(w:As(keeper, conversions.Record, recruit, "trusted proof"), true)
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "duplicate")
+	newRefs = true
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "duplicate", "a second attestation with new identifiers for the same character changes no totals")
+	newRefs = false
+
+	local expected = "Other Guy"
+	reused = true
+	eq(w:As(c.ivo, c.ivo.RR.HandedIn, expected, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, expected, c.ivo.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", expected)
+	w:ReadLog(c.ivo)
+	w:ReadLog(c.a1)
+	ok, why = w:As(keeper, conversions.Record, expected, "trusted proof")
+	eq(ok, false); eq(why, "duplicate", "a second character on the verified account changes no totals")
+	local savedRows = keeper.c.rdb.church.conversions["Realm:Alliance:-"]
+	local memberRef, saved = next(savedRows)
+	eq(memberRef, "member_ref_0000000000000000001")
+	eq(saved.recruit, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
+	eq(next(savedRows, memberRef), nil)
+	for _, window in ipairs({ "w", "a" }) do
+		local rows = w:As(keeper, conversions.Ranking, window)
+		eq(#rows, 1)
+		eq(rows[1].key, Key(A2)); eq(rows[1].count, 1)
+	end
+	eq(Score(w, keeper, A2), 5, "the points still count both legitimate handoffs")
+	eq(#w:As(keeper, keeper.Count.Ranking, "u", "a"), 0, "nothing enters the original Church ranking")
+	w.clock = w.clock + 8 * DAY
+	eq(w:As(keeper, keeper.c.FederationProgram.IsEnrolled, World.GUILD), false)
+	ok, why = w:As(keeper, conversions.Record, expected, "trusted proof")
+	eq(ok, false); eq(why, "enrollment")
+	eq(#w:As(keeper, conversions.Ranking, "w"), 0)
+	eq(#w:As(keeper, conversions.Ranking, "a"), 1, "expiration leaves historical eligibility intact")
+	w:As(keeper, conversions.SetVerifier, nil)
+	eq(select(2, w:As(keeper, conversions.RankingView, "a")), nil, "stopping the synthetic provider leaves no shared standings")
+end)
+
+test("Church conversion review: a new scoped handoff and native join can be reviewed and imported once", function()
+	local w, c = Cast({
+		reader = { name = "Dela Moss", view = true },
+		secondReader = { name = World.COUNCILLOR, view = true, guild = World.GUILD2 },
+	}, { view = true })
+	local keeper, recipient, recruit = c.a1, c.ivo, "New Guy-Realm"
+	c.ivo.rank, c.wes.rank = 0, 1
+	w:RefreshRosters()
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, w.clock - 7200, w.clock + DAY, World.GUILD)
+	local sig, reviewed = string.rep("a", 512), nil
+	for _, k in ipairs({ keeper, recipient, c.a2, c.reader, c.secondReader }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({
+			Plausible = function(signature) return signature == sig end,
+			Verify = function(text, signature) return (text == title or text == reviewed) and signature == sig end,
+		}, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K, R = keeper.c.ChurchConversions, recipient.c.ChurchConversions
+	local function Candidates() return w:As(recipient, R.ReviewCandidates) end
+	eq(select(2, w:As(keeper, K.RankingView, "a")), nil, "no standings just for a guild's opt-in")
+	eq(w:As(recipient, recipient.c.FederationProgram.LocalEnrollment), World.GUILD)
+	local fire = recipient.c.Fire
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", "Untrusted-Realm", "Bera Stone-Wrong", recipient.name, World.GUILD2, World.GUILD, "100-a3-1")
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", "Scanning-Realm", A2, recipient.name, World.GUILD2, World.GUILD, "100-a3-1-0")
+	eq(recipient.c.rdb.church.conversionCandidates, nil, "foreign and scanned offers create no candidate")
+	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, A2, recipient.name, World.GUILD2, World.GUILD, "100-a3-1")
+	eq(#Candidates(), 0, "a real accepted handoff is not a completed recruit")
+	eq(w:As(recipient, recipient.RR.HandedIn, recruit, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, recruit, recipient.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy")
+	w:ReadLog(recipient)
+	local row = Candidates()[1]
+	assert(row and row:find("~New Guy-Realm~Bera Stone-Realm~Ivo Plain-Realm~100-a3-1~", 1, true), row)
+	w:As(recipient, recipient.Church.Slash, "conversions review")
+	eq(recipient.copied.text, row)
+	reviewed = ("OCV1~%d~%s"):format(w.clock, row)
+	local ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "handoff", "a signed review still needs an independent strong witness")
+	w:ReadLog(c.wes)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "handoff", "a weak witness cannot complete it")
+	w:ReadLog(keeper)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed:gsub("~Realm~Alliance~%-~", "~Realm~Alliance~EU~") .. "~" .. sig)
+	eq(ok, false); eq(reason, "scope")
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. string.rep("b", 512))
+	eq(ok, false); eq(reason, "proof")
+	w:As(keeper, keeper.Church.Slash, "conversions import")
+	eq(keeper.dialogs[#keeper.dialogs].which, "OLYMPUS_CONVERSION_REVIEW")
+	eq(w:As(keeper, K.ImportReview, reviewed .. "~" .. sig), true)
+	ok, reason = w:As(keeper, K.ImportReview, reviewed .. "~" .. sig)
+	eq(ok, false); eq(reason, "duplicate")
+	eq(w:As(keeper, K.Available), true)
+	for _, window in ipairs({ "w", "a" }) do eq(w:As(keeper, K.Ranking, window)[1].count, 1) end
+	local _, saved = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(saved.recruit, nil); eq(saved.inviter, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
+
+	-- Both keepers import the identical review. Viewers must receive the same selected keeper's
+	-- coverage without adding the second copy or learning the recruit or review.
+	eq(w:As(c.a2, c.a2.c.ChurchConversions.ImportReview, reviewed .. "~" .. sig), true)
+	local a, b = c.reader, c.secondReader
+	local function Board(cl, window) return w:As(cl, cl.c.ChurchConversions.RankingView, window or "w") end
+	w:Flush()
+	w:ClearSent()
+	w:As(a, a.View.Show, "conversions")
+	w:As(b, b.View.Show, "conversions")
+	w:Flush(2)
+	local replies = w:Sent(keeper, "NY", "WHISPER")
+	eq(#replies, 4, "two row/terminator responses from the same desk")
+	for _, message in ipairs(replies) do
+		assert(not message.msg:find("New Guy", 1, true) and not message.msg:find("Ivo Plain", 1, true)
+			and not message.msg:find("100-a3-1", 1, true) and #message.msg <= 255, message.msg)
+	end
+	local answerRow, answerEnd = replies[1], replies[2]
+	eq(answerRow.target, a.name)
+	w:Deliver(answerEnd)
+	eq(select(2, Board(a)), nil, "an end arriving before its row is not a complete view")
+	for _, impostor in ipairs({ c.wes, c.a2 }) do
+		w:Deliver({ dist = "WHISPER", target = a.name, from = impostor, msg = answerRow.msg })
+		eq(select(2, Board(a)), nil, "a row from the wrong source cannot populate the batch")
+	end
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper,
+		msg = answerRow.msg:gsub("Realm:Alliance:%-", "Realm:Horde:-") })
+	eq(select(2, Board(a)), nil, "wrong faction cannot populate the batch")
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper,
+		msg = answerRow.msg:gsub("Realm:Alliance:%-", "Realm:Alliance:EU") })
+	eq(select(2, Board(a)), nil, "wrong region cannot populate the batch")
+	w:Deliver(answerRow)
+	w:Flush()
+	for _, reader in ipairs({ a, b }) do
+		local rows, source, waiting, ranked = Board(reader)
+		eq(source, keeper.name); eq(waiting, false); eq(ranked, 1); eq(rows[1].count, 1)
+		eq(reader.c.rdb.church.conversions, nil, "the private receipt ledger is never copied to a reader")
+	end
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper, msg = answerRow.msg:gsub("~1$", "~99") })
+	eq(Board(a)[1].count, 1, "a replay cannot replace the completed board")
+	eq(#w:Sent(c.a2, "NY", "WHISPER"), 0, "a duplicate keeper copy is not read")
+	w:As(recipient, recipient.c.Comm.Whisper, keeper.name, "NY~1~q~Realm:Alliance:-~a~ab-10-1~-")
+	w:Flush()
+	eq(#w:Sent(keeper, "NY", "WHISPER"), 4, "an ordinary inviter does not receive private standings")
+	eq(w:Act(b, b.c.ChurchConversions.Ask, "a", true), true)
+	local allRows, allSource = Board(b, "a")
+	eq(allSource, keeper.name); eq(allRows[1].count, 1)
+	local request = w:Sent(a, "NY", "WHISPER", "q")[1]
+	local existing = #w:Sent(keeper, "NY", "WHISPER")
+	w:Run(31)
+	w:Deliver(request)
+	w:Flush()
+	eq(#w:Sent(keeper, "NY", "WHISPER"), existing, "a replayed query cannot trigger another published response")
+	w.clock = w.clock + 8 * DAY
+	eq(#w:As(keeper, K.Ranking, "w"), 0)
+	eq(#w:As(keeper, K.Ranking, "a"), 1)
+	w:SignedList({ A2 }, true, w.clock)
+	eq(select(2, Board(b, "a")), nil, "an appointment change invalidates retained standings on the receiver")
+end)
+
+test("Church conversion automatic: an enrolled native join and both sides of a new handoff count without manual review", function()
+	local w, c = Cast()
+	local keeper, recipient, source, recruit = c.a1, c.ivo, c.a2, "New Guy-Realm"
+	recipient.rank, c.wes.rank = 0, 1
+	w:RefreshRosters()
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, w.clock - 7200, w.clock + DAY, World.GUILD)
+	local sig = string.rep("a", 512)
+	for _, k in ipairs({ keeper, recipient, source }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({ Verify = function(text, signature) return text == title and signature == sig end }, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K, tx = keeper.c.ChurchConversions, "100-b4-1"
+	local function Count() return #w:As(keeper, K.Ranking, "a") end
+	w:As(recipient, recipient.c.Fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, source.name, recipient.name, World.GUILD2, World.GUILD, tx)
+	w:As(recipient, recipient.RR.HandedIn, recruit, source.name)
+	w:Act(source, source.RR.HandedOut, recruit, recipient.name)
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy")
+	w:ReadLog(recipient)
+	eq(Count(), 0, "the invitee's join alone is not independent proof")
+	w:ReadLog(c.wes)
+	eq(Count(), 0, "a weak witness is insufficient")
+	w:ReadLog(keeper)
+	eq(Count(), 0, "the rolling evidence does not supply the origin's matching transaction")
+	local bad = ("NY~1~h~Realm:Alliance:EU~%s~%s~%s~%s~%d~0~0"):format(tx, World.GUILD, recruit, recipient.name, w.clock)
+	w:Act(source, source.c.Comm.Whisper, keeper.name, bad)
+	eq(Count(), 0, "another scope cannot complete the transaction")
+	w:Act(source, source.c.Fire, "RECRUIT_HANDOFF_ACKNOWLEDGED", recruit, source.name, recipient.name, World.GUILD, tx)
+	eq(Count(), 1)
+	local week = w:As(keeper, K.Ranking, "w")
+	eq(week[1].name, source.name); eq(week[1].count, 1)
+	local _, row = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(row.recruit, nil); eq(row.discordId, nil); eq(row.reviewed, true)
+	local sourceProof = w:Sent(source, "NY", "WHISPER", "h")[1]
+	assert(sourceProof, "source acknowledges to a keeper")
+	w:Deliver(sourceProof)
+	eq(w:As(keeper, K.Ranking, "a")[1].count, 1, "a replay cannot duplicate the automatic conversion")
+end)
+
+test("Church conversion observer: signed roster witness reaches a remote keeper during the grant's first partial hour", function()
+	local w, c = Cast()
+	local keeper, recipient, source, observer = c.a1, c.ivo, c.a2, c.wes
+	local recruit, tx = "New Guy-Realm", "100-c4-1"
+	keeper.guild, recipient.rank, observer.rank = World.GUILD2, 0, 1
+	w:Run(30)
+	w:RefreshRosters()
+	local hour, started = math.floor(w.clock / 3600) * 3600, w.clock - 10
+	assert(started > hour)
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, started, w.clock + DAY, World.GUILD)
+	local sig = string.rep("a", 512)
+	for _, k in ipairs({ keeper, recipient, source, observer }) do
+		k.c.InGroup = function(realm) return realm == "Realm" end
+		k.c.Sign = setmetatable({ Verify = function(text, signature) return text == title and signature == sig end }, { __index = k.c.Sign })
+		assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", k.c)
+		k.c.rdb.councilTitles = { blob = title .. "~" .. sig }
+	end
+	local K = keeper.c.ChurchConversions
+	local function Count() return #w:As(keeper, K.Ranking, "a") end
+	w:As(recipient, recipient.c.Fire, "RECRUIT_HANDOFF_ACCEPTED", recruit, source.name, recipient.name, World.GUILD2, World.GUILD, tx)
+	w:Act(source, source.c.Fire, "RECRUIT_HANDOFF_ACKNOWLEDGED", recruit, source.name, recipient.name, World.GUILD, tx)
+	w:LogEvent(World.GUILD, "invite", "Ivo Plain", "New Guy")
+	w:ReadLog(observer)
+	eq(Count(), 0, "the signed observer saw the recruit was absent, but there is no join yet")
+	local absent = w.clock
+	w:Run(10)
+	w:LogEvent(World.GUILD, "join", "New Guy")
+	Join(w, World.GUILD, "New Guy")
+	w:ReadLog(recipient)
+	local fake = ("NE~1~v~Realm:Alliance:-~%s~%s~%s~%d~%d~%d"):format(World.GUILD, recipient.name, recruit, hour, hour, absent)
+	w:Act(c.sid, c.sid.c.Comm.Whisper, keeper.name, fake)
+	eq(Count(), 0, "an ordinary guild member cannot attest the partial hour")
+	w:ReadLog(observer)
+	eq(w:As(keeper, keeper.RR.ConfirmedHandoff, recruit), nil, "old ranking data is not the strong authority for this route")
+	eq(Count(), 1, "the same scoped native pair and precise prior roster absence prove the enrolled join")
+	local _, saved = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
+	eq(saved.joinedAt, absent)
+	eq(saved.recruit, nil)
+end)
 
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()
 	local w, c = Cast()
