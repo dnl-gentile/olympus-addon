@@ -98,7 +98,8 @@ test("Church conversions: require signed guild enrollment and independent scoped
 	assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", keeper.c)
 	keeper.c.rdb.councilTitles = { blob = title .. "~" .. signature }
 	eq(w:As(keeper, keeper.c.FederationProgram.IsEnrolled, World.GUILD), true)
-	eq(Page(), false, "a manual guild approval supplies no individual verification")
+	eq(Page(), true, "the signed rollout makes the keeper request tab available")
+	eq(select(2, w:As(keeper, conversions.RankingView, "a")), nil, "a guild approval supplies no standings")
 
 	local attempts, reused, wrongRegion, newRefs = 0, false, false, false
 	local request
@@ -170,18 +171,21 @@ test("Church conversions: require signed guild enrollment and independent scoped
 	eq(#w:As(keeper, conversions.Ranking, "w"), 0)
 	eq(#w:As(keeper, conversions.Ranking, "a"), 1, "expiration leaves historical eligibility intact")
 	w:As(keeper, conversions.SetVerifier, nil)
-	eq(Page(), false)
+	eq(select(2, w:As(keeper, conversions.RankingView, "a")), nil, "stopping the synthetic provider leaves no shared standings")
 end)
 
 test("Church conversion review: a new scoped handoff and native join can be reviewed and imported once", function()
-	local w, c = Cast(nil, { view = true })
+	local w, c = Cast({
+		reader = { name = "Dela Moss", view = true },
+		secondReader = { name = World.COUNCILLOR, view = true, guild = World.GUILD2 },
+	}, { view = true })
 	local keeper, recipient, recruit = c.a1, c.ivo, "New Guy-Realm"
 	c.ivo.rank, c.wes.rank = 0, 1
 	w:RefreshRosters()
 	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
 		:format(w.clock, w.clock - 7200, w.clock + DAY, World.GUILD)
 	local sig, reviewed = string.rep("a", 512), nil
-	for _, k in ipairs({ keeper, recipient }) do
+	for _, k in ipairs({ keeper, recipient, c.a2, c.reader, c.secondReader }) do
 		k.c.InGroup = function(realm) return realm == "Realm" end
 		k.c.Sign = setmetatable({
 			Plausible = function(signature) return signature == sig end,
@@ -192,7 +196,7 @@ test("Church conversion review: a new scoped handoff and native join can be revi
 	end
 	local K, R = keeper.c.ChurchConversions, recipient.c.ChurchConversions
 	local function Candidates() return w:As(recipient, R.ReviewCandidates) end
-	eq(w:As(keeper, K.Available), false, "no leaderboard just for a guild's opt-in")
+	eq(select(2, w:As(keeper, K.RankingView, "a")), nil, "no standings just for a guild's opt-in")
 	eq(w:As(recipient, recipient.c.FederationProgram.LocalEnrollment), World.GUILD)
 	local fire = recipient.c.Fire
 	w:As(recipient, fire, "RECRUIT_HANDOFF_ACCEPTED", "Untrusted-Realm", "Bera Stone-Wrong", recipient.name, World.GUILD2, World.GUILD, "100-a3-1")
@@ -228,9 +232,64 @@ test("Church conversion review: a new scoped handoff and native join can be revi
 	for _, window in ipairs({ "w", "a" }) do eq(w:As(keeper, K.Ranking, window)[1].count, 1) end
 	local _, saved = next(keeper.c.rdb.church.conversions["Realm:Alliance:-"])
 	eq(saved.recruit, nil); eq(saved.inviter, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
+
+	-- Both keepers import the identical review. Viewers must receive the same selected keeper's
+	-- coverage without adding the second copy or learning the recruit or review.
+	eq(w:As(c.a2, c.a2.c.ChurchConversions.ImportReview, reviewed .. "~" .. sig), true)
+	local a, b = c.reader, c.secondReader
+	local function Board(cl, window) return w:As(cl, cl.c.ChurchConversions.RankingView, window or "w") end
+	w:Flush()
+	w:ClearSent()
+	w:As(a, a.View.Show, "conversions")
+	w:As(b, b.View.Show, "conversions")
+	w:Flush(2)
+	local replies = w:Sent(keeper, "NY", "WHISPER")
+	eq(#replies, 4, "two row/terminator responses from the same desk")
+	for _, message in ipairs(replies) do
+		assert(not message.msg:find("New Guy", 1, true) and not message.msg:find("Ivo Plain", 1, true)
+			and not message.msg:find("100-a3-1", 1, true) and #message.msg <= 255, message.msg)
+	end
+	local answerRow, answerEnd = replies[1], replies[2]
+	eq(answerRow.target, a.name)
+	w:Deliver(answerEnd)
+	eq(select(2, Board(a)), nil, "an end arriving before its row is not a complete view")
+	for _, impostor in ipairs({ c.wes, c.a2 }) do
+		w:Deliver({ dist = "WHISPER", target = a.name, from = impostor, msg = answerRow.msg })
+		eq(select(2, Board(a)), nil, "a row from the wrong source cannot populate the batch")
+	end
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper,
+		msg = answerRow.msg:gsub("Realm:Alliance:%-", "Realm:Horde:-") })
+	eq(select(2, Board(a)), nil, "wrong faction cannot populate the batch")
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper,
+		msg = answerRow.msg:gsub("Realm:Alliance:%-", "Realm:Alliance:EU") })
+	eq(select(2, Board(a)), nil, "wrong region cannot populate the batch")
+	w:Deliver(answerRow)
+	w:Flush()
+	for _, reader in ipairs({ a, b }) do
+		local rows, source, waiting, ranked = Board(reader)
+		eq(source, keeper.name); eq(waiting, false); eq(ranked, 1); eq(rows[1].count, 1)
+		eq(reader.c.rdb.church.conversions, nil, "the private receipt ledger is never copied to a reader")
+	end
+	w:Deliver({ dist = "WHISPER", target = a.name, from = keeper, msg = answerRow.msg:gsub("~1$", "~99") })
+	eq(Board(a)[1].count, 1, "a replay cannot replace the completed board")
+	eq(#w:Sent(c.a2, "NY", "WHISPER"), 0, "a duplicate keeper copy is not read")
+	w:As(recipient, recipient.c.Comm.Whisper, keeper.name, "NY~1~q~Realm:Alliance:-~a~ab-10-1~-")
+	w:Flush()
+	eq(#w:Sent(keeper, "NY", "WHISPER"), 4, "an ordinary inviter does not receive private standings")
+	eq(w:Act(b, b.c.ChurchConversions.Ask, "a", true), true)
+	local allRows, allSource = Board(b, "a")
+	eq(allSource, keeper.name); eq(allRows[1].count, 1)
+	local request = w:Sent(a, "NY", "WHISPER", "q")[1]
+	local existing = #w:Sent(keeper, "NY", "WHISPER")
+	w:Run(31)
+	w:Deliver(request)
+	w:Flush()
+	eq(#w:Sent(keeper, "NY", "WHISPER"), existing, "a replayed query cannot trigger another published response")
 	w.clock = w.clock + 8 * DAY
 	eq(#w:As(keeper, K.Ranking, "w"), 0)
 	eq(#w:As(keeper, K.Ranking, "a"), 1)
+	w:SignedList({ A2 }, true, w.clock)
+	eq(select(2, Board(b, "a")), nil, "an appointment change invalidates retained standings on the receiver")
 end)
 
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()

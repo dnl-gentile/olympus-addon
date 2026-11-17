@@ -122,6 +122,7 @@ end
 
 function View.Show(page, arg)
 	View.page, View.arg = page, arg
+	if page == "conversions" and not PreviewRole() and ns.ChurchConversions then ns.ChurchConversions.Ask(View.conversionWindow) end
 	Redraw()
 end
 
@@ -190,7 +191,11 @@ local function ConversionLines()
 		local key, label = item[1], item[2]
 		options[#options + 1] = {
 			text = label, selected = key == current,
-			onClick = key ~= current and function() View.conversionWindow = key; Redraw() end or nil,
+			onClick = key ~= current and function()
+				View.conversionWindow = key
+				ns.ChurchConversions.Ask(key)
+				Redraw()
+			end or nil,
 		}
 	end
 	local lines = {
@@ -199,12 +204,20 @@ local function ConversionLines()
 			value = current == "w" and L.CHURCH_WINDOW_WEEK or L.CHURCH_WINDOW_ALL, options = options, understated = true } } },
 		{ text = L.CHURCH_CONVERSION_NOTE, gapAfter = true },
 	}
-	for i, row in ipairs(ns.ChurchConversions.Ranking(current)) do
+	local rows, source, waiting, ranked, asOf = ns.ChurchConversions.RankingView(current)
+	if source then
+		local text = L.CHURCH_CONVERSION_FROM:format(Name(source), ranked)
+		if asOf then text = text .. "  " .. L.CHURCH_ASOF:format(ns.Ago(asOf)) end
+		lines[#lines + 1] = { text = text, gapAfter = true }
+	else
+		lines[#lines + 1] = { indent = 1, text = Grey(waiting and L.CHURCH_CONVERSION_WAIT or L.CHURCH_CONVERSION_UNAVAILABLE) }
+	end
+	for i, row in ipairs(rows) do
 		if i > ns.RecruitRanking.RANK_ROWS then break end
 		lines[#lines + 1] = { text = ("%d.  %s"):format(i, Name(row.name)), right = tostring(row.count),
 			player = ns.FullName(row.name), key = row.key }
 	end
-	if #lines == 3 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
+	if source and #rows == 0 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
 	return lines, L.CHURCH_TITLE, L.CHURCH_NAV_CONVERSIONS
 end
 
@@ -924,8 +937,13 @@ end
 -- a complete board only every five minutes.
 function View.PollRanking()
 	local ui = ns.UI
-	if View.page ~= "ranking" or View.list == "c" or not ui or not ui.IsShown or not ui.IsShown()
+	if not ui or not ui.IsShown or not ui.IsShown()
 		or not ui.PageId or ui.PageId() ~= "church/" or PreviewRole() then return end
+	if View.page == "conversions" and ns.ChurchConversions then
+		if ns.ChurchConversions.Ask(View.conversionWindow) then Redraw() end
+		return
+	end
+	if View.page ~= "ranking" or View.list == "c" then return end
 	-- (1.5.9) The ranking for everyone, asked the same way, by every member whose page shows it.
 	if View.list == "e" then
 		if Everyone() and ns.RecruitRanking.Ask(View.window) then Redraw() end
@@ -935,7 +953,9 @@ function View.PollRanking()
 end
 
 function View.Refresh()
-	if View.page == "ranking" and View.list == "e" and Everyone() and not PreviewRole() then
+	if View.page == "conversions" and ns.ChurchConversions and not PreviewRole() then
+		ns.ChurchConversions.Ask(View.conversionWindow, true)
+	elseif View.page == "ranking" and View.list == "e" and Everyone() and not PreviewRole() then
 		ns.RecruitRanking.Ask(View.window, true)
 	elseif Audience() and not PreviewRole() then
 		if View.page == "ranking" then Count.Ask(View.list, View.window, nil, true)

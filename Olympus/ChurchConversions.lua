@@ -46,19 +46,30 @@ local function Store(scope, write)
 	return c.conversions[scope]
 end
 
-local function Member()
-	if not ns.rdb or not ns.IsMember() or Church.IsKing(ns.me) then return false end
+local function InScope()
+	if not ns.rdb or not ns.IsMember() then return false end
 	local M, program = ns.Moderation, ns.FederationProgram
 	if M and M.SelfOff and M.SelfOff() then return false end
 	return Scope() ~= nil and type(program) == "table"
 end
 
-function Conversions.Available()
+local function Member()
+	return InScope() and not Church.IsKing(ns.me)
+end
+
+local function Reviewed(scope)
+	local c = ns.rdb.church
+	return type(c) == "table" and type(c.reviewedConversionScopes) == "table" and c.reviewedConversionScopes[scope] == true
+end
+
+local function LocalAvailable()
 	if not Member() or not Church.IsKeeper(ns.me) then return false end
 	local scope = Scope()
-	local c = ns.rdb.church
-	local reviewed = type(c) == "table" and type(c.reviewedConversionScopes) == "table" and c.reviewedConversionScopes[scope]
-	return reviewed == true or (verify ~= nil and (ns.FederationProgram.Active() or Store(scope, false) ~= nil))
+	return Reviewed(scope) or (verify ~= nil and (ns.FederationProgram.Active() or Store(scope, false) ~= nil))
+end
+
+function Conversions.Available()
+	return LocalAvailable() or (InScope() and Church.InAudience(ns.me) and ns.FederationProgram.Active())
 end
 
 -- Identifiers are opaque, scoped tokens from the verified integration. Keep only
@@ -241,7 +252,8 @@ local function Record(recruit, evidence, verifier)
 	if store[member] or refs[handoffKey] or refs[proofKey] or refs[characterKey] then return false, "duplicate" end
 	if refCount >= MAX then return false, "full" end
 	store[member] = { recruiter = place.n, role = role, joinedAt = attestation.joinedAt,
-		verifiedAt = attestation.verifiedAt, handoff = handoff, verification = proof, character = character }
+		verifiedAt = attestation.verifiedAt, handoff = handoff, verification = proof, character = character,
+		reviewed = attestation.manual == true or nil }
 	refs[handoffKey], refs[proofKey], refs[characterKey], refCount = true, true, true, refCount + 1
 	if attestation.manual == true then
 		local c = Church.Store()
@@ -312,14 +324,15 @@ function Conversions.Slash(action)
 	return ns.Print(ns.L.CHURCH_CONVERSION_USAGE)
 end
 
-function Conversions.Ranking(window)
-	if not Conversions.Available() or (window ~= "w" and window ~= "a") then return {} end
-	local now = Church.Clock()
+function Conversions.Ranking(window, reviewedOnly, at)
+	if not LocalAvailable() or (window ~= "w" and window ~= "a") then return {} end
+	local now = at or Church.Clock()
 	local since = Count.WindowFrom(window, now)
 	local totals, rows = {}, {}
 	-- Eligibility was checked when recorded. A later enrollment update does not change the tally.
 	for member, entry in pairs(Store(Scope(), false) or {}) do
 		if Ref(member) and type(entry) == "table" and (entry.role == "A" or entry.role == "M")
+			and (not reviewedOnly or entry.reviewed == true)
 			and Ref(entry.handoff) and Ref(entry.verification) and Time(entry.verifiedAt, now)
 			and Time(entry.joinedAt, now) and entry.verifiedAt >= entry.joinedAt and entry.joinedAt >= since then
 			local key = type(entry.recruiter) == "string" and Church.Key(entry.recruiter)
@@ -339,4 +352,193 @@ function Conversions.Ranking(window)
 		return a.key < b.key
 	end)
 	return rows
+end
+
+-- One keeper's capped aggregate, requested only while the Church page is open. Separate
+-- from the recruiting evidence protocols: a response never contains a recruit or proof.
+local asks, pages, served = {}, {}, {}
+local requestSerial = 0
+local ASK_GAP, REPLY_TTL, REFRESH, REPLY_BUDGET = 30, 90, 5 * 60, 8
+
+local function ActorKey(name)
+	local _, region = Scope()
+	local exact = ExactName(name, region)
+	if not exact then return nil end
+	-- Forever delivers some private addon senders bare, then Comm gives them our
+	-- sub-realm. Native names there are unique within the region.
+	return ns.Fold(region ~= "-" and ns.ShortName(exact) or exact)
+end
+
+local function Audience(name)
+	local key = ActorKey(name)
+	local M = ns.Moderation
+	return key and Church.InAudience(name) and not (M and M.Hides and M.Hides(name, nil)) and key or nil
+end
+
+local function Keeper(name)
+	local key = Audience(name)
+	if not key or not Church.IsKeeper(name) or Church.IsKing(name) then return nil end
+	local role = Church.Role(name)
+	if role == "A" then
+		local place = Church.Place(name)
+		if not place or ActorKey(place.n) ~= key then return nil end
+	elseif role == "H" and ActorKey(Church.HeadName()) ~= key then
+		return nil
+	end
+	return key
+end
+
+local function BoardScope()
+	local scope = Scope()
+	return Field(scope, 120) and scope or nil
+end
+
+local function Identity(scope)
+	return scope .. "~" .. ns.me
+end
+
+local function Window(window)
+	return window == "w" or window == "a"
+end
+
+local function ShareScope()
+	return InScope() and not (ns.QuietPresence and ns.QuietPresence()) and ns.FederationProgram.Active()
+end
+
+function Conversions.Ask(window, force)
+	if not Window(window) or not ShareScope() or not Audience(ns.me) or LocalAvailable() then return false end
+	local scope = BoardScope()
+	if not scope then return false end
+	local now, identity = ns.Now(), Identity(scope)
+	local last = asks[window]
+	if last and last.identity == identity then
+		if now < last.t + ASK_GAP or (last.open and now < last.expires) then return false end
+		if last.complete and not force and now < last.t + REFRESH then return false end
+	else
+		last = nil
+	end
+	local keepers = {}
+	for _, candidate in ipairs(Church.KeepersOnline(false)) do
+		local key = Keeper(candidate.name)
+		if key then keepers[#keepers + 1] = { key = key, name = candidate.name } end
+	end
+	if #keepers == 0 then Church.FindKeeper(); return false end
+	local selected = keepers[1]
+	for i, current in ipairs(keepers) do
+		if last and current.key == last.source then
+			selected = keepers[last.complete and i or i % #keepers + 1]
+			break
+		end
+	end
+	requestSerial = (requestSerial + 1) % 65536
+	local token = ("%x-%x-%x"):format(math.floor(now), math.random(1, 1073741823), requestSerial)
+	local request = { identity = identity, source = selected.key, token = token, t = now, open = true,
+		expires = now + REPLY_TTL, rows = {}, count = 0 }
+	asks[window] = request
+	local sent = ns.Comm.Whisper(selected.name, ("NY~1~q~%s~%s~%s~-"):format(scope, window, token),
+		nil, false, false, function(ok) if not ok then request.open = false end end, {
+			owner = Conversions,
+			guard = function()
+				return asks[window] == request and request.open and ns.Now() < request.expires
+					and ShareScope() and BoardScope() == scope and Identity(scope) == identity and Audience(ns.me) ~= nil
+					and Keeper(selected.name) == selected.key
+			end,
+		})
+	if not sent then request.open = false end
+	return sent
+end
+
+local function Answer(sender, scope, window, token)
+	local asker, keeper = Audience(sender), Keeper(ns.me)
+	-- Only a keeper with imported rows can publish. A zero this week is valid for
+	-- such a keeper. An uninitialized ledger has no coverage to publish.
+	if not asker or not keeper or not Reviewed(scope) then return false end
+	local now, query = ns.Now(), asker .. ":" .. window
+	for i = #served, 1, -1 do
+		if now - served[i].time >= REFRESH then table.remove(served, i) end
+	end
+	if #served >= REPLY_BUDGET then return false end
+	for _, reply in ipairs(served) do
+		if reply.query == query and (reply.token == token or now - reply.time < ASK_GAP) then return false end
+	end
+	local asOf = Church.Clock()
+	local RR, lines, rows = ns.RecruitRanking, {}, Conversions.Ranking(window, true, asOf)
+	for i = 1, math.min(#rows, RR.RANK_ROWS) do
+		local row = rows[i]
+		local name = Church.WireName(row.name)
+		if not name then return false end
+		lines[i] = ("NY~1~r~%s~%s~%s~%d~%s~%d"):format(scope, window, token, i, name, row.count)
+	end
+	lines[#lines + 1] = ("NY~1~e~%s~%s~%s~%d~%d~%d"):format(scope, window, token, #lines, #rows, asOf)
+	for _, line in ipairs(lines) do if #line > 255 then return false end end
+	local identity = Identity(scope)
+	if not RR.SendLines(sender, lines, nil, function()
+		return ShareScope() and BoardScope() == scope and Identity(scope) == identity and Keeper(ns.me) == keeper
+			and Audience(sender) == asker
+	end, RR.QUEUE_ASKS) then return false end
+	served[#served + 1] = { time = now, query = query, token = token }
+	return true
+end
+
+local function TakeAnswer(sender, scope, window, token, kind, body)
+	local a = asks[window]
+	local key = Keeper(sender)
+	if not a or not a.open or not key or key ~= a.source or token ~= a.token or a.identity ~= Identity(scope) or ns.Now() >= a.expires then return false end
+	local limit = ns.RecruitRanking.RANK_ROWS
+	if kind == "r" then
+		local rank, name, count = body:match("^(%d+)~([^~]+)~(%d+)$")
+		rank, count = tonumber(rank), tonumber(count)
+		local exact, rowKey = Church.WireName(name), Church.Key(name)
+		if not rank or rank < 1 or rank > limit or not exact or not rowKey or not count or count < 1 or count > MAX
+			or a.rows[rank] or (a.size and rank > a.size) then return false end
+		a.rows[rank], a.count = { name = exact, key = rowKey, count = count }, a.count + 1
+	elseif kind == "e" then
+		local size, ranked, asOf = body:match("^(%d+)~(%d+)~(%d+)$")
+		size, ranked, asOf = tonumber(size), tonumber(ranked), tonumber(asOf)
+		if a.size or not ranked or ranked > MAX or size ~= math.min(ranked, limit) or not Time(asOf, Church.Clock() + 60)
+			or asOf < Church.Clock() - REPLY_TTL then return false end
+		a.size, a.ranked, a.asOf = size, ranked, asOf
+	else
+		return false
+	end
+	if a.count ~= a.size then return true end
+	local seen, total = {}, 0
+	for i = 1, a.size do
+		local row = a.rows[i]
+		if not row or seen[row.key] or (i > 1 and row.count > a.rows[i-1].count) then a.open = false; return false end
+		seen[row.key], total = true, total + row.count
+	end
+	if total > MAX then a.open = false; return false end
+	a.open, a.complete = false, true
+	local old = pages[window]
+	if old and old.identity == a.identity and old.key == key and old.asOf > a.asOf then return false end
+	pages[window] = { identity = a.identity, key = key, from = sender, asOf = a.asOf, ranked = a.ranked, rows = a.rows }
+	ns.Fire(CHANGED)
+	return true
+end
+
+ns.Comm.Handle("NY", function(dist, sender, text)
+	if dist ~= "WHISPER" or type(text) ~= "string" or #text > 255 or not ShareScope() then return false end
+	local kind, scope, window, token, body = text:match("^NY~1~([qre])~([^~]+)~([wa])~([0-9a-f%-]+)~(.+)$")
+	if not token or #token > 32 or scope ~= BoardScope() then return false end
+	if kind == "q" then return body == "-" and Answer(sender, scope, window, token) end
+	if not Audience(ns.me) then return false end
+	return TakeAnswer(sender, scope, window, token, kind, body)
+end)
+
+function Conversions.RankingView(window)
+	if not Window(window) or not Conversions.Available() then return {}, nil, false, 0 end
+	if LocalAvailable() then
+		local rows = Conversions.Ranking(window)
+		return rows, ns.me, false, #rows
+	end
+	local scope, page, ask = BoardScope(), pages[window], asks[window]
+	if not scope or not Audience(ns.me) then return {}, nil, false, 0 end
+	local identity = Identity(scope)
+	local waiting = ask and ask.identity == identity and ask.open and ns.Now() < ask.expires
+	if not page or page.identity ~= identity or Keeper(page.from) ~= page.key then return {}, nil, waiting == true, 0 end
+	if window == "w" and Count.WindowFrom(window, page.asOf) ~= Count.WindowFrom(window, Church.Clock()) then
+		return {}, nil, waiting == true, 0
+	end
+	return page.rows, page.from, waiting == true, page.ranked, page.asOf
 end
