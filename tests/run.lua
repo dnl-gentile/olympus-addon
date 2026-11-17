@@ -53058,7 +53058,7 @@ end -- (the pinned line's review)
 			local active, enrolled = false, false
 			ns.FederationProgram = {
 				Active = function() return active end,
-				LocalEnrollment = function() return enrolled and {} or nil end,
+				LocalEnrollment = function() return enrolled and "Olympus II" or nil end,
 				IsEnrolled = function(guild) return enrolled and guild == "Olympus II" end,
 			}
 			local smith = "Sample Smith-Realm"

@@ -15,7 +15,7 @@ end
 
 local function Context()
 	local p = ns.FederationProgram
-	local revision = p and p.EnrollmentRevision()
+	local revision = p and p.EnrollmentRevision and p.EnrollmentRevision()
 	local now = revision and ns.Data.ServerTime()
 	if type(now) ~= "number" or ns.IsSecret(now) or now <= 0 or not ns.IsMember()
 		or ns.QuietPresence() or ns.ChatLocked() then return end

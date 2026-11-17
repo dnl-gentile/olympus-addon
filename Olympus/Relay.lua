@@ -1014,18 +1014,18 @@ end
 -- reporter hands its guild every word its relay sends, at one whisper every 1.2 s, and an ordinary
 -- chat line was the first a full queue pushed out, for its whole guild and for good. (1.5.9's review)
 -- A census word (`census`) goes by the census lane to our own guild, above.
-local federationWords = { M1 = true, W0 = true, W1 = true, WQ = true }
-local function GuildWordAllowed(guild, word)
-	return not federationWords[word:sub(1, 2)] or ns.SharedGuildAllowed(guild)
+Relay.FEDERATION_WORDS = { M1 = true, W0 = true, W1 = true, WQ = true }
+function Relay.GuildWordAllowed(guild, word)
+	return not Relay.FEDERATION_WORDS[word:sub(1, 2)] or ns.SharedGuildAllowed(guild)
 end
 
 ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
 	local options
-	if federationWords[text:sub(1, 2)] then
+	if Relay.FEDERATION_WORDS[text:sub(1, 2)] then
 		local guild = GetGuildInfo("player")
 		local function Guard()
-			return not ns.SharedToolsActive() or (guild == GetGuildInfo("player") and GuildWordAllowed(guild, text) and ns.SharedToolsHere())
+			return not ns.SharedToolsActive() or (guild == GetGuildInfo("player") and Relay.GuildWordAllowed(guild, text) and ns.SharedToolsHere())
 		end
 		if not Guard() then return false end
 		options = { guard = Guard }
@@ -2105,10 +2105,10 @@ local function ChatSend(e)
 	end
 	-- (The check of the lane: a send that throws is that whisper lost, its place in flight given back.)
 	local ok = ns.SafeCall("relay chat send", function()
-		local options = not e.across and federationWords[e.body:sub(1, 2)] and { guard = function()
+		local options = not e.across and Relay.FEDERATION_WORDS[e.body:sub(1, 2)] and { guard = function()
 			if not ns.SharedToolsActive() then return true end
 			local reporter = reporters[e.guild]
-			return reporter ~= nil and reporter.name == e.name and GuildWordAllowed(reporter.guild, e.body)
+			return reporter ~= nil and reporter.name == e.name and Relay.GuildWordAllowed(reporter.guild, e.body)
 		end } or nil
 		if #e.pieces == 1 then ns.Comm.Whisper(e.name, e.pieces[1], nil, true, false, done, options)
 		else ns.Comm.SendBatch("WHISPER", e.pieces, nil, e.name, true, done, options) end
@@ -2127,7 +2127,7 @@ local function ChatAddressee(e, now)
 	end
 	local r = reporters[e.guild]
 	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now)
-		or not GuildWordAllowed(r.guild, e.body) then return nil end
+		or not Relay.GuildWordAllowed(r.guild, e.body) then return nil end
 	return r.name
 end
 -- (1.6.0) The whisper to send next and its queue: a sanction's (across first), else the first of the copies
@@ -2515,7 +2515,7 @@ local function ToReporters(flag, origin, body, sender, ahead)
 			reporters[g] = nil
 		elseif approvalGuild and g ~= approvalGuild then
 			-- The re-send is for the guild whose approval it carries.
-		elseif not GuildWordAllowed(r.guild, body) then
+		elseif not Relay.GuildWordAllowed(r.guild, body) then
 			-- Shared words follow the signed guild policy. Census and verification remain separate.
 		elseif not Served(r, body, now) then
 			-- (1.5.4) A reporter the relay does not serve (no presentation from the deadline on, or
@@ -2592,8 +2592,8 @@ local function ToReporters(flag, origin, body, sender, ahead)
 				local word = presence and "T1~o" or ListKind(body) or QueueWord(body)
 				local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " " .. word) or nil
 				local urgent = presence or approvalGuild ~= nil
-				local options = federationWords[body:sub(1, 2)] and { guard = function()
-					return not ns.SharedToolsActive() or (reporters[g] == r and GuildWordAllowed(r.guild, body))
+				local options = Relay.FEDERATION_WORDS[body:sub(1, 2)] and { guard = function()
+					return not ns.SharedToolsActive() or (reporters[g] == r and Relay.GuildWordAllowed(r.guild, body))
 				end } or nil
 				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, urgent, false, nil, options)
 				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, urgent, nil, options) end
