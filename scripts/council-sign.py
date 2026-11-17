@@ -852,10 +852,15 @@ def contribution_milestone_entries(v, realm, treasurers):
         rows = []
         for row in milestones:
             fields(row, "a contribution milestone", ("title", "description"))
-            title = text_field(row.get("title"), "contribution milestone title", 40, True)
-            description = text_field(row.get("description"), "contribution milestone description", 120, True)
-            if not plain(title + description, "^!;=|"): sys.exit("a contribution milestone contains a reserved character")
-            rows.append("%s=%s" % (title, description))
+            parts = []
+            for name, limit in (("title", 40), ("description", 120)):
+                value = row.get(name)
+                if not isinstance(value, str): sys.exit("a contribution milestone %s must be text" % name)
+                value = value.strip()
+                if not value or len(value.encode()) > limit or not plain(value, "^!;="):
+                    sys.exit("not a contribution milestone %s the addon takes" % name)
+                parts.append(value)
+            rows.append("=".join(parts))
         entries.append("^contributionmilestones^%s^%s^%s^%s" % (faction, region, issuer, "!".join(rows)))
     return sorted(entries)
 

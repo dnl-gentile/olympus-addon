@@ -163,3 +163,23 @@ test("federation contributions milestones: only current author-signed scoped not
 		eq(rows[2].text, "Workshop completed")
 	end)
 end)
+
+test("federation donor privacy: revocation invalidates a previously queued named answer", function()
+	World(function(Set)
+		T.ResetPrivate()
+		local ok, err = pcall(function()
+			local guard
+			Set(ns.Comm, "QueueSize", function() return 0 end)
+			Set(ns.Comm, "SendBatch", function(_, _, _, _, _, _, opts) guard = opts.guard; return true end)
+			Set(ns.Comm, "Cancel", function() end)
+			Record(FIRST, 34567, OTHER)
+			eq(C.Handle("WHISPER", FIRST, ("CP~1~P~%s~%d~1"):format(SCOPE, AT)), true)
+			eq(C.Handle("WHISPER", OFFICER, "CP~1~Q~" .. SCOPE), true)
+			assert(guard and guard())
+			eq(C.Handle("WHISPER", FIRST, ("CP~1~P~%s~%d~0"):format(SCOPE, AT)), true)
+			eq(guard(), false, "already paced messages must not disclose a withdrawn name")
+		end)
+		T.ResetPrivate()
+		if not ok then error(err, 0) end
+	end)
+end)

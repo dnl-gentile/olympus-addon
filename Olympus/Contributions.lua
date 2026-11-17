@@ -262,10 +262,15 @@ local function PrimeOfficer(name)
 	if not Treasurer() or not Name(name) then return false end
 	local prime = ns.KingGuildName()
 	if not prime or not D.MandatoryGuild(prime) then return false end
-	local rank, evidence = ns.Data.AuthorizedRank(name, prime)
-	local localEvidence = ns.IsMember() and D.MandatoryGuild(GetGuildInfo("player")) and ns.Roster.Fresh()
-	if localEvidence then rank = ns.Roster.RankOf(name) end
-	return type(rank) == "number" and rank >= 0 and rank <= ns.CAPTAIN_RANK and (localEvidence ~= nil and localEvidence ~= false or evidence == "signed")
+	local rank
+	if ns.IsMember() and D.MandatoryGuild(GetGuildInfo("player")) and ns.Roster.Fresh() then
+		rank = ns.Roster.RankOf(name)
+	else
+		local evidence
+		rank, evidence = ns.Data.AuthorizedRank(name, prime)
+		if evidence ~= "signed" then return false end
+	end
+	return type(rank) == "number" and rank >= 0 and rank <= ns.CAPTAIN_RANK
 end
 local function InterestStaff()
 	return ns.IsMember() and D.MandatoryGuild(GetGuildInfo("player")) and PrimeOfficer(ns.me)
@@ -275,7 +280,7 @@ local function InterestRows(at)
 	local scope, now = Scope(), Clock()
 	if not Staff() or not scope or not Whole(at, 9999999999) or now - at < 0 or now - at > BOARD_FOR then return nil end
 	local prefs, rows, donors = Preferences("contributionInterest"), {}, Rows() or {}
-	local bands = {}
+	local bands, active = {}, {}
 	for _, mode in ipairs({ "A", "W" }) do
 		local ordered = {}
 		for key, row in pairs(donors) do
@@ -289,13 +294,18 @@ local function InterestRows(at)
 		local row = donors[key]
 		if type(choice) ~= "table" or not Whole(choice.at, 9999999999) or now - choice.at > INTEREST_FOR then prefs[key] = nil
 		elseif choice.on == true and row and Name(row.name) == key then
-			local verified = row.guild and Whole(row.guildAt, 9999999999) and now - row.guildAt <= INTEREST_FOR
-				and P.IsEnrolled(row.guild) and ns.Verify and ns.Verify.Status(row.guild) == "verified"
-			rows[#rows + 1] = ("%s=%s:%s"):format(row.name, bands[key] or "C", verified and "V" or "U")
+			active[#active + 1] = key
 		end
 	end
-	table.sort(rows)
-	return ("CI~1~B~%s~%d~%s"):format(scope, at, table.concat(rows, ";", 1, math.min(#rows, INTEREST_LIMIT)))
+	table.sort(active)
+	for i = 1, math.min(#active, INTEREST_LIMIT) do
+		local key = active[i]
+		local row = donors[key]
+		local verified = row.guild and Whole(row.guildAt, 9999999999) and now - row.guildAt <= INTEREST_FOR
+			and P.IsEnrolled(row.guild) and ns.Verify and ns.Verify.Status(row.guild) == "verified"
+		rows[i] = ("%s=%s:%s"):format(row.name, bands[key] or "C", verified and "V" or "U")
+	end
+	return ("CI~1~B~%s~%d~%s"):format(scope, at, table.concat(rows, ";"))
 end
 local function InterestParse(text)
 	local scope, at, body = text:match("^CI~1~B~([^~]+)~(%d+)~([^~]*)$")
@@ -417,9 +427,17 @@ table.insert(ns.RealmPages, { key = "prime-interest", Lines = InterestLines, Lin
 		end
 	end }
 end })
+local function RecheckReaders()
+	local cleared = false
+	if held and not Visible() then held, cleared = nil, true end
+	if interestHeld and not InterestStaff() then interestHeld, cleared = nil, true end
+	if cleared then ns.Fire("DATA_CHANGED") end
+end
 ns.On("LOGIN", function()
 	ns.Every(60, "charitable consent", function() C.ShareChoice(); SendInterest() end)
 end)
+ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit) if unit == "player" then RecheckReaders() end end)
+ns.RegisterEvent("GUILD_ROSTER_UPDATE", RecheckReaders)
 
 -- The Treasurer prepares informational copy locally. Publication requires the existing author
 -- signature on the current titles list and identifies the same exact signed Treasurer pin.
