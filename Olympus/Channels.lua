@@ -1865,7 +1865,7 @@ local function File(sender, m)
 end
 
 -- Returns shown, reason.
-function Channels.Receive(dist, sender, text, now)
+function Channels.Receive(dist, sender, text, now, checked)
 	if dist ~= "CHANNEL" then return false, "dist" end
 	if not ns.SharedToolsHere() then return false, "federation" end
 	-- The chats off on this client (1.1): dropped before anything reads or keeps the line.
@@ -1884,7 +1884,14 @@ function Channels.Receive(dist, sender, text, now)
 		stats.bad = stats.bad + 1
 		return false, "bad"
 	end
-	if not ns.SharedPeerAllowed(sender, m.guild) then return false, "federation" end
+	if not ns.SharedPeerAllowed(sender, m.guild) then
+		local membership, relay = ns.FederationMembership, ns.Relay
+		if not checked and membership and m.tier == "A" and not Ignored(sender)
+			and (not relay or not relay.HopTrusted or relay.HopTrusted()) then
+			membership.Request(sender, m.guild, function() Channels.Receive(dist, sender, text, nil, true) end)
+		end
+		return false, "federation"
+	end
 	local ok, reason = Channels.Admit(sender, m.guild, m.text, now, { tier = m.tier, id = m.id, chat = m.tier, line = m.id, evidence = true })
 	if not ok then
 		-- (A line the block terms hide is kept, see Admit.)

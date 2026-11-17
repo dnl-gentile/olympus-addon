@@ -175,7 +175,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -53084,6 +53084,62 @@ end -- (the pinned line's review)
 		end)
 	end)
 
+
+	test("federation membership witness: the shared chat and Crafters replay after authorization and keep existing restrictions", function()
+		WithCrafters(function(w, Cr)
+			local chat, rank, fresh, claimed, bridge, membership = ns.db.addonChat, ns.Roster.RankOf, ns.Roster.Fresh,
+				ns.Data.ClaimedGuild, ns.RecordChat, ns.FederationMembership
+			local own, remote = "Olympus II", "Olympus Fir"
+			local smith, friend = "New Smith-Realm", "New Friend-Realm"
+			local allowed, pending, recorded = {}, {}, 0
+			local ok, err = pcall(function()
+				ns.FederationProgram = {
+					Active = function() return true end,
+					LocalEnrollment = function() return own end,
+					IsEnrolled = function(guild) return guild == own or guild == remote end,
+				}
+				ns.FederationMembership = {
+					Allowed = function(name, guild) return allowed[name] == remote and (guild == nil or guild == remote) end,
+					Request = function(name, guild, callback)
+						eq(guild, remote)
+						pending[name] = callback
+					end,
+				}
+				ns.db.addonChat = true
+				ns.Roster.Fresh = function() return ns.Roster end
+				ns.Roster.RankOf = function(name) return name == ns.me and 0 or nil end
+				ns.Data.ClaimedGuild = function() return nil end
+				ns.RecordChat = function(tier, author, text)
+					if tier == "A" and author == friend and text == "membership proof test" then recorded = recorded + 1 end
+				end
+				Cr.HandleListing("CHANNEL", smith, "W1~Olympus Fir~164:Blacksmithing:100:150:4")
+				eq(#Cr.Board(), 0)
+				eq(type(pending[smith]), "function")
+				allowed[smith] = remote
+				pending[smith]()
+				eq(Cr.Board()[1].name, smith, "the listing appears only after the exact-guild witness")
+				eq(Cr.AskList(smith, "164"), true)
+				eq(w.whispers[#w.whispers], smith .. " WR~164~" .. own)
+				local word = ns.Codec.EncodeChat("A", remote, 829, "", "membership proof test")
+				eq(select(2, ns.Channels.Receive("CHANNEL", friend, word)), "federation")
+				eq(recorded, 0)
+				eq(type(pending[friend]), "function")
+				allowed[friend] = remote
+				pending[friend]()
+				eq(recorded, 1, "the bridge sees the admitted line once")
+				local restricted = ns.Codec.EncodeChat("C", remote, 830, "", "ordinary member cannot use a restricted tier")
+				eq(ns.Channels.Receive("CHANNEL", friend, restricted), false, "native membership never grants officer authority")
+				local before = #w.sent
+				Cr.Ask("item:100")
+				eq(#w.sent, before + 1)
+				assert(w.sent[#w.sent]:match("~i~100~Olympus II$"), w.sent[#w.sent])
+			end)
+			ns.db.addonChat, ns.Roster.RankOf, ns.Roster.Fresh = chat, rank, fresh
+			ns.Data.ClaimedGuild, ns.RecordChat, ns.FederationMembership = claimed, bridge, membership
+			if not ok then error(err, 0) end
+		end)
+	end)
+
 	test("1.1 Konig's review (item 5): the crafters: a crafter the moderators took off (or his guild) is not listed, his answers and recipe lists are not taken, and his own client sends none", function()
 		WithCrafters(function(w, Cr)
 			do
@@ -64864,6 +64920,7 @@ test("hop sighting mixed versions: a client without LY ignores the new word", fu
 end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 assert(loadfile(ROOT .. "tests/federation-program.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-membership.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/federation-contributions.lua"))(ns, test, eq)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",

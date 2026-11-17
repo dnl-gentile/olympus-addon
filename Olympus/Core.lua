@@ -2318,7 +2318,8 @@ end
 
 -- A chat/listing claim alone does not establish a sender's membership in an
 -- enrolled guild. Confirm it in our native roster or the authenticated guild
--- leadership evidence already used by recruiting handoffs.
+-- leadership evidence already used by recruiting handoffs, or in a short-lived
+-- native-roster witness from the other guild's exact signed caretaker.
 function ns.SharedPeerAllowed(sender, guild)
 	if not ns.SharedToolsActive() then return true end
 	if not ns.SharedToolsHere() or ns.IsSecret(sender, guild) or type(sender) ~= "string" or sender == "" then return false end
@@ -2327,10 +2328,11 @@ function ns.SharedPeerAllowed(sender, guild)
 	local realm = ns.RealmOf(who)
 	local region = (ns.realm or ""):match("^CAMWOW(%u%u)")
 	if not ns.InGroup(realm) or (region and realm:match("^CAMWOW(%u%u)") ~= region) then return false end
-	if guild == nil or guild == own then
-		if ns.Roster.Fresh() and ns.Roster.RankOf(who) ~= nil then return true end
-		if guild == own then return false end
-	end
+	local localGuild = type(guild) == "string" and type(own) == "string" and ns.Fold(guild) == ns.Fold(own)
+	if ns.Roster.Fresh() and ns.Roster.RankOf(who) ~= nil then return guild == nil or localGuild end
+	if localGuild then return false end
+	local membership = ns.FederationMembership
+	if membership and membership.Allowed(who, guild) then return true end
 	guild = guild or ns.Data.ClaimedGuild(who)
 	if type(guild) ~= "string" or not ns.SharedGuildAllowed(guild) or not ns.Data.CanRank(guild) then return false end
 	local rank, source, support = ns.Data.AuthorizedRank(who, guild)

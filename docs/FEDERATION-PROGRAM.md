@@ -40,6 +40,14 @@ For a remote guild, the addon requests only the roster count and observation tim
 
 Test in game with enrolled primary and side guilds before activating the rollout. Check a primary opening a seat, an unavailable roster observer, an expired policy, a full or revoked side guild, and a pending claim when any of those changes. On Forever, confirm that the upgraded clients see exact sender identities for direct addon whispers across native sub-realms.
 
+## Cross-guild membership
+
+During the rollout, an ordinary member can show their current guild membership for Olympus chat and Crafters. A viewer who has no live proof asks their own caretaker. That caretaker checks the viewer in the native roster before forwarding a private nonce to the other guild's signed caretaker. The second caretaker checks the exact subject in its own fresh native roster and answers the viewer directly. The witness contains the subject, nonce and roster observation time. Chat text, crafting details and roster lists stay out of this exchange.
+
+The witness lasts up to 90 seconds from the roster observation. Each client keeps at most 24 pending lookups and 128 witnesses in memory. At most two actions per subject can wait for a witness, for up to 15 seconds. A new signed enrollment revision, guild change, Accord withdrawal, or Privacy Mode clears this state. Every retry still goes through the existing chat, Crafters and moderation checks. The witness grants membership only. Officer channels keep their separate rank rules, and the Companion records only lines that reach the existing admitted chat path and satisfy its existing consent gates.
+
+Both signed caretaker clients must be online with fresh native rosters and current enrollments for this fallback. When either cannot answer, the addon omits an unverified incoming line or listing and keeps the existing signed-role and corroborated-census checks. Test this flow on two Forever guilds with ordinary members and separate custodians. Confirm native roster changes, signed revocation, cross-sub-realm sender identities, and chat/recipe visibility on both clients.
+
 ## Addon APIs
 
 - `ns.FederationProgram.Active()` checks whether this scope received a valid signed activation. It stays true after expiry or omission until an accepted newer signed policy explicitly says `off`.
