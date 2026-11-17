@@ -1038,7 +1038,7 @@ if ns.PlayerMenu and ns.PlayerMenu.Add then
 end
 
 for _, event in ipairs({ "CHURCH_CHANGED", "CHURCH_COUNT_CHANGED", "CHURCH_PUBLIC_CHANGED", "CHURCH_FULLNESS_CHANGED",
-	"RECRUIT_RANKING_CHANGED", "CHURCH_CONVERSIONS_CHANGED" }) do
+	"RECRUIT_RANKING_CHANGED", "VERIFIED_CONVERSIONS_CHANGED" }) do
 	ns.On(event, function()
 		if ns.UI and ns.UI.IsShown and ns.UI.IsShown() then Redraw() end
 	end)

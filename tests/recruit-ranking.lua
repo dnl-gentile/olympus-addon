@@ -74,7 +74,7 @@ local function Plain(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", "")
 -- Letters, not bytes: a Cyrillic or accented letter is one on screen.
 local function Letters(s) local _, n = Plain(s):gsub("[^\128-\191]", "") return n end
 
-test("Church conversions: store only trusted opt-in conversions, deduplicate accounts, and preserve the points rankings", function()
+test("Church conversions: require signed guild enrollment and independent scoped proof, and preserve the points rankings", function()
 	local w, c = Cast(nil, { view = true })
 	local keeper, recruit = c.a1, "New Guy"
 	local conversions = keeper.c.ChurchConversions
@@ -89,14 +89,26 @@ test("Church conversions: store only trusted opt-in conversions, deduplicate acc
 	eq(ok, false); eq(why, "unavailable")
 	eq(keeper.c.rdb.church.conversions, nil)
 
-	local attempts, optedIn, reused = 0, false, false
+	local start, finish = w.clock - 7200, w.clock + DAY
+	local title = ("HT1~%d~Realm~0~^program^Alliance^-^enforce^%d^%d^%s=Ivo Plain-Realm,Wes Brook-Realm,1")
+		:format(w.clock, start, finish, World.GUILD)
+	local signature = string.rep("a", 512)
+	keeper.c.InGroup = function(realm) return realm == "Realm" end
+	keeper.c.Sign = setmetatable({ Verify = function(text, sig) return text == title and sig == signature end }, { __index = keeper.c.Sign })
+	assert(loadfile(ROOT .. "Olympus/FederationProgram.lua"))("Olympus", keeper.c)
+	keeper.c.rdb.councilTitles = { blob = title .. "~" .. signature }
+	eq(w:As(keeper, keeper.c.FederationProgram.IsEnrolled, World.GUILD), true)
+	eq(Page(), false, "a manual guild approval supplies no individual verification")
+
+	local attempts, reused, wrongRegion, newRefs = 0, false, false, false
 	local request
 	w:As(keeper, conversions.SetVerifier, function(evidence, query)
 		attempts = attempts + 1
 		request = query
 		if evidence ~= "trusted proof" then return nil end
-		local suffix = reused and "02" or "01"
-		return { optedIn = optedIn, member = "member_ref_0000000000000000001",
+		local suffix = newRefs and "03" or reused and "02" or "01"
+		return { group = query.group, region = wrongRegion and "EU" or query.region, faction = query.faction, guild = query.guild,
+			member = "member_ref_00000000000000000" .. (newRefs and "02" or "01"),
 			handoff = "handoff_ref_0000000000000000" .. suffix, verification = "verify_ref_0000000000000000" .. suffix,
 			joinedAt = query.joinedAt, verifiedAt = w.clock }
 	end)
@@ -107,19 +119,28 @@ test("Church conversions: store only trusted opt-in conversions, deduplicate acc
 	w:ReadLog(c.ivo)
 	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
 	eq(ok, false); eq(why, "handoff"); eq(attempts, 0)
+	w:ReadLog(c.wes)
+	eq(State(w, keeper, recruit, "Ivo Plain"), "credited", "a weak witness suffices for the points ledger")
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "handoff"); eq(attempts, 0, "a weak witness never reaches the trusted provider")
 	w:ReadLog(c.a1)
 	ok, why = w:As(keeper, conversions.Record, recruit, "missing proof")
 	eq(ok, false); eq(why, "proof")
 	eq(Key(request.recruit), Key(recruit))
 	eq(Key(request.source), Key(A2))
 	eq(request.guild, World.GUILD)
+	wrongRegion = true
 	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
-	eq(ok, false); eq(why, "proof", "a guild which did not opt in does not count")
+	eq(ok, false); eq(why, "proof", "an attestation from a different region does not count")
 	eq(keeper.c.rdb.church.conversions, nil)
-	optedIn = true
+	wrongRegion = false
 	eq(w:As(keeper, conversions.Record, recruit, "trusted proof"), true)
 	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
 	eq(ok, false); eq(why, "duplicate")
+	newRefs = true
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "duplicate", "a second attestation with new identifiers for the same character changes no totals")
+	newRefs = false
 
 	local expected = "Other Guy"
 	reused = true
@@ -130,10 +151,11 @@ test("Church conversions: store only trusted opt-in conversions, deduplicate acc
 	w:ReadLog(c.a1)
 	ok, why = w:As(keeper, conversions.Record, expected, "trusted proof")
 	eq(ok, false); eq(why, "duplicate", "a second character on the verified account changes no totals")
-	local memberRef, saved = next(keeper.c.rdb.church.conversions)
+	local savedRows = keeper.c.rdb.church.conversions["Realm:Alliance:-"]
+	local memberRef, saved = next(savedRows)
 	eq(memberRef, "member_ref_0000000000000000001")
 	eq(saved.recruit, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
-	eq(next(keeper.c.rdb.church.conversions, memberRef), nil)
+	eq(next(savedRows, memberRef), nil)
 	for _, window in ipairs({ "w", "a" }) do
 		local rows = w:As(keeper, conversions.Ranking, window)
 		eq(#rows, 1)
@@ -142,8 +164,11 @@ test("Church conversions: store only trusted opt-in conversions, deduplicate acc
 	eq(Score(w, keeper, A2), 5, "the points still count both legitimate handoffs")
 	eq(#w:As(keeper, keeper.Count.Ranking, "u", "a"), 0, "nothing enters the original Church ranking")
 	w.clock = w.clock + 8 * DAY
+	eq(w:As(keeper, keeper.c.FederationProgram.IsEnrolled, World.GUILD), false)
+	ok, why = w:As(keeper, conversions.Record, expected, "trusted proof")
+	eq(ok, false); eq(why, "enrollment")
 	eq(#w:As(keeper, conversions.Ranking, "w"), 0)
-	eq(#w:As(keeper, conversions.Ranking, "a"), 1)
+	eq(#w:As(keeper, conversions.Ranking, "a"), 1, "expiration leaves historical eligibility intact")
 	w:As(keeper, conversions.SetVerifier, nil)
 	eq(Page(), false)
 end)
