@@ -379,7 +379,7 @@ with open(sys.argv[1], "w") as f:
         "faction": "Alliance", "region": "US", "mode": "enforce",
         "issued": now - 60, "expires": now + 3600,
         "guilds": [{"guild": "Olympus Azure", "caretaker": "Silver Rock-CAMWOWUS2Realm5PvE",
-                    "official": "Amber Vale-CAMWOWUS1Realm2PvE"}]
+                    "official": "Amber Vale-CAMWOWUS1Realm2PvE", "primary": True}]
     }], "contributions": [{
         "faction": "Alliance", "region": "US", "mode": "enforce",
         "issued": now - 60, "expires": now + 3600,

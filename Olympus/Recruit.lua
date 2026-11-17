@@ -2668,6 +2668,7 @@ local function CurrentRequest(req, allowHandoff)
 	if type(req) ~= "table" or type(req.name) ~= "string" or req.name == "" or not CanInvite() or not ns.IsMember() then return false end
 	if req.guild ~= GetGuildInfo("player") or ns.Roster.RankOf(req.name) ~= nil then return false end
 	if req.viaWhisper and (not Recruiting() or ns.ChatLocked()) then return false end
+	if req.overflowFrom and (GuildFull() or not Recruit.Handoff or not Recruit.Handoff.OverflowAllowed(req.overflowFrom, req.guild, true)) then return false end
 	if not allowHandoff and Recruit.Handoff and Recruit.Handoff.State(req) then return false end
 	Prune(ns.Now())
 	for _, pending in ipairs(Recruit.requests) do if pending == req then return true end end
@@ -2709,8 +2710,9 @@ end
 -- JOIN whispered to us opens (no Prepare step), and it is never offered onward (no intent).
 -- (1.5.9) `sighting`: a scanned player the member saw, not a JOIN (the offer's id says so; a 1.5.8
 -- member's offer reads as a JOIN).
-function Recruit.TakeHandoff(name, officer, sighting)
+function Recruit.TakeHandoff(name, officer, sighting, overflowFrom)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
+	if overflowFrom and not (Recruit.Handoff and Recruit.Handoff.OverflowAllowed(overflowFrom, recruitingGuild)) then return false end
 	if sighting and Recruit.ScanDeclined(name) then
 		if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
 		return false
@@ -2720,7 +2722,7 @@ function Recruit.TakeHandoff(name, officer, sighting)
 	local shown = copy:format(ns.DisplayName(officer) or officer)
 	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting, true)
 	if not accepted then return false end
-	req.handedIn, req.handedBy = true, officer
+	req.handedIn, req.handedBy, req.overflowFrom = true, officer, overflowFrom
 	-- Only a player who asked to join can earn referral credit for the member who passed the request.
 	local ranking = ns.RecruitRanking
 	if not sighting and ranking and ranking.HandedIn then

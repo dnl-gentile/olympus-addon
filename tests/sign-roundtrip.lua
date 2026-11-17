@@ -301,6 +301,10 @@ Sign.WithKey(n, mu, k, function()
 	check(program.IsEnrolled("Olympus Azure") and program.Role("Amber Vale-CAMWOWUS1Realm2PvE", "Olympus Azure") == "official"
 		and program.Role("Silver Rock-CAMWOWUS2Realm5PvE", "Olympus Azure") == "caretaker",
 		"the signed program preserves both exact roleholders across the local region's realms")
+	check(program.PrimaryGuilds()["Olympus Azure"] == true
+		and program.Caretakers()["Olympus Azure"] == "Silver Rock-CAMWOWUS2Realm5PvE",
+		"exact primary guild and caretaker survive signing and Workshop import")
+
 	ns.rdb.councilTitles = nil
 	check(program.Active() and not program.IsEnrolled("Olympus Azure"), "an absent group list clears grants but does not disable policy")
 	active, enabled = program.ContributionsPolicy()

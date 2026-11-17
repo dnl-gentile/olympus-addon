@@ -74,9 +74,9 @@ local function WithWorld(fn)
 		random = math.random,
 	}
 	local world = { now = 50000, queue = {}, byName = {}, clients = {}, sent = {}, ranks = {} }
-	GetGuildInfo = function() return own end
+	GetGuildInfo = function() return world.current and world.current.guild or own end
 	CanGuildInvite = function() return true end
-	GetNumGuildMembers = function() return 400, 120 end
+	GetNumGuildMembers = function() return world.current and world.current.capacity or 400, 120 end
 	ns.IsMember = function() return true end
 	ns.Now = function() return world.now end
 	ns.group, ns.realm, ns.splitNames = "ForeverPvE", home, true
@@ -118,8 +118,8 @@ end
 
 -- A member: this build's files, or 1.5.9's (`version` "1.5.9"), on `faction`, in the guild's roster,
 -- recruiting; `scan`: with this build's scan of unguilded players too (RecruitCandidates.lua).
-local function Member(world, short, faction, version, rank, scan)
-	local c = { name = Full(short), short = short, faction = faction, version = version or "1.6.0",
+local function Member(world, short, faction, version, rank, scan, guild)
+	local c = { guild = guild or own, name = Full(short), short = short, faction = faction, version = version or "1.6.0",
 		later = {}, timers = {}, printed = {}, defs = {} }
 	local cns = setmetatable({}, { __index = ns })
 	cns.me, cns.faction, cns.db, cns.rdb = c.name, faction, { log = {}, errors = {} }, {}
@@ -150,6 +150,7 @@ local function Member(world, short, faction, version, rank, scan)
 		assert(loadfile(FIXTURES .. "recruit-handoff-1.5.9.lua"))("Olympus", cns)
 	else
 		assert(loadfile(addonDir .. "Olympus/Recruit.lua"))("Olympus", cns)
+		assert(loadfile(addonDir .. "Olympus/RecruitOverflow.lua"))("Olympus", cns)
 		assert(loadfile(addonDir .. "Olympus/RecruitHandoff.lua"))("Olympus", cns)
 		if scan then assert(loadfile(addonDir .. "Olympus/RecruitCandidates.lua"))("Olympus", cns) end
 	end
@@ -176,14 +177,18 @@ local function Deliver(world)
 		n = n + 1
 		assert(n < 5000, "the packets settle")
 		local p = table.remove(world.queue, 1)
-		p.op = p.word:match("^J4~(%u)~")
+		p.op = p.word:match("^J[467]~(%u)~")
 		if world.beforeSend then world.beforeSend(p) end
 		local ok, why = true, nil
 		if p.guard then ok, why = As(world, p.from, p.guard) end
 		if p.done then As(world, p.from, p.done, ok and true or false, not ok and why or nil) end
 		local to = world.byName[p.peer]
 		world.sent[#world.sent + 1] = { from = p.from, to = to, op = p.op, word = p.word, at = world.now, dropped = not ok }
-		if ok and to then As(world, to, to.H.Receive, "WHISPER", p.from.name, p.word) end
+		if ok and to then
+			local overflow = to.R.VerifiedOverflow
+			local receiver = p.word:sub(1, 3) == "J7~" and overflow and overflow.Receive or to.H.Receive
+			As(world, to, receiver, "WHISPER", p.from.name, p.word)
+		end
 	end
 end
 
@@ -1160,4 +1165,126 @@ test("recruit handoff sides (1.6.0): the no-name line and the Queue only pointer
 		local noName = lns.L.RECRUIT_HANDOFF_NO_NAME
 		assert(noName:find(MEMBER_WORD[code], 1, true), code .. ": the queue is the member's: " .. noName)
 	end
+end)
+
+
+local function OverflowMembers(w)
+	local cap = ns.Codec.GUILD_CAP
+	local first = Member(w, "Gold Gale", "Alliance", nil, 1, nil, "Olympus Sun")
+	local second = Member(w, "Copper Rock", "Alliance", nil, 1, nil, "Olympus Copper")
+	local side = Member(w, "Sea Ash", "Alliance", nil, 1, nil, "Olympus Wave")
+	local enrolled, primary, actors = {}, { [first.guild] = true, [second.guild] = true }, {}
+	local revision = 1
+	for _, c in ipairs({ first, second, side }) do
+		enrolled[c.guild] = true
+		c.capacity, c.captured = primary[c.guild] and cap or 400, w.now
+		actors[c.guild] = { Full(c.short .. " Keeper"), c.name }
+		c.ns.SharedToolsActive = function() return true end
+		c.ns.SharedToolsHere = function() return enrolled[c.guild] == true end
+		c.ns.SharedGuildAllowed = function(guild) return enrolled[guild] == true end
+		c.ns.FederationProgram = {
+			EnrollmentRevision = function() return revision end,
+			LocalEnrollment = function() return enrolled[c.guild] and c.guild or nil end,
+			PrimaryGuilds = function() return primary end,
+			IsEnrolled = function(guild) return enrolled[guild] == true end,
+			Roleholders = function(guild) return unpack(actors[guild] or {}) end,
+			Role = function(name, guild)
+				local roles = enrolled[guild] and actors[guild]
+				return roles and (roles[2] == name and "official" or roles[1] == name and "caretaker") or nil
+			end,
+		}
+		c.ns.Data = setmetatable({ ServerTime = function() return w.now end }, { __index = ns.Data })
+		c.ns.Roster = setmetatable({
+			Fresh = function()
+				return { guild = c.guild, complete = true, serverAt = c.captured,
+					lastStats = { numTotal = c.capacity, seen = c.capacity } }
+			end,
+			RankOf = function(name) return name == c.name and 1 or nil end,
+		}, { __index = ns.Roster })
+	end
+	Accepting(w, side)
+	return first, second, side, enrolled
+end
+
+test("verified overflow: only a federation JOIN goes from full primaries to an enrolled side with room", function()
+	WithWorld(function(w)
+		local first, second, side = OverflowMembers(w)
+		local applicant = Full("Aster Vale")
+		local function Offer(req)
+			return As(w, first, first.H.Offer, req, side.name, side.guild)
+		end
+		As(w, first, first.R.OnWhisper, "JOIN", Full("Holly Vale"))
+		eq(Offer(first.R.requests[1]), false, "a guild-only JOIN is private to the guild")
+		eq(#w.queue, 0, "a guild-only JOIN starts no cross-guild lookup")
+		As(w, first, first.R.OnWhisper, "JOIN OLYMPUS", applicant)
+		local req = first.R.requests[2]
+		second.capacity = ns.Codec.GUILD_CAP - 1
+		eq(Offer(req), false, "seats must be confirmed")
+		Deliver(w)
+		eq(Offer(req), false, "one primary still has room")
+		eq(Count(w, "O"), 0)
+		w.now = w.now + 91
+		first.captured, second.captured, side.captured = w.now, w.now, w.now
+		second.capacity = ns.Codec.GUILD_CAP
+		eq(Offer(req), false, "expired observations carry no authority")
+		Deliver(w)
+		eq(Offer(req), false, "side guild must confirm room too")
+		Deliver(w)
+		eq(Offer(req), true)
+		Deliver(w)
+		eq(Count(w, "N"), 0)
+		for _, message in ipairs(w.sent) do
+			eq(message.word:find(applicant, 1, true), nil, "all preliminary packets omit the name")
+		end
+		eq(Run(w, 15, function() return side.D.Find(CLAIM) ~= nil end), true)
+		eq(ClaimShown(w, side), true)
+		Deliver(w)
+		eq(Count(w, "N", side, first), 1)
+		eq(side.R.requests[1].name, applicant)
+		eq(side.R.requests[1].overflowFrom, first.guild)
+		eq(first.H.State(req), "assigned")
+		side.capacity = ns.Codec.GUILD_CAP
+		eq(As(w, side, side.R.Accept, side.R.requests[1]), false, "native full destination blocks another draft")
+	end)
+end)
+
+test("verified overflow: capacity or enrollment changes drop a queued name before it can leave", function()
+	WithWorld(function(w)
+		local first, _, side, enrolled = OverflowMembers(w)
+		As(w, first, first.R.OnWhisper, "JOIN OLYMPUS", Full("Clover Vale"))
+		local req = first.R.requests[1]
+		As(w, first, first.H.Offer, req, side.name, side.guild)
+		Deliver(w)
+		As(w, first, first.H.Offer, req, side.name, side.guild)
+		Deliver(w)
+		eq(As(w, first, first.H.Offer, req, side.name, side.guild), true)
+		Deliver(w)
+		eq(Run(w, 15, function() return side.D.Find(CLAIM) ~= nil end), true)
+		eq(ClaimShown(w, side), true)
+		w.beforeSend = function(packet)
+			if packet.op == "N" then first.capacity = ns.Codec.GUILD_CAP - 1 end
+		end
+		Deliver(w)
+		eq(Count(w, "N", side, first), 0)
+		eq(#side.R.requests, 0)
+		eq(first.H.State(req), nil, "a provably unsent name clears the local lock")
+		enrolled[side.guild] = nil
+		eq(As(w, first, first.H.Offer, req, side.name, side.guild), false, "a revoked side guild cannot receive an offer")
+	end)
+end)
+
+
+test("verified overflow: the legacy wire and another realm cannot bypass the offered route", function()
+	WithWorld(function(w)
+		local first, _, side = OverflowMembers(w)
+		local word = ("J4~O~1-a-1~%d~ForeverPvE~Alliance~%s~%s~"):format(w.now + 30, first.guild, side.guild)
+		eq(As(w, side, side.H.Receive, "WHISPER", first.name, word), false, "legacy cross-guild packet")
+		local verified = word:gsub("J4", "J6", 1)
+		eq(As(w, side, side.H.Receive, "WHISPER", first.name:gsub("CAMWOWUS", "CAMWOWEU"), verified), false,
+			"a namesake in another region is no roleholder")
+		local reverse = ("J6~O~1-a-2~%d~ForeverPvE~Alliance~%s~%s~"):format(w.now + 30, side.guild, first.guild)
+		Accepting(w, first)
+		eq(As(w, first, first.H.Receive, "WHISPER", side.name, reverse), false, "side to primary is not overflow")
+		eq(Count(w, "N"), 0)
+	end)
 end)

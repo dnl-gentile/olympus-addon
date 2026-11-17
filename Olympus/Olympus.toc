@@ -125,6 +125,7 @@ LinkLoader.lua
 ArmyExport.lua
 GuildCharter.lua
 Recruit.lua
+RecruitOverflow.lua
 RecruitHandoff.lua
 RecruitCandidates.lua
 PartyGuard.lua

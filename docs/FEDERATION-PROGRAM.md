@@ -32,6 +32,14 @@ In an enrolled guild, `/oly caretaker` shows the exact character to whisper once
 
 Scope is the exact signed group, faction and region. Forever scope uses the region code from the native realm name. On other realms the region is `-`. Each entry is a complete replacement for that scope and has an inclusive `issued` and exclusive `expires` Unix second, at most 31 days apart. Repeat every active scope in subsequent council JSON updates. Removing a guild, expiry, or an omitted policy clears grants while the signed activation stays in force. Retiring that rollout requires a newer signed policy for its scope with `mode` set to `off`, valid times, and an empty `guilds` list. The signer rejects more than twenty guilds per scope. Normal signed titles size limits still apply across all scopes and the existing titles data.
 
+## Recruiting overflow
+
+Mark each primary guild's enrollment row with `"primary": true`. Guilds without that marker are candidates for side-guild placement. During the signed rollout, a cross-guild handoff starts with the applicant's explicit `JOIN OLYMPUS` whisper to a recruiter in a primary guild. The recruiter opens the handoff picker in Church → Invites. A recipient in a signed side guild with room can claim the offer once every configured primary has a complete native roster at the game's cap. Missing or old evidence leaves the request in the origin queue. Guild-only joins and scanned players stay in their original guild's recruiting flow.
+
+For a remote guild, the addon requests only the roster count and observation time from a signed roleholder by direct addon whisper. Observations count for up to 90 seconds. The recipient independently checks its own roster and the primary capacities. Preliminary messages carry no applicant data. The origin shares only the claimed applicant's name, directly with the claimant, after rechecking capacity, enrollment and the applicant's request. The recipient still prepares an attended invite. The recipient checks the rule again before preparing the invitation in the addon. An already copied native command remains in the player's hands.
+
+Test in game with enrolled primary and side guilds before activating the rollout. Check a primary opening a seat, an unavailable roster observer, an expired policy, a full or revoked side guild, and a pending claim when any of those changes. On Forever, confirm that the upgraded clients see exact sender identities for direct addon whispers across native sub-realms.
+
 ## Addon APIs
 
 - `ns.FederationProgram.Active()` checks whether this scope received a valid signed activation. It stays true after expiry or omission until an accepted newer signed policy explicitly says `off`.

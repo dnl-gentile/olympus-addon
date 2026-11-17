@@ -36,7 +36,7 @@ local function Entries(body, group, region)
 	if body == "-" then return out end
 	if body == "" or body:find("^!") or body:find("!$") or body:find("!!", 1, true) then return nil end
 	for item in body:gmatch("[^!]+") do
-		local guild, caretaker, official = item:match("^([^=]+)=([^,]+),([^,]+),1$")
+		local guild, caretaker, official, primary = item:match("^([^=]+)=([^,]+),([^,]+),1(p?)$")
 		if not guild or #guild > 72 or not guild:match("^[%a\128-\255][%a\128-\255 ]*$")
 			or guild:find(" $") or select(2, guild:gsub("[^\128-\191]", "")) > 24 then return nil end
 		local key = ns.Fold(guild)
@@ -44,7 +44,7 @@ local function Entries(body, group, region)
 		count = count + 1
 		if count > MAX_GUILDS or out[key] or not owner or not gm or owner == gm or people[owner] or people[gm] then return nil end
 		people[owner], people[gm] = true, true
-		out[key] = { caretaker = caretaker, official = official }
+		out[key] = { guild = guild, caretaker = caretaker, official = official, primary = primary == "p" }
 	end
 	return out
 end
@@ -100,7 +100,7 @@ local function State(kind, at)
 	at = type(at) == "number" and at or now
 	if not policy or blob ~= retained.blob or policy.mode ~= "enforce"
 		or not policy.guilds or now >= policy.finish or not (policy.start <= at and at < policy.finish) then return true, nil end
-	return true, policy.guilds
+	return true, policy.guilds, policy.revision
 end
 
 -- Workshop calls this on each side of replacing a signed titles list, including on first receipt.
@@ -130,6 +130,34 @@ end
 
 function Program.IsEnrolled(guild, at)
 	return Enrollment(guild, at) ~= nil
+end
+
+function Program.Caretakers()
+	local out = {}
+	local _, guilds = State(enrollment)
+	for _, record in pairs(guilds or {}) do
+		if not ns.IsRemovedGuild(record.guild) then out[record.guild] = record.caretaker end
+	end
+	return out
+end
+
+function Program.Roleholders(guild)
+	local record = Enrollment(guild)
+	if record then return record.caretaker, record.official end
+end
+
+function Program.PrimaryGuilds()
+	local out = {}
+	local _, guilds = State(enrollment)
+	for _, record in pairs(guilds or {}) do
+		if record.primary then out[record.guild] = true end
+	end
+	return out
+end
+
+function Program.EnrollmentRevision()
+	local _, _, revision = State(enrollment)
+	return revision
 end
 
 -- Exact signed game identities; these roles confer no native permissions.

@@ -752,7 +752,7 @@ def program_entries(v, realm):
             sys.exit("program needs a bounded guild list (empty in off mode)")
         rows, names, people_set = [], set(), set()
         for row in guilds:
-            fields(row, "a guild program enrollment", ("guild", "caretaker", "official", "officialRankIndex"))
+            fields(row, "a guild program enrollment", ("guild", "caretaker", "official", "officialRankIndex", "primary"))
             guild = guild_name(row.get("guild"))
             if guild.casefold() in names: sys.exit("a guild program guild twice")
             names.add(guild.casefold())
@@ -766,7 +766,9 @@ def program_entries(v, realm):
                 people_set.add(name.casefold())
             rank = row.get("officialRankIndex", 1)
             if type(rank) is not int or rank != 1: sys.exit("program officialRankIndex must be native index 1 (the second slot)")
-            rows.append("%s=%s,%s,1" % (guild, caretaker, official))
+            primary = row.get("primary", False)
+            if type(primary) is not bool: sys.exit("program primary must be true or false")
+            rows.append("%s=%s,%s,1%s" % (guild, caretaker, official, "p" if primary else ""))
         entries.append("^program^%s^%s^%s^%d^%d^%s" % (faction, region, mode, issued, expires, "!".join(sorted(rows)) or "-"))
     return sorted(entries)
 
