@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 20),
-			"1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
+		eq(table.concat(versions, " ", 1, 21),
+			"1.6.1 1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -602,8 +602,8 @@ test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
 		local title, body = cns.Letters.Text("1.6.0")
-		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": the release's letter, after 1.6.0.1's")
-		eq(cns.Letters.Versions()[3], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(cns.Letters.Versions()[3], "1.6.0", code .. ": the release's letter, after 1.6.0.1's")
+		eq(cns.Letters.Versions()[4], "1.5.9", code .. ": the previous letter remains in the archive")
 		eq(title, rawget(L, "LETTER_1_6_0_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_5_9_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_6_0_SIGNED"), rawget(L, "LETTER_1_5_9_SIGNED"), code .. ": the dev's signature in this language, as 1.5.9's")
@@ -794,8 +794,8 @@ test("1.6.0.1 letter content: each locale tells that guild verification on the P
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_6_0_1"), code)
 		local title, body = cns.Letters.Text("1.6.0.1")
-		eq(cns.Letters.Versions()[1], "1.6.0.1", code .. ": the release's letter first")
-		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": 1.6.0's after it")
+		eq(cns.Letters.Versions()[2], "1.6.0.1", code .. ": the hotfix letter follows the current one")
+		eq(cns.Letters.Versions()[3], "1.6.0", code .. ": 1.6.0's after it")
 		eq(title, rawget(L, "LETTER_1_6_0_1_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_6_0_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_6_0_1_SIGNED"), rawget(L, "LETTER_1_6_0_SIGNED"), code .. ": the dev's signature in this language, as 1.6.0's")

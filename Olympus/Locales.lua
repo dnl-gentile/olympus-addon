@@ -300,6 +300,10 @@ Long live the King. Long live Olympus.]==]
 -- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
 -- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
 L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_1_TITLE = "Guild Leadership in The Realm"
+L.LETTER_1_6_1 = [==[The Realm can show guild masters and officers together again. Use the Show filter above the guild list. Older roster sightings are dated, and guilds without roster detail show that leadership is still unknown.
+
+This update also adds tools to support signed guild participation, confirmed recruiting handoffs and signed fugitive decisions. These tools follow the participation rules set up by your guild and the High Council.]==]
 L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 L.LETTER_1_6_0_1 = [==[Your Majesty. Soldiers of Olympus.
 
@@ -582,6 +586,10 @@ Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_1_TITLE = "Líderes e oficiais em The Realm"
+	L.LETTER_1_6_1 = [==[Agora é possível ver os líderes e oficiais das guildas juntos em The Realm. Use o filtro Mostrar acima da lista. A presença de um registro antigo vem com o tempo da observação. Se ainda não chegou uma lista de membros, a liderança aparece como desconhecida.
+
+Esta atualização também traz ferramentas de adesão assinada das guildas, repasse confirmado de recrutas e decisões assinadas sobre fugitivos. Elas seguem as regras de participação definidas pela sua guilda e pelo High Council.]==]
 	L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_6_0_1 = [==[Vossa Majestade. Soldados do Olympus.
 
