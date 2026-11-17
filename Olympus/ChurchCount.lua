@@ -421,6 +421,7 @@ local function RecruitMain(name)
 	local role = Church.Role(main)
 	if role == "A" or role == "M" then return main end
 end
+Count.RecruitMain = RecruitMain
 -- (1.6.0) The Apostle or Missionary main an inviter's own alt claim names (Alts.ClaimedMain): his word
 -- alone, which no keeper credits on (TakeEvidence asks RecruitMain: both claims). On Forever a guildmate
 -- hears that claim over GUILD (Alts.Send) while the main's own claim, said in another guild, reaches him

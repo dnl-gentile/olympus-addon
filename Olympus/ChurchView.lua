@@ -24,6 +24,7 @@ ns.ChurchView = View
 local Church, Count = ns.Church, ns.ChurchCount
 
 View.list, View.window = "a", "m"
+View.conversionWindow = "w"
 View.open = {}
 View.rulesReturn = nil
 
@@ -103,6 +104,8 @@ function View.Pages()
 	if not PreviewRole() and R and R.WhisperAvailable and R.WhisperAvailable() then out[#out + 1] = "invites" end
 	local audience = Audience()
 	if audience or Everyone() then out[#out + 1] = "ranking" end
+	local conversions = ns.ChurchConversions
+	if not PreviewRole() and conversions and conversions.Available() then out[#out + 1] = "conversions" end
 	out[#out + 1] = "people"
 	local r = Rights()
 	if r.apostle or r.missionary or r.correspondent then out[#out + 1] = "name" end
@@ -139,7 +142,7 @@ local function CloseRules()
 end
 
 local PAGE_LABEL = { ranking = "CHURCH_NAV_RANKING", mine = "CHURCH_NAV_MINE", people = "CHURCH_NAV_PEOPLE", name = "CHURCH_NAV_NAME",
-	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC", invites = "CHURCH_NAV_INVITES" }
+	review = "CHURCH_NAV_REVIEW", public = "CHURCH_NAV_PUBLIC", invites = "CHURCH_NAV_INVITES", conversions = "CHURCH_NAV_CONVERSIONS" }
 
 local function Nav(current)
 	local nav = {}
@@ -179,6 +182,30 @@ local function Filters(who)
 	local filters = who and { ListFilter(), WindowFilter() } or { WindowFilter() }
 	if who and View.list == "c" then filters = { ListFilter() } end
 	return { filters = filters, id = "church-filters", gapAfter = true }
+end
+
+local function ConversionLines()
+	local options, current = {}, View.conversionWindow
+	for _, item in ipairs({ { "w", L.CHURCH_WINDOW_WEEK }, { "a", L.CHURCH_WINDOW_ALL } }) do
+		local key, label = item[1], item[2]
+		options[#options + 1] = {
+			text = label, selected = key == current,
+			onClick = key ~= current and function() View.conversionWindow = key; Redraw() end or nil,
+		}
+	end
+	local lines = {
+		Nav("conversions"),
+		{ id = "church-conversion-window", filters = { { label = L.CHURCH_FILTER_WHEN,
+			value = current == "w" and L.CHURCH_WINDOW_WEEK or L.CHURCH_WINDOW_ALL, options = options, understated = true } } },
+		{ text = L.CHURCH_CONVERSION_NOTE, gapAfter = true },
+	}
+	for i, row in ipairs(ns.ChurchConversions.Ranking(current)) do
+		if i > ns.RecruitRanking.RANK_ROWS then break end
+		lines[#lines + 1] = { text = ("%d.  %s"):format(i, Name(row.name)), right = tostring(row.count),
+			player = ns.FullName(row.name), key = row.key }
+	end
+	if #lines == 3 then lines[#lines + 1] = { indent = 1, text = Grey(L.CHURCH_RANKING_EMPTY) } end
+	return lines, L.CHURCH_TITLE, L.CHURCH_NAV_CONVERSIONS
 end
 
 local ROLE_LABEL = { W = "CHURCH_ROLE_AUTHOR", K = "CHURCH_ROLE_KING", H = "CHURCH_HEAD", A = "CHURCH_APOSTLE", M = "CHURCH_MISSIONARY",
@@ -867,6 +894,7 @@ function View.Build()
 	if not Allowed(page) then page = View.Pages()[1] end
 	View.page = page
 	if page == "ranking" then return View.RankingLines()
+	elseif page == "conversions" then return ConversionLines()
 	elseif page == "mine" then return View.MineLines()
 	elseif page == "people" then return View.PeopleLines()
 	elseif page == "name" then return View.NameLines()
@@ -1009,7 +1037,8 @@ if ns.PlayerMenu and ns.PlayerMenu.Add then
 	ns.PlayerMenu.Add("church", function(target, menu) View.MenuLines(target, menu) end, 40, { olympus = true })
 end
 
-for _, event in ipairs({ "CHURCH_CHANGED", "CHURCH_COUNT_CHANGED", "CHURCH_PUBLIC_CHANGED", "CHURCH_FULLNESS_CHANGED", "RECRUIT_RANKING_CHANGED" }) do
+for _, event in ipairs({ "CHURCH_CHANGED", "CHURCH_COUNT_CHANGED", "CHURCH_PUBLIC_CHANGED", "CHURCH_FULLNESS_CHANGED",
+	"RECRUIT_RANKING_CHANGED", "CHURCH_CONVERSIONS_CHANGED" }) do
 	ns.On(event, function()
 		if ns.UI and ns.UI.IsShown and ns.UI.IsShown() then Redraw() end
 	end)

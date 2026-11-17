@@ -856,6 +856,20 @@ function RR.Credits()
 end
 function RR.StateOf(id) return RR.Credits().states[id] end
 
+-- A recent, independently confirmed join with an agreed handoff source.
+-- Folded totals cannot provide who joined, which guild took them, or why.
+function RR.ConfirmedHandoff(recruit)
+	local key = Key(recruit)
+	if not key then return nil end
+	local c = RR.Credits()
+	local id = c.winners[key]
+	local r = id and Led().r[id]
+	if not r or c.states[id] ~= "credited" or type(r.ws) ~= "table" or #r.ws == 0
+		or type(r.g) ~= "string" or r.g == "" or type(r.tc) ~= "number" or type(r.tj) ~= "number"
+		or not SourceKey(r) then return nil end
+	return { recruit = r.n, inviter = r.bn, source = r.src, guild = r.g, invitedAt = r.tc, joinedAt = r.tj }
+end
+
 -- Room in a full ledger: the records that count for nothing first, then pending ones, then the credited
 -- ones (folded), the oldest first, the id breaking ties; a fiftieth at once.
 local LET_GO = { open = 1, transfer = 1, alt = 1, taken = 1, pending = 2, credited = 3 }

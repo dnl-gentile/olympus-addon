@@ -20,11 +20,11 @@ local function Loud(cl) cl.c.SafeCall = function(_, fn, ...) fn(...) return true
 -- Two guilds: Aldric (an Apostle, a keeper) with Ivo (a plain member who invites), Wes (a plain member,
 -- a witness) and Sid (a plain member who passes players on) in Olympus Ember; Bera (an Apostle) and Vik (a
 -- plain member) in Olympus Vale. The Head, the King and the author are offline unless a test brings them.
-local function Cast(more)
+local function Cast(more, keeperOptions)
 	local w = World.New({ apostles = { A1, A2 } })
 	local c = {
 		head = w:Client(World.HEAD), king = w:Client(World.KING), author = w:Client(World.AUTHOR),
-		a1 = w:Client(A1), a2 = w:Client(A2, { guild = World.GUILD2 }),
+		a1 = w:Client(A1, keeperOptions), a2 = w:Client(A2, { guild = World.GUILD2 }),
 		ivo = w:Client("Ivo Plain"), wes = w:Client("Wes Brook"), sid = w:Client("Sid Pass"),
 		vik = w:Client("Vik Stone", { guild = World.GUILD2 }),
 	}
@@ -73,6 +73,80 @@ end
 local function Plain(s) return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
 -- Letters, not bytes: a Cyrillic or accented letter is one on screen.
 local function Letters(s) local _, n = Plain(s):gsub("[^\128-\191]", "") return n end
+
+test("Church conversions: store only trusted opt-in conversions, deduplicate accounts, and preserve the points rankings", function()
+	local w, c = Cast(nil, { view = true })
+	local keeper, recruit = c.a1, "New Guy"
+	local conversions = keeper.c.ChurchConversions
+	local function Page()
+		for _, page in ipairs(w:As(keeper, keeper.c.ChurchView.Pages)) do
+			if page == "conversions" then return true end
+		end
+		return false
+	end
+	eq(Page(), false, "no conversion tab without a configured provider")
+	local ok, why = w:As(keeper, conversions.Record, recruit, "no proof")
+	eq(ok, false); eq(why, "unavailable")
+	eq(keeper.c.rdb.church.conversions, nil)
+
+	local attempts, optedIn, reused = 0, false, false
+	local request
+	w:As(keeper, conversions.SetVerifier, function(evidence, query)
+		attempts = attempts + 1
+		request = query
+		if evidence ~= "trusted proof" then return nil end
+		local suffix = reused and "02" or "01"
+		return { optedIn = optedIn, member = "member_ref_0000000000000000001",
+			handoff = "handoff_ref_0000000000000000" .. suffix, verification = "verify_ref_0000000000000000" .. suffix,
+			joinedAt = query.joinedAt, verifiedAt = w.clock }
+	end)
+	eq(Page(), true)
+	eq(w:As(c.ivo, c.ivo.RR.HandedIn, recruit, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, recruit, c.ivo.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", recruit)
+	w:ReadLog(c.ivo)
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "handoff"); eq(attempts, 0)
+	w:ReadLog(c.a1)
+	ok, why = w:As(keeper, conversions.Record, recruit, "missing proof")
+	eq(ok, false); eq(why, "proof")
+	eq(Key(request.recruit), Key(recruit))
+	eq(Key(request.source), Key(A2))
+	eq(request.guild, World.GUILD)
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "proof", "a guild which did not opt in does not count")
+	eq(keeper.c.rdb.church.conversions, nil)
+	optedIn = true
+	eq(w:As(keeper, conversions.Record, recruit, "trusted proof"), true)
+	ok, why = w:As(keeper, conversions.Record, recruit, "trusted proof")
+	eq(ok, false); eq(why, "duplicate")
+
+	local expected = "Other Guy"
+	reused = true
+	eq(w:As(c.ivo, c.ivo.RR.HandedIn, expected, A2), true)
+	eq(w:Act(c.a2, c.a2.RR.HandedOut, expected, c.ivo.name), true)
+	Recruit(w, World.GUILD, "Ivo Plain", expected)
+	w:ReadLog(c.ivo)
+	w:ReadLog(c.a1)
+	ok, why = w:As(keeper, conversions.Record, expected, "trusted proof")
+	eq(ok, false); eq(why, "duplicate", "a second character on the verified account changes no totals")
+	local memberRef, saved = next(keeper.c.rdb.church.conversions)
+	eq(memberRef, "member_ref_0000000000000000001")
+	eq(saved.recruit, nil); eq(saved.evidence, nil); eq(saved.discordId, nil)
+	eq(next(keeper.c.rdb.church.conversions, memberRef), nil)
+	for _, window in ipairs({ "w", "a" }) do
+		local rows = w:As(keeper, conversions.Ranking, window)
+		eq(#rows, 1)
+		eq(rows[1].key, Key(A2)); eq(rows[1].count, 1)
+	end
+	eq(Score(w, keeper, A2), 5, "the points still count both legitimate handoffs")
+	eq(#w:As(keeper, keeper.Count.Ranking, "u", "a"), 0, "nothing enters the original Church ranking")
+	w.clock = w.clock + 8 * DAY
+	eq(#w:As(keeper, conversions.Ranking, "w"), 0)
+	eq(#w:As(keeper, conversions.Ranking, "a"), 1)
+	w:As(keeper, conversions.SetVerifier, nil)
+	eq(Page(), false)
+end)
 
 test("1.5.9 recruiting ranking: any member's invite and the join, confirmed by a guildmate's addon, earn the inviter 10; the Church's ledger takes none of it", function()
 	local w, c = Cast()
