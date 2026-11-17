@@ -2,6 +2,8 @@ local _, ns = ...
 local L = ns.L
 
 L.FUGITIVES_WHISPER = "You are speaking with a known Olympus fugitive."
+L.FUGITIVES_TAG = "Known Olympus fugitive"
+L.FUGITIVES_PARTY = "A known Olympus fugitive is in your group."
 L.FUGITIVES_AUDIT = "Known Olympus fugitives on your guild roster: %s."
 L.FUGITIVES_REMAINDER = "%d more"
 L.FUGITIVES_HELP = "/oly fugitives paste: import a signed Olympus fugitive list."
@@ -11,6 +13,8 @@ L.FUGITIVES_REFUSED = "The Olympus fugitive list could not be accepted. Check it
 
 if GetLocale and GetLocale() == "ptBR" then
 	L.FUGITIVES_WHISPER = "Você está falando com um fugitivo conhecido do Olympus."
+	L.FUGITIVES_TAG = "Fugitivo conhecido do Olympus"
+	L.FUGITIVES_PARTY = "Há um fugitivo conhecido do Olympus no seu grupo."
 	L.FUGITIVES_AUDIT = "Fugitivos conhecidos do Olympus na sua guilda: %s."
 	L.FUGITIVES_REMAINDER = "mais %d"
 	L.FUGITIVES_HELP = "/oly fugitives paste: importe uma lista assinada de fugitivos do Olympus."

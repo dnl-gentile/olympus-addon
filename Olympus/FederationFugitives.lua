@@ -10,6 +10,7 @@ local L = ns.L
 local DAY, MAX_NAMES, MAX_BLOB = 86400, 96, 8192
 local cachedStore, cachedScope, cachedBlob, cached
 local warned, warnedCount, auditQueued = {}, 0, false
+local warnedInGroup = {}
 
 local function Scope()
 	local realm = ns.realm
@@ -126,6 +127,33 @@ function F.Whisper(name)
 	return true
 end
 
+local function VisibleList()
+	local now, program = Clock(), ns.FederationProgram
+	if not now or not program or not program.LocalEnrollment or not program.LocalEnrollment(now)
+		or ns.KingsScreen() or ns.ChatLocked() then return nil end
+	return Live(now)
+end
+
+function F.Visible(name)
+	local list, region, group = VisibleList()
+	return list ~= nil and Matches(name, list, region, group)
+end
+
+local function CheckGroup()
+	local list, region, group = VisibleList()
+	if not list then return end
+	local present, newMatch = {}, false
+	for _, member in ipairs(ns.Groups.GroupMembers()) do
+		local key = NameKey(member.name, region, group)
+		if key and Matches(member.name, list, region, group) then
+			present[key] = true
+			newMatch = newMatch or not warnedInGroup[key]
+		end
+	end
+	warnedInGroup = present
+	if newMatch then ns.Print(L.FUGITIVES_PARTY) end
+end
+
 function F.Audit()
 	local now, program = Clock(), ns.FederationProgram
 	if not now or not program or not program.LocalEnrollment or not program.Role or ns.KingsScreen() or ns.ChatLocked()
@@ -200,3 +228,4 @@ ns.RegisterEvent("CHAT_MSG_WHISPER_INFORM", function(_, name) F.Whisper(name) en
 ns.RegisterEvent("GUILD_ROSTER_UPDATE", AuditSoon)
 ns.RegisterEvent("PLAYER_REGEN_ENABLED", AuditSoon)
 ns.On("FEDERATION_FUGITIVES_CHANGED", AuditSoon)
+ns.On("GROUPS_ROSTER", CheckGroup)

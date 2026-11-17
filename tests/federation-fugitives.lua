@@ -21,6 +21,7 @@ local function Client(db)
 			Role = function(name, guild) return name == GM and guild == GUILD and t.role or nil end,
 		},
 		Alts = { Linked = function(name) return t.links[name] or {} end },
+		Groups = { GroupMembers = function() return t.members or {} end },
 		Roster = { Fresh = function() return t.roster end },
 		Dialog = { Show = function(id, text)
 			if t.refuseDialog then return nil end
@@ -71,6 +72,37 @@ test("federation fugitives: signed scope, expiration and clearing are checked af
 		eq(restored.IsListed(ON, GUILD), false)
 		reload.db.federationFugitives["US:ForeverPvE:Alliance"] = proofs.INITIAL:gsub("Arden", "Other")
 		eq(restored.IsListed("Other Frost-CAMWOWUS2Realm5PvE", GUILD), false, "saved data is authenticated on use")
+	end)
+end)
+
+test("federation fugitives: group joins and tooltip visibility follow local enrollment and signed identities", function()
+	ns.Sign.WithKey(proofs.N, proofs.MU, proofs.K, function()
+		local t, c, f = Client()
+		t.members = { { name = ON }, { name = "Arden Frost" } }
+		t.listeners.GROUPS_ROSTER()
+		eq(#t.printed, 0, "no signed list")
+		eq(f.Import(proofs.INITIAL), true)
+		t.enrolled = false
+		t.listeners.GROUPS_ROSTER()
+		eq(#t.printed, 0, "no enrollment")
+		eq(f.Visible(ON), false)
+		t.enrolled, t.stream = true, true
+		t.listeners.GROUPS_ROSTER()
+		eq(#t.printed, 0, "stream privacy")
+		eq(f.Visible(ON), false)
+		t.stream = false
+		eq(f.Visible(ON), true)
+		eq(f.Visible("Arden Frost"), false)
+		t.listeners.GROUPS_ROSTER()
+		t.listeners.GROUPS_ROSTER()
+		eq(#t.printed, 1, "one warning for this join")
+		eq(t.printed[1], c.L.FUGITIVES_PARTY)
+		local joined = t.members
+		t.members = {}
+		t.listeners.GROUPS_ROSTER()
+		t.members = joined
+		t.listeners.GROUPS_ROSTER()
+		eq(#t.printed, 2, "warns when they rejoin")
 	end)
 end)
 

@@ -85,7 +85,7 @@ ns.GAMEPAD = {
 		why = "Olympus's lines on a player's tooltip: the gamepad's soft target shows that tooltip again and again, and Olympus writes nothing in the game's frames there." },
 	{ id = "player-tooltip", kind = "tooltip-postcall", files = { "PlayerTooltip.lua" },
 		guard = "gate", toPad = "park", toMouse = "install", safe = "off",
-		why = "Compact guild ranks and optional player-tooltip scale: mouse login installs hide/clear cleanup once; gamepad login installs nothing, switching to gamepad restores the borrowed scale and callbacks stay inert except cleanup." },
+		why = "Guild ranks, opt-in fugitive labels and optional player-tooltip scale: mouse login installs hide/clear cleanup once; gamepad login installs nothing, switching to gamepad restores the borrowed scale and callbacks stay inert except cleanup." },
 	{ id = "error-handler", kind = "global-handler", files = { "Bootstrap.lua", "Diagnostics.lua" },
 		guard = "gate", toPad = "park", toMouse = "nothing", safe = "off",
 		why = "Every error would pass through Olympus's handler, which opens the game's error window in Olympus's taint; at a switch to the gamepad UI the game's own handler is put back, and never replaced again that session." },

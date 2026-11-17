@@ -6612,11 +6612,12 @@ for _, initialPad in ipairs({ false, true }) do
 		GP.Covers("player-tooltip")
 		local P, tip = assert(ns.PlayerTooltip), C.env.GameTooltip
 		C.units.mouseover = { name = "Someone", realm = "Realm", guid = "Player-1-00000002", guild = "Olympus II", rank = "Titan", rankIndex = 1 }
+		ns.FederationFugitives.Visible = function(name) return name == "Someone-Realm" end
 		assert(P.Set("scale", 120))
 		tip:SetScale(0.9)
-		local function RankLines()
+		local function CountLines(text)
 			local n = 0
-			for _, line in ipairs(tip.lines or {}) do if line == "Olympus II · Titan" then n = n + 1 end end
+			for _, line in ipairs(tip.lines or {}) do if line == text then n = n + 1 end end
 			return n
 		end
 		for _, mode in ipairs({ initialPad, not initialPad, initialPad, false }) do
@@ -6626,14 +6627,16 @@ for _, initialPad in ipairs({ false, true }) do
 			local owner, anchor = tip.owner, tip.anchor
 			C.Isolated(ns.Inspect.TooltipUnit, tip)
 			C.Isolated(ns.Inspect.TooltipUnit, tip)
-			eq(RankLines(), mode and 0 or 1, "one observed guild rank, no duplicate on repeated post-calls")
+			eq(CountLines("Olympus II · Titan"), mode and 0 or 1, "one observed guild rank, no duplicate on repeated post-calls")
+			eq(CountLines(ns.L.FUGITIVES_TAG), mode and 0 or 1, "one label only in mouse mode")
 			eq(tip:GetScale(), mode and 0.9 or 1.08, "optional scale follows native player's original size")
 			eq(tip.owner, owner); eq(tip.anchor, anchor)
 			if not mode then
 				C.Switch(true); C.Advance(0.1) -- Gate parks native additions on the next frame.
 				eq(tip:GetScale(), 0.9, "switch restores a visible tooltip before leaving mouse mode")
 				C.Isolated(ns.Inspect.TooltipUnit, tip)
-				eq(RankLines(), 1, "retained callback is inert under gamepad")
+				eq(CountLines("Olympus II · Titan"), 1, "retained callback is inert under gamepad")
+				eq(CountLines(ns.L.FUGITIVES_TAG), 1, "retained callback does not add a second label")
 			end
 			tip:Hide(); eq(tip:GetScale(), 0.9)
 		end
