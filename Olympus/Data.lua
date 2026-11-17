@@ -1138,7 +1138,7 @@ local function GlobalTrusted(name)
 end
 -- (1.5.5) What the census took, left unproven and refused (Data.CensusStats, for /oly bug).
 Data.CENSUS_REFUSALS = 5 -- the last refusals kept, with their reason
-local censusStats = { cg = { trusted = 0, witnessed = 0, lone = 0, refused = 0 },
+local censusStats = { cg = { trusted = 0, witnessed = 0, lone = 0, refused = 0, messages = 0, echo = 0, invalid = 0 },
 	cx = { author = 0, trusted = 0, witnessed = 0, heard = 0, unproven = 0, refused = 0 },
 	cx3 = { direct = 0, author = 0, unproven = 0 }, qa = { verified = 0, refused = 0, signed = 0 } }
 local censusRefusals = {} -- { kind, why, from, t }, oldest first
@@ -1172,16 +1172,22 @@ local function GlobalRow(name, total, online, avg10, observed)
 end
 -- rg (1.5.5): a trusted row a guildmate handed over (RG, Relay.Hop "G"): his guild's word, any origin
 -- he names. It counts here for display, and never enters a trusted client's own snapshot (SendableRows).
-local function GlobalTake(name, total, online, avg10, observed, by, heardAt, witnesses, rg)
-	local row = GlobalRow(name, total, online, avg10, observed)
-	if not row then return false end
+local function GlobalTake(row, by, heardAt, witnesses, rg, made)
 	local now = ns.Now()
 	local store, key = GlobalStore(), row.name:lower()
 	local old = store[key]
 	if type(old) == "table" and (tonumber(old.observed) or 0) > row.observed then return false end
+	local changed = old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10
+		or old.observed ~= row.observed
+	-- A scoped, trusted snapshot can vouch for a row that was fresh when assembled.
+	-- Keep the roster read's time and use the snapshot's time only for the online window.
+	local vouched = made and made >= row.observed and made - row.observed <= Data.FRESH and math.min(made, now) or nil
+	local before = not changed and tonumber(old.vouched) or nil
+	if before and (not vouched or before > vouched) then vouched = before end
 	store[key] = { name = row.name, total = row.total, online = row.online, avg10 = row.avg10,
-		observed = row.observed, by = ns.FullName(by), heard = heardAt or now, w = witnesses, scope = ns.group, rg = rg or nil }
-	if old == nil or old.total ~= row.total or old.online ~= row.online or old.avg10 ~= row.avg10 or old.observed ~= row.observed then return true end
+		observed = row.observed, by = ns.FullName(by), heard = heardAt or now, w = witnesses, scope = ns.group,
+		rg = rg or nil, vouched = vouched }
+	if changed or vouched ~= before then return true end
 	-- Even the same observation advances the startup status on its first receipt this login.
 	local login = ns.Comm and ns.Comm.loginAt
 	return login ~= nil and now - login < Data.REBUILD_FOR and (tonumber(old.heard) or 0) < login
@@ -1271,7 +1277,8 @@ local function TakeWitness(row, sender, now)
 	end
 	-- (1.5.5) The second result: whether two people agreed on the guild (Data.CensusStats).
 	if not best or best == own then return false, best ~= nil end
-	return GlobalTake(best.name, best.total, best.online, best.avg10, best.observed, best.by, now, 2), true
+	local accepted = GlobalRow(best.name, best.total, best.online, best.avg10, best.observed)
+	return accepted ~= nil and GlobalTake(accepted, best.by, now, 2), true
 end
 
 local function TrimGlobal()
@@ -1306,9 +1313,10 @@ function Data.CaptureGlobalCensus()
 	if not GlobalTrusted(ns.me) then return 0 end
 	local n, now = 0, ns.Now()
 	for name, g in pairs(ns.rdb.guilds or {}) do
-		local observed = ObservationTime(g)
-		if LocalReport(g) and now - observed <= Data.KEEP and GlobalTake(name, tonumber(g.total) or 0, tonumber(g.online) or 0,
-			Data.AvgTenths(g) or 0, observed, ns.me, now) then n = n + 1 end
+		if LocalReport(g) then
+			local row = GlobalRow(name, tonumber(g.total) or 0, tonumber(g.online) or 0, Data.AvgTenths(g) or 0, ObservationTime(g))
+			if row and GlobalTake(row, ns.me, now) then n = n + 1 end
+		end
 	end
 	TrimGlobal()
 	return n
@@ -1365,21 +1373,25 @@ local function SendableRows()
 	return rows
 end
 
--- What this client holds, for its asks: the guilds it could count (within TOTAL_KEEP) and its
--- newest observation of any of them.
-function Data.GlobalDigest()
+-- The count and newest observation in one of the bounded global row sets. SendableRows already
+-- combines retained and valid direct rows by guild; GlobalRows is the retained view an ask needs
+-- healed. Keeping those inputs separate stops a fresh direct report from disguising an old save.
+local function GlobalRowsDigest(rows)
 	local seen, n, newest, now = {}, 0, 0, ns.Now()
-	local function Add(name, observed)
-		if type(name) ~= "string" or now - observed > Data.TOTAL_KEEP then return end
-		local key = name:lower()
-		if not seen[key] then seen[key], n = true, n + 1 end
-		if observed > newest then newest = observed end
-	end
-	for _, e in ipairs(GlobalRows()) do Add(e.name, e.observed) end
-	for name, g in pairs(ns.rdb.guilds or {}) do
-		if LocalReport(g) then Add(name, ObservationTime(g)) end
+	for _, e in ipairs(rows) do
+		local name, observed = e.name, tonumber(e.observed)
+		if type(name) == "string" and observed and now - observed <= Data.TOTAL_KEEP then
+			local key = name:lower()
+			if not seen[key] then seen[key], n = true, n + 1 end
+			if observed > newest then newest = observed end
+		end
 	end
 	return n, newest
+end
+
+-- What this client retains globally, for its asks: the view that another holder can heal.
+function Data.GlobalDigest()
+	return GlobalRowsDigest(GlobalRows())
 end
 
 local function GlobalWireRow(e)
@@ -1499,7 +1511,7 @@ end
 -- by more than FRESH. An ask of 1.3.3 says nothing of what it holds: answered as before.
 local function Behind(n, newest)
 	if not n then return true end
-	local mine, mineNewest = Data.GlobalDigest()
+	local mine, mineNewest = GlobalRowsDigest(SendableRows())
 	return mine > n or mineNewest > (newest or 0) + Data.FRESH
 end
 local function AnswerAsk(body, now)
@@ -1529,53 +1541,56 @@ end
 -- relay's rows are taken as they come; any other member's are witnesses (TakeWitness), taken when
 -- two people agree. The rows themselves are never mistaken for signed census authority.
 function Data.ReceiveGlobalCensus(dist, sender, text)
-	if dist ~= "CHANNEL" or type(text) ~= "string" or type(sender) ~= "string"
-		or #text > Data.GLOBAL_MAX_BYTES or sender == "" or #sender > 100 or sender:find("[%c~]") then return false end
+	if dist ~= "CHANNEL" then return false end
+	Tally("cg", "messages")
+	if type(text) ~= "string" or type(sender) ~= "string" or #text > Data.GLOBAL_MAX_BYTES
+		or sender == "" or #sender > 100 or sender:find("[%c~]") then return Refused("cg", "format", sender) end
 	local ver, kind, made, body = text:match("^CG~(%d+)~([SQC])~(%d*)~?(.*)$")
 	ver = tonumber(ver)
 	if ver ~= Data.GLOBAL_PROTOCOL and ver ~= 2 then return Refused("cg", "format", sender) end
 	local now = ns.Now()
 	local self = OwnWord(sender) -- (the relay's stamped copy of our own snapshot too)
 	if kind == "C" then
-		if ver == 1 and ScopedGroup(ns.group) then return false end
+		if ver == 1 and ScopedGroup(ns.group) then return Refused("cg", "protocol", sender) end
 		-- A member's claim: its snapshot follows. It counts as an answer heard (AnswerAsk).
-		if not self then HeardAnswer(now, GlobalTrusted(sender), sender) end
+		if self then Tally("cg", "echo") else HeardAnswer(now, GlobalTrusted(sender), sender) end
 		return true
 	end
 	if kind == "Q" then
 		-- A query grants no authority and the answer is broadcast to the channel.  Requiring
 		-- the requester itself to be a keeper made anti-entropy useless for the ordinary late
 		-- client it was designed to heal.  Only snapshot senders need the trusted-relay gate.
-		if self then return true end
+		if self then Tally("cg", "echo"); return true end
 		return AnswerAsk(body, now)
 	end
-	if self then return true end
+	if self then Tally("cg", "echo"); return true end
 	if ver == 2 then
 		local group, faction, rows = body:match("^([^~]+)~(%a+)~(.*)$")
 		if group ~= ns.group or faction ~= (ns.faction or "Alliance") then return Refused("cg", "scope", sender) end
 		body = rows
-	elseif ScopedGroup(ns.group) then return false end
+	elseif ScopedGroup(ns.group) then return Refused("cg", "protocol", sender) end
 	local trusted = GlobalTrusted(sender)
 	-- (1.5.5) A trusted row a guildmate handed over (RG): display only for a trusted holder (GlobalTake).
 	local rg = trusted and Hop() == "G"
 	local snapshotAt = GlobalNumber(made, 1, 4102444800)
 	if not snapshotAt or snapshotAt > now + 5 * 60 or now - snapshotAt > Data.KEEP then return Refused("cg", "time", sender) end
+	local vouchAt = ver == 2 and ScopedGroup(ns.group) and snapshotAt or nil
 	local changed, count, bad = false, 0, false
 	for row in tostring(body):gmatch("[^;]+") do
 		if count >= Data.GLOBAL_MAX_ROWS then bad = true; break end
 		local name, total, online, avg10, observed = row:match("^([^,]+),(%d+),(%d+),(%d+),(%d+)$")
 		if not name then bad = true; break end
 		count = count + 1
-		if trusted then
+		local r = GlobalRow(name, total, online, avg10, observed)
+		if not r then
+			Tally("cg", "invalid")
+		elseif trusted then
 			Tally("cg", "trusted")
-			if GlobalTake(name, total, online, avg10, observed, sender, now, nil, rg) then changed = true end
+			if GlobalTake(r, sender, now, nil, rg, vouchAt) then changed = true end
 		else
-			local r = GlobalRow(name, total, online, avg10, observed)
-			if r then
-				local took, agreed = TakeWitness(r, sender, now)
-				Tally("cg", agreed and "witnessed" or "lone")
-				if took then changed = true end
-			end
+			local took, agreed = TakeWitness(r, sender, now)
+			Tally("cg", agreed and "witnessed" or "lone")
+			if took then changed = true end
 		end
 	end
 	-- (1.4.0: the rows taken before a malformed one stay, and now say so.)
@@ -1590,7 +1605,8 @@ function Data.ReceiveGlobalCensus(dist, sender, text)
 	return true
 end
 
--- The ask, with what this client holds (Data.GlobalDigest): a holder with nothing newer stays quiet.
+-- The ask, with the retained global view this client needs healed (Data.GlobalDigest): a holder
+-- with no newer sendable view stays quiet.
 function Data.AskGlobalCensus()
 	local n, newest = Data.GlobalDigest()
 	return ns.Comm.Send("CHANNEL", ("CG~%d~Q~%d~%d~%d"):format(Data.GLOBAL_PROTOCOL, math.floor(ns.Now()), n, newest), "census-global-ask")
@@ -1614,10 +1630,16 @@ local function SummaryGuilds()
 			-- A normalized display row, intentionally missing leaders, ranks, zones and votes.
 			if currentName and currentName ~= e.name then out[currentName] = nil end
 			out[e.name] = { total = e.total, online = e.online, avgLevel = e.avg10 / 10,
-				t = e.observed, st = e.observed, zones = {}, relayed = true, relayBy = e.by }
+				t = e.observed, st = e.observed, zones = {}, relayed = true, relayBy = e.by, vouched = tonumber(e.vouched) }
 		end
 	end
 	return out, direct, now
+end
+
+local function FreshRelayObservation(g, observed, now)
+	local vouched = g.relayed and g.vouched
+	return vouched and vouched >= observed and vouched - observed <= Data.FRESH
+		and vouched <= now and now - vouched <= Data.FRESH
 end
 
 function Data.Summary()
@@ -1633,7 +1655,7 @@ function Data.Summary()
 			local received, stamp = tonumber(g.t) or 0, ObservationTime(g)
 			local observed = scoped and stamp > 0 and math.min(stamp, received) or received
 			local age = now - observed
-			local fresh = age <= Data.FRESH
+			local fresh = age <= Data.FRESH or (scoped ~= nil and FreshRelayObservation(g, observed, now) == true)
 			-- A guild keeps its size from its last report when its reporters log off (the army
 			-- does not shrink every night), for a day; listed (grey) for a week; who is online
 			-- and where only count while fresh.
@@ -1931,13 +1953,20 @@ function Data.RecordGroupCensus(s, now)
 	if not group then return false end
 	s, now = s or Data.Summary(), now or ns.Now()
 	if s.snapshot then return false end -- a displayed fallback is never a new observation
-	local counted, observed = 0, now
+	-- (1.6.0) newest: the newest report of another guild the look rests on (our own guild's roster is
+	-- read every minute and says nothing of what reaches us). Data.ApplyGroupSnapshot keeps the look
+	-- while nothing newer has reached this client.
+	local counted, observed, newest = 0, now, nil
 	for _, e in ipairs(s.guilds or {}) do
-		if e.counted then counted, observed = counted + 1, math.min(observed, ObservationTime(e.g)) end
+		if e.counted then
+			local at = ObservationTime(e.g)
+			counted, observed = counted + 1, math.min(observed, at)
+			if not e.g.mine then newest = math.max(newest or at, at) end
+		end
 	end
 	local row = GroupRow(group, OurFaction(), tonumber(s.characters or s.total) or 0, tonumber(s.total) or 0, counted, observed)
 	if not row then return false end
-	row.src = "own"
+	row.src, row.newest = "own", newest
 	GroupStore()[GroupKey(row.faction, row.group)] = row
 	GroupStore("heard")[GroupKey(row.faction, row.group)] = nil
 	if Data.CaptureGroupDetails then Data.CaptureGroupDetails(s, now) end
@@ -1962,12 +1991,19 @@ function Data.ApplyGroupSnapshot(s, now)
 	end
 	if not held then return end
 	local counted, refreshed, freshGuilds, freshCharacters = 0, 0, 0, 0
+	local scoped = ScopedGroup(group)
+	-- (1.6.0, a member's /oly bug of 11-15: "reports heard=0", old relayed rows, the census going from
+	-- 3,202 on PvE and 3,202 on all servers to 1,544 and 7,068) Whether any guild but ours has been heard
+	-- since the newest report the look rests on (RecordGroupCensus's newest; a look saved before 1.6.0
+	-- has its oldest alone).
+	local since, heardSince = tonumber(held.newest) or held.observed, false
 	for _, e in ipairs(s.guilds) do
+		if not e.g.mine and ObservationTime(e.g) > since then heardSince = true end
 		if e.counted then
 			counted = counted + 1
 			local observed = ObservationTime(e.g)
 			if observed >= held.observed then refreshed = refreshed + 1 end
-			if now - observed <= Data.FRESH then
+			if now - observed <= Data.FRESH or (scoped and FreshRelayObservation(e.g, observed, now)) then
 				freshGuilds = freshGuilds + 1
 				freshCharacters = freshCharacters + math.min(e.g.total or 0, ns.Codec.GUILD_CAP)
 			end
@@ -1975,10 +2011,18 @@ function Data.ApplyGroupSnapshot(s, now)
 	end
 	-- Enough newer guild reports reconcile the saved coverage. An extra older row cannot veto them.
 	if not held.unscoped and refreshed >= held.guilds and s.characters > 0 then return end
+	-- (1.6.0) The look counts a day from its oldest report, as each guild's own report does (TOTAL_KEEP),
+	-- and past it while no guild but ours has been heard since it was taken. Each guild's report leaves
+	-- the count a day after it was read, and the look's date is its oldest guild's, so a client that hears
+	-- nothing new lost a guild at a time: the look gave way with its oldest guild and the next quarter
+	-- hour saved a smaller one (CensusStats.Sample), while another server's count stays until a newer one
+	-- replaces it (Lasting, the author's 11-12 rule: "ele deveria redistribuir esses dados enquanto não
+	-- tivessem dados novos na rede"). Our line fell and the all-server total rose, with no member lost.
+	-- Once anything newer is heard, a guild unheard for a day leaves the count as before.
 	local snapshot = { group = group, faction = held.faction, observed = held.observed, source = held.src,
 		witnesses = held.w, characters = held.characters, people = held.people, guilds = held.guilds,
-		age = math.max(0, now - held.observed), unscoped = held.unscoped,
-		counted = not held.unscoped and now - held.observed <= Data.TOTAL_KEEP }
+		age = math.max(0, now - held.observed), unscoped = held.unscoped, quiet = not heardSince,
+		counted = not held.unscoped and (now - held.observed <= Data.TOTAL_KEEP or not heardSince) }
 	if not snapshot.counted then s.history = snapshot; return end
 	-- The last-day sum can include old reports. Show the fresh subset separately so the retained
 	-- total cannot hide changes in the guilds that are still reporting.
@@ -2955,7 +2999,7 @@ end
 
 -- (1.5.5) What the census took, left unproven and refused since login, for /oly bug (the relay's
 -- BugLines "census:" line): a copy, with the last refusals newest first and the whole as one line.
---   cg: trusted, witnessed, lone, refused (global rows)       cx: author, trusted, witnessed, heard, unproven, refused
+--   cg: trusted, witnessed, lone, refused, messages, echo, invalid    cx: author, trusted, witnessed, heard, unproven, refused
 --   cx3: direct, author, unproven (looks)                     qa: verified, refused, signed (the author's checked looks)
 function Data.CensusStats()
 	local out, now = { last = {} }, ns.Now()
@@ -2971,8 +3015,8 @@ function Data.CensusStats()
 		last[#last + 1] = r.kind .. ":" .. r.why
 	end
 	local g, x, l, q = out.cg, out.cx, out.cx3, out.qa
-	out.line = ("cg t%d w%d l%d r%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d | qa v%d r%d s%d"):format(
-		g.trusted, g.witnessed, g.lone, g.refused, x.author, x.trusted, x.witnessed, x.heard, x.unproven, x.refused,
+	out.line = ("cg t%d w%d l%d r%d m%d e%d i%d | cx a%d t%d w%d h%d u%d r%d | cx3 d%d a%d u%d | qa v%d r%d s%d"):format(
+		g.trusted, g.witnessed, g.lone, g.refused, g.messages, g.echo, g.invalid, x.author, x.trusted, x.witnessed, x.heard, x.unproven, x.refused,
 		l.direct, l.author, l.unproven, q.verified, q.refused, q.signed) .. (#last > 0 and (" | last " .. table.concat(last, ",")) or "")
 	return out
 end

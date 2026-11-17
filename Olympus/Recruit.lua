@@ -28,7 +28,20 @@ local L = ns.L
 -- names nobody to whisper.
 --   J1~1                                  which guild should I ask?
 --   J2~<y|n>~<gates guild>~<seconds>~<guild>=<free>=<name>/<name>;...   the answer (n: do not contact me)
+--       (1.6.0: its list starts with *=<r|i|x>, the member's own word, Recruit.SelfWord)
 --   J3~<guild asked>~<level>~<CLASS>      my request (sent with the player's whisper)
+--
+-- 1.6.0 (players' reports, 11-14 and 11-15: new characters asked a dozen members from this screen
+-- and none invited; a PvP player "haven't seen anyone"): a member's answer also says what he can do
+-- with a request ("r" it pops up for him now, "i" he can invite and it waits in his list, "x" he
+-- can't: no invite right, or a full guild; clients before 1.6.0 read no guild in that entry) and
+-- names his own guild's recruiters before its Lords and Captains. The screen asks, after the guild of
+-- the King's gates (its own who recruit first: a member's word is his alone, the gates two answers
+-- confirm), one who recruits, then the officers and recruiters the answers name, then anyone else;
+-- passes over one who can't (a request open for him closes with the reason and the next member is
+-- asked); waits for the asked member's answer before its own requests (JoinNext); ends a sent
+-- request's wait when its member can't take it; says why when nobody is left; and asks a member
+-- again REASK after the first time once a new search found nobody new.
 
 local Recruit = {}
 ns.Recruit = Recruit
@@ -59,10 +72,19 @@ Recruit.lastAsk = 0
 
 local routeAsked = {}   -- [Name-Realm] = when we sent them a J1
 local routeAnswered = {} -- [Name-Realm] = when their J2 came
+local closedGuilds = {} -- [guild] = when a member of that guild reported no slots
 local gatesSaid = {}    -- [Name-Realm] = { guild, at, t }: the gates their J2 named (guild nil: none)
 local askedKey = {}     -- [Name-Realm] = when we whispered them (Recruit.asked by the whole name)
 local dnc = {}          -- [Name-Realm] = true: their addon said do not contact
+local selfSaid = {}     -- (1.6.0) [Name-Realm] = { word, t }: what their own answer said of them (Recruit.SelfWord)
+local ownNamed = {}     -- (1.6.0) [guild] = { contacts, t }: whom a 1.6.0 member /who found in it named for it, recruiters first
 local lastRoute = -math.huge
+local JoinNext          -- (1.6.0) the Join screen's own next request (below)
+local ScheduleJoinReminder -- the retry reminder when a request's wait ends (below)
+
+Recruit.REASK = 600         -- (1.6.0) a member asked this long ago may be asked again once nobody new is left
+Recruit.ROUTE_SETTLE = 3    -- (1.6.0) seconds the Join screen waits for a member's answer before his window opens
+Recruit.PROBE_MAX = 4       -- (1.6.0) members the Join screen asks where to go for one click of the player's, together (ProbeAhead)
 
 -- A name as the server stamps a sender: "Name-Realm".
 local function Key(name) return name and ns.FullName(ns.Normal and ns.Normal(name) or name) or nil end
@@ -105,6 +127,11 @@ local function GatesUnconfirmed(now)
 	return false
 end
 
+local function FullDestination(guild)
+	local closedAt = closedGuilds[guild]
+	return closedAt ~= nil and ns.Now() - closedAt <= Recruit.ROUTE_KEEP
+end
+
 -- The route the members' census gave (J2), while it is recent: { gates, gatesLeft, list =
 -- { { name, free, contacts } }, byName, from, t }, or nil. Its list is the last answer's, its
 -- gates the ones two answers agree on.
@@ -112,9 +139,32 @@ function Recruit.Route()
 	local r, now = Recruit.route, ns.Now()
 	if not r or now - (r.t or 0) > Recruit.ROUTE_KEEP then return nil end
 	r.gates, r.gatesLeft = ConfirmedGates(now)
+	local destination = r.gates and r.byName[r.gates]
+	if not destination or destination.free <= 0 or FullDestination(r.gates) then
+		r.gates, r.gatesLeft = nil, nil
+	end
 	return r
 end
 function Recruit.NoContact(name) return dnc[Key(name)] == true end
+
+local function GuildFull()
+	if type(GetNumGuildMembers) ~= "function" then return false end
+	local ok, count = pcall(GetNumGuildMembers)
+	return ok and not ns.IsSecret(count) and type(count) == "number" and count >= ns.Codec.GUILD_CAP
+end
+
+-- Automatic recruiting prompts wait until the player can review them without interrupting play.
+-- (1.6.0) And while he paused recruiting (Recruit.Paused, below).
+function Recruit.PopupsWait()
+	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance())
+		or ns.ChatLocked() or ns.QuietPresence() or ns.KeyboardFocus() ~= nil or GuildFull()
+		or (Recruit.Paused ~= nil and Recruit.Paused())
+end
+-- (The review of 1.6.0) What holds those prompts longer than a recruit's Join screen waits for one
+-- (JOIN_WAIT, 45 s): an instance, a chat lockdown, (1.6.0) a pause. A fight or typing passes within it.
+local function AwayFromPopups()
+	return (IsInInstance and IsInInstance()) or ns.ChatLocked() or (Recruit.Paused ~= nil and Recruit.Paused())
+end
 
 -- Members a J1 went to within ROUTE_FRESH.
 local function AskedLately(now)
@@ -182,7 +232,11 @@ function Recruit.ParseRoute(text)
 	for entry in list:gmatch("[^;]+") do
 		local name, free, contacts = entry:match("^([^=]+)=(%d+)=?(.*)$")
 		free = tonumber(free)
-		if name and ns.IsFederation(name) and free and free <= ns.Codec.GUILD_CAP and not route.byName[name] and #route.list < Recruit.ROUTE_GUILDS then
+		-- (1.6.0) The member's own word (Recruit.SelfWord): "*=r", "*=i" or "*=x", the first one only.
+		local word = not name and entry:match("^%*=([rix])$")
+		if word then
+			route.self = route.self or word
+		elseif name and ns.IsFederation(name) and free and free <= ns.Codec.GUILD_CAP and not route.byName[name] and #route.list < Recruit.ROUTE_GUILDS then
 			local e = { name = name, free = free, contacts = {} }
 			for c in contacts:gmatch("[^/]+") do
 				if #e.contacts < Recruit.ROUTE_CONTACTS + 1 and #c <= 60 then e.contacts[#e.contacts + 1] = c end
@@ -195,24 +249,123 @@ function Recruit.ParseRoute(text)
 end
 
 -- A member's answer, heard outside an Olympus guild (Comm.HandleOutside): only from one we asked.
+local function RemoveUnwitnessedClosedGuilds(route, sender)
+	-- A full guild is only authoritative when the reply is from a member /who found there.
+	-- An outside observer cannot use a zero-slot route to hide other guilds.
+	local now, ownGuild = ns.Now(), nil
+	for name, closedAt in pairs(closedGuilds) do
+		if now - closedAt > Recruit.ROUTE_KEEP then closedGuilds[name] = nil end
+	end
+	for _, member in ipairs(Recruit.found) do
+		if Key(member.name) == sender then ownGuild = member.guild; break end
+	end
+	for i = #route.list, 1, -1 do
+		local entry = route.list[i]
+		if entry.name == ownGuild then
+			closedGuilds[entry.name] = entry.free == 0 and now or nil
+		elseif entry.free == 0 then
+			route.byName[entry.name] = nil
+			table.remove(route.list, i)
+		end
+	end
+end
+
+-- (1.6.0) What a member's own answer said of him lately (Recruit.SelfWord: "r", "i" or "x"), nil
+-- when he never said (a client before 1.6.0, no Olympus, or long ago).
+local function SaidOf(key)
+	local s = key and selfSaid[key]
+	if s and ns.Now() - s.t <= Recruit.ROUTE_FRESH then return s.word end
+	return nil
+end
+function Recruit.SaidOf(name) return SaidOf(Key(name)) end
+
+-- (1.6.0) Why `contact` can't take a request now (his guild is full, or his own answer said he
+-- can't invite), as the line the player reads; nil when nothing says so.
+local function Unable(contact)
+	if type(contact) ~= "table" or type(contact.name) ~= "string" then return nil end
+	if FullDestination(contact.guild) then return L.RECRUIT_JOIN_FULL:format(contact.guild or "?") end
+	local key = Key(contact.name)
+	if SaidOf(key) == "x" then return L.RECRUIT_JOIN_CANT_INVITE:format(ns.DisplayName(key) or contact.name) end
+	return nil
+end
+
+-- (1.6.0) The Join screen's line while the wait for a member who recruits runs: an invite should come.
+-- (Review of this lane: it holds while the wait runs alone, JoinStatus.)
+local function RecruitsLine(contact)
+	return L.RECRUIT_JOIN_RECRUITS:format(ns.DisplayName(Key(contact.name)) or contact.name, contact.guild or "?")
+end
+
+-- (1.6.0, players' reports, 11-14 and 11-15: "I made an alt and have requested invites to a dozen people
+-- and no one has responded") What the answers just said of the member about to be asked, and of the
+-- one asked last. The request about to go to one who can't take it is closed before the player sends
+-- it, with the reason (returned: the Join screen asks the next member itself). One already sent stops
+-- its wait once the player may send again (ASK_COOLDOWN), the reason under it, so Request again asks
+-- another member then instead of 45 seconds later; while the member asked recruits, the screen says so.
+local function JoinRecheck()
+	local closed
+	local pending = Recruit.pending
+	local open = pending and not ns.Dialog.missing and ns.Dialog.Find("OLYMPUS_RECRUIT", pending)
+	local why = open and Unable(pending)
+	if why then
+		Recruit.pending, closed = nil, pending
+		ns.HideDialog("OLYMPUS_RECRUIT", pending)
+		ns.Print(why)
+	end
+	local request = join.request
+	if request and request.untilAt > GetTime() then
+		why = Unable(request.contact)
+		if why then
+			-- (Review of this lane) Its reminder with it: armed for the whole wait, it came 25 seconds after
+			-- the page offered Request again. (The first one armed finds the request reminded.)
+			local cut = math.min(request.untilAt, math.max(GetTime(), Recruit.lastAsk + ASK_COOLDOWN))
+			if cut < request.untilAt then
+				request.untilAt = cut
+				if join.reminder then ScheduleJoinReminder(request, join.reminder) end
+			end
+			join.notice = why
+		elseif SaidOf(Key(request.contact.name)) == "r" then
+			join.notice = RecruitsLine(request.contact)
+		end
+	end
+	return closed
+end
+
 function Recruit.OnRoute(sender, text)
 	if text:sub(1, 3) == "QD~" and ns.GuildCharter then return ns.GuildCharter.OnReported(sender, text) end
 	local key, now = Key(sender), ns.Now()
 	if not routeAsked[key] or now - routeAsked[key] > Recruit.ROUTE_WAIT then return false end
 	local route = Recruit.ParseRoute(text)
 	if not route then return false end
+	RemoveUnwitnessedClosedGuilds(route, key)
 	routeAnswered[key] = now
+	-- (1.6.0) His own word; an answer without one (a client before 1.6.0) leaves him unknown. A 1.6.0
+	-- member names his own guild's recruiters before its Lords and Captains (Contacts): kept for that
+	-- guild, the one /who found him in, so a later answer from an older client (the route is the last
+	-- answer's list) does not put its officers back in front of them.
+	selfSaid[key] = route.self and { word = route.self, t = now } or nil
+	if route.self then
+		for _, p in ipairs(Recruit.found) do
+			if Key(p.name) == key then
+				local e = route.byName[p.guild]
+				if e and #e.contacts > 0 then ownNamed[p.guild] = { contacts = e.contacts, t = now } end
+				break
+			end
+		end
+	end
 	-- The gates as this member says them (none, too): shown once another answer agrees (Route).
 	gatesSaid[key] = { guild = route.gates, at = now + (route.gatesLeft or 0), t = now }
 	local claimed = route.gates
 	route.gates, route.gatesLeft = nil, nil
+	local closed
 	if route.dnc then
 		dnc[key] = true
 		-- The request about to go to them: closed before the player sends it.
 		local pending = Recruit.pending
 		if pending and Key(pending.name) == key then
+			-- (1.6.0: the next member is asked only for a window still open, not one the player closed.)
+			if not ns.Dialog.missing and ns.Dialog.Find("OLYMPUS_RECRUIT", pending) then closed = pending end
 			Recruit.pending = nil
-			ns.HideDialog("OLYMPUS_RECRUIT")
+			ns.HideDialog("OLYMPUS_RECRUIT", pending)
 			ns.Print(L.RECRUIT_DNC:format(ns.DisplayName(key) or sender))
 		end
 	end
@@ -224,7 +377,21 @@ function Recruit.OnRoute(sender, text)
 	end
 	-- Gates only one answer named: one more member asked at once, whose answer agrees or not.
 	if GatesUnconfirmed(now) and AskedLately(now) < Recruit.ROUTE_ASKS then AskAnother(true) end
-	ns.Log("recruit: route from %s (gates %s, %d guilds%s)", key, tostring(claimed), #route.list, route.dnc and ", do not contact" or "")
+	ns.Log("recruit: route from %s (gates %s, %d guilds%s%s)", key, tostring(claimed), #route.list,
+		route.dnc and ", do not contact" or "", route.self and (", " .. route.self) or "")
+	closed = JoinRecheck() or closed
+	-- (1.6.0) The Join screen's own request closed by this answer: the next member. An answer the screen
+	-- waits for (JoinNext): its request opens once each such answer came, or at once when the member it
+	-- would ask now recruits.
+	local settle = join.settle
+	if closed and join.auto == closed then
+		join.auto = nil
+		JoinNext()
+	elseif settle and settle.wait[key] then
+		settle.wait[key] = nil
+		local top = next(settle.wait) and Recruit.NextContact()
+		if not next(settle.wait) or (top and SaidOf(Key(top.name)) == "r") then JoinNext() end
+	end
 	ns.Fire("RECRUIT_CHANGED")
 	return true
 end
@@ -275,7 +442,9 @@ local function RouteOrder(route)
 		rows[#rows + 1] = g
 	end
 	for _, e in ipairs(route.list) do
-		if e.name ~= route.gates and Found(e.name) then rows[#rows + 1] = by[e.name] end
+		if e.name ~= route.gates and e.free > 0 and not FullDestination(e.name) and Found(e.name) then
+			rows[#rows + 1] = by[e.name]
+		end
 	end
 	table.sort(rows, GuildLess)
 	for _, g in ipairs(rows) do out[#out + 1] = g.name end
@@ -298,7 +467,7 @@ function Recruit.Guilds()
 	local route = Recruit.Route()
 	for _, g in ipairs(out) do
 		local e = route and route.byName[g.name]
-		g.free = e and e.free or nil
+		g.free = FullDestination(g.name) and 0 or (e and e.free or nil)
 		g.gates = route and route.gates == g.name or false
 		if ns.GuildCharter then g.affinity, g.charter = ns.GuildCharter.Affinity(g.name, Recruit.found) end
 	end
@@ -308,30 +477,107 @@ end
 
 local function Asked(name) return Recruit.asked[name] or askedKey[Key(name)] end
 
--- The next member of that guild we have not asked yet (any guild if nil): its officers the
--- route named first, once /who found them in it (whispered by the server's name), then anyone
--- /who found; never one who asked not to be contacted. No guild: the visible route's order,
--- then anyone found.
-function Recruit.NextContact(guild)
-	local route = Recruit.Route()
-	if guild then
-		local e = route and route.byName[guild]
-		for _, c in ipairs(e and e.contacts or {}) do
+-- (1.6.0) Whom the Join screen may ask: never one who asked not to be contacted, nor one whose own
+-- answer said he can't take a request; one we whispered only once REASK has passed (`again`: no one
+-- new is left), so a realm with few members online is no dead end after everyone was asked once.
+local skipping -- (1.6.0) [Name-Realm] = true: members ProbeAhead already looked at, while it ranks the next
+local function Askable(name, again)
+	local key = Key(name)
+	if dnc[key] or SaidOf(key) == "x" or (skipping and skipping[key]) then return false end
+	local t = Asked(name)
+	return not t or (again == true and ns.Now() - t >= Recruit.REASK)
+end
+local function HasRoom(guild, route)
+	local e = route and route.byName[guild]
+	return not FullDestination(guild) and not (e and e.free == 0)
+end
+
+-- The officers (1.6.0: and recruiters) the route names for `guild`, once /who found them in it.
+-- (1.6.0) Whom a 1.6.0 member of that guild named for it first (its recruiters before its officers).
+local function NamedIn(guild, route, again)
+	local e = route and route.byName[guild]
+	if not HasRoom(guild, route) then return nil end
+	local own = ownNamed[guild]
+	local lists = { own and ns.Now() - own.t <= Recruit.ROUTE_FRESH and own.contacts or nil, e and e.contacts or nil }
+	for i = 1, 2 do
+		for _, c in ipairs(lists[i] or {}) do
 			local p = FoundIn(c, guild)
-			if p and not Asked(c) and not Asked(p.name) and not dnc[Key(c)] and not dnc[Key(p.name)] then
+			if p and Askable(c, again) and Askable(p.name, again) then
 				return { name = p.name, guild = guild, officer = true }
 			end
 		end
-	elseif route then
-		for _, name in ipairs(RouteOrder(route)) do
-			local c = Recruit.NextContact(name)
+	end
+	return nil
+end
+
+-- (1.6.0) A member /who found whose own answer said he recruits, in a guild with room (in `guild` alone
+-- when one is given): the request pops up for him as a JOIN does.
+local function Recruiter(guild, route, again)
+	for _, p in ipairs(Recruit.found) do
+		if (not guild or p.guild == guild) and SaidOf(Key(p.name)) == "r" and HasRoom(p.guild, route)
+			and Askable(p.name, again) then return p end
+	end
+	return nil
+end
+
+local function Next(guild, route, again)
+	if guild then
+		if not HasRoom(guild, route) then return nil end
+		-- (1.6.0) One of its own who said he recruits, then the officers and recruiters the answers name.
+		local c = Recruiter(guild, route, again) or NamedIn(guild, route, again)
+		if c then return c end
+	else
+		local order = route and RouteOrder(route) or {}
+		-- The King's gates first, whole, as before. (1.6.0, review of this lane: a member's own word is his
+		-- alone and nothing confirms it, while the gates count once two answers agree, so a member who says
+		-- he recruits elsewhere never comes before them; a decision left to the author.)
+		if route and route.gates and order[1] == route.gates then
+			local c = Next(route.gates, route, again)
+			if c then return c end
+		end
+		-- (1.6.0) Then a member whose own answer said he recruits, in a guild with room; then the officers
+		-- and recruiters the answers name in each guild, in the route's order, before anyone else /who found
+		-- there: most members can't invite, and the roomiest guild's members came before another guild's
+		-- officers.
+		local c = Recruiter(nil, route, again)
+		if c then return c end
+		for _, name in ipairs(order) do
+			c = NamedIn(name, route, again)
+			if c then return c end
+		end
+		for _, name in ipairs(order) do
+			c = Next(name, route, again)
 			if c then return c end
 		end
 	end
 	for _, p in ipairs(Recruit.found) do
-		if (not guild or p.guild == guild) and not Asked(p.name) and not dnc[Key(p.name)] then return p end
+		if HasRoom(p.guild, route) and (not guild or p.guild == guild) and Askable(p.name, again) then return p end
 	end
 	return nil
+end
+
+-- The next member of that guild we have not asked yet (any guild if nil): its officers the
+-- route named first, once /who found them in it (whispered by the server's name), then anyone
+-- /who found; never one who asked not to be contacted. No guild: the visible route's order,
+-- then anyone found. (1.6.0) No guild: a member who said he recruits first; past the gates, every
+-- guild's named officers and recruiters before its other members; never one who said he can't take
+-- a request; and with nobody new left, one asked more than REASK ago (the Join button searches first,
+-- RequestJoin).
+function Recruit.NextContact(guild)
+	local route = Recruit.Route()
+	return Next(guild, route, false) or Next(guild, route, true)
+end
+
+-- (1.6.0) Why the Join screen found nobody to ask (NextContact gave none), as its line: every guild
+-- /who found is full, or everyone it found was asked lately or can't take a request. nil while /who
+-- found nobody (the screen says that already).
+local function NobodyText()
+	if #Recruit.found == 0 then return nil end
+	local route = Recruit.Route()
+	for _, p in ipairs(Recruit.found) do
+		if HasRoom(p.guild, route) then return L.RECRUIT_JOIN_NOBODY end
+	end
+	return L.RECRUIT_JOIN_ALL_FULL
 end
 
 -- The short Join flow uses the same discovered contacts and the same editable request as the guild list.
@@ -351,9 +597,17 @@ local function JoinReminderOn()
 	return not (type(ns.db) == "table" and ns.db.joinReminderOff == true)
 end
 
+-- (1.6.0) The sixth value: the screen's line about the last request (the member recruits, he can't
+-- invite, the guild is full, nobody is left to ask), nil when there is none. A wait for a member's
+-- answer before his window opens (JoinNext) counts as the search.
 function Recruit.JoinStatus()
 	local left = join.request and math.max(0, math.ceil(join.request.untilAt - GetTime())) or 0
-	return join.search ~= nil, left, join.request and join.request.contact, JoinReminderOn(), join.guilds == true
+	-- (Review of this lane) That the member asked recruits holds while his wait runs; once it is over with
+	-- no invite, the screen says so (Views.JoinLines), as before 1.6.0.
+	local notice = join.notice
+	if notice and left == 0 and join.request and notice == RecruitsLine(join.request.contact) then notice = nil end
+	return join.search ~= nil or join.settle ~= nil, left, join.request and join.request.contact, JoinReminderOn(),
+		join.guilds == true, notice
 end
 
 function Recruit.ToggleJoinGuilds()
@@ -366,7 +620,7 @@ local function JoinBusy()
 	return ns.ChatLocked() or ns.QuietPresence() or ns.Quiet() or (InCombatLockdown and InCombatLockdown())
 end
 
-local function ScheduleJoinReminder(request, reminder)
+ScheduleJoinReminder = function(request, reminder)
 	local function Remind()
 		if join.reminder ~= reminder or join.request ~= request or request.reminded
 			or not Recruit.SimpleJoin() or ns.Dialog.missing then return end
@@ -387,7 +641,9 @@ local function JoinWait(contact)
 	if not Recruit.SimpleJoin() then return end
 	if not ns.Dialog.missing then ns.Dialog.Hide("OLYMPUS_RECRUIT_RETRY") end
 	local request = { contact = contact, untilAt = GetTime() + JOIN_WAIT }
-	join.request = request
+	join.request, join.auto, join.notice = request, nil, nil
+	-- (1.6.0) A member who said he recruits: the screen says an invite should come.
+	if SaidOf(Key(contact.name)) == "r" then join.notice = RecruitsLine(contact) end
 	if JoinReminderOn() then
 		join.reminder = join.reminder or {}
 		ScheduleJoinReminder(request, join.reminder)
@@ -400,20 +656,131 @@ local function JoinWait(contact)
 	ns.After(1, "join countdown", Tick)
 end
 
-function Recruit.JoinFound()
-	if not join.search then return end
-	join.search = nil
-	if Recruit.SimpleJoin() and JoinVisible() and not ns.ChatLocked() then
-		local contact = Recruit.NextContact()
-		if contact then Recruit.Prompt(contact) end
+-- (1.6.0) Whether `key`'s answer came within ROUTE_FRESH: what it said of him still holds.
+local function AnsweredLately(key)
+	local at = routeAnswered[key]
+	return at ~= nil and ns.Now() - at <= Recruit.ROUTE_FRESH
+end
+
+-- (1.6.0) Members just asked where to go (by the search, or by the screen), whose answer may still come:
+-- put in `wait`, each once a click (join.waited).
+local function Coming(wait)
+	for _, p in ipairs(Recruit.found) do
+		local key = Key(p.name)
+		local asked = key and routeAsked[key]
+		if asked and ns.Now() - asked < Recruit.ROUTE_SETTLE and (routeAnswered[key] or -math.huge) < asked
+			and not join.waited[key] then
+			join.waited[key], wait[key] = true, true
+		end
 	end
 end
 
-function Recruit.RequestJoin()
-	if not Recruit.SimpleJoin() or join.search or ns.ChatLocked() then return false end
-	if join.request and join.request.untilAt > GetTime() then return false end
+-- (1.6.0, review of this lane: the screen learned who recruits only from the one member it asked at a
+-- time, so a recruiter of ordinary rank whom nobody names was reached no sooner than before.) The members
+-- the screen would ask next (NextContact's order) and never asked where to go, asked together: PROBE_MAX
+-- a click at most (join.probes), each put in `wait` when there is one. (Review of this lane: a member's
+-- word lasts ROUTE_FRESH, so one asked longer ago than that is asked again, as one never asked: his "x"
+-- no longer counted and his window opened again, for his fresh "x" to close it.)
+local function ProbeAhead(wait)
+	local route, seen, looked = Recruit.Route(), {}, 0
+	skipping = seen
+	while (join.probes or 0) < Recruit.PROBE_MAX and looked < 4 * Recruit.PROBE_MAX do
+		local c = Next(nil, route, false) or Next(nil, route, true)
+		if not c then break end
+		local key = Key(c.name)
+		seen[key], looked = true, looked + 1
+		local asked = routeAsked[key]
+		if (not asked or (ns.Now() - asked >= Recruit.ROUTE_FRESH and not AnsweredLately(key))) and AskRoute(c.name, true) then
+			join.probes = (join.probes or 0) + 1
+			if wait then join.waited[key], wait[key] = true, true end
+		end
+	end
+	skipping = nil
+end
+
+-- (1.6.0) The Join screen's own next request, after a search or when the member it chose can't take
+-- it (JoinRecheck, a do-not-contact answer): the best member left (NextContact). Until 1.6.0 the
+-- search's window opened at once on the first member /who listed, before the answer of the member
+-- it asked where to go (the route, who recruits, which guild is full) came a second later. Now it
+-- waits for the answers of the members just asked (Coming), then asks together the members it would ask
+-- next and never asked (ProbeAhead, PROBE_MAX a click at most) unless the one it chose recruits, and the
+-- window opens once each answered, once the member it would ask says he recruits (OnRoute), or once
+-- ROUTE_SETTLE passed since it began waiting: one whose answer says he can't invite is passed over before
+-- the player writes to him, and one who recruits among them is asked first. Nobody left: the screen says
+-- why.
+JoinNext = function()
+	join.settle = nil
+	if not Recruit.SimpleJoin() or not JoinVisible() or ns.ChatLocked() or ns.Dialog.missing
+		or ns.Dialog.Find("OLYMPUS_RECRUIT") then return false end
 	local contact = Recruit.NextContact()
-	if contact then return Recruit.Prompt(contact) ~= nil end
+	if not contact then
+		join.notice, join.waitUntil = NobodyText(), nil
+		ns.Fire("RECRUIT_CHANGED")
+		return false
+	end
+	-- (Each member waited for once a click, by the timer alone.) Answers still coming from members just
+	-- asked first: what they say (the route, whom they name, who recruits, which guild is full) chooses
+	-- whom to ask next. Then, unless the one it chose recruits, the members it would ask next, together.
+	-- ROUTE_SETTLE in all before a window opens, however many waits that takes (join.waitUntil).
+	local wait = {}
+	join.waited = join.waited or {}
+	Coming(wait)
+	if not next(wait) and SaidOf(Key(contact.name)) ~= "r" then ProbeAhead(wait) end
+	local now = GetTime()
+	join.waitUntil = join.waitUntil or now + Recruit.ROUTE_SETTLE
+	if next(wait) and join.waitUntil > now then
+		local settle = { wait = wait }
+		join.settle = settle
+		ns.After(join.waitUntil - now, "join settle", function()
+			if join.settle == settle then JoinNext() end
+		end)
+		ns.Fire("RECRUIT_CHANGED")
+		return true
+	end
+	join.waitUntil = nil
+	-- (Review of this lane) Opened on its own, from a timer or an answer, the window keeps the keyboard
+	-- where it is (OLYMPUS_RECRUIT's OnShow): a player typing in chat meanwhile goes on typing there.
+	join.preserve = true
+	local f = Recruit.Prompt(contact)
+	join.preserve = nil
+	if f then join.auto, join.notice = contact, nil end
+	ns.Fire("RECRUIT_CHANGED")
+	return f ~= nil
+end
+
+function Recruit.JoinFound()
+	if not join.search then return end
+	join.search = nil
+	if Recruit.SimpleJoin() and JoinVisible() and not ns.ChatLocked() then JoinNext() end
+end
+
+function Recruit.RequestJoin()
+	if not Recruit.SimpleJoin() or join.search or join.settle or ns.ChatLocked() then return false end
+	if join.request and join.request.untilAt > GetTime() then return false end
+	join.probes, join.waited, join.notice, join.waitUntil = 0, {}, nil, nil
+	-- (1.6.0) A member never asked yet; with none, a new search. One asked REASK ago is asked again only
+	-- once that search found nobody new (JoinFound, JoinNext), so a member who logged in since comes first.
+	local contact = Next(nil, Recruit.Route(), false)
+	if contact then
+		-- (1.6.0, review of this lane) One whose answer is older than ROUTE_FRESH is asked again, and his
+		-- window opens once his answer came (JoinNext): an "x" of his no longer counted, and his window
+		-- opened again only for his fresh "x" to close it.
+		local key = Key(contact.name)
+		if routeAnswered[key] and not AnsweredLately(key) and JoinVisible() and not ns.Dialog.missing
+			and not ns.Dialog.Find("OLYMPUS_RECRUIT") then
+			return JoinNext()
+		end
+		local f = Recruit.Prompt(contact)
+		-- (1.6.0) The screen's own choice: an answer saying he can't take it asks the next member. The
+		-- window opens at once, as a click's always did; meanwhile the others the screen never asked are
+		-- asked (the window's own ask counted, PROBE_MAX a click), so its next choice, when this member
+		-- can't take it or at the next click, knows who recruits.
+		if f then
+			join.auto, join.probes = contact, 1
+			ProbeAhead(nil)
+		end
+		return f ~= nil
+	end
 	local search = {}
 	join.search = search
 	if not Recruit.Search() then join.search = nil; return false end
@@ -455,6 +822,21 @@ function Recruit.Ask(contact, message)
 		return false
 	end
 	if not contact or not message or message == "" then return false end
+	local route = Recruit.Route()
+	local destination = route and route.byName[contact.guild]
+	-- (1.6.0) Refused with its reason: until 1.6.0 a guild that filled up while its window was open
+	-- swallowed the Send without a word. The screen's own choice asks the next member (after this
+	-- click: its window closes when Send returns).
+	local why = Unable(contact) or (destination and destination.free == 0 and L.RECRUIT_JOIN_FULL:format(contact.guild or "?"))
+	if why then
+		ns.Print(why)
+		if Recruit.pending == contact then Recruit.pending = nil end
+		if join.auto == contact then
+			join.auto = nil
+			ns.After(0, "join next", function() JoinNext() end)
+		end
+		return false
+	end
 	if dnc[Key(contact.name)] then
 		ns.Print(L.RECRUIT_DNC:format(ns.DisplayName(Key(contact.name)) or contact.name))
 		return false
@@ -478,6 +860,13 @@ end
 -- member's addon asked first whether they take recruit whispers.
 function Recruit.Prompt(contact)
 	if not contact then return nil end
+	local route = Recruit.Route()
+	local destination = route and route.byName[contact.guild]
+	-- (1.6.0) A member of the guild list who can't take it (his guild is full, or he said he can't
+	-- invite): the reason, and no window. The screen's own choices never name one (NextContact).
+	local why = Unable(contact)
+	if why then ns.Print(why) return nil end
+	if destination and destination.free == 0 then return nil end
 	if ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return nil end
 	Recruit.pending = contact
 	AskRoute(contact.name, true)
@@ -537,9 +926,21 @@ end
 function Recruit.OpenGuilds()
 	local out = {}
 	for _, o in ipairs(ns.Views.OpenGuilds(ns.Data.Summary())) do
-		if ns.Data.Dispute(o.e.g) == nil then out[#out + 1] = o end
+		local total = o.e.g.total
+		if type(total) == "number" and total > 0 and ns.Data.Dispute(o.e.g) == nil then
+			out[#out + 1] = o
+		end
 	end
 	return out
+end
+
+-- (1.6.0) A guildmate whose hello says he takes recruitment handoffs (Comm.HandoffPeers, "J"): his
+-- client confirmed his invite right and his recruiting is on (turning recruiting off turns handoffs off).
+local function TakesRequests(peers, name)
+	if type(peers) ~= "table" or type(name) ~= "string" or name == "" then return false end
+	local full = ns.FullName(ns.Normal and ns.Normal(name) or name)
+	local e = (peers.full or {})[full] or (peers.short or {})[ns.Fold(ns.ShortName(full))]
+	return type(e) == "table" and e.takes == true
 end
 
 -- Up to ROUTE_CONTACTS Lords and Captains online of a guild with room, to name to a recruit:
@@ -547,16 +948,28 @@ end
 -- enforcement is explicitly activated, then comes only from that manifest. Never the King
 -- (the most asked of all), and never ourselves while
 -- we ask not to be contacted.
+-- (1.6.0, players' reports, 11-14 and 11-15: new characters asked a dozen members from the Join screen
+-- and none invited) Our own guild's members who recruit come first: ourselves while our recruiting is
+-- on, then the guildmates online whose hello says they take handoffs, then its Lords and Captains as
+-- before. A recruit's screen asks them only once its own /who found them in this guild.
 local function Contacts(o, own)
-	local g, out = o.e.g, {}
+	local g, out, seen = o.e.g, {}, {}
 	local function Add(name, realm)
 		if #out >= Recruit.ROUTE_CONTACTS or type(name) ~= "string" or name == "" then return end
 		local full = ns.FullName(name, realm)
+		if seen[full] then return end
 		if ns.IsKingCharacter and ns.IsKingCharacter(name) then return end
 		if full == ns.me and Recruit.NoContactMe() then return end
+		seen[full] = true
 		out[#out + 1] = Field(ns.DisplayName(full))
 	end
 	if own and o.name == own then
+		-- (The review of 1.6.0) Not ourselves first while our popups wait for an instance's end.
+		if Recruit.IsWhisperRecruiting and Recruit.IsWhisperRecruiting() and not AwayFromPopups() then Add(ns.me) end
+		local peers = ns.Comm.HandoffPeers and ns.Comm.HandoffPeers()
+		for _, m in ipairs(ns.Roster.online or {}) do
+			if TakesRequests(peers, m.name) then Add(m.name) end
+		end
 		for _, m in ipairs(ns.Roster.online or {}) do
 			if (m.rankIndex or 9) <= ns.CAPTAIN_RANK then Add(m.name) end
 		end
@@ -578,22 +991,30 @@ end
 -- as many as fit one addon message.
 function Recruit.RouteAnswer()
 	local gates = ns.Acts and ns.Acts.Gates and ns.Acts.Gates()
-	local msg = ("J2~%s~%s~%d~"):format(Recruit.NoContactMe() and "n" or "y", gates and Field(gates.guild) or "",
-		gates and math.max(0, math.floor(gates.at - ns.Now())) or 0)
-	local open = Recruit.OpenGuilds()
+	local open, eligibleGates = Recruit.OpenGuilds(), nil
+	local own, full = GetGuildInfo("player"), GuildFull()
 	for i, o in ipairs(open) do
-		if gates and o.name == gates.guild then
+		if gates and o.name == gates.guild and not (o.name == own and full) then
+			eligibleGates = gates
 			table.insert(open, 1, table.remove(open, i))
 			break
 		end
 	end
-	local own, n = GetGuildInfo("player"), 0
+	local msg = ("J2~%s~%s~%d~"):format(Recruit.NoContactMe() and "n" or "y", eligibleGates and Field(eligibleGates.guild) or "",
+		eligibleGates and math.max(0, math.floor(eligibleGates.at - ns.Now())) or 0)
+	msg = msg .. "*=" .. Recruit.SelfWord()
+	local n = 0
+	if own and not ns.IsSecret(own) and full then
+		msg, n = msg .. ";" .. Field(own) .. "=0=", 1
+	end
 	for _, o in ipairs(open) do
-		local entry = Field(o.name) .. "=" .. o.free .. "=" .. table.concat(Contacts(o, own), "/")
-		local add = (n > 0 and ";" or "") .. entry
-		if #msg + #add <= 250 then
-			msg, n = msg .. add, n + 1
-			if n >= Recruit.ROUTE_GUILDS then break end
+		if not (o.name == own and full) then
+			local entry = Field(o.name) .. "=" .. o.free .. "=" .. table.concat(Contacts(o, own), "/")
+			local add = ";" .. entry
+			if #msg + #add <= 250 then
+				msg, n = msg .. add, n + 1
+				if n >= Recruit.ROUTE_GUILDS then break end
+			end
 		end
 	end
 	return msg
@@ -630,6 +1051,8 @@ local requestAt, lineTimes, whispers = {}, {}, {}
 local recruitingGuild, lastOutreach, lastReplyPrompt
 local PromptReply, replyTimer
 local contacted = {}
+-- (1.6.0) The pause's timer, and its scheduling (below ChurchSwitch).
+local pauseTimer, SchedulePauseEnd
 
 local function WhisperGuild()
 	if ns.IsMember() then return GetGuildInfo("player") end
@@ -728,9 +1151,74 @@ local function AdChoices(create)
 	return saved
 end
 
+-- One optional interval for automatic recruitment prompts. Manual actions keep their own rules.
+local POPUP_GAPS = { 0, 60, 300, 900, 3600, 14400, 86400 }
+local function PopupGap(saved)
+	local gap = saved and saved.popupGap
+	for _, seconds in ipairs(POPUP_GAPS) do
+		if gap == seconds then return gap end
+	end
+	return 0
+end
+
+function Recruit.PopupWait()
+	local saved = AdChoices()
+	local gap = PopupGap(saved)
+	local elapsed = saved and type(saved.popupAt) == "number" and ns.Now() - saved.popupAt
+	return gap > 0 and elapsed and elapsed >= 0 and math.max(0, gap - elapsed) or 0
+end
+
+function Recruit.PopupShown()
+	local saved = AdChoices(true)
+	if saved then saved.popupAt = ns.Now() end
+end
+
+local function SetPopupGap(seconds)
+	local saved = AdChoices(true)
+	if not saved then return end
+	saved.popupGap = seconds > 0 and seconds or nil
+	replyTimer = nil
+	if PromptReply then PromptReply() end
+	ns.Fire("DATA_CHANGED")
+end
+
+local function PopupGapLabel(seconds)
+	if seconds == 0 then return L.RECRUIT_POPUP_GAP_DEFAULT end
+	if seconds < 3600 then return L.RECRUIT_ANNOUNCE_REMINDER_ON:format(seconds / 60) end
+	if seconds < 86400 then return L.RECRUIT_POPUP_GAP_HOURS:format(seconds / 3600) end
+	return L.RECRUIT_POPUP_GAP_DAILY
+end
+
+local function PopupGapFilter()
+	local options, gap = {}, PopupGap(AdChoices())
+	for i, seconds in ipairs(POPUP_GAPS) do
+		options[i] = { text = PopupGapLabel(seconds), selected = seconds == gap,
+			onClick = function() SetPopupGap(seconds) end }
+	end
+	return { id = "recruit-popup-gap", spaceBefore = 6,
+		filters = { { label = L.RECRUIT_POPUP_GAP_TITLE, value = PopupGapLabel(gap), options = options, understated = true } } }
+end
+
 local function QueueOnly()
 	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
 	return saved ~= nil and saved.queueOnly == true
+end
+
+-- (1.6.0) Our own word for the recruit who asked, first in our answer's list as "*=<word>"
+-- (RouteAnswer): "r" a request pops up for us now as a JOIN (our recruiting is on, neither Queue only
+-- nor the pop-up interval holds it), "i" we can invite and it waits in our list (the Census, or
+-- Church > Invites), "x" we can't take it (no invite right, or our guild is full). His screen asks one
+-- who recruits first, and tells him at once when the member he asked can't. Clients before 1.6.0 read
+-- no guild in it. (The review of 1.6.0) In an instance or a chat lockdown "i": our popups wait for its end
+-- (AwayFromPopups), and "r" made his screen send us the first request and wait out its whole wait. So
+-- while we paused recruiting (1.6.0, Recruit.Pause).
+function Recruit.SelfWord()
+	if GuildFull() or not (Recruit.CanInvite and Recruit.CanInvite()) then return "x" end
+	-- (Review of this lane) Never the King: the answers never name him (the most asked of all, Contacts),
+	-- and "r" would put him first for every recruit his answer reached.
+	if ns.IsKingCharacter and ns.IsKingCharacter(ns.me) then return "i" end
+	if Recruiting() and not QueueOnly() and Recruit.PopupWait() <= 0 and not AwayFromPopups() then return "r" end
+	return "i"
 end
 
 local function ToggleQueueOnly()
@@ -750,6 +1238,7 @@ end
 local function StopRecruiting()
 	recruitingGuild = nil
 	replyTimer = nil
+	pauseTimer = nil -- (its end is kept with the choice: recruiting restored, SchedulePauseEnd looks again)
 	-- (Review of 1.5.9) Any ad's draft, not only a reminder's: the JOINs it asks for would go unanswered.
 	local ad = ns.Dialog and ns.Dialog.Find and ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT")
 	if ad then ad:Hide() end
@@ -800,6 +1289,8 @@ local function RestoreRecruiting()
 	end
 	-- The scan and handoff switches come back with recruiting, after a /reload or a login.
 	if recruitingGuild and saved then RestoreSwitches(saved) end
+	-- (1.6.0) So does a pause, until its end (one that ended meanwhile is forgotten).
+	if recruitingGuild and SchedulePauseEnd then SchedulePauseEnd() end
 end
 
 -- (1.5.8, the author's: "se ela tentar ativar e ela não puder convidar pessoas, vai avisar, tipo,
@@ -833,7 +1324,8 @@ function Recruit.ToggleWhisperRecruiting()
 	StopRecruiting()
 	local earlier = RecruitmentPreference(guild)
 	local saved = earlier or RecruitmentPreference(guild, true)
-	if saved then saved.enabled = on end
+	-- (1.6.0) Turned off or on again, a pause is over: on, recruiting runs at once.
+	if saved then saved.enabled, saved.pauseUntil = on, nil end
 	if on then
 		recruitingGuild = guild
 		-- (1.5.9, the author's report, 11-12: "ele parece ativar sozinho") What this character left on
@@ -929,7 +1421,7 @@ local function OutreachQueue()
 		if seen[guid] then counts.duplicate = counts.duplicate + 1; return end
 		seen[guid] = true
 		-- (1.5.9) One who declined this client's invite counts as contacted: not whispered again.
-		if RecentlyContacted(name, now) or Recruit.Declined(full) then counts.contacted = counts.contacted + 1; return end
+		if RecentlyContacted(name, now) or Recruit.ScanDeclined(full) then counts.contacted = counts.contacted + 1; return end
 		queue[#queue + 1] = { name = name, guid = guid, unit = unit }
 	end
 	Add("target", "target")
@@ -1021,6 +1513,31 @@ local function ConfirmOutreach(f, data)
 	return AdvanceOutreach(f, data.queue)
 end
 
+-- (1.6.0) A scanned player's invite popup that "Whisper them first" asks back (the whisper review's
+-- OnHide below). One invite popup shows at a time, and a claimed player's command opens over the
+-- whisper review (PromptReply): while another player's popup is up, his waits for it to close, as
+-- long as he is still current. (A review of the 1.6.0 handoff fixes found it never came back.) His
+-- mark stays until then, so a full scan list keeps his row (RecruitCandidates' Add). (The review of
+-- 1.6.0) And while the automatic popups wait for the player (Recruit.PopupsWait: while he types, for one):
+-- another popup closes as soon as its command is pasted in the chat box, before Enter, and this one took
+-- the keyboard from the chat box, so Enter never sent the pasted /ginvite. As long as he is on the scan's
+-- list (Candidates.Listed): a fight, an instance or Busy makes him not current a moment (Candidates.Check),
+-- and the first look then gave his popup up for good.
+local AFTER_WHISPER_RETRY = 2
+local function InviteAfterWhisper(candidate)
+	if not candidate.inviteAfterWhisper then return end
+	local D = ns.Dialog
+	local open = D and not D.missing and D.Find and D.Find("OLYMPUS_RECRUIT_INVITE_DRAFT")
+	local other = open and not (type(open.data) == "table" and open.data.candidate == candidate)
+	local C = Recruit.Candidates
+	if C and C.Listed(candidate) and (other or Recruit.PopupsWait() or not C.Check(candidate)) then
+		ns.After(AFTER_WHISPER_RETRY, "invite after whisper", function() InviteAfterWhisper(candidate) end)
+		return
+	end
+	candidate.inviteAfterWhisper = nil
+	Recruit.CopyCandidateInvite(candidate)
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 	text = "%s",
 	button1 = SEND_LABEL or "Send",
@@ -1040,12 +1557,12 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 		if reason == "clicked" and type(data) == "table" then return AdvanceOutreach(f, data.queue) end
 	end,
 	-- (1.5.8, the author's ask) A whisper asked from a scanned player's invite popup ("Whisper them
-	-- first"): once it closes, sent or not, his invite popup comes back.
+	-- first"): once it closes, sent or not, his invite popup comes back (1.6.0: once no other player's
+	-- is up, InviteAfterWhisper).
 	OnHide = function(_, data)
 		local candidate = type(data) == "table" and data.candidate or nil
 		if type(candidate) ~= "table" or not candidate.inviteAfterWhisper then return end
-		candidate.inviteAfterWhisper = nil
-		ns.After(0, "invite after whisper", function() Recruit.CopyCandidateInvite(candidate) end)
+		ns.After(0, "invite after whisper", function() InviteAfterWhisper(candidate) end)
 	end,
 	timeout = 0,
 	whileDead = true,
@@ -1055,7 +1572,13 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_OUTREACH"] = {
 
 -- Check the joined channel when preparing the draft and again on an explicit Post click.
 local reminderIndex, reminderTimer, announcementVariant = 1, nil, 0
-local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30 }
+-- 1.6.0 (players' reports on 1.5.9: the popup asking to post the ad in General came every few
+-- minutes, nothing on it said how to slow it down or stop it, and some uninstalled): 60 and 120
+-- minutes too, for the popup's Less often. The shorter ones stay for whoever chose them.
+local REMINDER_MINUTES = { 0, 2, 5, 10, 15, 30, 60, 120 }
+-- The interval the Census offer turns the ads on with (Views.RECRUIT_AD_MINUTES; 5 in 1.5.8 and
+-- 1.5.9), and the least the popup's Less often gives.
+Recruit.AD_MINUTES = 30
 local ANNOUNCEMENT_GAP = 120
 local publicRecruitmentAt = {}
 local lastAnnouncement
@@ -1174,6 +1697,25 @@ local function ObserveAnnouncement(text, _, _, _, _, _, zoneID, index)
 	end
 end
 
+-- 1.6.0: the reminder's own draft says how often it opens and where that is set, under its Less often
+-- and Turn off (the popup's text, after the Post line); "" for an ad the player opened himself.
+local function ReminderNote(reminder)
+	local minutes = REMINDER_MINUTES[reminderIndex] or 0
+	if not reminder or minutes <= 0 then return "" end
+	return "\n\n" .. L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(minutes)
+end
+
+-- The interval the popup's Less often sets: twice this one at least, and Recruit.AD_MINUTES at least,
+-- as the reminder's menu lists them; nil at the longest (the button is not shown then).
+local function LongerReminder()
+	local minutes = REMINDER_MINUTES[reminderIndex] or 0
+	if minutes <= 0 then return nil end
+	local least = math.max(minutes * 2, Recruit.AD_MINUTES)
+	for index, m in ipairs(REMINDER_MINUTES) do
+		if m >= least then return index end
+	end
+end
+
 local function CopyAnnouncement(channel, reminder)
 	local guild = WhisperGuild()
 	if not guild or not ns.Dialog or ns.Dialog.missing then return false end
@@ -1194,7 +1736,7 @@ local function CopyAnnouncement(channel, reminder)
 	local name = current.name:lower()
 	if not AnnouncementReady(name, reminder) then return false end
 	local message = AnnouncementText(guild)
-	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), nil,
+	local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_ANNOUNCEMENT", ns.Codec.SanitizeChat(current.name), ReminderNote(reminder),
 		{ channel = name, public = current, guild = guild, message = message, command = ("/%d %s"):format(current.id, message), reminder = reminder })
 	if not draft then return false end
 	if not reminder then lastAnnouncement = { public = current, guild = guild } end
@@ -1236,7 +1778,7 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 	-- the game supplies its chat echo immediately. A successful call keeps the draft copyable.
 	local attempt = { at = ns.Now() }
 	publicRecruitmentAt[draft.channel] = attempt
-	local ok = pcall(send, draft.message, "CHANNEL", nil, tostring(draft.public.id))
+	local ok = pcall(send, draft.message, "CHANNEL", nil, tostring(draft.public.id)) -- gp:recruit-public-post
 	if not ok and publicRecruitmentAt[draft.channel] == attempt then
 		publicRecruitmentAt[draft.channel] = nil
 		ns.Print(L.RECRUIT_ANNOUNCE_POST_FALLBACK)
@@ -1247,11 +1789,24 @@ local function PostAnnouncement(f, draft, reason) -- gp:recruit-public-post
 	return true
 end
 
+local function ReminderDraft(draft)
+	return type(draft) == "table" and draft.reminder == true and (REMINDER_MINUTES[reminderIndex] or 0) > 0
+end
+local LessOften -- (below SetReminder)
+
+-- 1.6.0: a reminder's draft (Olympus's own window, in both input modes) has Less often beside Close
+-- and Post, with the line ReminderNote gives, and under them Pause recruiting and Turn off recruiting
+-- (Recruit.StopRow: its Turn off asks whether the reminder alone, as its own Turn off did before); an
+-- ad opened from Church > Invites has none of them. (Dialog.lua: button3 is OnAlt.)
 StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
-	text = L.RECRUIT_ANNOUNCE_COPY,
+	text = L.RECRUIT_ANNOUNCE_COPY .. "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
 	button2 = L.RECRUIT_ANNOUNCE_POST,
+	button3 = L.RECRUIT_ANNOUNCE_LESS,
 	OnButton2 = PostAnnouncement,
+	OnAlt = function(f, draft) LessOften(f, draft) end,
+	button3Shown = function(_, draft) return ReminderDraft(draft) and LongerReminder() ~= nil end,
+	more = function(_, draft) if ReminderDraft(draft) then return Recruit.StopRow("ads") end end,
 	EditBoxOnEnterPressed = function(box, draft)
 		if box:HasFocus() then PostAnnouncement(box:GetParent(), draft, "enter") end
 	end,
@@ -1270,9 +1825,19 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_ANNOUNCEMENT"] = {
 	preferredIndex = 3,
 }
 
+-- 1.6.0: the other recruiting popups a reminder waits for, as theirs wait for an ad's draft
+-- (PromptReply, the scan's): one on screen at a time.
+local REMINDER_WAITS_FOR = { "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_HANDOFF_CLAIM", "OLYMPUS_RECRUIT_ACTIVATED",
+	"OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }
+
+-- A reminder's tick: one draft at most, and none in combat, an instance, while the player types
+-- (Recruit.PopupsWait), is busy, or has a recruiting popup open; a tick missed waits for the next.
 local function RemindAnnouncement()
-	if not ReminderAllowed() or not ns.Dialog or ns.Dialog.missing then return end
-	if ns.Dialog.Find("OLYMPUS_RECRUIT_ANNOUNCEMENT") then return end
+	if not ReminderAllowed() or Recruit.PopupsWait() or Recruit.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
+	for _, which in ipairs(REMINDER_WAITS_FOR) do
+		if ns.Dialog.Find(which) then return end
+	end
 	if rotateReminder then
 		local channels = PublicChannels()
 		local last = 0
@@ -1283,13 +1848,14 @@ local function RemindAnnouncement()
 			local row = channels[(last + offset - 1) % #channels + 1]
 			if CopyAnnouncement(row, true) then
 				lastReminderChannel = row.name
+				Recruit.PopupShown()
 				return
 			end
 		end
 		return
 	end
 	if lastAnnouncement and lastAnnouncement.guild == recruitingGuild then
-		CopyAnnouncement(lastAnnouncement.public, true)
+		if CopyAnnouncement(lastAnnouncement.public, true) then Recruit.PopupShown() end
 	else
 		ns.Print(L.RECRUIT_ANNOUNCE_REMIND)
 	end
@@ -1319,6 +1885,17 @@ local function SetReminder(index, keep)
 		ns.Fire("DATA_CHANGED")
 	end
 	if keep ~= false then KeepAdChoices() end
+end
+
+-- 1.6.0: the reminder's draft's Less often (and Turn off recruiting's "only the ad reminder", TurnOff),
+-- each the player's choice as the menu in Church > Invites makes it (kept, AdChoices: a /reload and a
+-- login find it), closing the draft (SetReminder), and one chat line saying where it is set again.
+-- Recruiting itself stays on.
+LessOften = function(f, draft)
+	local index = ReminderDraft(draft) and LongerReminder()
+	if not index then return end
+	SetReminder(index)
+	ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(REMINDER_MINUTES[index]))
 end
 
 -- What this character chose for his guild (AdChoices); with none, 1.5.8's interval, kept in his
@@ -1414,6 +1991,247 @@ local function ChurchSwitch()
 	return on
 end
 
+---------------------------------------------------------------------------
+-- 1.6.0 (the author's ask, 11-16: "nos pop-ups que avisam, podiam ter dois botões ... pausar
+-- recrutamento ou desativar recrutamento ... o pausar recrutamento podia perguntar por quanto tempo
+-- você queria pausar ... indefinido vai ser desativar ... o povo está reclamando muito que o negócio
+-- não para de perturbar ... na hora de parar, ele pode perguntar se é parar só aquele de convite,
+-- deixar os outros, ou parar tudo"). Every recruiting popup that opens by itself (a reminder's ad
+-- draft, the invite command of a JOIN, of a claimed player or of a scanned one, a reply to review,
+-- the moderation warning in an invite's place, a handoff's Claim) has Pause recruiting and Turn off
+-- recruiting under its own buttons (Recruit.StopRow), no other key added to the invite's steps.
+-- Pause asks for how long; until then no recruiting popup opens by itself (Recruit.PopupsWait), the
+-- requests wait in Church > Invites as when a popup cannot show, our answers to Join Olympus screens
+-- say a request waits in our list (SelfWord, Contacts) and our hello takes no handoffs (Comm.lua). Its
+-- end is kept in this character's recruiting choice, so a /reload and a login keep it; Church > Invites
+-- says until when and has Resume. Turn off asks whether the switch behind that popup alone (the ad
+-- reminder, the JOIN pop-ups, accepting handoffs, the unguilded scan) or all of recruiting; Church >
+-- Invites turns either back on. Both questions are Olympus's own windows in both input modes, with no
+-- edit box (neither takes the keyboard from the chat's box), and like the automatic popups they wait
+-- out a fight, an instance, a chat lockdown, quiet presence and typing (QuestionWaits).
+---------------------------------------------------------------------------
+Recruit.PAUSE_MINUTES = { 15, 30, 60, 120, 240 }
+Recruit.ASK_RETRY = 2 -- seconds between looks while a question waits
+
+local function Clock(t) return date and date("%H:%M", t) or tostring(t) end
+
+-- The pause's end (epoch seconds) while recruiting is on and it runs, else nil.
+local function PauseEnd()
+	local saved = Recruiting() and RecruitmentPreference(recruitingGuild)
+	local at = saved and tonumber(saved.pauseUntil)
+	if at and at > ns.Now() then return at end
+	return nil
+end
+function Recruit.Paused() return PauseEnd() ~= nil end
+function Recruit.PausedUntil() return PauseEnd() end
+
+-- The pause over (its end, or Resume): forgotten, a chat line, and the popups that waited come.
+local function EndPause()
+	local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
+	local was = saved and saved.pauseUntil
+	if saved then saved.pauseUntil = nil end
+	pauseTimer = nil
+	if not was then return false end
+	ns.Print(L.RECRUIT_RESUMED)
+	replyTimer = nil
+	PromptReply()
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+
+-- One timer for the running pause's end; one that ended while the game was closed is forgotten.
+SchedulePauseEnd = function()
+	local at = PauseEnd()
+	if not at then
+		local saved = recruitingGuild and RecruitmentPreference(recruitingGuild)
+		if saved and saved.pauseUntil then saved.pauseUntil = nil end
+		pauseTimer = nil
+		return
+	end
+	if pauseTimer and pauseTimer.at == at then return end
+	local timer = { at = at }
+	pauseTimer = timer
+	ns.After(math.max(1, at - ns.Now()), "recruiting pause", function()
+		if pauseTimer ~= timer then return end
+		pauseTimer = nil
+		if PauseEnd() then return SchedulePauseEnd() end -- (not yet: the clock said otherwise)
+		EndPause()
+	end)
+end
+
+-- The recruiting popups that opened by themselves, closed at a pause: what they held waits in Church >
+-- Invites (a JOIN in its list, a handoff's offer under Handoffs while it lasts).
+local function CloseAutomatic()
+	local D = ns.Dialog
+	if not D or D.missing or not D.Find then return end
+	CloseReminderDraft()
+	for _, which in ipairs({ "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
+		local f = D.Find(which)
+		if f and type(f.data) == "table" and f.data.automatic then f:Hide() end
+	end
+	for _, which in ipairs({ "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_HANDOFF_CLAIM" }) do
+		local f = D.Find(which)
+		if f then f:Hide() end
+	end
+end
+
+-- Pause recruiting for `minutes` (Recruit.PAUSE_MINUTES on the question; 24 hours at most).
+function Recruit.Pause(minutes)
+	minutes = tonumber(minutes)
+	if not Recruiting() or not minutes or minutes <= 0 or minutes > 1440 then return false end
+	local saved = RecruitmentPreference(recruitingGuild, true)
+	if not saved then return false end
+	saved.pauseUntil = ns.Now() + math.floor(minutes * 60)
+	replyTimer = nil
+	CloseAutomatic()
+	SchedulePauseEnd()
+	ns.Print(L.RECRUIT_PAUSED:format(Clock(saved.pauseUntil)))
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+
+function Recruit.Resume() return EndPause() end
+
+-- Turn off recruiting's answer: `kind` the switch behind the popup it was asked from, or "all" (the
+-- Recruiting switch itself, as Church > Invites turns it off).
+local function TurnOff(kind)
+	if not Recruiting() then return false end
+	if kind == "all" then
+		ChurchSwitch()
+		ns.Print(L.RECRUIT_OFF_ALL)
+	elseif kind == "ads" then
+		SetReminder(1)
+		ns.Print(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED)
+	elseif kind == "joins" then
+		local saved = RecruitmentPreference(recruitingGuild, true)
+		if saved then saved.queueOnly, replyTimer = true, nil end
+		ns.Print(L.RECRUIT_OFF_JOINS)
+	elseif kind == "handoffs" then
+		if Recruit.Handoff then Recruit.Handoff.SetAccepting(false) end
+		ns.Print(L.RECRUIT_OFF_HANDOFFS)
+	elseif kind == "scan" then
+		if Recruit.Candidates then Recruit.Candidates.SetEnabled(false) end
+		ns.Print(L.RECRUIT_OFF_SCAN)
+	else
+		return false
+	end
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+Recruit.TurnOff = TurnOff
+
+-- What holds a question: what holds the automatic popups (Recruit.PopupsWait) but a full guild, the
+-- interval and the pause, and typing in a box of our own dialogs (the popup it was asked from).
+local function QuestionWaits()
+	local focus = ns.KeyboardFocus()
+	return (InCombatLockdown and InCombatLockdown()) or (IsInInstance and IsInInstance()) or ns.ChatLocked()
+		or ns.QuietPresence() or (focus ~= nil and not (type(focus) == "table" and focus.olympusBox))
+end
+
+local asking, askLook -- the question waiting to show; a look due in ASK_RETRY seconds
+local function ShowQuestion()
+	local q = asking
+	if not q then return end
+	if QuestionWaits() then
+		if not askLook then
+			askLook = true
+			ns.After(Recruit.ASK_RETRY, "recruit question", function()
+				askLook = nil
+				ShowQuestion()
+			end)
+		end
+		return
+	end
+	asking = nil
+	local D = ns.Dialog
+	if not Recruiting() or not D or D.missing then return end
+	D.Show(q.which, nil, nil, q)
+end
+
+-- A question from a popup's button (`f` the popup, `data` its own); the last one asked waits, once.
+local function Ask(which, kind, f, data)
+	if not Recruiting() then return false end
+	asking = { which = which, kind = kind, source = f, sourceData = data }
+	if QuestionWaits() then ns.Print(L.RECRUIT_ASK_LATER) end
+	ShowQuestion()
+	return true
+end
+function Recruit.AskPause(f, data) return Ask("OLYMPUS_RECRUIT_PAUSE", nil, f, data) end
+function Recruit.AskTurnOff(kind, f, data) return Ask("OLYMPUS_RECRUIT_TURN_OFF", kind, f, data) end
+
+-- The popup a question was asked from, closed once it is answered (still showing what it showed).
+local function CloseSource(q)
+	local f = type(q) == "table" and q.source
+	if type(f) == "table" and f.IsShown and f:IsShown() and f.data == q.sourceData then f:Hide() end
+end
+
+-- The row under a recruiting popup that opened by itself (Dialog.lua's `more`). `kind`: the switch
+-- behind it, for Turn off's "only this kind" ("ads", "joins", "handoffs" or "scan").
+function Recruit.StopRow(kind)
+	return {
+		{ label = L.RECRUIT_PAUSE_BUTTON, onClick = function(f, data) Recruit.AskPause(f, data) end },
+		{ label = L.RECRUIT_TURN_OFF_BUTTON, onClick = function(f, data) Recruit.AskTurnOff(kind, f, data) end },
+	}
+end
+-- The switch behind an invite command's popup: a scanned player's, a claimed player's, else a JOIN's.
+local function InviteKind(data)
+	if type(data) ~= "table" then return "joins" end
+	if data.candidate then return "scan" end
+	return data.req and data.req.handedIn and "handoffs" or "joins"
+end
+Recruit.InviteKind = InviteKind
+
+local ONLY = { ads = "RECRUIT_OFF_ONLY_ADS", joins = "RECRUIT_OFF_ONLY_JOINS", handoffs = "RECRUIT_OFF_ONLY_HANDOFFS",
+	scan = "RECRUIT_OFF_ONLY_SCAN" }
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_PAUSE"] = {
+	text = L.RECRUIT_PAUSE_ASK,
+	button1 = CANCEL or "Cancel",
+	more = function()
+		local row = {}
+		for _, minutes in ipairs(Recruit.PAUSE_MINUTES) do
+			row[#row + 1] = {
+				label = minutes < 60 and L.RECRUIT_ANNOUNCE_REMINDER_ON:format(minutes) or L.RECRUIT_POPUP_GAP_HOURS:format(minutes / 60),
+				onClick = function(f, q)
+					if Recruit.Pause(minutes) then CloseSource(q) end
+					if f:IsShown() and f.data == q then f:Hide() end
+				end,
+			}
+		end
+		return row
+	end,
+	moreAbove = true,
+	moreWidth = 60,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
+StaticPopupDialogs["OLYMPUS_RECRUIT_TURN_OFF"] = {
+	text = L.RECRUIT_TURN_OFF_ASK,
+	button1 = CANCEL or "Cancel",
+	more = function(_, q)
+		local function Choose(kind)
+			return function(f)
+				TurnOff(kind)
+				CloseSource(q)
+				if f:IsShown() and f.data == q then f:Hide() end
+			end
+		end
+		local row = {}
+		local only = type(q) == "table" and ONLY[q.kind]
+		if only then row[1] = { label = L[only], onClick = Choose(q.kind) } end
+		row[#row + 1] = { label = L.RECRUIT_OFF_ONLY_ALL, onClick = Choose("all") }
+		return row
+	end,
+	moreAbove = true,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
+
 -- Church > Invites (ChurchView.lua): Recruiting (its switch, how a JOIN comes in, the JOINs waiting),
 -- Recruiting ads, Find unguilded players, Handoffs (Experimental). With recruiting off the other three
 -- say it comes first. (1.5.9, the review of 1.5.8: a member whose rank the game does not let invite
@@ -1431,11 +2249,18 @@ function Recruit.WhisperLines()
 			tooltip = function(tt) tt:AddLine(L.RECRUIT_NO_INVITE_RIGHT, 1, 1, 1, true) end }
 		return lines
 	end
+	-- (1.6.0) A pause: until when, and Resume.
+	local paused = on and PauseEnd()
+	if paused then
+		lines[#lines + 1] = { id = "recruit-paused", indent = 1, text = L.RECRUIT_PAUSED_UNTIL:format(Clock(paused)) }
+		lines[#lines + 1] = { id = "recruit-resume", primary = true, text = L.RECRUIT_RESUME, onClick = Recruit.Resume }
+	end
 	Note(lines, V, on and L.RECRUIT_WHISPER_HINT or L.RECRUIT_WHISPER_OFF_HINT)
 	if on then
 		lines[#lines + 1] = { id = "recruit-whisper-arrival", indent = 1,
 			text = V.Gold(QueueOnly() and L.RECRUIT_WHISPER_QUEUE_ONLY or L.RECRUIT_WHISPER_POPUP_ON),
 			onClick = ToggleQueueOnly }
+		lines[#lines + 1] = PopupGapFilter()
 		for _, line in ipairs(Recruit.RequestLines(true, true)) do lines[#lines + 1] = line end
 	end
 	AnnouncementLines(lines, V, on)
@@ -1495,6 +2320,27 @@ end
 -- (whispered, sent by his Olympus, or passed on by another member) clears it (ClearDeclined).
 Recruit.DECLINE_DAYS, Recruit.DECLINE_MAX = 7, 200
 local declinedHere, declinePatterns = {}, nil
+local DECLINE_WIRE_WINDOW, DECLINE_WIRE_LIMIT = 120, 20
+local sentDeclines, declineSenders = {}, {}
+
+local function SharedDeclinedList(create)
+	if type(ns.rdb) ~= "table" or not ns.IsMember() then return end
+	local guild = WhisperGuild()
+	if ns.IsSecret(guild) or type(guild) ~= "string" or guild == "" then return end
+	local groups = ns.rdb.recruitDeclinedGuilds
+	if type(groups) ~= "table" then
+		if not create then return end
+		groups = {}
+		ns.rdb.recruitDeclinedGuilds = groups
+	end
+	local list = groups[guild]
+	if type(list) ~= "table" then
+		if not create then return end
+		list = {}
+		groups[guild] = list
+	end
+	return list, guild
+end
 
 -- A player's key in that list: a 32-bit hash (8 hex digits) of his folded name as the census knows
 -- him (on WoW: Forever his name alone, the same on every sub-realm of his family). A collision only
@@ -1549,6 +2395,19 @@ function Recruit.Declined(name)
 	return false
 end
 
+-- The guild's decline reports only suppress unsolicited recruitment.
+function Recruit.ScanDeclined(name)
+	if Recruit.Declined(name) then return true end
+	local list = SharedDeclinedList()
+	local key = list and DeclineKey(name)
+	local at = key and list[key]
+	if type(at) ~= "number" then return false end
+	local age = ns.Now() - at
+	if age >= 0 and age < Recruit.DECLINE_DAYS * 86400 then return true end
+	list[key] = nil
+	return false
+end
+
 -- His own JOIN (whispered, sent by his Olympus, or passed on by another member) after a decline is
 -- his choice to come back: it goes through, and the decline is forgotten.
 local function ClearDeclined(name)
@@ -1563,7 +2422,7 @@ end
 -- His popups still on screen (an invite command whose paste was not seen, his whisper review, his
 -- reply): closed, as nothing in them works for him any more and they hold the next ones back.
 local DECLINE_DIALOGS = { "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF" }
-local function CloseDeclinedPopups(key)
+local function CloseDeclinedPopups(key, scansOnly)
 	local D = ns.Dialog
 	if not D or D.missing or not D.Find then return end
 	for _, which in ipairs(DECLINE_DIALOGS) do
@@ -1571,9 +2430,70 @@ local function CloseDeclinedPopups(key)
 		local data = f and f.data
 		local item = type(data) == "table" and (data.candidate or data.req or (data.name and data)) or nil
 		local name = type(item) == "table" and (item.scanned and item.full or item.name) or nil
-		if name and DeclineKey(name) == key then f:Hide() end
+		if name and (not scansOnly or item.scanned or item.sighting) and DeclineKey(name) == key then
+			f:Hide()
+		end
 	end
 end
+
+local function ShareDecline(key, now)
+	local guild = WhisperGuild()
+	if ns.IsSecret(guild) or type(guild) ~= "string" or guild == "" then return end
+	local function CanSend()
+		local current = WhisperGuild()
+		return not ns.IsSecret(current) and current == guild and not ns.QuietPresence() and Recruit.CanInvite()
+	end
+	if not CanSend() then return end
+	for i = #sentDeclines, 1, -1 do
+		if now - sentDeclines[i] >= 60 then table.remove(sentDeclines, i) end
+	end
+	if #sentDeclines >= DECLINE_WIRE_LIMIT then return end
+	local word = ("JD~1~%s~%d~%s"):format(Field(guild), now, key)
+	if ns.Comm.Send("GUILD", word, nil, false, false, nil, { guard = CanSend }) then
+		sentDeclines[#sentDeclines + 1] = now
+	end
+end
+
+-- The game gives the actual refusal only to the inviter. Treat a guildmate's report as a hint to
+-- stop showing cold invites. It cannot discard a recruit's own request, or affect another guild.
+local function OnSharedDecline(dist, sender, word)
+	if dist ~= "GUILD" or not ns.IsMember() or type(sender) ~= "string" or type(word) ~= "string"
+		or ns.IsSecret(sender, word) then return false end
+	local peer = ns.Fold(Key(sender))
+	if peer == ns.Fold(ns.me) then return false end
+	local roster = ns.Roster.Fresh()
+	if not roster or ns.Roster.RankOf(sender) == nil then return false end
+	local guild, at, key = word:match("^JD~1~([^~]+)~(%d+)~([0-9a-f]+)$")
+	local own = WhisperGuild()
+	if ns.IsSecret(own) or type(own) ~= "string" or guild ~= Field(own) or not key or #key ~= 8 then return false end
+	local now = ns.Now()
+	at = tonumber(at)
+	if not at or at < now - DECLINE_WIRE_WINDOW or at > now then return false end
+	for peer, window in pairs(declineSenders) do
+		if now - window.at >= 60 then declineSenders[peer] = nil end
+	end
+	local window = declineSenders[peer]
+	if not window then window = { at = now, n = 0 }; declineSenders[peer] = window end
+	if window.n >= DECLINE_WIRE_LIMIT then return false end
+	window.n = window.n + 1
+
+	local list = SharedDeclinedList(true)
+	local previous = list and list[key]
+	if not list or (type(previous) == "number" and now - previous < Recruit.DECLINE_DAYS * 86400) then
+		return false
+	end
+	list[key] = at
+	KeepDeclined(list, now)
+	for i = #Recruit.requests, 1, -1 do
+		local req = Recruit.requests[i]
+		if req.sighting and DeclineKey(req.name) == key then table.remove(Recruit.requests, i) end
+	end
+	if Recruit.Candidates and Recruit.Candidates.DropDeclined then Recruit.Candidates.DropDeclined() end
+	CloseDeclinedPopups(key, true)
+	ns.Fire("DATA_CHANGED")
+	return true
+end
+ns.Comm.Handle("JD", OnSharedDecline)
 
 -- The client's decline lines as patterns (each with its one %s, the player), built once.
 local function DeclinePatterns()
@@ -1626,13 +2546,15 @@ function Recruit.OnSystemLine(text)
 	if H and H.Log then H.Log("DECLINED", H.Tag(name)) end
 	-- (Said while recruiting: the line is about what Olympus offers him.)
 	if Recruiting() then ns.Print(L.RECRUIT_DECLINED:format(ns.DisplayName(name) or name)) end
+	ShareDecline(key, now)
 	ns.Fire("DATA_CHANGED")
 	return true
 end
 
 -- `viaWhisper`: in the recruiting queue (Church > Invites), not the Census. `joinScreen`: sent from
--- the Join Olympus screen (a J3), in either one.
-local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen)
+-- the Join Olympus screen (a J3), in either one. `handed` (1.6.0): passed on by another member, whose
+-- line `text` is (Recruit.TakeHandoff).
+local function AddRequest(sender, own, level, class, text, viaWhisper, joinScreen, sighting, handed)
 	if ns.Roster.RankOf(sender) then return false end -- one of us already
 	-- (1.5.9) A player who declined this client's invite: only his own JOIN, which clears that first,
 	-- comes in; a reply to our whisper does not.
@@ -1657,7 +2579,7 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 	level = tonumber(level)
 	local req = { name = sender, guild = own, level = level and level >= 1 and level <= 100 and level or nil,
 		class = class and class ~= "" and #class <= 12 and class or nil, t = now, text = text, viaWhisper = viaWhisper,
-		joinScreen = joinScreen }
+		joinScreen = joinScreen, sighting = sighting or nil }
 	Recruit.requests[#Recruit.requests + 1] = req
 	-- Officers using The Watch are notified, but the request is never rejected automatically.
 	-- A related character counts only when Alts.lua already holds its two-sided confirmation.
@@ -1676,6 +2598,12 @@ local function AddRequest(sender, own, level, class, text, viaWhisper, joinScree
 		local line
 		if not viaWhisper then line = L.JOIN_ASKED:format(who, req.level or 0, className, own)
 		elseif joinScreen then line = L.JOIN_ASKED_INVITES:format(who, req.level or 0, className, own)
+		-- (1.6.0: a claimed JOIN said "sent a recruiting reply... Open Invites", while his command opens.
+		-- With Incoming JOIN set to Queue only no command opens by itself, a claimed player's either: his
+		-- line says where to invite him, as 1.5.9's did.)
+		elseif sighting or handed then
+			line = ("%s: %s"):format(who, text)
+			if handed and QueueOnly() then line = line .. " " .. L.RECRUIT_HANDOFF_IN_QUEUE end
 		else line = L.RECRUIT_WHISPER_ASKED:format(who, own) end
 		ns.Print(line)
 	end
@@ -1783,25 +2711,21 @@ end
 -- member's offer reads as a JOIN).
 function Recruit.TakeHandoff(name, officer, sighting)
 	if not Recruiting() or not CanInvite() or not NameForCommand(name) then return false end
-	if Recruit.Declined(name) then
-		-- (1.5.9) A sighting of a player who declined this character's invite is not taken (the
-		-- recruiting log says why). (Review of 1.5.9) A JOIN is: it is his own ask, made to another
-		-- member, and clears his decline here as his JOIN whispered here would.
-		if sighting then
-			if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
-			return false
-		end
-		ClearDeclined(name)
+	if sighting and Recruit.ScanDeclined(name) then
+		if Recruit.Handoff then Recruit.Handoff.Log("DECLINED", Recruit.Handoff.Tag(name) .. " handoff not taken") end
+		return false
 	end
-	local shown = L.RECRUIT_HANDOFF_RECEIVED:format(ns.DisplayName(officer) or officer)
-	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true)
+	if not sighting and Recruit.Declined(name) then ClearDeclined(name) end
+	local copy = sighting and L.RECRUIT_HANDOFF_RECEIVED_SCAN or L.RECRUIT_HANDOFF_RECEIVED
+	local shown = copy:format(ns.DisplayName(officer) or officer)
+	local accepted, req = AddRequest(name, recruitingGuild, nil, nil, shown, true, nil, sighting, true)
 	if not accepted then return false end
 	req.handedIn, req.handedBy = true, officer
-	-- (1.5.9, the author: the member who passed a JOIN or a scanned player on gets a share of that
-	-- recruit's points once he joins, "tipo os pontos da rede": this client's own read of the log names
-	-- him in its report of the invite and the join, RecruitRanking.lua.)
+	-- Only a player who asked to join can earn referral credit for the member who passed the request.
 	local ranking = ns.RecruitRanking
-	if ranking and ranking.HandedIn then ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer) end
+	if not sighting and ranking and ranking.HandedIn then
+		ns.SafeCall("recruit ranking source", ranking.HandedIn, name, officer)
+	end
 	PromptReply()
 	return true
 end
@@ -1823,8 +2747,8 @@ end
 
 -- (1.5.8) Forever lets a player send INVITES_PER_MINUTE guild invites a minute. The invite
 -- commands this player took to chat (OpenInviteChat) in the last minute count against it. At the
--- limit a new JOIN or scanned player goes to other members when the automatic offers are on;
--- otherwise its popup says the limit is reached and offers Pass.
+-- limit a new JOIN can go to other members when the automatic offers are on. Scans wait
+-- in the local queue or can be passed by hand.
 Recruit.INVITES_PER_MINUTE = 10
 local invitesTaken = {}
 -- (Review of 1.5.9) When this player last took an invite command to chat: the recruiting ranking for
@@ -1874,8 +2798,10 @@ function Recruit.ReleaseLimited()
 	if ReleaseLimited() then PromptReply() end
 end
 
-local function InviteDraftText(name, req, item)
+local function InviteDraftText(name, req, item, automatic)
 	local text = L.RECRUIT_WHISPER_INVITE_COPY:format(name)
+	if automatic then text = L.RECRUIT_INVITE_SELECT_COMMAND .. " " .. text end
+	if req and req.sighting then text = req.text .. "\n\n" .. text end
 	local waiting = req and WaitingAfter(req) or 0
 	if waiting > 0 then text = text .. "\n\n" .. L.RECRUIT_HANDOFF_MORE:format(waiting) end
 	if Recruit.AtInviteLimit() then
@@ -1902,6 +2828,8 @@ local function AcceptRequest(req, confirmed, automatic)
 			on = word.name, at = word.at, by = word.by, reason = word.reason }
 		-- Keep this contextual choice in Olympus's own window in either input mode. The existing
 		-- moderation formatter also preserves the King's stream privacy for free-text reasons.
+		-- (1.6.0) `automatic`: it opened by itself in the invite command's place (its Pause and Turn off).
+		data.automatic = automatic
 		ns.Dialog.Show("OLYMPUS_RECRUIT_NETOFF", L.JOIN_NETOFF_PROMPT:format(ns.DisplayName(req.name) or req.name,
 			M.When(word), M.ReasonShown(word)), nil, data)
 		return "warning"
@@ -1911,7 +2839,7 @@ local function AcceptRequest(req, confirmed, automatic)
 		if not to then return false end
 		if not ns.Dialog or ns.Dialog.missing then ns.Print(L.RESTART_NEEDED) return false end
 		-- The officer copies and pastes the command. Forever blocks addon-prefilled invites.
-		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req), nil,
+		local draft = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(to, req, nil, automatic), nil,
 			{ req = req, automatic = automatic })
 		if draft and not automatic then req.invitePrepared = true end
 		if draft and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", req, automatic and "auto" or "click") end
@@ -1936,6 +2864,9 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 		-- A changed word presents its new context and keeps the question open for another click.
 		return AcceptRequest(data.req, data) == "warning"
 	end,
+	more = function(_, data)
+		if type(data) == "table" and data.automatic then return Recruit.StopRow(InviteKind(data)) end
+	end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -1946,7 +2877,7 @@ function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
 	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
-	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate), nil,
+	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate, automatic), nil,
 		{ candidate = candidate, automatic = automatic }) ~= nil
 	if shown and Recruit.Handoff then Recruit.Handoff.LogItem("POPUP", candidate, automatic and "auto" or "click") end
 	return shown
@@ -2018,7 +2949,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end
 	ns.Gate.Used("chat-box")
-	if pcall(open, "", DEFAULT_CHAT_FRAME) then
+	if pcall(open, "", DEFAULT_CHAT_FRAME) then -- gp:chat-box
 		if req then req.invitePrepared = true end
 		if data.candidate then data.candidate.invitePrepared = true end
 		-- (Counted once a popup: a second Ctrl+C after closing chat is the same command.)
@@ -2069,6 +3000,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		else candidate.inviteAfterWhisper = nil end
 	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
+	-- (1.6.0) Opened by itself (a JOIN's, a claimed player's, the scan's): Pause and Turn off under it.
+	more = function(_, data)
+		if type(data) == "table" and data.automatic then return Recruit.StopRow(InviteKind(data)) end
+	end,
 	hasEditBox = true,
 	editBoxWidth = 360,
 	OnShow = function(f, data)
@@ -2083,9 +3018,16 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		-- (Recruit.LastInviteAt): he invites from the game's own menu, and his report of the join came only
 		-- when his client won the guild's draw.
 		if not ns.Gate.Allowed("chat-box") then lastInviteAt = ns.Now() end
-		box:SetText("/ginvite " .. name)
+		local command = "/ginvite " .. name
+		box:SetText(command)
+		box:SetScript("OnTextChanged", function(self, userInput)
+			if userInput and self:GetText() ~= command then
+				self:SetText(command)
+				self:HighlightText()
+			end
+		end)
 		box:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
-		if ns.Focus(box, nil, data.automatic) then box:HighlightText() end
+		if not data.automatic and ns.Focus(box) then box:HighlightText() end
 		-- Let the game's edit box copy first. Remember Ctrl at key-down because the
 		-- player can release it before C. The only handoff is opening empty chat.
 		local copying
@@ -2102,6 +3044,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	end,
 	OnHide = function(f)
 		f.pasteWatch = nil
+		f.editBox:SetScript("OnTextChanged", nil)
 		f.editBox:SetScript("OnKeyDown", nil)
 		f.editBox:SetScript("OnKeyUp", nil)
 		f.editBox:SetScript("OnEditFocusGained", nil)
@@ -2137,7 +3080,9 @@ end
 -- Offer each valid queued reply once, in order. When the player is busy, only one retry
 -- waits, and only while there is a reply left to show.
 PromptReply = function()
-	if not Recruiting() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
+	if not Recruiting() or not CanInvite() or QueueOnly() or not ns.Dialog or ns.Dialog.missing then return end
+	-- (1.6.0) Paused: they wait in Church > Invites; the pause's end looks again (EndPause).
+	if Recruit.Paused() then return end
 	local now, req = ns.Now(), nil
 	Prune(now)
 	-- (1.5.8) At the invite limit with the automatic offers on, a new JOIN goes to other members;
@@ -2153,33 +3098,62 @@ PromptReply = function()
 	local function Later()
 		if held then RetryReply(Recruit.AtInviteLimit() and InviteLimitWait() or 10) end
 	end
+	-- A player who explicitly claimed a handoff can review it during the optional interval.
+	-- (1.6.0) He comes first too: the member who passed him keeps him for this member alone, and his
+	-- command waited behind older JOINs whose popups had not opened yet.
+	local wait = Recruit.PopupWait()
+	local function Unshown(pending)
+		return pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
+			and (not H or not (H.State(pending) or H.Taken(pending)))
+	end
 	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and (not H or not (H.State(pending) or H.Taken(pending))) then
-			req = pending
-			break
+		if pending.handedIn and Unshown(pending) then req = pending; break end
+	end
+	if not req then
+		for _, pending in ipairs(Recruit.requests) do
+			if Unshown(pending) then
+				req = pending
+				if wait <= 0 then break end
+			end
 		end
 	end
 	if not req then return Later() end
-	if lastReplyPrompt and now - lastReplyPrompt < ASK_COOLDOWN then
-		return RetryReply(ASK_COOLDOWN - (now - lastReplyPrompt))
+	local gap = lastReplyPrompt and ASK_COOLDOWN - (now - lastReplyPrompt) or 0
+	if not req.handedIn then gap = math.max(gap, wait) end
+	if gap > 0 then return RetryReply(gap) end
+	if Recruit.PopupsWait() then return RetryReply(2) end
+	-- (1.6.0) A claimed player's command opens over an ad's draft or a scanned player's whisper review
+	-- (RecruitHandoff's Claim question waits for both): with one of them up, 1.5.9 printed his name and
+	-- opened no command, and the name was typed by hand (a Horde recruiter's report of 11-14).
+	local over = false
+	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT",
+		"OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }) do
+		if ns.Dialog.Find(id) then
+			if not (req.handedIn and (id == "OLYMPUS_RECRUIT_OUTREACH" or id == "OLYMPUS_RECRUIT_ANNOUNCEMENT")) then return RetryReply(2) end
+			over = true
+		end
 	end
-	if (InCombatLockdown and InCombatLockdown()) or ns.ChatLocked() or ns.KeyboardFocus() then return RetryReply(2) end
-	for _, id in ipairs({ "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF" }) do
-		if ns.Dialog.Find(id) then return RetryReply(2) end
+	local order = {}
+	for _, pending in ipairs(Recruit.requests) do if pending.handedIn then order[#order + 1] = pending end end
+	if not over then
+		for _, pending in ipairs(Recruit.requests) do if not pending.handedIn then order[#order + 1] = pending end end
 	end
-	for _, pending in ipairs(Recruit.requests) do
-		if pending.viaWhisper and not pending.popupShown and not pending.invitePrepared and not pending.passWanted
-			and not (H and H.Taken(pending)) and CurrentRequest(pending) then
+	for _, pending in ipairs(order) do
+		if pending.viaWhisper and (wait <= 0 or pending.handedIn) and not pending.popupShown
+			and not pending.invitePrepared and not pending.passWanted and not (H and H.Taken(pending))
+			and CurrentRequest(pending) then
 			local shown
 			if pending.handoffIntent or pending.handedIn then shown = AcceptRequest(pending, nil, true)
 			else shown = ReviewReply(pending) end
 			if shown then
 				pending.popupShown, lastReplyPrompt = true, now
+				if not pending.handedIn then Recruit.PopupShown() end
 				return RetryReply(ASK_COOLDOWN)
 			end
 		end
 	end
+	-- (The others still wait for that popup, as before: looked at again in a moment.)
+	if over then return RetryReply(2) end
 	Later()
 end
 
@@ -2188,6 +3162,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_REPLY"] = {
 	button1 = L.RECRUIT_WHISPER_PREPARE_BUTTON,
 	button2 = L.RECRUIT_WHISPER_QUEUE,
 	OnAccept = function(_, req) Recruit.Accept(req) end,
+	-- (1.6.0) It opens by itself alone (PromptReply): Pause and Turn off under it, its switch the JOIN pop-ups'.
+	more = function() return Recruit.StopRow("joins") end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
@@ -2268,7 +3244,9 @@ function Recruit.RequestLines(viaWhisper, nested)
 			text = V.ClassColored(who, req.class) .. (whisperOnly and "" or "  " .. V.Grey(L.LEVEL_N:format(req.level or 0) .. " " .. className)),
 			right = V.Grey(ns.Ago(req.t)),
 			tooltip = function(tt)
-				tt:AddLine((whisperOnly and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
+				if not req.sighting then
+					tt:AddLine((whisperOnly and L.RECRUIT_WHISPER_ASKED_TIP or L.JOIN_ASKED_TIP):format(who, req.guild), 1, 0.82, 0, true)
+				end
 				if req.text then tt:AddLine('"' .. ns.Codec.SanitizeChat(req.text) .. '"', 1, 1, 1, true) end
 			end,
 		}
@@ -2325,14 +3303,16 @@ end
 function Recruit.ResetForTests()
 	join = {}
 	StopRecruiting()
+	asking, askLook = nil, nil
 	if reminderTimer then reminderTimer.Cancel(); reminderTimer = nil end
 	reminderIndex, announcementVariant, lastAnnouncement = 1, 0, nil
 	rotateReminder, lastReminderChannel = true, nil
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
-	wipe(routeAsked); wipe(routeAnswered); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
-	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere)
+	wipe(routeAsked); wipe(routeAnswered); wipe(closedGuilds); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
+	wipe(selfSaid); wipe(ownNamed)
+	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere); wipe(sentDeclines); wipe(declineSenders)
 	declinePatterns = nil
 	lastRoute, lastInviteAt = -math.huge, nil
 	Recruit.route, Recruit.pending, Recruit.lastAsk, Recruit.lastContact = nil, nil, 0, nil
@@ -2444,7 +3424,10 @@ StaticPopupDialogs["OLYMPUS_RECRUIT"] = {
 		if eb and contact then
 			eb:SetText(Recruit.Message(contact))
 			eb:HighlightText(0, 0)
-			eb:SetFocus()
+			-- (1.6.0, review of the join reach) The Join screen's own window (JoinNext: a timer or an answer
+			-- opens it, not a click) leaves the keyboard with another box that has it, the chat's, in both
+			-- input modes: Enter there would send the chat line as this request. A click's takes it.
+			if join.preserve then ns.Focus(eb, nil, true) else eb:SetFocus() end
 		end
 	end,
 	OnAccept = function(self, contact)

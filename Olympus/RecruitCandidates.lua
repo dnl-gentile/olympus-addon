@@ -20,7 +20,8 @@ local raceFaction = {
 	BloodElf = "Horde", Goblin = "Horde",
 }
 local blockingDrafts = { "OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_REPLY",
-	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT" }
+	"OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_NETOFF", "OLYMPUS_RECRUIT_ANNOUNCEMENT",
+	"OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" } -- (1.6.0: and the Pause and Turn off questions)
 
 local function LocalGuild()
 	if R.IsWhisperRecruiting() and R.CanInvite() then return GetGuildInfo("player") end
@@ -74,7 +75,7 @@ end
 
 local function Remember(unit)
 	local name, guid, _, full = R.ReadCandidateUnit(unit)
-	if not name or Hidden(full) or R.Declined(full) then return end
+	if not name or Hidden(full) or R.ScanDeclined(full) then return end
 	local now = GetTime()
 	local prior = byGUID[guid]
 	if prior and prior.full ~= full then return end
@@ -115,7 +116,7 @@ function Q.ObserveWho(name, rawGuild, race)
 	local realm = full:match("%-([^%-]+)$")
 	local command = R.CandidateCommandName(full)
 	if not realm or not ns.InGroup(realm) or WhoFaction(race) ~= ns.faction or not command
-		or key == ns.Fold(ns.me) or Hidden(full) or R.Declined(full) then return end
+		or key == ns.Fold(ns.me) or Hidden(full) or R.ScanDeclined(full) then return end
 	local now = GetTime()
 	local row = Add(full, command, now)
 	local first = not row.who
@@ -132,9 +133,12 @@ end
 
 -- Returns a live unit token when the caller needs one, or true for a fresh WHO-only
 -- command draft. None of these checks means the invitation has been sent.
-function Q.Check(row, live)
-	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or Quiet() or Hidden(row.full)
-		or R.Declined(row.full) then return end
+-- `claimed` (1.6.0): a member's claim of this player under way (RecruitHandoff's SourceReady), which a
+-- fight, an instance or Busy no longer holds; a chat lockdown and quiet presence still do.
+function Q.Check(row, live, claimed)
+	local held = claimed and (ns.ChatLocked() or ns.QuietPresence()) or (not claimed and Quiet())
+	if type(row) ~= "table" or byName[row.key] ~= row or not Q.Enabled() or held or Hidden(row.full)
+		or R.ScanDeclined(row.full) then return end
 	if row.seen and GetTime() - row.seen < LIVE_TTL then
 		if UnitMatches(row, row.plate) then return row.plate end
 		if row.target and UnitMatches(row, "target") then return "target" end
@@ -144,28 +148,33 @@ function Q.Check(row, live)
 	if not live and not row.guid and row.who and GetTime() - row.who < WHO_TTL then return true end
 end
 
--- (1.5.8) A scanned player another member may still invite instead: current, and his command
--- not yet taken to chat here.
-function Q.Passable(row)
-	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row) ~= nil
+-- (The review of 1.6.0) A scanned player still on the scan's list: his row kept, the scan on, he neither
+-- hidden nor declined; whatever holds the popups a moment (a fight, an instance, Busy: Check's Quiet).
+-- A popup asked back for him waits while he is (Recruit's InviteAfterWhisper).
+function Q.Listed(row)
+	return type(row) == "table" and byName[row.key] == row and Q.Enabled() and not Hidden(row.full) and not R.ScanDeclined(row.full)
 end
 
--- The next scanned player the Pass button (or the invite limit) gave to the automatic offers.
+-- (1.5.8) A scanned player another member may still invite instead: current, and his command
+-- not yet taken to chat here. `claimed`: as Q.Check's.
+function Q.Passable(row, claimed)
+	return type(row) == "table" and byName[row.key] == row and not row.invitePrepared and Q.Check(row, nil, claimed) ~= nil
+end
+
+-- The next scanned player explicitly handed off with the Pass button.
 function Q.Overflow(skip)
 	local H = R.Handoff
 	for _, row in ipairs(rows) do
-		if row.passWanted and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
+		if row.passWanted and not row.limitPassed and not (H and H.State(row)) and Q.Passable(row) and not R.CandidatePromptOpen(row)
 			and not (skip and skip(row)) then return row end
 	end
 end
 
--- (1.5.9, the author's ask) A player who declined this client's invite (Recruit.Declined) leaves
--- the list, and the scan (nameplates, target, mouseover, /who) does not take him in again while the
--- decline is kept.
+-- A player's own decline or a report from a guildmate clears unsolicited scan rows.
 function Q.DropDeclined()
 	local before = #rows
 	for i = #rows, 1, -1 do
-		if R.Declined(rows[i].full) then done[rows[i].key] = true; Drop(i) end
+		if R.ScanDeclined(rows[i].full) then done[rows[i].key] = true; Drop(i) end
 	end
 	if #rows ~= before then Change() end
 end
@@ -203,18 +212,16 @@ local function Tick()
 	if #rows ~= before then Change() end
 	-- (1.5.8, the author's ask) Only the invite popup comes on its own; a whisper is its
 	-- "Whisper them first" button's, or the list's.
-	if not prompts or quiet or not ns.Dialog or ns.Dialog.missing then return end
+	if not prompts or quiet or R.PopupsWait() or R.PopupWait() > 0 or not ns.Dialog or ns.Dialog.missing then return end
 	for _, which in ipairs(blockingDrafts) do if ns.Dialog.Find(which) then return end end
-	-- (1.5.8) At the invite limit with the automatic offers on, new sightings go to other members.
+	-- Scans stay in the local queue when automatic handoffs take over at the invite limit.
 	local H = R.Handoff
-	local overflow = H and H.AutoOn() and R.AtInviteLimit()
+	if H and H.AutoOn() and R.AtInviteLimit() then return end
 	for _, row in ipairs(rows) do
 		if not row.prompted and not row.passWanted and not (H and (H.State(row) or H.Taken(row))) and Q.Check(row) then
-			if overflow then
-				-- (Not marked prompted: once the limit clears it pops up here, unless a member took it.)
-				H.Overflow(row)
-			elseif R.CopyCandidateInvite(row, true) then
+			if R.CopyCandidateInvite(row, true) then
 				row.prompted = true
+				R.PopupShown()
 				return
 			end
 		end
@@ -310,7 +317,7 @@ end)
 local function ObserveMouseover()
 	if not Q.Enabled() or Quiet() then return end
 	local name, guid, _, full = R.ReadCandidateUnit("mouseover")
-	if not name or Hidden(full) or R.Declined(full) or byGUID[guid] then return end
+	if not name or Hidden(full) or R.ScanDeclined(full) or byGUID[guid] then return end
 	local now = GetTime()
 	local row = Add(full, name, now)
 	if row.guid then return end

@@ -651,21 +651,9 @@ test("1.5.9's review one channel on Forever: a key-less officer's Census line sa
 	InEveryLanguage({ "PUBLIC_NET_FOREVER", "PUBLIC_NET_TIP_FOREVER" })
 end)
 
--- 1.5.9's review (B2, from eb2e95a9): a key holder's audience text on Forever (CHANNEL_SEALED_FOREVER, from
--- Comm.Audience) said "your lines never show in it as text", but it is also what the zone sharing question,
--- the Board's flags and camps, the groups' listing and application, the privacy page and the Treasurer's
--- share say of who reads what they send. It now fits any of them: what is sent to all guilds reaches them by
--- the relays, where any of their players can read it, and nothing sent goes into the public channel they
--- share (there ChatHall.On is off for a key holder, and every channel word goes by the relays). In all
--- seven languages, none of which speaks of lines any more. Fails before (each language's word for lines).
--- (Round 2 of the review) "Nothing you send goes into the public Olympus channel they share" then denied the
--- sentence each of four questions puts right before it: the zone's "Everyone on the Olympus channel receives
--- it", the chat warning's "anyone on the channel can read all three", the Treasurer's "goes out on the Olympus
--- channel", the privacy page's census "on the Olympus channel". On Forever the key holder's Olympus channel is
--- the public one (Comm.ChannelSpec), and the relays carry what goes on it. The text now says so, and what the
--- key does keep out: none of it shows as text in the game's public channel. Fails before (the denial, and no
--- word for text, in every language).
-test("1.5.9's review one channel on Forever: a key holder's audience fits any message the privacy questions send (zone, Board, groups, privacy page, treasury, chat): the relays carry the Olympus channel to every guild, none of it as text in the game's public channel, never denying the question's own channel; in every language", function()
+-- The same notice appears in privacy questions for chat and addon data. Check that it describes
+-- what others can read from relays and the limits that apply to typed chat.
+test("Forever realm key copy: privacy prompts describe relayed data and the ruleset limit for typed chat", function()
 	local L = ns.L
 	WithClient({ key = "fixture-secret", lane = 0 }, function(w)
 		local audience = w.C.Audience()
@@ -680,8 +668,8 @@ test("1.5.9's review one channel on Forever: a key holder's audience fits any me
 		ns.Comm = saved
 		if not ok then error(err, 0) end
 	end)
-	assert(L.CHANNEL_SEALED_FOREVER:find("the relays carry the Olympus channel", 1, true), L.CHANNEL_SEALED_FOREVER)
-	assert(L.CHANNEL_SEALED_FOREVER:find("none of it shows as text in the game's public channel", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("players can read what their addons receive from relays", 1, true), L.CHANNEL_SEALED_FOREVER)
+	assert(L.CHANNEL_SEALED_FOREVER:find("typed chat stays off the public game channel", 1, true), L.CHANNEL_SEALED_FOREVER)
 	-- (Each question as a key holder on Forever reads it: the question's own channel sentence, then this.)
 	for key, sentence in pairs({ LOCATION_ASK = "Everyone on the Olympus channel receives it.",
 		CHAN_WARN_ASK = "anyone on the channel can read all three with a script.",
@@ -690,20 +678,15 @@ test("1.5.9's review one channel on Forever: a key holder's audience fits any me
 		local text = key == "CHAN_WARN_ASK" and L[key]:format("Olympus", L.CHANNEL_SEALED_FOREVER) or L[key]:format(L.CHANNEL_SEALED_FOREVER)
 		assert(text:find(sentence, 1, true) and text:find(L.CHANNEL_SEALED_FOREVER, 1, true), key .. ": " .. text)
 	end
-	local LINES = { enUS = "lines", ptBR = "linhas", deDE = "Zeilen", esES = "líneas", frFR = "lignes", itIT = "righe", ruRU = "строки" }
-	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays", frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
-	local TEXT = { enUS = "as text", ptBR = "como texto", deDE = "als Text", esES = "como texto", frFR = "en texte", itIT = "come testo",
-		ruRU = "текстом" }
-	-- (The denial each language said before.)
-	local DENIAL = { enUS = "nothing you send goes into", ptBR = "nada do que você envia entra", deDE = "nichts, was du sendest, kommt in",
-		esES = "nada de lo que envías entra", frFR = "rien de ce que tu envoies n'entre", itIT = "niente di ciò che invii entra",
-		ruRU = "ничего из того, что ты отправляешь, не попадает" }
-	for code, Lc in pairs(Languages()) do
-		local text = Lc.CHANNEL_SEALED_FOREVER
-		assert(not text:find(LINES[code], 1, true), code .. ": no lines in " .. text)
-		assert(text:find(RELAYS[code], 1, true), code .. ": the relays in " .. text)
-		assert(text:find(TEXT[code], 1, true), code .. ": what stays out of the public channel is text: " .. text)
-		assert(not text:find(DENIAL[code], 1, true), code .. ": no denial of the question's channel: " .. text)
+	local RULESET = { enUS = "ruleset", ptBR = "conjunto de regras", deDE = "Regelwerk",
+		esES = "conjunto de reglas", frFR = "règles", itIT = "regole", ruRU = "набора правил" }
+	local RELAYS = { enUS = "relays", ptBR = "relays", deDE = "Relays", esES = "relays",
+		frFR = "relais", itIT = "relay", ruRU = "ретранслятор" }
+	for code, locale in pairs(Languages()) do
+		for _, key in ipairs({ "CHANNEL_SEALED_FOREVER", "KEY_SET_FOREVER", "PUBLIC_NET_TIP_FOREVER", "KEY_ROTATED_TAKEN_FOREVER" }) do
+			local message = locale[key]
+			assert(message:find(RELAYS[code], 1, true) and message:find(RULESET[code], 1, true), code .. " " .. key .. ": " .. message)
+		end
 	end
 	InEveryLanguage({ "CHANNEL_SEALED_FOREVER" })
 end)
@@ -774,4 +757,185 @@ test("1.5.9's review one channel on Forever: the King's key rotation (the Throne
 	end
 	for _, k in ipairs({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER" }) do assert(L[k]:find("nobody moves channel", 1, true), k) end
 	InEveryLanguage({ "KEY_ROTATE_TIP_FOREVER", "KEY_ROTATE_CONFIRM_FOREVER", "KEY_ROTATE_ONLY_KING_FOREVER" })
+end)
+
+-- The review of 1.6.0. A reader keeps a chat line's key (its writer, id and text) Channels.DedupeWindow,
+-- 1,320 s from 1.6.0 (120 s before), and an [Olympus] line's id keeps two digits on Forever
+-- (Codec.ChatWireId): the ids started again at random at every load, so after a /reload or a relog one
+-- same short line in a hundred ("gz", "lol") within those 22 minutes drew an id already used and was
+-- dropped as seen by every reader (its writer still saw it). A character's ids go on from the last one he
+-- sent now (ns.db.chatNextId). Fails before: the reload's draw that lands on the first line's id (here
+-- forced), the same text ten minutes later is a "dup".
+test("1.6.0's review chat ids: a character's line ids go on from the last one he sent across a /reload, so the same short line ten minutes later is shown again, never dropped as seen", function()
+	local FreshComm = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")
+	local saved = { name = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName, guild = GetGuildInfo,
+		time = GetTime, info = C_ChatInfo, random = math.random,
+		slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+		dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+	local ok, err = pcall(function()
+		local db = { addonChat = true, chatWarned = { A = true }, blocked = {} } -- (one account's saved variables)
+		local clock, ids, sent = 100000, { OlympusNet = 7 }, {}
+		GetGuildInfo = function() return "OLYMPUS FIXTURE", "Lord", 0 end
+		GetTime = function() return clock end
+		GetChannelName = function(name) return ids[name] or 0 end
+		LeaveChannelByName = function(name) ids[name] = nil end
+		JoinChannelByName = function() end
+		-- A session of the writer's: Channels.lua loaded anew (`draw`: what its load's random start draws) and
+		-- its login run, over the account's saved variables.
+		local function Session(draw)
+			local cns = FreshComm()
+			C_ChatInfo.SendAddonMessage = function(_, msg) sent[#sent + 1] = msg return 0 end
+			C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+			cns.me, cns.db, cns.rdb = "Chatty Writer-Realm", db, { guilds = {} }
+			cns.IsMember = function() return true end
+			cns.OnForever = function() return false end
+			cns.Print, cns.Fire, cns.ShowDialog = function() end, function() end, function() end
+			cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data })
+			local logins = {}
+			cns.On = function(name, f) if name == "LOGIN" then logins[#logins + 1] = f end end
+			math.random = function(a, b) if draw and a == 0 and b == 9999 then return draw end return saved.random(a, b) end
+			assert(loadfile(ADDON .. "Channels.lua"))("Olympus", cns)
+			math.random = saved.random
+			for _, f in ipairs(logins) do f() end
+			ids[cns.Comm.ChannelSpec()] = ids[cns.Comm.ChannelSpec()] or 6
+			cns.Comm.JoinChannel()
+			return cns
+		end
+		-- The id of the line `text` this session sends.
+		local function Say(cns, text)
+			local before = #sent
+			eq(cns.Channels.Send("A", text), true, "sent: " .. text)
+			for _ = 1, 10 do cns.Comm.Pump() end
+			for i = before + 1, #sent do
+				local m = ns.Codec.DecodeChat(sent[i])
+				if m and m.text == text then return m.id end
+			end
+			error("no line " .. text .. " went out")
+		end
+		local first = Say(Session(), "gz")
+		-- A /reload: the load's draw lands on the line before the first one's id (one in a hundred on Forever).
+		local second = Say(Session((first - 1) % 10000), "gz")
+		eq(second, (first + 1) % 10000, "the ids go on from the last one sent")
+		-- A reader that showed the first: the second, ten minutes later, is another line.
+		local C = ns.Channels
+		assert(C.DedupeWindow() > 600, "(a line's key is kept longer than ten minutes: " .. C.DedupeWindow() .. " s)")
+		local seen, mine = {}, {}
+		local function Read(id, at) return C.Admit("Chatty Writer-Realm", "OLYMPUS FIXTURE", "gz", at, { level = 0, seen = seen, mine = mine, buckets = {}, stats = {}, id = id }) end
+		eq((Read(first, 10000)), true, "(the first line shown)")
+		local shown, why = Read(second, 10000 + 600)
+		eq(shown, true, "the same text ten minutes later after a reload: " .. tostring(why))
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, GetGuildInfo = saved.name, saved.join, saved.leave, saved.guild
+	GetTime, C_ChatInfo, math.random = saved.time, saved.info, saved.random
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+	StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+	if not ok then error(err, 0) end
+end)
+
+-- 1.6.0.1 (the review of PR #114). A reader keeps a part's key (its writer, id and text)
+-- Channels.DedupeWindow, 1,320 s, and on Forever an [Olympus] line's id keeps two digits
+-- (Codec.ChatWireId): within one session a writer's ids came round to the first after a hundred parts,
+-- so the same short line ("gz") after 99 others within those 22 minutes went out on the id it had gone
+-- out with, and every reader dropped it as seen (ids that go on across a /reload, above, do not help
+-- there). A line now takes the next ids none of whose parts went out with the same text within twice
+-- the window, one turn of the ids at most. Fails before: the second "gz" is a "dup".
+-- A PvE writer of Forever (his [Olympus] lines name his ruleset, two digits of id), Channels.lua and
+-- Comm loaded anew: fn(Say, Read), Say(text) the id the line goes out with, Read(id, text, at) a
+-- 1.6.0 reader's answer for that part (Channels.Admit, its own keys), put back after.
+local function ForeverWriter(fn)
+	local FreshComm = assert(extra.FreshComm, "tests/run.lua hands FreshComm to this file")
+	local saved = { name = GetChannelName, join = JoinChannelByName, leave = LeaveChannelByName, guild = GetGuildInfo,
+		time = GetTime, info = C_ChatInfo,
+		slash = { SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS },
+		dialogs = { StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN, StaticPopupDialogs.OLYMPUS_PIN_DOWN } }
+	local ok, err = pcall(function()
+		local REALM = "CAMWOWUS2Realm1PvE"
+		local WRITER = "Chatty Writer-" .. REALM
+		local clock, ids, sent = 100000, { OlympusNet = 7 }, {}
+		GetGuildInfo = function() return "OLYMPUS FIXTURE", "Lord", 0 end
+		GetTime = function() return clock end
+		GetChannelName = function(name) return ids[name] or 0 end
+		LeaveChannelByName = function(name) ids[name] = nil end
+		JoinChannelByName = function() end
+		local cns = FreshComm()
+		C_ChatInfo.SendAddonMessage = function(_, msg) sent[#sent + 1] = msg return 0 end
+		C_ChatInfo.SendAddonMessageLogged = C_ChatInfo.SendAddonMessage
+		cns.me, cns.realm, cns.splitNames = WRITER, REALM, true
+		cns.db, cns.rdb = { addonChat = true, chatWarned = { A = true }, blocked = {} }, { guilds = {} }
+		cns.IsMember = function() return true end
+		cns.OnForever = function() return false end
+		cns.Print, cns.Fire, cns.ShowDialog = function() end, function() end, function() end
+		cns.Data = setmetatable({ ForgetVotes = function() end }, { __index = ns.Data })
+		local logins = {}
+		cns.On = function(name, f) if name == "LOGIN" then logins[#logins + 1] = f end end
+		assert(loadfile(ADDON .. "Channels.lua"))("Olympus", cns)
+		for _, f in ipairs(logins) do f() end
+		eq(cns.Channels.MyKind(), "pve", "(a PvE writer)")
+		ids[cns.Comm.ChannelSpec()] = ids[cns.Comm.ChannelSpec()] or 6
+		cns.Comm.JoinChannel()
+		local function Say(text)
+			clock = clock + 2
+			local before = #sent
+			eq(cns.Channels.Send("A", text), true, "sent: " .. text)
+			for _ = 1, 10 do cns.Comm.Pump() end
+			for i = before + 1, #sent do
+				local m = ns.Codec.DecodeChat(sent[i])
+				if m and m.text == text then
+					eq(m.from, "pve", "(its id names its writer's ruleset)")
+					return m.id
+				end
+			end
+			error("no line " .. text .. " went out")
+		end
+		local seen, mine = {}, {}
+		local function Read(id, text, at)
+			return ns.Channels.Admit(WRITER, "OLYMPUS FIXTURE", text, at, { level = 0, seen = seen, mine = mine, buckets = {}, stats = {}, id = id })
+		end
+		fn(Say, Read)
+	end)
+	GetChannelName, JoinChannelByName, LeaveChannelByName, GetGuildInfo = saved.name, saved.join, saved.leave, saved.guild
+	GetTime, C_ChatInfo = saved.time, saved.info
+	SlashCmdList.OLYMPUSALL, SlashCmdList.OLYMPUSCAPTAINS, SlashCmdList.OLYMPUSLORDS = saved.slash[1], saved.slash[2], saved.slash[3]
+	StaticPopupDialogs.OLYMPUS_CHAT_PRIVACY, StaticPopupDialogs.OLYMPUS_PIN = saved.dialogs[1], saved.dialogs[2]
+	StaticPopupDialogs.OLYMPUS_PIN_DOWN = saved.dialogs[3]
+	if not ok then error(err, 0) end
+end
+
+test("1.6.0.1 chat ids: on Forever the same short line after 99 others within 22 minutes goes out on an id it never went out with, and a reader shows it", function()
+	ForeverWriter(function(Say, Read)
+		local first = Say("gz")
+		local used = { [first] = true }
+		for i = 1, 99 do
+			local id = Say("line " .. i)
+			assert(not used[id], "(each of the hundred ids once: " .. id .. ")")
+			used[id] = true
+		end
+		-- (The hundred ids of the writer's ruleset all went out: the next one is the first's.) A reader that
+		-- showed the first "gz" shows the second, about 200 s later.
+		local again = Say("gz")
+		eq((Read(first, "gz", 50000)), true, "(the first shown)")
+		local shown, why = Read(again, "gz", 50000 + 202)
+		eq(shown, true, "the same text after 99 other lines: " .. tostring(why))
+		assert(again ~= first, "it does not go out on the id it went out with: " .. again)
+		eq(math.floor(again / 100), math.floor(first / 100), "(the ruleset's digit kept)")
+		eq(Say("after"), math.floor(again / 100) * 100 + (again + 1) % 100, "the ids go on from there")
+	end)
+end)
+
+test("1.6.0.1 chat ids: the same text a hundred times within the window goes on its ids after one turn (a flood, dropped as seen as before) and the ids after it go on", function()
+	ForeverWriter(function(Say, Read)
+		local first = Say("gz")
+		local used = { [first] = true }
+		for _ = 2, 100 do
+			local id = Say("gz")
+			assert(not used[id], "(a hundred times, a hundred ids: " .. id .. ")")
+			used[id] = true
+		end
+		local flood = Say("gz")
+		eq(flood, first, "every id went out with it: the line keeps the next id, after one turn")
+		eq(Say("after"), math.floor(first / 100) * 100 + (first + 1) % 100, "the ids go on")
+		eq((Read(first, "gz", 50000)), true)
+		eq(select(2, Read(flood, "gz", 50000 + 202)), "dup", "(a reader drops that one as seen, as before)")
+	end)
 end)

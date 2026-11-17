@@ -11,6 +11,15 @@
 -- Run a separately distributed module's own suite here too (1.4.0; see the hook where Olympus
 -- Link's tests used to be, and the README's Integrating with Olympus):
 --   OLYMPUS_EXTRA_SUITE=/path/to/suite.lua OLYMPUS_TEST_FILTER='<name part>' luajit tests/run.lua
+-- Keep LuaJIT's trace compiler on, to look into the compiler itself (the suite runs without it):
+--   OLYMPUS_TEST_JIT=1 luajit tests/run.lua
+
+-- (1.6.0) The game runs the addon on a plain Lua 5.1 interpreter. LuaJIT's trace compiler
+-- sometimes compiled the chat moderation store's lookup wrong (WatchChat.lua's Store, then
+-- ActiveOn): a guild master's own fresh timeout went unseen in about one Bones chat test run in
+-- 250, never with the compiler off nor once its traces were flushed. The addon runs interpreted
+-- here, as in the game.
+if rawget(_G, "jit") and os.getenv("OLYMPUS_TEST_JIT") ~= "1" then jit.off(); jit.flush() end
 
 local ROOT = (arg and arg[0] or ""):match("^(.*)tests[/\\]run%.lua$") or "./"
 local ADDON_DIR = ROOT .. "Olympus/"
@@ -250,6 +259,13 @@ local function test(name, fn)
 end
 local function eq(a, b, msg) if a ~= b then error((msg or "") .. " expected " .. tostring(b) .. ", got " .. tostring(a), 2) end end
 assert(loadfile(ROOT .. "tests/test-performance.lua"))(test, eq, ROOT)
+-- (1.6.0) The top of this file: no test runs compiled code the game never runs. Fails while
+-- LuaJIT's trace compiler is on without OLYMPUS_TEST_JIT=1 asking for it.
+test("Harness: the addon runs on the interpreter, as in the game: LuaJIT's trace compiler stays off unless OLYMPUS_TEST_JIT=1", function()
+	local J = rawget(_G, "jit")
+	if not J then return end
+	eq(J.status(), os.getenv("OLYMPUS_TEST_JIT") == "1", "LuaJIT's trace compiler on")
+end)
 
 -- A stored report as if `...` (other senders) had each just reported the same ranks: ranks
 -- from other guilds count only when someone else's recent report names them (Data.KnownRank).
@@ -416,6 +432,80 @@ test("federation filter: Olympus however it was spelled, but not other words", f
 	GetGuildInfo = savedGuild
 	eq(crowned[1], false, "an officer of a look-alike guild is no Crown officer")
 	eq(crowned[2], true)
+end)
+
+-- 1.6.0 (reported 2026-11-15 on Discord and on CurseForge, asking twice to take the guild out of the addon):
+-- a guild whose name sets Olympus as a comparison counted as an Olympus guild, for "than" is no word
+-- against Olympus (Core.lua's name rule, its 1.6.0 note). Every name here is made up, built like the
+-- reported one. Fails before: every name of the first two lists was an Olympus guild.
+test("federation filter (1.6.0): a name that measures a guild against Olympus or says it is not Olympus is none, glued too; Olympus first, praise, any other word between and the genuine patterns still count; the Horde's words alike; the author's list still lets one in", function()
+	local saved = { faction = ns.faction, inGuild = IsInGuild, guild = GetGuildInfo, approved = ns.IsApprovedGuild, print = ns.Print }
+	local ok, err = pcall(function()
+		ns.faction = "Alliance"
+		-- Measured against Olympus: a "than" right before it or with a word or two of degree, place or whose
+		-- between ("all", "any" and "every" too), any case, any spelling of Olympus, the slip "then" after a
+		-- comparative, and glued.
+		for _, name in ipairs({ "Stronger Than Olympus", "STRONGER THAN OLYMPUS", "stronger than olympus", "More Than Olympus",
+			"Less Than Olympus", "Wiser Than The Olympus", "Way Stronger Than Olympus", "Bigger Than Olimpvs", "Taller Than OLYMPVS",
+			"Stronger Than Ólympus", "Stronger Than 0lympus", "Stronger Than Olympus II", "Stronger Then Olympus",
+			"Stronger Then The Olympus", "StrongerThanOlympus", "MoreThanOlimpvs", "Than Olympus", "Stronger Than Your Olympus",
+			"Stronger Than Ur Olympus", "Stronger Than All Olympus", "Stronger Than Any Olympus", "Stronger Than Every Olympus",
+			"Stronger Than All of Olympus", "Stronger Than Even The Olympus" }) do
+			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
+		end
+		-- Saying it is not Olympus: "not" and its kind, straight, with a word or two of degree, place or whose
+		-- between, or glued; versus and nor.
+		for _, name in ipairs({ "Non Olympus", "Not Even Olympus", "Not Really Olympus", "Not Quite Olympus", "Not Part of Olympus",
+			"Not in Olympus", "Not Your Olympus", "Never Part of Olympus", "NotOlympus", "NonOlympus", "NoOlympus", "NeverOlympus",
+			"NotOlimpvs", "Horde vs Olympus", "Horde Versus Olympus", "Not Horde Nor Olympus" }) do
+			eq(ns.IsFederation(name), false, name); eq(ns.NamedOlympus(name), false, name)
+		end
+		-- Still Olympus: Olympus first ("than" after it), praise, any other word between (after "not" or after
+		-- "than": "Older Than Time Olympus"), "then" that is no comparison, a name that only ends in "than", a
+		-- word glued in front that only starts like "no", "not" or "than" (Olympus does not start at the O
+		-- after it: NoobOlympus, NotoriousOlympus, ThanosOlympus), the patterns of the realm's guilds
+		-- (numerals, a word after or before, all caps, accents, misspellings) and "Olympus Fake", the census
+		-- tests' forged guild.
+		for _, name in ipairs({ "Olympus Stronger Than You", "Olympus Than", "None Finer Than Olympus", "Nothing Above Olympus",
+			"Older Than Time Olympus", "Bolder Than Ever Olympus", "Faster Than Light Olympus",
+			"Do Not Anger Olympus", "Do Not Mess With Olympus", "No Mercy Olympus", "Never Ending Olympus", "Olympus Is Not Dead",
+			"And Then Olympus", "EthanOlympus", "Jonathan Olympus", "NoobOlympus", "NotoriousOlympus", "NoobsOfOlympus",
+			"NoonOlympus", "NoOneOlympus", "ThanosOlympus", "Olympus II", "OLYMPUS IV", "Olympus 2", "OlympusII",
+			"Olympus Zeus", "Olympus II Legion", "OLYMPUS PRIME", "Sons of Olympus", "Knights of Olympus", "Order of the Olympus",
+			"Dark Olympus", "Ólympus", "Olympus Élite", "Hijos del Olimpo", "0lympus", "Olimpvs", "Olympus vs Horde", "Olympus Fake" }) do
+			eq(ns.IsFederation(name), true, name)
+		end
+		-- The Horde's banter words follow the same rule.
+		ns.faction = "Horde"
+		eq(ns.IsFederation("Stronger Than Mudhutters"), false); eq(ns.IsFederation("Not Even Greenskins"), false)
+		eq(ns.IsFederation("Mudhutters"), true); eq(ns.IsFederation("Stronger Than Olympus"), false)
+		ns.faction = "Alliance"
+		-- Its members' addon: no Olympus member, told so, and the Join screen; its census reports are refused.
+		IsInGuild, GetGuildInfo = function() return true end, function() return "Stronger Than Olympus", "Member", 3 end
+		eq(ns.InOlympusGuild(), false); eq(ns.IsMember(), false)
+		local printed = {}
+		ns.Print = function(m) printed[#printed + 1] = m end
+		ns.Workshop.Approved()
+		ns.Print = saved.print
+		eq(printed[#printed], ns.L.APPROVED_NOT_MINE:format("Stronger Than Olympus"))
+		IsInGuild, GetGuildInfo = saved.inGuild, saved.guild
+		local savedGuilds = ns.rdb.guilds
+		ns.rdb.guilds = {}
+		local function Report(guild, leader)
+			return { guild = guild, total = 120, online = 9, leader = leader, users = 2, zones = {}, officers = {}, ranks = {}, top = {} }
+		end
+		local taken = ns.Data.Receive(Report("Stronger Than Olympus", "Rival Lead"), "Rival Lead-Realm")
+		local control = ns.Data.Receive(Report("Olympus Stronger Than You", "Proud Lead"), "Proud Lead-Realm")
+		local stored = { rival = ns.rdb.guilds["Stronger Than Olympus"], ours = ns.rdb.guilds["Olympus Stronger Than You"] }
+		ns.rdb.guilds = savedGuilds
+		eq(taken, false, "its report counts for nothing"); eq(stored.rival, nil)
+		eq(control, true, "the same report of an Olympus guild counts"); eq(type(stored.ours), "table")
+		-- The author's signed list still lets a guild of Asmon's Olympus named so in, whatever its name.
+		ns.IsApprovedGuild = function(g) return g == "Stronger Than Olympus" end
+		eq(ns.IsFederation("Stronger Than Olympus"), true); eq(ns.NamedOlympus("Stronger Than Olympus"), false)
+	end)
+	ns.faction, IsInGuild, GetGuildInfo, ns.IsApprovedGuild, ns.Print = saved.faction, saved.inGuild, saved.guild, saved.approved, saved.print
+	if not ok then error(err, 0) end
 end)
 
 test("number formatting", function()
@@ -1247,7 +1337,7 @@ test("sealed channel name comes from the key", function()
 	eq((ns.Comm.ChannelSpec()), "OlympusNet")
 end)
 
-test("join flow groups online Olympus players and never asks twice", function()
+test("join flow groups online Olympus players and never asks twice within REASK", function()
 	local R = ns.Recruit
 	R.found = {
 		{ name = "A", guild = "Olympus II" }, { name = "B", guild = "Olympus II" }, { name = "C", guild = "Olympus" },
@@ -1255,10 +1345,16 @@ test("join flow groups online Olympus players and never asks twice", function()
 	local g = R.Guilds()
 	eq(g[1].name, "Olympus II"); eq(#g[1].members, 2)
 	eq(R.NextContact("Olympus II").name, "A")
-	R.asked.A = 1
+	-- (Changed in 1.6.0: these were 1, a whisper at the epoch's first second, never asked again. Since
+	-- 1.6.0 one asked more than REASK ago may be asked again once nobody new is left, so a realm with
+	-- few members online is no dead end; within REASK, never twice.)
+	R.asked.A = ns.Now()
 	eq(R.NextContact("Olympus II").name, "B")
-	R.asked.B = 1
+	R.asked.B = ns.Now()
 	eq(R.NextContact("Olympus II"), nil)
+	R.asked.A = ns.Now() - R.REASK
+	eq(R.NextContact("Olympus II").name, "A", "nobody new: the one asked REASK ago")
+	R.asked.A = ns.Now()
 	function UnitLevel() return 12 end
 	function UnitClass() return "Mage", "MAGE" end
 	assert(R.Message({ guild = "Olympus II" }):find("Olympus II"))
@@ -5753,6 +5849,134 @@ test("chat sanitizer keeps item and spell links and neutralises every other esca
 	end
 end)
 
+test("1.5.8 item links admit one bounded canonical crafter GUID and no other link data does", function()
+	local prefix = "5765::::::::22:1490::::::::"
+	local guid = "Player-6794-01137728"
+	local function Link(kind, data)
+		return "|cnIQ1:|H" .. kind .. ":" .. data .. "|h[Black Silk Pack]|h|r"
+	end
+	local function Rejected(kind, data, why)
+		local link = Link(kind, data)
+		eq(Codec.LinkAt(link, 1), nil, why)
+		assert(Codec.SanitizeChat(link) ~= link, why .. ": sanitizer")
+	end
+
+	for _, bad in ipairs({
+		{ prefix .. "Player--01137728:", "empty realm id" },
+		{ prefix .. "Player-6794-:", "empty player id" },
+		{ prefix .. "Player-0-01137728:", "zero realm id" },
+		{ prefix .. "Player-06794-01137728:", "non-canonical realm id" },
+		{ prefix .. "Player-6794-00000000:", "zero player id" },
+		{ prefix .. "Player-6794-01137G28:", "non-hex player id" },
+		{ prefix .. "Crafter-6794-01137728:", "arbitrary letters" },
+		{ prefix .. "Player-6794-01137728-more:", "extra hyphen" },
+		{ prefix .. "Player-6794-0113\n7728:", "control byte" },
+		{ prefix .. "Player-12345678901-01137728:", "overlong realm id" },
+		{ prefix .. "Player-6794-001137728:", "overlong player id" },
+		{ prefix .. guid .. ":" .. guid .. ":", "second crafter GUID" },
+		{ "5765:" .. ("12345678901:"):rep(8) .. guid, "link data over 120 bytes" },
+		{ "5765" .. (":1"):rep(31) .. ":" .. guid, "more than 32 link-data fields" },
+	}) do
+		Rejected("item", bad[1], bad[2])
+	end
+	for _, kind in ipairs({ "spell", "enchant", "quest" }) do
+		Rejected(kind, prefix .. guid .. ":", "crafter GUID on " .. kind)
+	end
+
+	local item = Link("item", prefix .. guid .. ":")
+	eq(Codec.LinkAt(item, 1), #item, "the production Black Silk Pack payload")
+	eq(Codec.SanitizeChat(item), item, "the production link stays live")
+end)
+
+test("1.5.8 packed chat tokens capture crafter GUID letters only for exact semantic validation", function()
+	local prefix = "5765::::::::22:1490::::::::"
+	local guid = "Player-6794-01137728"
+	local data = prefix .. guid .. ":"
+	local named = "|cnIQ1:|Hitem:" .. data .. "|h[Black Silk Pack]|h|r"
+	local function Token(kind, payload)
+		return "[Black Silk Pack](" .. kind .. ":" .. payload .. "/nIQ1:)"
+	end
+
+	for _, bad in ipairs({
+		Token("item", prefix .. "Player-6794-BADFACE:"),
+		Token("item", data .. guid .. ":"),
+		Token("spell", data),
+		Token("enchant", data),
+		Token("quest", data),
+		Token("item", "5765:" .. ("12345678901:"):rep(8) .. guid),
+	}) do
+		eq(Codec.UnpackLinks(bad), bad, "an invalid captured token remains text")
+	end
+
+	local token = Token("item", data)
+	eq(Codec.PackLinks(named), token, "the live production link packs without pipes")
+	eq(Codec.UnpackLinks(token), named, "the exact validated token reconstructs the link")
+	local message = assert(Codec.EncodeChat("A", "Olympus II", 500, "PA", named))
+	eq(assert(Codec.DecodeChat(message)).text, named, "encode/decode keeps the exact link")
+end)
+
+test("1.5.9 trade links require one canonical Player GUID and two bounded positive decimal IDs", function()
+	local guid = "Player-6931-017A0447"
+	local function Link(kind, data)
+		return "|cffffd000|H" .. kind .. ":" .. data .. "|h[Blacksmithing]|h|r"
+	end
+	local function Token(kind, data)
+		return "[Blacksmithing](" .. kind .. ":" .. data .. "/ffffd000)"
+	end
+	local function Rejected(kind, data, why)
+		local link, token = Link(kind, data), Token(kind, data)
+		eq(Codec.LinkAt(link, 1), nil, why)
+		assert(Codec.SanitizeChat(link) ~= link, why .. ": sanitizer")
+		eq(Codec.PackLinks(link), link, why .. ": packer")
+		eq(Codec.UnpackLinks(token), token, why .. ": token")
+	end
+
+	for _, bad in ipairs({
+		{ "", "no fields" },
+		{ guid .. ":3100", "missing skillLineID" },
+		{ guid .. ":3100:164:1", "extra field" },
+		{ ":3100:164", "empty GUID" },
+		{ guid .. "::164", "empty spellID" },
+		{ guid .. ":3100:", "empty skillLineID" },
+		{ guid .. ":0:164", "zero spellID" },
+		{ guid .. ":3100:0", "zero skillLineID" },
+		{ guid .. ":-1:164", "negative spellID" },
+		{ guid .. ":3100:-1", "negative skillLineID" },
+		{ guid .. ":spell:164", "letters in spellID" },
+		{ guid .. ":3100:skill", "letters in skillLineID" },
+		{ "Crafter-6931-017A0447:3100:164", "arbitrary GUID kind" },
+		{ "Player-6931-017A0447:Player-6931-017A0447:164", "GUID in spellID" },
+		{ guid .. ":3100:" .. guid, "GUID in skillLineID" },
+		{ guid .. ":3100:164:" .. guid, "duplicate GUID field" },
+		{ "Player--017A0447:3100:164", "empty realm" },
+		{ "Player-0-017A0447:3100:164", "zero realm" },
+		{ "Player-06931-017A0447:3100:164", "non-canonical realm" },
+		{ "Player-12345678901-017A0447:3100:164", "overlong realm" },
+		{ "Player-6931-00000000:3100:164", "zero player ID" },
+		{ "Player-6931-017a0447:3100:164", "lowercase player ID" },
+		{ "player-6931-017A0447:3100:164", "lowercase GUID kind" },
+		{ "Player-6931-017A044:3100:164", "short player ID" },
+		{ "Player-6931-0017A0447:3100:164", "overlong player ID" },
+		{ guid .. ":03100:164", "non-canonical spellID" },
+		{ guid .. ":3100:0164", "non-canonical skillLineID" },
+		{ guid .. ":1000000000:164", "overlong spellID" },
+		{ guid .. ":3100:1000000000", "overlong skillLineID" },
+		{ guid .. ":31\n00:164", "control byte" },
+		{ guid .. ":" .. ("1"):rep(121) .. ":164", "data over 120 bytes" },
+	}) do
+		Rejected("trade", bad[1], bad[2])
+	end
+	for _, kind in ipairs({ "item", "spell", "enchant", "quest" }) do
+		Rejected(kind, guid .. ":3100:164", "trade data on " .. kind)
+	end
+
+	for _, data in ipairs({ guid .. ":3100:164", "Player-1234567890-FFFFFFFF:999999999:999999999" }) do
+		local link = Link("trade", data)
+		eq(Codec.LinkAt(link, 1), #link, "valid bounded trade data")
+		eq(Codec.SanitizeChat(link), link, "valid trade link stays live")
+	end
+end)
+
 test("long chat splits at safe points and every part fits one message", function()
 	local guild = "Olympus Poseidon Real"
 	eq(#guild, 21)
@@ -5931,8 +6155,10 @@ test("duplicate ids are shown once", function()
 		eq(select(2, Chan.Receive("CHANNEL", "Member7", m, 3001)), "dup")
 		eq((Chan.Receive("CHANNEL", "Member8", m, 3002)), true, "same id from another sender")
 		eq((Chan.Receive("CHANNEL", "Member7", Msg("A", MY_GUILD, 4242, "after a /reload"), 3003)), true, "same id, new text")
-		Chan.Prune(3000 + 121)
-		eq((Chan.Receive("CHANNEL", "Member7", m, 3000 + 121)), true, "forgotten after the window")
+		-- (1.6.0: the window is as long as a relay copy may still come, Channels.DedupeWindow, no longer 120 s.)
+		local after = 3000 + Chan.DedupeWindow() + 1
+		Chan.Prune(after)
+		eq((Chan.Receive("CHANNEL", "Member7", m, after)), true, "forgotten after the window")
 	end)
 end)
 
@@ -7218,10 +7444,11 @@ do -- (1.4.3: the relay's tests, their locals scoped)
 -- client takes it once as if from the channel, its origin the sender. A client of each kind here.
 -- relayFile (the review of 1.5.4, mixed versions): another release's Relay.lua instead of this one
 -- (tests/fixtures/relay-1.5.3.lua: a client still on 1.5.3, as tests/hop-forever.lua runs one).
-local function RelayWorld(me, guild, relayFile)
+local function RelayWorld(me, guild, relayFile, secondRelay)
 	local cns, Deliver = FreshComm()
 	cns.me, cns.splitNames = me, true
-	cns.rdb = { council = { names = { ["max ran"] = "Max Ran", ["hildryn payne"] = "Hildryn Payne" }, realm = "Realm" } }
+	secondRelay = secondRelay or "Hildryn Payne"
+	cns.rdb = { council = { names = { ["max ran"] = "Max Ran", [secondRelay:lower()] = secondRelay }, realm = "Realm" } }
 	cns.KingCharacter, cns.TreasurerPins, cns.AuthorCharacters = function() return nil end, function() return {} end, function() return {} end
 	assert(loadfile(relayFile or (ADDON_DIR .. "Relay.lua")))("Olympus", cns)
 	cns.Relay.Reset()
@@ -7237,6 +7464,9 @@ end
 Harness.RelayWorld = RelayWorld -- (1.5.4: the Chat tab's link tests, tests/chat-item-links.lua)
 
 assert(loadfile(ROOT .. "tests/census-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
+-- 1.6.0: a guild named as a comparison with Olympus, with mixed versions (Core.lua's name rule).
+assert(loadfile(ROOT .. "tests/federation-names.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR,
+	fixtures = ROOT .. "tests/fixtures/", WithWho = WithWho })
 assert(loadfile(ROOT .. "tests/census-ask-answer.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.5: the mesh between the signed relays (tests/relay-mesh.lua).
 assert(loadfile(ROOT .. "tests/relay-mesh.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR, fixtures = ROOT .. "tests/fixtures/" })
@@ -7260,7 +7490,7 @@ assert(loadfile(ROOT .. "tests/relay-fallback.lua"))(ns, test, eq, { RelayWorld 
 assert(loadfile(ROOT .. "tests/roster-subrealm.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/roster-guid.lua"))(ns, test, eq)
 -- 1.5.5: every chat line reaches every member once (tests/chat-delivery.lua).
-assert(loadfile(ROOT .. "tests/chat-delivery.lua"))(ns, test, eq, { RelayWorld = RelayWorld })
+assert(loadfile(ROOT .. "tests/chat-delivery.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 assert(loadfile(ROOT .. "tests/king-crown-relay.lua"))(ns, test, eq, { RelayWorld = RelayWorld, addon = ADDON_DIR })
 -- 1.5.4: the King's presence where he leads no guild named Olympus (tests/king-online.lua).
 assert(loadfile(ROOT .. "tests/king-online.lua"))(ns, test, eq, { RelayWorld = RelayWorld, ADDON_DIR = ADDON_DIR })
@@ -7443,22 +7673,25 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		local O, odeliver, osent, _, opump, osentOf = RelayWorld("Orig Inal-Realm", "Olympus II")
-		local quieted, timers, dones = {}, {}, {}
-		-- (1.5.4: Comm opens the quiet window again when each whisper actually goes, so a name is
-		-- quieted when the relay hands its whisper in and again when it leaves. What matters here is
-		-- whose lines stay out of the chat, in order: each name once, as the relay first quieted it.)
+		local quieted, marked, timers, dones = {}, {}, {}, {}
+		-- (Changed on purpose, 1.6.0: what keeps a whisper's no-player line out of the chat is the mark
+		-- Comm.SendNow gives it when the game is handed it, Accord.Tried, one per whisper, in order;
+		-- Accord.Quiet only registers the filter, which the relay still asks for before its whispers,
+		-- each name once, as it first did. This counted only those Quiet calls, and passed with no
+		-- whisper marked at all.)
 		O.Accord = { Quiet = function(n)
 			n = ns.TellName(n)
 			for _, q in ipairs(quieted) do if q == n then return end end
 			quieted[#quieted + 1] = n
-		end }
+		end, Tried = function(n) marked[#marked + 1] = ns.TellName(n) return {} end, Untried = function() end }
 		O.After = function(_, _, fn) timers[#timers + 1] = fn end
 		-- Held, every relay pinged at once, each ping's name quieted.
 		eq(O.Comm.Send("CHANNEL", "X1~one", "k1", false, false, function(sent) dones[#dones + 1] = sent end), true)
 		opump()
 		local pings = osentOf("RL~P~RP~")
 		eq(#pings, 2); eq(pings[1].target, "Hildryn Payne"); eq(pings[2].target, "Max Ran")
-		eq(table.concat(quieted, ","), "Hildryn Payne,Max Ran", "the server's no-player line for each ping out of the chat")
+		eq(table.concat(marked, ","), "Hildryn Payne,Max Ran", "each ping marked as the game was handed it: its no-player line out of the chat")
+		eq(table.concat(quieted, ","), "Hildryn Payne,Max Ran", "the filter asked for before them")
 		eq(#osentOf("RL~P~X1~"), 0, "held"); eq(O.Relay.Stats().pending, 1); eq(O.Relay.Stats().sure, false)
 		eq(#timers, 3, "the two pings' waits and the hold")
 		-- The same key again takes the first's place; another waits behind it; no second ping meanwhile.
@@ -7471,15 +7704,15 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		eq(O.Comm.Send("CHANNEL", "X1~three"), true)
 		eq(O.Relay.Stats().pending, 2); eq(#dones, 1); eq(dones[1], false, "the dropped one's callback")
 		O.Relay.PENDING_MAX = 40
-		-- The first answer: what waits goes to that relay, in order, quieted too.
-		wipe(quieted)
+		-- The first answer: what waits goes to that relay, in order, each whisper marked too.
+		wipe(quieted); wipe(marked)
 		odeliver("WHISPER", "Max Ran-Realm", "RY~")
 		opump()
 		local out = osentOf("RL~P~X1~")
 		eq(#out, 2); eq(out[1].msg, "RL~P~X1~two"); eq(out[1].target, "Max Ran"); eq(out[2].msg, "RL~P~X1~three"); eq(out[2].target, "Max Ran")
-		-- (1.5.4) Our presentation to the relay that answered (RI, ahead of what waited) is quieted too,
-		-- a name already recorded once above.
-		eq(table.concat(quieted, ","), "Max Ran", "both messages' name quieted (each name once, see above)")
+		-- (1.5.4) Our presentation to the relay that answered (RI, ahead of what waited) is marked too.
+		eq(table.concat(marked, ","), "Max Ran,Max Ran,Max Ran", "our presentation and both messages, each marked as it went")
+		eq(table.concat(quieted, ","), "Max Ran", "the filter asked for (each name once, see above)")
 		eq(#osentOf("RI~"), 1, "(1.5.4) presented once, to the relay that answered")
 		eq(O.Relay.Stats().pending, 0); eq(O.Relay.Stats().sure, true); eq(O.Relay.Pick(), "Max Ran", "the one that answered, while any did")
 		-- The next message goes straight out, no new ping (it answered within DEAD_FOR).
@@ -7510,13 +7743,17 @@ test("1.4.4 the relay: the first message with no relay answered pings every rela
 		eq(O.Relay.Stats().pending, 1)
 		O.Relay.Reset()
 		eq(O.Relay.Stats().pending, 0)
-		-- The relay's hop 2 to a reporter is quieted too (a reporter gone offline since).
-		local R, rdeliver = RelayWorld("Hildryn Payne-Realm", "Olympus II")
-		local rquiet = {}
-		R.Accord = { Quiet = function(n) rquiet[#rquiet + 1] = n end }
+		-- The relay's hop 2 to a reporter is marked too (a reporter gone offline since).
+		local R, rdeliver, _, _, rpump, rsentOf = RelayWorld("Hildryn Payne-Realm", "Olympus II")
+		local rquiet, rmarked = {}, {}
+		R.Accord = { Quiet = function(n) rquiet[#rquiet + 1] = n end,
+			Tried = function(n) rmarked[#rmarked + 1] = ns.TellName(n) return {} end, Untried = function() end }
 		rdeliver("WHISPER", "Zed Far-Realm", "RL~P~RR~Olympus Zeus")
 		rdeliver("WHISPER", "Orig Inal-Realm", "RL~P~X1~hello")
-		eq(table.concat(rquiet, ","), "Zed Far-Realm", "the reporter's name quieted before hop 2")
+		eq(table.concat(rquiet, ","), "Zed Far-Realm", "the filter asked for before hop 2")
+		rpump()
+		eq(#rsentOf("RM~"), 1, "hop 2, to the reporter")
+		eq(table.concat(rmarked, ","), "Zed Far", "hop 2 marked as the game was handed it")
 	end)
 	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild = saved.channel, saved.member, saved.guild, saved.inGuild
 	C_ChatInfo = nil
@@ -8077,30 +8314,442 @@ end)
 
 -- 1.4.6 (the dev's ask): the yellow "No player named X" for the relay's own whispers, out of the
 -- chat for good. Fails before: no filter of the relay's.
-test("1.4.6 the relay: the server's no-player line for a relay or a registered reporter is kept out of the chat, any other left alone; installed at login where the gate allows, once", function()
-	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, err = ERR_CHAT_PLAYER_NOT_FOUND_S, add = rawget(_G, "ChatFrame_AddMessageEventFilter") }
+test("relay offline whispers: only recent addon sends are filtered, including a refused send; installed once behind the gate", function()
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild, err = ERR_CHAT_PLAYER_NOT_FOUND_S, add = rawget(_G, "ChatFrame_AddMessageEventFilter"), time = GetTime }
 	local ok, err = pcall(function()
 		GetChannelName = function() return 0 end
 		ns.IsMember = function() return true end
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+		-- (1.6.0: its own clock and none of an earlier test's marks: a filtered run, `relay`, had a test's
+		-- ping to Max Ran a few seconds of os.clock before, and the first line below was hidden by it.
+		-- A line that comes later comes in a later frame: the clock moves on before it.)
+		local mono = 800000
+		GetTime = function() return mono end
+		ns.Accord.Reset()
 		local O, odeliver = RelayWorld("Hildryn Payne-Realm", "Olympus II")
 		O.Treasury = ns.Treasury
-		eq(O.Relay.QuietLine(nil, nil, "No player named 'Max Ran' is currently playing."), true, "a relay")
+		local relayLine = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Max Ran")
+		eq(O.Relay.QuietLine(nil, nil, relayLine), false, "typing a whisper to a relay can still show an error")
 		eq(O.Relay.QuietLine(nil, nil, "No player named 'Some One' is currently playing."), false, "anyone else")
 		odeliver("WHISPER", "Zed Far-Realm", "RL~P~RR~Olympus Zeus")
-		eq(O.Relay.QuietLine(nil, nil, "No player named 'Zed Far' is currently playing."), true, "a registered reporter")
+		local reporterLine = ERR_CHAT_PLAYER_NOT_FOUND_S:format("Zed Far")
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), false, "registration is not a send")
+		local refused
+		C_ChatInfo.SendAddonMessage = function(_, msg, dist)
+			if dist == "WHISPER" and msg == "X1~offline-probe" then
+				refused = true
+				eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the client may emit the line during the send")
+				return 12
+			end
+			return 0
+		end
+		O.Comm.Whisper("Zed Far-Realm", "X1~offline-probe")
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(refused, true, "send was attempted")
+		-- (Changed on purpose, 1.6.0: one line for one whisper. This asked twice about the line of one
+		-- refused whisper, during the send and after it. The game gives that line once; a second one
+		-- naming him is the player's own whisper's, and shows. The line of a whisper the game took
+		-- comes after the call: that timing has a whisper of its own now.)
+		mono = mono + 1
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), false, "a second line after one refused whisper: the player's own, shown")
+		C_ChatInfo.SendAddonMessage = function() return 0 end
+		O.Comm.Whisper("Zed Far-Realm", "X1~taken-probe")
+		for _ = 1, 10 do O.Comm.Pump() end
+		mono = mono + 1
+		eq(O.Relay.QuietLine(nil, nil, reporterLine), true, "the line of a whisper the game took, after the call: hidden")
 		eq(O.Relay.QuietLine(nil, nil, "Some other system line."), false)
 		local added = {}
 		ChatFrame_AddMessageEventFilter = function(event, fn) added[#added + 1] = { event = event, fn = fn } end
 		O.Relay.QuietLines(); O.Relay.QuietLines()
 		eq(#added, 1, "installed once"); eq(added[1].event, "CHAT_MSG_SYSTEM"); eq(added[1].fn, O.Relay.QuietLine)
 	end)
-	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S, GetTime = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err, saved.time
 	ChatFrame_AddMessageEventFilter = saved.add
 	C_ChatInfo = nil
+	ns.Accord.Reset()
 	if not ok then error(err, 0) end
+end)
+
+-- 1.6.0 (the review of the "No player named" lines members saw in their chat): the server answers
+-- each whisper to a player who is not online with one line. 1.6.0's Comm.SendNow marks every whisper
+-- before the game's call (a refused one's line comes during it), and every line naming that player
+-- for Accord.QUIET seconds stayed out of the chat: the player's own whisper to him then said nothing.
+-- Join Olympus's request is one (Recruit.Ask: the player's whisper and the addon's J3 go to the same
+-- member at once), a whisper typed to a High Councillor whose relay was just pinged another. One line
+-- stays out for each whisper the addon handed the game, and the next one shows. Each chat window
+-- that shows system lines runs the filters for the same line: it gets one answer. Real Comm, Relay
+-- and Accord; the game's chat windows run the two filters as ChatFrame_MessageEventHandler does.
+-- Fails before: the player's own line was kept out too.
+local function NoPlayerWorld(fn)
+	local saved = { channel = GetChannelName, member = ns.IsMember, guild = GetGuildInfo, inGuild = IsInGuild,
+		err = ERR_CHAT_PLAYER_NOT_FOUND_S, time = GetTime }
+	local ok, err = pcall(function()
+		ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+		-- Its own clock, past any quiet seconds an earlier test left (theirs ran on os.clock).
+		local w = { mono = 900000, lineID = 7000 }
+		GetTime = function() return w.mono end
+		ns.Accord.Reset()
+		-- The server's line for `name` (the game numbers each chat line: CHAT_MSG_SYSTEM's eleventh
+		-- value, none with w.noLineIDs) in `windows` chat windows, each running the system line's
+		-- filters in turn with the event's values (the relay's, given, then the Accord's; the first
+		-- that says true drops it): in how many windows it shows. (Changed on purpose, 1.6.0: each
+		-- window is the same frame from one line to the next, as the game's chat windows are, which
+		-- the filters receive first; a new table each time told nothing of which window asked.)
+		w.frames = {}
+		function w.Shown(name, windows, relay)
+			local text = ERR_CHAT_PLAYER_NOT_FOUND_S:format(name)
+			w.lineID = w.lineID + 1
+			local id = w.noLineIDs and 0 or w.lineID
+			local n = 0
+			for i = 1, windows or 1 do
+				w.frames[i] = w.frames[i] or {}
+				local frame = w.frames[i]
+				local dropped = relay and relay.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id)
+				if not dropped then dropped = ns.Accord.QuietLine(frame, "CHAT_MSG_SYSTEM", text, "", "", "", "", "", 0, 0, "", 0, id) end
+				if not dropped then n = n + 1 end
+			end
+			return n
+		end
+		fn(w, ns.Accord)
+	end)
+	GetChannelName, ns.IsMember, GetGuildInfo, IsInGuild, ERR_CHAT_PLAYER_NOT_FOUND_S, GetTime = saved.channel, saved.member, saved.guild, saved.inGuild, saved.err, saved.time
+	C_ChatInfo = nil
+	ns.Accord.Reset() -- (its far clock's marks must not outlive it)
+	if not ok then error(err, 0) end
+end
+local function AsForeverMember()
+	GetChannelName = function() return 0 end
+	ns.IsMember = function() return true end
+	IsInGuild = function() return true end
+	GetGuildInfo = function() return "Olympus II", "Member", 3 end
+end
+
+test("1.6.0 no-player lines: one kept out for each whisper the addon handed the game; the player's own whisper to that player still shows: Join Olympus's request beside its J3, a whisper typed to a relay just pinged; the same answer in every chat window", function()
+	NoPlayerWorld(function(w)
+		-- Join Olympus, outside an Olympus guild: the member asked logged off meanwhile. The game refuses
+		-- the J3 at once (TargetOffline) and its line comes during the call; the server's line for the
+		-- player's own whisper (sent with it, from his Send) comes a moment later.
+		GetGuildInfo = function() return nil end
+		IsInGuild = function() return false end
+		local during
+		C_ChatInfo = { SendAddonMessage = function(_, _, dist, target)
+			if dist == "WHISPER" and target == "Gone Member" then during = w.Shown(target, 2) return 12 end
+			return 0
+		end }
+		eq(ns.Comm.WhisperOutside("Gone Member-Realm", "J3~Olympus II~12~MAGE"), false, "the J3: refused")
+		eq(during, 0, "its line: out of both chat windows")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Member", 2), 2, "the player's own whisper: its line shows, in both windows")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Member"), 1, "and any later one")
+		-- A member on Forever, a word for the relay, and the relay Max Ran is offline: his ping is refused
+		-- at once and its line stays out; the member's own whisper to that High Councillor two seconds
+		-- later shows.
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		during = nil
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist == "WHISPER" and target == "Max Ran" then during = w.Shown(target, 1, O.Relay) return 12 end
+			return 0
+		end
+		eq(O.Comm.Send("CHANNEL", "X1~hello"), true)
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(during, 0, "the ping's line: out of the chat")
+		w.mono = w.mono + 2
+		eq(w.Shown("Max Ran", 2, O.Relay), 2, "his own whisper to him: shown, in both windows")
+	end)
+end)
+
+test("1.6.0 no-player lines: three whispers refused to a keeper who logged off keep three lines out and the fourth shows; a try the game throttled keeps none; a whisper the game took keeps its line, which comes after the call; none past QUIET; another name's line and other lines show", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local offline, throttled, lines = { ["Away Keeper"] = true, ["Slow Keeper"] = true }, { ["Slow Keeper"] = 1 }, {}
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if (throttled[target] or 0) > 0 then throttled[target] = throttled[target] - 1 return 3 end
+			if offline[target] then lines[#lines + 1] = w.Shown(target) return 12 end
+			return 0
+		end
+		for i = 1, 3 do O.Comm.Whisper("Away Keeper-Realm", "X1~sync " .. i, nil, false, false) end
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 3, "three tries, each refused at once")
+		eq(lines[1] + lines[2] + lines[3], 0, "their three lines: out of the chat")
+		w.mono = w.mono + 1
+		eq(w.Shown("Away Keeper"), 1, "a fourth (the player's own whisper): shown")
+		-- The game throttles the first try ("not now", 3): nothing went, and its retry is refused.
+		O.Comm.Whisper("Slow Keeper-Realm", "X1~slow", nil, false, false)
+		O.Comm.Pump()
+		eq(#lines, 3, "throttled: no line")
+		w.mono = w.mono + 3 -- (past the queue's wait after a refusal, RETRY_WAIT)
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 4); eq(lines[4], 0, "the retry's line: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Keeper"), 1, "the throttled try kept none back: the player's own line shows")
+		-- A whisper the game took (he was online a moment ago): the server's line comes after the call.
+		O.Comm.Whisper("Late Keeper-Realm", "X1~late", nil, false, false)
+		for _ = 1, 10 do O.Comm.Pump() end
+		w.mono = w.mono + 1
+		eq(w.Shown("Late Keeper"), 0, "its line, a second later: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Late Keeper"), 1, "the next shows")
+		-- Past QUIET a whisper's mark is gone, whether a line came for it or not.
+		O.Comm.Whisper("Online Mate-Realm", "X1~hi", nil, false, false)
+		for _ = 1, 10 do O.Comm.Pump() end
+		w.mono = w.mono + A.QUIET + 1
+		eq(w.Shown("Online Mate"), 1, "QUIET seconds on: shown")
+		eq(w.Shown("Somebody Else"), 1, "a name the addon never whispered: shown")
+		eq(A.QuietLine({}, "CHAT_MSG_SYSTEM", "Some other system line."), false)
+		eq(A.Stats().quieted, 5, "five lines kept out"); eq(A.Stats().passed, 3, "three of the player's own shown within the seconds")
+		-- A client whose system lines carry no lineID: two lines in one frame are told apart by nothing,
+		-- and get the first one's answer: both of ours stay out (never one of ours shown).
+		w.noLineIDs, offline["Far Keeper"] = true, true
+		for i = 1, 2 do O.Comm.Whisper("Far Keeper-Realm", "X1~far " .. i, nil, false, false) end
+		for _ = 1, 10 do O.Comm.Pump() end
+		eq(#lines, 6); eq(lines[5] + lines[6], 0, "both out")
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): a whisper the game delivered gets no line, and the
+-- fix's first build kept one count per name whose deadline each whisper moved on, so the marks of
+-- whispers a player had received while online lived as long as the addon went on whispering him
+-- after he left, and his own lines stayed out of the chat with them. Each whisper's mark runs out
+-- QUIET after its own call now. Both of the server's ways with a whisper to a player who is not
+-- online: refused at once, its line during the call (S1), or taken, its line a moment later (S2).
+-- Fails before: the player's own whisper to him, 30 s after he left, said nothing (1.6.0's first
+-- build: every line naming him within QUIET of any whisper of ours stayed out).
+test("1.6.0 no-player lines: the marks of whispers a player received while online run out by themselves: he logs off, the addon goes on whispering him every few seconds, and the player's own whisper to him 30 seconds later shows; every line of the addon's whispers stays out", function()
+	NoPlayerWorld(function(w)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		for _, mode in ipairs({ "S1", "S2" }) do
+			local name = mode == "S1" and "Steady Mate" or "Other Mate"
+			local offline, later, addon = false, {}, { lines = 0, shown = 0 }
+			local function AddonLine()
+				addon.lines = addon.lines + 1
+				addon.shown = addon.shown + w.Shown(name)
+			end
+			C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+				if dist ~= "WHISPER" or target ~= name or not offline then return 0 end
+				if mode == "S1" then AddonLine() return 12 end
+				later[#later + 1] = w.mono + 0.3
+				return 0
+			end
+			-- The clock moves on `dt` seconds, and the server's lines due meanwhile come.
+			local function Step(dt)
+				local to = w.mono + dt
+				while later[1] and later[1] <= to do
+					w.mono = table.remove(later, 1)
+					AddonLine()
+				end
+				w.mono = to
+			end
+			local function Sync()
+				O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+				for _ = 1, 3 do O.Comm.Pump() end
+			end
+			for _ = 1, 15 do Sync(); Step(4) end -- online a minute: each sync delivered, no line
+			offline = true
+			local own = {}
+			for i = 1, 15 do
+				Sync()
+				if i == 8 then -- ~30 s after he left, the player whispers him himself: its line 0.3 s on
+					Step(2); w.mono = w.mono + 0.3; own[#own + 1] = w.Shown(name); Step(1.7)
+				else
+					Step(4)
+				end
+			end
+			Step(30)
+			own[#own + 1] = w.Shown(name) -- and once more, 30 s after the addon's last whisper
+			eq(addon.lines, 15, mode .. ": a line for each whisper after he left")
+			eq(addon.shown, 0, mode .. ": every one of them out of the chat")
+			eq(own[1], 1, mode .. ": the player's own whisper 30 s after he left: its line shows")
+			eq(own[2], 1, mode .. ": and later, as ever")
+		end
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): nothing seen in game yet says whether Forever prints
+-- the server's line when the game refuses a whisper to a player who is not online (TargetOffline, 12)
+-- during the call, just after it, or not at all (the server never got that whisper). A refused
+-- whisper's mark kept QUIET seconds, with no line to take it, kept the player's own whisper's line
+-- out of the chat as long. It runs out REFUSED_GRACE seconds after the call now. Fails before: the
+-- player's own line 3 s after a refusal that printed nothing stayed out.
+test("1.6.0 no-player lines: a whisper the game refused (12) keeps its line out during the call or just after it and nothing longer: the player's own whisper to that player 3 seconds later shows, whether the refusal printed a line or not; a whisper the game took keeps its mark QUIET seconds", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local how, seen = nil, {}
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if how == "during" then seen.during = w.Shown(target) end
+			if how == "after" then seen.at = w.mono + 1 end
+			return how and 12 or 0
+		end
+		local function Sync(name)
+			O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		-- Refused, and no line at all: the player's own whisper 3 s later shows.
+		how = "silent"
+		Sync("Silent Keeper")
+		w.mono = w.mono + 3
+		eq(w.Shown("Silent Keeper", 2), 2, "a silent refusal: the player's own line 3 s on shows, in both windows")
+		-- Refused, its line a second after the call: out; the player's own, 3 s after the call: shown.
+		how = "after"
+		Sync("Late Keeper")
+		w.mono = seen.at
+		eq(w.Shown("Late Keeper"), 0, "a refusal's line a second after the call: out")
+		w.mono = w.mono + 2
+		eq(w.Shown("Late Keeper"), 1, "the player's own, 3 s after the call: shown")
+		-- Refused, its line during the call: out; the next: shown.
+		how = "during"
+		Sync("Gone Keeper")
+		eq(seen.during, 0, "a refusal's line during the call: out")
+		w.mono = w.mono + 0.5
+		eq(w.Shown("Gone Keeper"), 1, "the next: shown")
+		-- A whisper the game took (0): the server answers it, its mark runs QUIET seconds.
+		how = nil
+		Sync("Taken Keeper")
+		w.mono = w.mono + A.REFUSED_GRACE + 3
+		eq(w.Shown("Taken Keeper"), 0, "a delivered try's line, past the refusal's grace: out")
+		w.mono = w.mono + A.QUIET
+		eq(w.Shown("Taken Keeper"), 1, "QUIET on: shown")
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): with no lineID a line is told only by its text and
+-- the frame's time, and identical lines in one frame (a relay's pieces to one reporter in one pump)
+-- got the first one's answer: one mark taken for them all, and the marks left kept the player's own
+-- next lines out of the chat. They come to each chat window in turn: the same filter asking again in
+-- the same window is the next line, and takes a mark of its own; another window, or the other filter
+-- in the same one, the same line. Both filters run in two windows here, as on Forever with the relay
+-- on. Fails before: the player's own whisper a second later said nothing.
+test("1.6.0 no-player lines: with no lineID, identical lines in one frame each take a mark of their own, asked in two chat windows by the relay's filter and the Accord's; the player's own whisper a second later shows in both", function()
+	NoPlayerWorld(function(w)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		w.noLineIDs = true
+		for _, mode in ipairs({ "S1", "S2" }) do
+			local name = mode == "S1" and "Gone Reporter" or "Away Reporter"
+			local lines = {}
+			-- S1: each refused at once, its line during the call; S2: taken, the server's four lines
+			-- coming together a moment later, in one frame.
+			C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+				if dist ~= "WHISPER" or target ~= name then return 0 end
+				if mode == "S1" then lines[#lines + 1] = w.Shown(target, 2, O.Relay) return 12 end
+				return 0
+			end
+			for i = 1, 4 do O.Comm.Whisper(name .. "-Realm", "X1~piece " .. i, nil, false, false) end
+			for _ = 1, 10 do O.Comm.Pump() end -- (one frame: the clock stands still)
+			if mode == "S2" then
+				w.mono = w.mono + 0.3
+				for _ = 1, 4 do lines[#lines + 1] = w.Shown(name, 2, O.Relay) end
+			end
+			eq(#lines, 4, mode .. ": four lines")
+			eq(lines[1] + lines[2] + lines[3] + lines[4], 0, mode .. ": all four out, in both windows")
+			w.mono = w.mono + 1
+			eq(w.Shown(name, 2, O.Relay), 2, mode .. ": the player's own whisper a second later: shown in both windows")
+			w.mono = w.mono + 2
+			eq(w.Shown(name, 2, O.Relay), 2, mode .. ": and his next")
+		end
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): /oly status counted the lines kept out and those
+-- shown within QUIET of our last whisper to that player, and nothing of a line naming him that came
+-- later: the one case where Olympus's own whispers' lines would still show (the server answering past
+-- QUIET) left no trace for an in-game check. It counts such a line as late, up to LATE after our last
+-- whisper. Fails before: no "late" in the status line.
+test("1.6.0 no-player lines: /oly status counts the lines kept out, those shown within QUIET of our last whisper to that player, and those naming him past QUIET (late, up to LATE)", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		C_ChatInfo.SendAddonMessage = function() return 0 end
+		O.Comm.Whisper("Slow Mate-Realm", "X1~sync", nil, false, false)
+		for _ = 1, 3 do O.Comm.Pump() end
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Mate"), 0, "its line within QUIET: out")
+		w.mono = w.mono + 1
+		eq(w.Shown("Slow Mate"), 1, "a second one within QUIET: shown")
+		w.mono = w.mono + A.QUIET + 10
+		eq(w.Shown("Slow Mate", 2), 2, "one 20 s after our whisper: shown, and counted late once (two windows, one line)")
+		assert(A.StatusLine():find("no-player lines hidden 1, shown 1, late 1", 1, true), A.StatusLine())
+		w.mono = w.mono + A.LATE
+		eq(w.Shown("Slow Mate"), 1, "one past LATE: shown, not counted")
+		eq(w.Shown("Never Whispered"), 1, "a name we never whispered: shown, not counted")
+		local s = A.Stats()
+		eq(s.quieted, 1); eq(s.passed, 1); eq(s.late, 1)
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): nothing seen in game yet says whether Forever's
+-- system lines carry a lineID, or whether the game prints the line of a whisper it refuses during the
+-- call. The fix works either way; /oly status (and /oly bug, its pop-up) now says which, for the
+-- in-game check: the lines with no lineID, the whispers the game refused itself, and how many of those
+-- had their line during the call. Fails before: none of the three in the status line.
+test("1.6.0 no-player lines: /oly status counts the lines with no lineID, the whispers the game refused itself and those whose line came during the call; a throttled try is not a refusal", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local how = "printed"
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" then return 0 end
+			if how == "printed" then w.Shown(target) return 12 end
+			if how == "silent" then return 12 end
+			if how == "throttle" then how = "taken" return 3 end
+			return 0
+		end
+		local function Sync(name)
+			O.Comm.Whisper(name .. "-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		Sync("Gone Keeper") -- refused, its line during the call
+		how = "silent"
+		Sync("Quiet Keeper") -- refused, no line
+		how = "throttle"
+		Sync("Busy Mate") -- not now (3), then taken on its retry
+		w.mono = w.mono + 3
+		for _ = 1, 3 do O.Comm.Pump() end
+		w.noLineIDs = true
+		w.mono = w.mono + 1
+		eq(w.Shown("Busy Mate", 2), 0, "the taken whisper's line, with no lineID: out of both windows")
+		assert(A.StatusLine():find("without lineID 1; whispers refused 2, their line during the call 1", 1, true), A.StatusLine())
+	end)
+end)
+
+-- 1.6.0 (the review of the no-player lines fix): a client may send the first whisper to a player who
+-- is not online on to the server (taken, its line a moment later) and refuse the next ones to him
+-- itself for a while, printing nothing (12). The server's line after those calls answers the one it
+-- got; taken as the newest mark, it took a refused try's, and the sent whisper's mark, running QUIET
+-- seconds, kept the player's own whisper's line out of the chat. A sent whisper's mark goes first now.
+-- Fails before: the player's own line 3 s on stayed out.
+test("1.6.0 no-player lines: the server's line after refused tries takes the mark of the whisper the game sent, the refused ones' run out after their grace: the player's own whisper 3 seconds later shows", function()
+	NoPlayerWorld(function(w, A)
+		AsForeverMember()
+		local O = RelayWorld("Orig Inal-Realm", "Olympus II")
+		local cachedUntil, later = -math.huge, nil
+		C_ChatInfo.SendAddonMessage = function(_, _, dist, target)
+			if dist ~= "WHISPER" or target ~= "Gone Mate" then return 0 end
+			if w.mono <= cachedUntil then return 12 end -- (the client knows he is gone: refused, no line)
+			cachedUntil, later = w.mono + 5, w.mono + 0.3
+			return 0
+		end
+		local function Sync()
+			O.Comm.Whisper("Gone Mate-Realm", "X1~sync", nil, false, false)
+			for _ = 1, 3 do O.Comm.Pump() end
+		end
+		Sync()
+		w.mono = w.mono + 0.1; Sync()
+		w.mono = w.mono + 0.1; Sync()
+		w.mono = later
+		eq(w.Shown("Gone Mate", 2), 0, "the server's line for the whisper it got: out of both windows")
+		w.mono = w.mono + 2.7
+		eq(w.Shown("Gone Mate", 2), 2, "the player's own whisper 3 s on: shown in both")
+		assert(A.StatusLine():find("whispers refused 2, their line during the call 0", 1, true), A.StatusLine())
+	end)
 end)
 
 -- 1.5.0 (the dev's ask, 2026-11-05): the Olympus chat as the player's own text in the hidden
@@ -8112,6 +8761,7 @@ test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's 
 		local said, received = {}, {}
 		local cns = setmetatable({
 			splitNames = true, me = "Me-Realm", clock = 5000,
+			Channels = { IsMe = function(sender) return sender == "Me-Realm" end },
 			Comm = { ChannelIndex = function() return 6 end, ChannelName = function() return "OlympusNet1" end,
 				Inject = function(dist, sender, text, logged) received[#received + 1] = { dist = dist, sender = sender, text = text, logged = logged } end },
 			Gate = { Allowed = function() return true end },
@@ -8124,11 +8774,16 @@ test("1.5.0 the chat hall: on Forever a tier's chat line leaves as the player's 
 		assert(loadfile(ADDON_DIR .. "ChatHall.lua"))("Olympus", cns)
 		local H = cns.ChatHall
 		eq(H.On(), true)
-		eq(H.Send("M1~A~Olympus II~7~WL~hello"), true)
+		local echoes = 0
+		eq(H.Send("M1~A~Olympus II~7~WL~hello", function() echoes = echoes + 1 end), true)
 		eq(#said, 1); eq(said[1].text, "M1~A~Olympus II~7~WL~hello"); eq(said[1].kind, "CHANNEL"); eq(said[1].target, 6, "the joined channel's number")
 		eq(H.Send("EC~room~1~hey"), false, "another kind: the hidden way alone"); eq(#said, 1)
 		-- The channel's lines: ours counted as the echo, anyone's taken as the hidden line.
+		eq(H.OnChannel(said[1].text, "Other-Realm", "", "", "", "", 0, 6, "OlympusNet1"), true)
+		eq(echoes, 0, "same payload from another sender does not settle our send")
+		table.remove(received, 1)
 		eq(H.OnChannel("M1~A~Olympus II~7~WL~hello", "Me-Realm", "", "6. OlympusNet1", "", "", 0, 6, "OlympusNet1"), true)
+		eq(echoes, 1, "the native echo settles our send")
 		eq(#received, 1); eq(received[1].dist, "CHANNEL"); eq(received[1].sender, "Me-Realm"); eq(received[1].text, "M1~A~Olympus II~7~WL~hello"); eq(received[1].logged, true)
 		eq(H.Stats().echoed, 1)
 		eq(H.OnChannel("M1~A~Olympus V~3~~hi all", "Far Away-Realm", "", "", "", "", 0, 6, "olympusnet1"), true)
@@ -8292,6 +8947,8 @@ end)
 
 assert(loadfile(ROOT .. "tests/verify-relay.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
 assert(loadfile(ROOT .. "tests/verify-mesh.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
+-- 1.6.0: taking a guild's verified check away on every client (tests/verify-revoke.lua).
+assert(loadfile(ROOT .. "tests/verify-revoke.lua"))(ns, test, eq, RelayWorld, ADDON_DIR)
 
 -- 1.5.0 (the dev's relay: 51 reporters, every guild's three-piece report to each, 2,700 pieces a
 -- minute against 200 sent). Fails before: every word to every reporter, no snapshot of the relay's.
@@ -17067,12 +17724,15 @@ test("0.9.9: the help button, left of the close button, opens the help and links
 		-- Its button: the bug report, in the same box (no author online: no Send button there).
 		box.action:Click()
 		eq(box:IsShown(), true); eq(box.TitleText:GetText(), ns.L.REPORT_BUG)
+		eq(box.hint:GetText(), ns.L.BUG_COPY_HINT, "the bug report directs players to the issue tracker")
+		assert(box.hint:GetText():find("GitHub Issues", 1, true))
 		assert(box.text:find("^```"), "the bug report: " .. box.text:sub(1, 40))
 		assert(not box.text:find(HELP_LINKS[1], 1, true), "the help is gone")
 		eq(box.action:IsShown(), false, "Report a bug's own button: only with the author online")
 		-- Help again: its own text and button back.
 		help:Click()
 		eq(box.text, helpText); eq(box.action:IsShown(), true)
+		eq(box.hint:GetText(), ns.L.COPY_HINT, "the shared box restores its normal hint")
 		-- Nothing else moved: the census still has its Report a bug button.
 		eq(main.tab, "census"); eq(main.buttons[3]:GetText(), ns.L.REPORT_BUG)
 		main.buttons[3]:Click()
@@ -35070,10 +35730,11 @@ do
 		return pt
 	end
 	-- A census with SampleGuilds, our guild Olympus II, the window's calls recorded and nothing sent.
-	function Fern.Census(fn)
+	function Fern.Census(fn, ownSize)
 		local saved = { guilds = ns.rdb.guilds, seen = ns.rdb.seen, guild = GetGuildInfo, online = ns.Roster.online, sweep = ns.Who.sweep,
 			send = ns.Comm.Send, whisper = ns.Comm.Whisper, chunked = ns.Comm.SendChunked, who = ns.Who.Search, guildWho = ns.Who.SearchGuild,
-			ui = ns.UI, gates = ns.Acts.Gates, loginAt = ns.Comm.loginAt, say = SendChatMessage, print = ns.Print }
+			ui = ns.UI, gates = ns.Acts.Gates, loginAt = ns.Comm.loginAt, say = SendChatMessage, print = ns.Print,
+			count = GetNumGuildMembers }
 		local w = { sent = {}, persons = {}, tabs = {}, said = {}, printed = {} }
 		ns.Comm.Send = function(dist, msg) w.sent[#w.sent + 1] = tostring(dist) .. " " .. tostring(msg) end
 		ns.Comm.Whisper = function(to, msg) w.sent[#w.sent + 1] = "WHISPER " .. tostring(to) .. " " .. tostring(msg) end
@@ -35086,6 +35747,7 @@ do
 			StatusLine = function() return "status" end, SelectTab = function(tab, focus) w.tabs[#w.tabs + 1] = { tab = tab, focus = focus } end }
 		ns.rdb.guilds, ns.rdb.seen = SampleGuilds(), {}
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
+		if ownSize then GetNumGuildMembers = function() return ownSize, 9 end end
 		ns.Roster.online, ns.Who.sweep = {}, { list = {} }
 		V.ClearFilters()
 		D.ResetEvening()
@@ -35093,6 +35755,7 @@ do
 		ns.rdb.guilds, ns.rdb.seen, GetGuildInfo, ns.Roster.online, ns.Who.sweep = saved.guilds, saved.seen, saved.guild, saved.online, saved.sweep
 		ns.Comm.Send, ns.Comm.Whisper, ns.Comm.SendChunked, ns.Who.Search, ns.Who.SearchGuild = saved.send, saved.whisper, saved.chunked, saved.who, saved.guildWho
 		ns.UI, ns.Acts.Gates, ns.Comm.loginAt, SendChatMessage, ns.Print = saved.ui, saved.gates, saved.loginAt, saved.say, saved.print
+		GetNumGuildMembers = saved.count
 		V.ClearFilters()
 		V.recruitAll = nil
 		D.ResetEvening()
@@ -36001,7 +36664,7 @@ test("1.1 join routing (Fern #20): a member's census answers a J1 with the gates
 		line.onClick()
 		eq(ns.db.recruitsOff, nil)
 		assert(Fern.Find(ns.Views.RealmLines(), ns.L.NOCONTACT_LINE_OFF))
-	end)
+	end, 500)
 	ns.db.recruitsOff = savedOff
 	R.ResetForTests()
 end)
@@ -36261,7 +36924,7 @@ test("1.1 join routing (Fern #20): one forged report names no guild and nobody t
 		ns.Comm.loginAt = now - 10
 		route = R.ParseRoute(Answer("Recruit3-Realm"))
 		eq(table.concat(route.byName["Olympus R1"].contacts, "/"), "Rcap/Rcap3", "its Captains online, not yet its Lord")
-	end)
+	end, 500)
 	ns.db.recruitsOff = savedOff
 	R.ResetForTests()
 end)
@@ -41605,6 +42268,12 @@ end)
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, WithGamepadUI = WithGamepadUI, PtBR = PtBR })
 	print("tests/recruit-handoff.lua")
 	assert(loadfile(ROOT .. "tests/recruit-handoff.lua"))(ns, test, eq, FreshComm, ROOT .. "tests/fixtures/")
+	-- 1.6.0: the handoffs on both factions, members of 1.5.9 and this build side by side.
+	print("tests/recruit-handoff-sides.lua")
+	assert(loadfile(ROOT .. "tests/recruit-handoff-sides.lua"))(ns, test, eq)
+	-- 1.6.0: a Join Olympus request end to end, between this build's and 1.5.9's members (tests/join-reach.lua).
+	print("tests/join-reach.lua")
+	assert(loadfile(ROOT .. "tests/join-reach.lua"))(ns, test, eq, ROOT .. "tests/fixtures/", ADDON_DIR)
 	print("tests/netoff-battleground.lua")
 	assert(loadfile(ROOT .. "tests/netoff-battleground.lua"))(ns, test, eq, { WithNetoff = WithNetoff, KING = KING, HC = HC,
 		AsSoldier = AsSoldier, AsKing = AsKing, WithUI = WithUI, LoadUI = LoadUI, LoadWatch = Harness.LoadWatch })
@@ -46175,6 +46844,9 @@ test("1.2 craft requests: the real Comm.lua admits the board card, a claim and a
 		ns.IsMember = function() return true end
 		GetGuildInfo = function(unit) if unit == nil or unit == "player" then return MY_GUILD, "Member", 3 end end
 		ns.me = "Sage Owl-Realm"
+		-- Comm notices a guild change at the first pump or enqueue. Let it discard any
+		-- previous-session work before measuring the crafting request's own queue entries.
+		if C.QueueSize() > 0 then C.Pump() end
 		local before = C.QueueSize()
 		R.OpenComposer()
 		R.SelectItem({ id = 14342, name = "Mooncloth", kind = "craft" }, "craft")
@@ -55870,6 +56542,9 @@ do
 	-- (1.5.9: each [Olympus] line filed under its writer's ruleset as it comes, and a line for one ruleset.)
 	assert(loadfile(ROOT .. "tests/chat-rulesets.lua"))(ns, test, eq, { WithWindow = WithWindow, ADDON_DIR = ADDON_DIR, FreshComm = FreshComm,
 		ROOT = ROOT, KeepSendGap = KeepSendGap })
+	-- (1.6.0: a line nobody can place marked [?] under All, and the name's ruleset note, tests/ruleset-labels.lua.)
+	assert(loadfile(ROOT .. "tests/ruleset-labels.lua"))(ns, test, eq, { WithWindow = WithWindow, ADDON_DIR = ADDON_DIR, FreshComm = FreshComm,
+		ROOT = ROOT })
 
 	-- (1.1.5, the author's call: the borders' three tiers. Lords and Captains were silver, Raiders and
 	-- Veterans of our guild bronze until then; now a guild master is bronze, and they the star.)
@@ -57965,6 +58640,50 @@ do
 			eq(GameTooltip:IsShown(), true)
 			f:Hide()
 			eq(GameTooltip:IsShown(), false)
+		end)
+	end)
+
+	test("1.5.9 Chat tab: the exact validated trade link hovers and reaches SetItemRef once; malformed and other links stay blocked", function()
+		WithWindow(function(w)
+			local target = "trade:Player-6931-017A0447:3100:164"
+			local trade = "|cffffd000|H" .. target .. "|h[Blacksmithing]|h|r"
+			ns.rdb.chat = { A = { Line(T0, "Member599-Realm", "look " .. trade) } }
+			local f = w.CW.Open()
+			local b = BubbleWith(f, "[Blacksmithing]")
+			assert(b, "the exact trade link is in its bubble")
+			local savedRef, savedTip = rawget(_G, "SetItemRef"), GameTooltip.SetHyperlink
+			local calls, hovered = {}, {}
+			local ok, err = pcall(function()
+				SetItemRef = function(link, text, button)
+					calls[#calls + 1] = { link = link, text = text, button = button }
+				end
+				GameTooltip.SetHyperlink = function(_, link) hovered[#hovered + 1] = link end
+				IsShiftKeyDown = function() return false end
+				WithGamepadUI(false, function()
+					b:Fire("OnHyperlinkEnter", target, trade)
+					eq(hovered[1], target, "validated trade hover uses the existing native tooltip path")
+					b:Fire("OnHyperlinkLeave")
+					b:Fire("OnHyperlinkClick", target, trade, "LeftButton")
+					eq(#calls, 1, "the exact trade click is passed once")
+					eq(calls[1].link, target); eq(calls[1].text, trade); eq(calls[1].button, "LeftButton")
+
+					for _, link in ipairs({
+						"trade:Player-6931-017A0447:3100",
+						"trade:Player-6931-017a0447:3100:164",
+						"trade:Player-6931-017A0447:3100:164:1",
+						"player:Member599-Realm",
+						"item:not-a-number",
+					}) do
+						b:Fire("OnHyperlinkEnter", link, "[blocked]")
+						b:Fire("OnHyperlinkClick", link, "[blocked]", "LeftButton")
+					end
+					b:Fire("OnHyperlinkClick", target, trade, "RightButton")
+					eq(#hovered, 1, "malformed and other links get no native hover")
+					eq(#calls, 1, "malformed, other and right-click links get no SetItemRef call")
+				end)
+			end)
+			SetItemRef, GameTooltip.SetHyperlink = savedRef, savedTip
+			if not ok then error(err, 0) end
 		end)
 	end)
 
@@ -61151,6 +61870,124 @@ end)()
 		eq(Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x", false), Chan.FormatLine("L", "Bob-Other", "Olympus II", nil, "x"))
 	end)
 
+	test("1.5.8 native chat renders the received Black Silk Pack named item colour as hex", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function(w)
+				eq(Recv("A", "Member500", named), true)
+				local delivered = assert(w[1].lines[1], "the line delivered to the native chat frame")
+				eq(delivered:match(": (.*)$"), expected, "native AddMessage item text")
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.9 profession trade hyperlink survives sanitize, transport and native display byte for byte", function()
+		local trade = "|cffffd000|Htrade:Player-6931-017A0447:3100:164|h[Blacksmithing]|h|r"
+		local sanitized = Codec.SanitizeChat(trade)
+		eq(sanitized, trade, "the exact Forever hyperlink stays live")
+		local packed = Codec.PackLinks(sanitized)
+		eq(packed, "[Blacksmithing](trade:Player-6931-017A0447:3100:164/ffffd000)", "pipe-free transport token")
+		eq(Codec.PackLinks(packed), packed, "packing is idempotent")
+		local wire = assert(Codec.EncodeChat("A", MY_GUILD, 159, "PA", sanitized))
+		eq(assert(Codec.DecodeChat(wire)).text, trade, "the receiver reconstructs the exact hyperlink")
+		eq(Codec.UnpackLinks(Codec.UnpackLinks(packed)), trade, "unpacking is idempotent")
+		eq(Chan.Relink(trade), trade, "trade is not item presentation")
+		WithTabs(function(w)
+			eq(Recv("A", "Member599", sanitized), true)
+			local delivered = assert(w[1].lines[1], "the line delivered to the native chat frame")
+			eq(delivered:match(": (.*)$"), trade, "native AddMessage trade text")
+		end)
+	end)
+
+	test("1.5.8 native local echo presents the exact Black Silk Pack as hex without changing transport or history", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function(w)
+				ns.rdb.chat = nil
+				WithLane(function(sent)
+					eq(Chan.Send("A", named, 4e12), true)
+					eq(#sent, 1)
+					assert(not sent[1]:find("|", 1, true), "the packed transport has no pipe")
+					eq(assert(Codec.DecodeChat(sent[1])).text, named, "the receiver reconstructs the exact link")
+				end)
+				local delivered = assert(w[1].lines[1], "the sender's local echo")
+				eq(delivered:match(": (.*)$"), expected, "native AddMessage local echo")
+				local history = Chan.History("A")
+				eq(history[#history].text, named, "history retains the original named-colour link")
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.8 Chattynator presents the received Black Silk Pack with client RGB", function()
+		local named = "|cnIQ1:|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local expected = "|cffffffff|Hitem:5765::::::::22:1490::::::::Player-6794-01137728:|h[Black Silk Pack]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 5765 then return "Black Silk Pack", named, 1 end
+			end }
+			ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1 } }
+			WithTabs(function()
+				ns.db.chatWindows = { ["Tester-Realm"] = { A = "GENERAL" } }
+				WithChattynatorAPI({ { "GENERAL" } }, function(c)
+					eq(Recv("A", "Member500", named), true)
+					eq(#c.calls, 1)
+					eq(c.calls[1][3]:match(": (.*)$"), expected, "Chattynator API text")
+					eq(Chan.History("A")[#Chan.History("A")].text, named, "history stays named-colour")
+				end)
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
+	test("1.5.8 native item presentation has a clickable uncoloured fallback and leaves traditional hex links unchanged", function()
+		local named = "|cnIQ2:|Hitem:11287::::::::36:103::::1:28:1418::::Player-3299-0050F7FB:|h[Lesser Magic Wand]|h|r"
+		local fallback = "|Hitem:11287::::::::36:103::::1:28:1418::::Player-3299-0050F7FB:|h[Lesser Magic Wand]|h"
+		local hex = "|cff0070dd|Hitem:19019::::::::60:::::::::|h[Thunderfury]|h|r"
+		local savedItem, savedInfo, savedColours = rawget(_G, "C_Item"), rawget(_G, "GetItemInfo"), rawget(_G, "ITEM_QUALITY_COLORS")
+		local ok, err = pcall(function()
+			GetItemInfo = nil
+			C_Item = { GetItemInfo = function(id)
+				if tonumber(id) == 11287 then return "Lesser Magic Wand", named, 2 end
+				if tonumber(id) == 19019 then return "Thunderfury", hex, 4 end
+			end }
+			ITEM_QUALITY_COLORS = {}
+			WithTabs(function(w)
+				eq(Recv("A", "Member500", named), true)
+				eq(Recv("A", "Member501", hex), true)
+				local first = assert(w[1].lines[1]):match(": (.*)$")
+				local second = assert(w[1].lines[2]):match(": (.*)$")
+				eq(first, fallback, "no unsupported named colour without usable client RGB")
+				eq(Codec.LinkAt(first, 1), #first, "the fallback remains clickable")
+				eq(second, hex, "a traditional hex item link is byte-for-byte unchanged")
+				local history = Chan.History("A")
+				eq(history[#history - 1].text, named); eq(history[#history].text, hex)
+			end)
+		end)
+		C_Item, GetItemInfo, ITEM_QUALITY_COLORS = savedItem, savedInfo, savedColours
+		if not ok then error(err, 0) end
+	end)
+
 	test("1.1.1 Olympus tab: lines in a chat window named Olympus come without the channel's name, in its colour; another window and the main one keep it", function()
 		WithTabs(function(w, printed)
 			w[4].name, w[4].isDocked = "Olympus", true
@@ -63537,6 +64374,62 @@ end)()
 		assert(check:find("luajit scripts/answers.lua --check", 1, true), "check.sh")
 	end)
 
+	-- The review of 1.6.0: an answer written for the release being made cites the README as it stands, by
+	-- whole paragraphs (a README.md:<first>-<last> source opens after a blank line or at the top, on a line
+	-- with text, and closes before a blank line or at the end). Older answers' line numbers drift as the
+	-- README grows, and are not checked. Fails before: the ad reminder's answer cited README.md:3496-3515,
+	-- five lines above its section once the README grew, from the middle of the handoffs' paragraph to
+	-- before Less often and Turn off.
+	test("1.6.0 answer bank: an answer marked current for this version cites the README by whole paragraphs, as the README stands", function()
+		local gen = dofile(ROOT .. "scripts/answers.lua")
+		local bank = gen.Decode(ReadFile(ROOT .. "docs/answers.json"))
+		local lines = {}
+		for line in (ReadFile(ROOT .. "README.md"):gsub("\r", "") .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+		local function Blank(i) return lines[i] == nil or not lines[i]:find("%S") end
+		local cited = 0
+		for _, a in ipairs(bank.answers) do
+			if a.status == "current (" .. ns.VERSION .. ")" then
+				for _, source in ipairs(a.sources or {}) do
+					local first, last = tostring(source):match("^README%.md:(%d+)%-(%d+)$")
+					first, last = tonumber(first), tonumber(last)
+					if first then
+						cited = cited + 1
+						assert(first <= last and last <= #lines, ("%s: %s is past the README's %d lines"):format(a.id, source, #lines))
+						assert(not Blank(first) and Blank(first - 1), ("%s: %s opens inside a paragraph: %s"):format(a.id, source, lines[first]))
+						assert(not Blank(last) and Blank(last + 1), ("%s: %s closes inside a paragraph, before: %s"):format(a.id, source, tostring(lines[last + 1])))
+					end
+				end
+			end
+		end
+		-- (1.6.0's: the ad reminder's answer, Recruit.lua's popup.)
+		assert(ns.VERSION ~= "1.6.0" or cited > 0, "an answer marked current (1.6.0) cites the README")
+	end)
+
+	-- 1.6.0 (the review of the name rule, Core.lua's 1.6.0 note): the members of a guild the rule leaves
+	-- out from 1.6.0, its name only comparing the guild with Olympus or saying it is not Olympus, get the
+	-- Join screen, whose "?" answered that guilds with Olympus in the name count, anti-Olympus ones aside.
+	-- The answer names that case, on the Join page's "?" and in the staff's short answer, with an example
+	-- (a made-up name) that the rule leaves out and 1.5.9's counted (tests/fixtures/names-1.5.9.lua); every
+	-- other guild it quotes is approved. Fails before: neither quoted a guild left out.
+	test("1.6.0 answer bank: who can use Olympus, on the Join page's help and in the staff's short answer, names the guilds the rule leaves out from 1.6.0 with an example it leaves out and 1.5.9 counted; every other guild quoted is approved", function()
+		local e = A.Find("feat-who-can-use")
+		local help = A.ExplainText("join")
+		assert(help and help:find("- " .. e.long, 1, true), "the Join page's help carries the answer")
+		local old = setmetatable({}, { __index = ns })
+		assert(loadfile(ROOT .. "tests/fixtures/names-1.5.9.lua"))("Olympus", old)
+		for _, text in ipairs({ e.long, e.text }) do
+			local left = 0
+			for name in text:gmatch("<([^>]+)>") do
+				if not ns.IsApprovedGuild(name) then
+					eq(ns.IsFederation(name), false, name .. ": quoted, not approved, so left out")
+					eq(old.IsFederation(name), true, name .. ": an example of what 1.6.0 leaves out")
+					left = left + 1
+				end
+			end
+			assert(left > 0, "no guild left out from 1.6.0 quoted: " .. text)
+		end
+	end)
+
 	test("1.1.2 Answers: the author, the High Council and the Stewards alone; the list by topic with a search; a click fills the box (after what is typed), never sends and never takes the keyboard; Shift-click the longer answer to copy", function()
 		WithUI(function()
 			local UI = LoadUI()
@@ -63851,9 +64744,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.5.9") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.0.1") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.5.9", 1, true))
+		assert(toc:find("## Version: 1.6.0.1", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -63939,8 +64832,8 @@ end)
 assert(loadfile(ROOT .. "tests/hop-regressions.lua"))(ns, test, eq, WithHop)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",
-		"church", "church-count", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
-		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl", "recruit-ranking" }
+		"church", "church-count", "church-alts", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
+		"campaign", "guild-finance", "dues-grace", "dues-roster-checkpoints", "justice-tasks", "justice-shared", "chat-channel-links", "perf", "roster", "census-avg-level", "ranking-rules", "profile-menu", "history-carry", "carry-history", "carry-merger", "party-guard", "profile-effects", "quiet-presence", "record", "realm-pages", "census-clean", "census-stats", "census-jump", "cover", "bridge-people", "bridge-affairs", "site-aggregate", "selftest", "locales-full", "role-briefings", "church-top-relay", "bridge-membership", "verify", "groups", "codec-chunk-ttl", "recruit-ranking" }
 for _, name in ipairs(focused) do
 	print("tests/" .. name .. ".lua")
 	-- (1.1.6: the Church's files get the harness's UI helpers.)
@@ -63960,6 +64853,7 @@ for _, name in ipairs(focused) do
 		or name == "wanted" and { WithUI = WithUI } -- (a Most Wanted row drawn in the window's widths)
 		or name == "realm-pages" and { WithUI = WithUI, LoadUI = LoadUI } -- (the Realm's pages: their ink and their Back)
 		or name == "census-stats" and { WithUI = WithUI, LoadUI = LoadUI } -- (CR-02 / KH-08)
+		or name == "census-jump" and { ROOT = ROOT, WithUI = WithUI, LoadUI = LoadUI } -- (1.6.0: the census jump, three releases)
 		or name == "cover" and { FreshComm = FreshComm, WithGamepadUI = WithGamepadUI }
 		or name == "bridge-affairs" and { WithWindow = Harness.WithChatWindow, ROOT = ROOT } -- (931: the Companion's tabs of affairs)
 		or name == "site-aggregate" and { ROOT = ROOT }
@@ -64300,7 +65194,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.5.9")
+		eq(ns.VERSION, "1.6.0.1")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -64801,7 +65695,26 @@ end)()
 			eq(f.title:IsShown(), false); eq(f.body:IsShown(), false); eq(f.all:IsShown(), false)
 			local versions = Lt.Versions()
 			eq(#versions, #Lt.LIST, "a letter for every version listed")
-			eq(table.concat(versions, " "), "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0", "newest first")
+			-- (1.6.0: this line named 1.5.9 as the newest, so the next release's letter on top broke
+			-- it.) Newest first, whatever release is newest now: each version older than the one
+			-- before it, compared number by number (1.2.5.1 after 1.3.0, before 1.2.5)...
+			local function Older(x, y)
+				local a, b = {}, {}
+				for n in x:gmatch("%d+") do a[#a + 1] = tonumber(n) end
+				for n in y:gmatch("%d+") do b[#b + 1] = tonumber(n) end
+				for i = 1, math.max(#a, #b) do
+					if (a[i] or 0) ~= (b[i] or 0) then return (a[i] or 0) < (b[i] or 0) end
+				end
+				return false
+			end
+			for i = 2, #versions do
+				assert(Older(versions[i], versions[i - 1]), "newest first: " .. versions[i - 1] .. " then " .. versions[i])
+			end
+			-- ...and every letter up to 1.5.9 still listed, in this order, after the newer ones.
+			local HISTORY = "1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2 1.3.0 1.2.5.1 1.2.5 1.2.4 1.2.3 1.2.2 1.2.1 1.2.0 1.1.5 1.1.4 1.1.3 1.1.2 1.1.1 1.1.0"
+			local older = select(2, HISTORY:gsub("%S+", ""))
+			assert(#versions >= older, "every older letter listed: " .. table.concat(versions, " "))
+			eq(table.concat(versions, " ", #versions - older + 1), HISTORY, "newest first")
 			for i, v in ipairs(versions) do
 				local r = f.rows[i]
 				eq(r:IsShown(), true); eq(r.version, v)

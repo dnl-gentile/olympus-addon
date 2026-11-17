@@ -47,6 +47,9 @@ local L = ns.L
 -- player's lines (the README says so).
 -- Rooms that register a surface (WatchChat.RegisterSurface) take deletions too; the Church's room,
 -- the crafting requests' private rooms and the fight rooms are the seam for later.
+-- 1.6.0: on WoW: Forever a name counts once across its realm family, whatever sub-realm stamped it (Key):
+-- a timeout, a deletion and a moderators' list reach the player under every stamp his lines carry. A
+-- sanction's first word leaves urgent, and a relay carries it ahead of its chat lines (SanctionWord).
 
 local WC = {}
 ns.WatchChat = WC
@@ -145,7 +148,17 @@ local function Red(s) return "|cffff6060" .. tostring(s or "") .. "|r" end
 local function Green(s) return "|cff40ff40" .. tostring(s or "") .. "|r" end
 local function Clock() return ns.Data and ns.Data.ServerTime and ns.Data.ServerTime() or ns.Now() end
 local function Now() return ns.Now() end
-local function Key(s) return ns.Fold(tostring(s or "")) end
+-- (1.6.0, the moderators' report of 2026-11-16: a timeout silenced the player for the moderator who gave
+-- it, others still saw him.) One player, one key, however the server stamped him. On WoW: Forever a name
+-- is one across its realm family (Core.lua's ForeverFamily; Channels.Person, Moderation.Character), and
+-- each client sees a player under its own sub-realm (a bare name in the channel's text or the roster,
+-- completed with its own) or as a relay's client stamped him: keyed as stamped, a reader took the
+-- moderator his namer wrote under another sub-realm for nobody, the timeout matched none of the
+-- player's lines, and the player's own client never knew it was his. Folded, a Forever sub-realm
+-- ("camwow<region><n>realm<m><rules>") is its family ("forever<rules>"); any other name as before. The
+-- same on a key already folded, so a key kept under a sub-realm's stamp files again as its family's (Store).
+local function Canon(s) return (s:gsub("%-camwow%l%l%d+realm%d+(%l+)$", "-forever%1")) end
+local function Key(s) return Canon(ns.Fold(tostring(s or ""))) end
 local function Same(a, b) return type(a) == "string" and type(b) == "string" and a ~= "" and Key(a) == Key(b) end
 local function Live(t) return type(t) == "table" and not t.missing and t or nil end
 local function TheWatch() return Live(ns.Watch) end
@@ -267,6 +280,36 @@ local function Store()
 			end
 		end
 		s.replaySplit = 1
+	end
+	if s.familyKeys ~= 1 then
+		-- (1.6.0) Names keyed by their Forever family (Key): the timeouts and lifts kept under a sub-realm's
+		-- stamp file again once under it, merged, and each moderators' list too, its set made again. The
+		-- other records (replay floors, tombstones, counts) keep their keys and lapse as before.
+		for _, field in ipairs({ "timeouts", "lifts", "modLists" }) do
+			local t, moved = s[field], {}
+			for k in pairs(t) do if type(k) == "string" and Canon(k) ~= k then moved[#moved + 1] = k end end
+			for _, k in ipairs(moved) do
+				local v, to = t[k], Canon(k)
+				t[k] = nil
+				local had = t[to]
+				if field == "modLists" then
+					if type(had) ~= "table" or (type(v) == "table" and (tonumber(v.at) or 0) > (tonumber(had.at) or 0)) then t[to] = v end
+				elseif type(v) == "table" then
+					local into = type(had) == "table" and had or {}
+					for _, e in ipairs(v) do into[#into + 1] = e end
+					while #into > WC.MAX_PER_TARGET do table.remove(into, 1) end
+					t[to] = into
+				end
+			end
+		end
+		for _, list in pairs(s.modLists) do
+			if type(list) == "table" and type(list.names) == "table" then
+				local set = {}
+				for _, n in ipairs(list.names) do set[Key(n)] = true end
+				list.set = set
+			end
+		end
+		s.familyKeys = 1
 	end
 	s.seq = math.max(0, math.floor(tonumber(s.seq) or 0))
 	return s
@@ -1297,11 +1340,13 @@ local function SelfWire(a)
 	return head .. "~"
 end
 
-local function Send(dist, msg, key, permit)
+-- urgent (1.6.0): a sanction's first word (WC.Act's, the target's own S word): ahead of this client's queue,
+-- never pushed out of it; its repeats as before.
+local function Send(dist, msg, key, permit, urgent)
 	local C = ns.Comm
 	if type(msg) ~= "string" or #msg > WC.MESSAGE_MAX or type(C) ~= "table" or type(C.Send) ~= "function" then return false end
 	stats.sent = stats.sent + 1
-	return C.Send(dist, msg, key, false, true, nil, permit and { owner = WC, key = key, permit = permit } or nil) ~= false
+	return C.Send(dist, msg, key, urgent == true, true, nil, permit and { owner = WC, key = key, permit = permit } or nil) ~= false
 end
 
 -- At the game send: the actor may still give it (rank, guild, sanction), else it never leaves.
@@ -1396,7 +1441,7 @@ local function Apply(a)
 		if a.scope == "G" and not s.sentS[id] then
 			s.sentS[id] = a.at
 			local msg = SelfWire(a)
-			if msg then Send("CHANNEL", msg, "mds:" .. id) end
+			if msg then Send("CHANNEL", msg, "mds:" .. id, nil, true) end
 		end
 	end
 	ns.Fire("WATCHCHAT_CHANGED", a.op, a.target)
@@ -1480,7 +1525,7 @@ function WC.Act(op, target, opts)
 	local dist = scope == "G" and "GUILD" or "CHANNEL"
 	local applied, why = Apply(a)
 	if not applied then return false, why end
-	Send(dist, msg, "md:" .. seq, ActionPermit(a, msg, scope, dist))
+	Send(dist, msg, "md:" .. seq, ActionPermit(a, msg, scope, dist), true)
 	Remember(a)
 	-- (TagFollow.lua) Our own timeout on a character: it follows his BattleTag where this client holds it.
 	if op == "T" and (scope == "O" or scope == "G") then
@@ -1625,21 +1670,9 @@ local function TakeAction(dist, sender, f, retry)
 	return Refuse(aw, sender)
 end
 
--- The target's own client, on the channel: about his own lines and timeout only (the server
--- stamps the sender: nobody else's lines can be withdrawn this way). A word of his own can only
--- restrict him, so every client takes it, with the lowest weight.
-local function TakeSelf(dist, sender, f)
-	if dist ~= "CHANNEL" or #f ~= 11 then return Refuse("shape", sender) end
-	if Same(sender, ns.me) then return false, "own" end
-	-- (Its own budgets: these never spend the moderators' shared one. 1.2.0: the shared S budget
-	-- only once the sender has standing for it, a member of the Olympus guild his word names.)
-	if not Rate(sender .. "#S", WC.RATE_SELF) then return false, "rate" end
-	local op = f[4]
-	local seq, at = Int(f[5], 1, WC.MAX_SEQ), Int(f[6], 1, WC.MAX_SEQ)
-	local actor = CharName(f[8])
-	local reason = f[11]
-	if not seq or not at or not actor or actor ~= f[8] or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
-	local guild = f[7] ~= "-" and f[7] or nil
+-- Whether `sender` is a member of the Olympus guild `guild` his own word names, as this client can tell:
+-- its fresh roster for its own guild, else a verified level that is not the census's word alone.
+local function SelfMember(sender, guild)
 	local C = ns.Channels
 	local member = false
 	if guild and ns.IsFederation(guild) then
@@ -1654,7 +1687,63 @@ local function TakeSelf(dist, sender, f)
 			member = type(level) == "number" and level >= 1 and verified == true and source ~= "census"
 		end
 	end
-	if not member then
+	return member
+end
+
+-- (1.6.0, the moderators' report of 2026-11-16) A word heard from `sender` that is a sanction itself, which
+-- a relay carries ahead of the chat lines waiting in its chat lane (Relay.lua's FirstSanction): an
+-- Olympus-scope action (a deletion, a purge, a timeout, its lift) whose actor, and whoever passed it on,
+-- may give it by this client's own facts (WC.Authority, as TakeAction asks), or a player's own word on the
+-- channel about his guild's action on him (S) from a member of the Olympus guild it names (as TakeSelf
+-- asks). Its key, one for each sanction (its actor, sequence and kind), and whose sanction it is; nil for
+-- anything else: the Watchers' and moderators' lists, an appeal and its answer, the King's word on a case,
+-- a guild's own action (over GUILD, never by a relay), a malformed word or one this client would refuse.
+-- Nothing is applied, kept or counted here.
+function WC.SanctionWord(text, sender)
+	if type(text) ~= "string" or #text > WC.MESSAGE_MAX or text:sub(1, 5) ~= "MD~1~" then return nil end
+	sender = CharName(sender)
+	local f = sender and Split(text, 13)
+	if not f then return nil end
+	local op = f[3]
+	if op == "S" then
+		local kind, seq, actor = f[4], Int(f[5], 1, WC.MAX_SEQ), CharName(f[8])
+		if #f ~= 11 or not (kind == "D" or kind == "P" or kind == "T" or kind == "U") or not seq or not actor or actor ~= f[8]
+			or not SelfMember(sender, f[7] ~= "-" and f[7] or nil) then return nil end
+		return "S#" .. Key(sender) .. "#" .. Key(actor) .. "#" .. seq .. "#" .. kind, sender
+	end
+	if #f ~= 12 or f[4] ~= "O" or not (op == "D" or op == "P" or op == "T" or op == "U") then return nil end
+	local seq, target = Int(f[5], 1, WC.MAX_SEQ), CharName(f[8])
+	if not seq or not target or target ~= f[8] then return nil end
+	local by = f[11]
+	if by ~= "-" then
+		by = CharName(by)
+		if not by or by ~= f[11] or (op ~= "T" and op ~= "U") or Same(by, sender) then return nil end
+	end
+	local actor = by ~= "-" and by or sender
+	local ok, _, weight = WC.Authority(actor, target, "O")
+	if ok and by ~= "-" then
+		local rok, _, rweight = WC.Authority(sender, target, "O")
+		ok = rok and (rweight or 0) >= (weight or 0)
+	end
+	if not ok then return nil end
+	return Key(actor) .. "#" .. seq .. "#" .. op, actor
+end
+
+-- The target's own client, on the channel: about his own lines and timeout only (the server
+-- stamps the sender: nobody else's lines can be withdrawn this way). A word of his own can only
+-- restrict him, so every client takes it, with the lowest weight.
+local function TakeSelf(dist, sender, f)
+	if dist ~= "CHANNEL" or #f ~= 11 then return Refuse("shape", sender) end
+	if Same(sender, ns.me) then return false, "own" end
+	-- (Its own budgets: these never spend the moderators' shared one. 1.2.0: the shared S budget
+	-- only once the sender has standing for it, a member of the Olympus guild his word names.)
+	if not Rate(sender .. "#S", WC.RATE_SELF) then return false, "rate" end
+	local op = f[4]
+	local seq, at = Int(f[5], 1, WC.MAX_SEQ), Int(f[6], 1, WC.MAX_SEQ)
+	local actor = CharName(f[8])
+	local reason = f[11]
+	if not seq or not at or not actor or actor ~= f[8] or CleanReason(reason) ~= reason then return Refuse("shape", sender) end
+	if not SelfMember(sender, f[7] ~= "-" and f[7] or nil) then
 		return Refuse("guild", sender)
 	end
 	if not Budget(rateSelf, WC.RATE_SELF_ALL) then return false, "rate" end

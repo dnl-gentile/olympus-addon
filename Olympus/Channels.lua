@@ -18,7 +18,22 @@ local BUCKET_SIZE = 6            -- per sender: a burst of 6 parts, then one eve
 local BUCKET_REFILL = 1.2        -- (an unmodified client never goes faster than that)
 local MAX_SHOWN_PER_MINUTE = 60  -- flood guard per channel
 local FAIR_SHARE = 10            -- once a channel is half full, no sender gets more lines than this a minute
-local DEDUPE_WINDOW = 120
+-- (1.6.0) A line's id and text are kept as long as another copy of it may come. Where names split
+-- (Forever) its copy in the public channel comes at once (ChatHall.lua) and the relay's after waiting in
+-- its sender's relay's chat lane and, for another relay's guilds, in that relay's lane too (each up to
+-- Relay.CHAT_LANE_TTL), its sender's own queue (30 s) and the hand-on to the guild before that. Kept
+-- 120 s, a relay copy that waited longer showed the line a second time (a member's /oly bug on 1.5.9:
+-- lines repeated minutes apart, one copy counted as heard twice in 141 lines shown). (The review of
+-- 1.6.0) And while no relay answers its sender, his Relay.Out holds the relay copy up to
+-- Relay.HOLD_FOR before the lanes: kept 720 s, a held copy could still come after it (1,320 s now).
+local function DedupeWindow()
+	local R = ns.Relay
+	local ttl = type(R) == "table" and tonumber(R.CHAT_LANE_TTL) or 300
+	local hold = type(R) == "table" and tonumber(R.HOLD_FOR) or 600
+	return math.max(120, 2 * ttl + hold + 120)
+end
+Channels.DedupeWindow = DedupeWindow
+local SEEN_KEEP = 5000           -- line keys kept at most (the oldest go first)
 local HISTORY = 100              -- lines kept per channel
 local LOG_GAP = 60               -- at most one "dropped" log line per sender per minute
 local NOTICE_GAP = 60            -- at most one flood guard notice a minute...
@@ -68,7 +83,9 @@ local RULESETS = { pvp = true, pve = true, rp = true, rppvp = true, hardcore = t
 --            whispers and guild words reach their own family alone), a sub-realm the server named,
 --            a guildmate (the roster), his hello's realm (Comm.PeerRealm), or his line's guild in one
 --            family's census alone (Data.GuildFamily);
---   unknown  none of these: the line shows in All alone, never under a ruleset that may not be his.
+--   unknown  none of these: the line shows in All alone, never under a ruleset that may not be his
+--            (1.6.0: marked [?] there, Channels.GroupTag, a line of our own ruleset's too; only a line
+--            placed as ours shows bare).
 -- A server id names a ruleset only from what no writer chooses, this character's GUID and its guild
 -- roster's (a guild is one family's), or once two writers' own word named it and none another: the
 -- guild a line names is its writer's word too, so the census files that line alone, never its server.
@@ -309,14 +326,41 @@ function Channels.GroupFilter(tier, list, own)
 	return out or list
 end
 -- Under All, another ruleset's line has its writer's ruleset before his name ("[PvE] "), whomever it
--- was sent to (the picker's tooltip: All labels other rulesets' lines); ours, and a line whose writer's
--- ruleset is unknown, none.
+-- was sent to (the picker's tooltip: All labels other rulesets' lines); ours none.
+-- (1.6.0) A line whose writer's ruleset nobody can place has "[?] " there. 1.5.9 left it bare, as
+-- ours are, so a recruiter of another ruleset writing from a version before 1.5.9 read as one of
+-- ours: players left their guilds for a guild on other servers (a report of 14 Nov). Only where
+-- this character's own ruleset is known (Channels.MyKind: Forever's live realms); a call without
+-- the line's history entry tags nothing. A line of our own ruleset that nobody can place is marked
+-- too (1.6.0's review: a writer before 1.5.9, no guildmate, on a server the roster does not span, his
+-- guild in no census): bare once his server is learned, his kept lines too (Channels.LineKind), and
+-- his next lines once our census lists his guild.
 function Channels.GroupTag(tier, line)
-	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" then return "" end
-	local kind = Channels.LineKind(line)
-	if not kind or kind == Channels.MyKind() then return "" end
+	if tier ~= "A" or not ns.splitNames or Channels.GroupView() ~= "all" or type(line) ~= "table" then return "" end
+	local kind, mine = Channels.LineKind(line), Channels.MyKind()
+	if not kind then
+		if not mine then return "" end
+		kind = "unknown"
+	elseif kind == mine then
+		return ""
+	end
 	local label = L["CHATWIN_GROUP_" .. kind:upper()]
 	return type(label) == "string" and ("[" .. label .. "] ") or ""
+end
+-- (1.6.0) What the Chat tab's name tooltip says of a line's writer whose ruleset is not this
+-- character's, under any view: his ruleset's servers, or that nobody can place him; and that
+-- whispers and guild invites stay within one ruleset (a whisper reaches its own Forever family
+-- alone, and a family shares its guilds: Core.lua's ForeverFamily). nil for ours, for a rank room's
+-- line, off Forever's live realms, and with no entry.
+function Channels.RulesetNote(tier, line)
+	if tier ~= "A" or not ns.splitNames or type(line) ~= "table" then return nil end
+	local mine = Channels.MyKind()
+	if not mine then return nil end
+	local kind = Channels.LineKind(line)
+	if kind == mine then return nil end
+	if not kind then return L.CHATWIN_RULESET_UNKNOWN end
+	local label = L["CHATWIN_GROUP_" .. kind:upper()]
+	return type(label) == "string" and L.CHATWIN_RULESET_OTHER:format(label) or nil
 end
 
 local function Label(tier)
@@ -364,8 +408,17 @@ local function Store(tier)
 	return list
 end
 
+-- (The review of 1.6.0) A character's ids go on from the last one he sent, across a /reload or a relog
+-- (ns.db.chatNextId, by character; LOGIN below): a reader keeps a line's key, its writer, id and text,
+-- DedupeWindow (1,320 s), and an [Olympus] line's id keeps two digits on Forever (Codec.ChatWireId). Drawn
+-- again at random at each load, one same short line in a hundred ("gz", "lol") after a /reload drew an id
+-- that line had already used, and every reader dropped it as seen.
 local function NextId()
 	nextId = (nextId + 1) % 10000
+	if type(ns.db) == "table" and type(ns.me) == "string" then
+		if type(ns.db.chatNextId) ~= "table" then ns.db.chatNextId = {} end
+		ns.db.chatNextId[ns.me] = nextId
+	end
 	return nextId
 end
 
@@ -484,6 +537,101 @@ function Channels.SetGuildNamesShown(shown)
 	ns.db.chatHideGuildNames = shown == false or nil
 	ns.Fire("CHAT_SETTINGS_CHANGED")
 	return true
+end
+
+-- 1.6.0: one presentation boundary for item links in Olympus's own Chat tab, the game's native
+-- chat frames and Chattynator. Forever's named quality colours (|cnIQ3:) are not rendered by every
+-- FontString/chat addon. Use this client's item name and normalized quality RGB as a traditional
+-- hex colour; with no usable RGB, remove only an unsupported named colour so the original payload
+-- and name remain a clickable uncoloured link. The history and transport retain the received link.
+-- `owner` gives the Chat tab and native chat separate caches while sharing this exact behaviour.
+local function ItemFinite(v)
+	return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function ItemColour(quality) -- gp:lookups
+	if not ns.Gate.Allowed("lookups") then return end
+	if not ItemFinite(quality) or quality < 0 or quality % 1 ~= 0 then return end
+	local colours = ITEM_QUALITY_COLORS
+	local c = type(colours) == "table" and colours[quality]
+	if type(c) ~= "table" or not ItemFinite(c.r) or not ItemFinite(c.g) or not ItemFinite(c.b) then return end
+	local function Byte(v) return math.floor(math.max(0, math.min(1, v)) * 255 + 0.5) end
+	return ("|cff%02x%02x%02x"):format(Byte(c.r), Byte(c.g), Byte(c.b))
+end
+
+Channels.itemLooks = {} -- item id -> { name, colour } as the client has it, false with no API
+Channels.itemsAsked = {} -- item id -> asked the client for its data
+local function ItemState(owner)
+	owner = type(owner) == "table" and owner or Channels
+	if type(owner.itemLooks) ~= "table" then owner.itemLooks = {} end
+	if type(owner.itemsAsked) ~= "table" then owner.itemsAsked = {} end
+	return owner.itemLooks, owner.itemsAsked
+end
+
+function Channels.ItemLook(id, owner) -- gp:lookups
+	if not ns.Gate.Allowed("lookups") then return end
+	local itemLooks, itemsAsked = ItemState(owner)
+	local look = itemLooks[id]
+	if look ~= nil then return look or nil end
+	local I = C_Item
+	local get = type(I) == "table" and type(I.GetItemInfo) == "function" and I.GetItemInfo
+		or (type(GetItemInfo) == "function" and GetItemInfo) or nil
+	if not get then
+		itemLooks[id] = false
+		return nil
+	end
+	local ok, name, link, quality = pcall(get, id)
+	if ok and type(name) == "string" and name ~= "" and #name <= 100 and not name:find("[%[%]|%c]") then
+		local colour = (type(link) == "string" and link:match("^|c%x%x%x%x%x%x%x%x")) or ItemColour(quality)
+		look = { name = name, colour = colour }
+		itemLooks[id] = look
+		return look
+	end
+	if not itemsAsked[id] and type(I) == "table" and type(I.RequestLoadItemDataByID) == "function" then
+		itemsAsked[id] = true
+		pcall(I.RequestLoadItemDataByID, id)
+	end
+	return nil
+end
+
+function Channels.Relink(text, owner)
+	if type(text) ~= "string" or not text:find("|Hitem:", 1, true) then return text end
+	local out, i, n = {}, 1, #text
+	while i <= n do
+		local j = text:find("|", i, true)
+		if not j then
+			out[#out + 1] = text:sub(i)
+			break
+		end
+		if j > i then out[#out + 1] = text:sub(i, j - 1) end
+		local len = text:byte(j + 1) ~= 124 and Codec.LinkAt(text, j) or nil
+		if not len then
+			out[#out + 1] = text:sub(j, j + 1)
+			i = j + 2
+		else
+			local link = text:sub(j, j + len - 1)
+			local colour, data = link:match("^(|c[^|]*)|Hitem:([^|]*)|h%["), nil
+			if colour then data = link:match("^|c[^|]*|Hitem:([^|]*)|h%[") else data = link:match("^|Hitem:([^|]*)|h%[") end
+			if data and colour and colour:sub(1, 3) == "|cn" then
+				link, colour = link:sub(#colour + 1, -3), nil
+			end
+			local look = data and Channels.ItemLook(tonumber(data:match("^(%d+)")), owner)
+			if look then
+				colour = look.colour or colour
+				link = "|Hitem:" .. data .. "|h[" .. look.name .. "]|h"
+				if colour then link = colour .. link .. "|r" end
+			end
+			out[#out + 1] = link
+			i = j + len
+		end
+	end
+	return table.concat(out)
+end
+
+function Channels.ItemInfoReceived(id, owner)
+	id = tonumber(id)
+	local itemLooks, itemsAsked = ItemState(owner)
+	return id ~= nil and itemsAsked[id] == true and not itemLooks[id] and true or false
 end
 
 -- line (1.5.9): the history entry the line is (its ruleset's tag under All, Channels.GroupTag), if any.
@@ -1138,7 +1286,7 @@ local function Show(tier, sender, guild, class, text, id, e) -- gp:chat-output
 	if not f then return end
 	local c = TIERS[tier].color
 	local bare = f ~= DEFAULT_CHAT_FRAME and Channels.IsTabName(wname)
-	local line = Channels.FormatLine(tier, sender, guild, class, text, bare, e)
+	local line = Channels.FormatLine(tier, sender, guild, class, Channels.Relink(text), bare, e)
 	f:AddMessage(line, c[1], c[2], c[3])
 	-- 1.1.6: what was printed where, so a moderator's deletion can replace it (WatchChat.lua).
 	local WC = ns.WatchChat
@@ -1345,7 +1493,28 @@ function Channels.Send(tier, text, now, keepMute, to)
 	local room = tier == "A" and ns.splitNames and { kind = own or false, to = to } or nil
 	-- Its id keeps two digits then: a long line's parts within one hundred, so they read as consecutive
 	-- ids everywhere (WatchChat.RefsFor takes a line's parts so: 299 then 200 would be two lines).
-	if (to or from) and nextId % 100 + #parts > 99 then nextId = nextId + 99 - nextId % 100 end
+	local function Fit() if (to or from) and nextId % 100 + #parts > 99 then nextId = nextId + 99 - nextId % 100 end end
+	Fit()
+	-- (1.6.0.1, the review of PR #114) A reader keeps a part's key (its writer, id and text) DedupeWindow,
+	-- 1,320 s, and that id keeps two digits there: a hundred parts in 22 minutes and the next went out on
+	-- the id of the first, so the same short text again ("gz") was dropped by every reader as seen (120 s
+	-- before 1.6.0). A line takes the next ids none of whose parts went out with the same id and text (mine)
+	-- within twice the window (a reader's key counts from its first copy, which may come a window late),
+	-- one turn of the ids at most: past it, the same text that often is a flood and keeps the ids it had.
+	local reuse, turn, first = 2 * DedupeWindow(), (to or from) and 100 or 10000, nextId
+	local function Reused()
+		for i, part in ipairs(parts) do
+			local at = mine[Codec.ChatWireId((nextId + i) % 10000, tier, to, from) .. "#" .. Codec.SanitizeChat(part)]
+			if at and now - at < reuse then return true end
+		end
+		return false
+	end
+	for _ = 1, turn do
+		if not Reused() then first = nil break end
+		nextId = (nextId + 1) % 10000
+		Fit()
+	end
+	if first then nextId = first end
 	-- A queued line can wait several seconds. Recheck the actual server roster, consent and
 	-- moderation immediately before every part leaves; a demoted/offline writer sends no tail.
 	local function SendGuard()
@@ -1614,12 +1783,12 @@ function Channels.Admit(sender, guild, text, now, o)
 		local key = who .. "#" .. o.id .. "#" .. text
 		-- Our own line coming back (already shown when sent): the same id and text, from a name
 		-- that is ours however it is written ("First-Surname", "First Surname", with a realm or not).
-		local was = own[o.id .. "#" .. text]
-		if was and now - was < DEDUPE_WINDOW and Channels.IsMe(sender) then
+		local was, window = own[o.id .. "#" .. text], DedupeWindow()
+		if was and now - was < window and Channels.IsMe(sender) then
 			Bump(st, "dup")
 			return false, "own"
 		end
-		if heard[key] and now - heard[key] < DEDUPE_WINDOW then
+		if heard[key] and now - heard[key] < window then
 			Bump(st, "dup")
 			return false, "dup"
 		end
@@ -2413,13 +2582,22 @@ end
 
 function Channels.Prune(now)
 	now = now or GetTime()
-	local n = 0
+	local n, window = 0, DedupeWindow()
 	for k, t in pairs(seen) do
-		if now - t > DEDUPE_WINDOW then seen[k] = nil else n = n + 1 end
+		if now - t > window then seen[k] = nil else n = n + 1 end
 	end
-	if n > 1000 then wipe(seen) end
+	-- (1.6.0) Past SEEN_KEEP, the oldest keys go (all of them went at 1,000, and every copy still on its
+	-- way showed its line again).
+	if n > SEEN_KEEP then
+		local keys = {}
+		for k, t in pairs(seen) do keys[#keys + 1] = { k = k, t = t } end
+		table.sort(keys, function(a, b) return a.t < b.t end)
+		for i = 1, n - SEEN_KEEP do seen[keys[i].k] = nil end
+	end
+	-- (1.6.0.1) Our own parts twice as long: Channels.Send takes no id one went out with, with the same
+	-- text, within that time (Admit's check of our own echo still counts the window).
 	for k, t in pairs(mine) do
-		if now - t > DEDUPE_WINDOW then mine[k] = nil end
+		if now - t > 2 * window then mine[k] = nil end
 	end
 	for k, b in pairs(buckets) do
 		if now - b.t > 60 then buckets[k] = nil end
@@ -2507,6 +2685,9 @@ ns.On("INIT", function()
 end)
 
 ns.On("LOGIN", function()
+	-- (The review of 1.6.0: NextId) The ids this character sent go on.
+	local last = type(ns.db.chatNextId) == "table" and tonumber(ns.db.chatNextId[ns.me]) or nil
+	if last and last == math.floor(last) and last >= 0 and last < 10000 then nextId = last end
 	ns.Every(60, "chat housekeeping", Channels.Prune)
 	-- Our pinned line again for late logins (1.1), every PIN_RESEND while it lasts; after a
 	-- /reload too (Konig's review: its setter can still take it down).

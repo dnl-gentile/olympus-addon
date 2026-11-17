@@ -44,7 +44,9 @@ ns.Relay = Relay
 -- with no relay answered yet pings every relay at once (Sweep), is held for the first answer
 -- (Flush, from HandleAck) and goes to whoever answered; the pick is made among the relays that
 -- answered (VERIFIED_FOR) while any did. The server's "No player named X" for each ping to an
--- offline relay is kept out of the chat (Accord.Quiet) and still read (NotFound).
+-- offline relay is kept out of the chat (Accord.Quiet; 1.6.0: by Comm.SendNow's Accord.Tried, one
+-- line for each whisper the game is handed, Accord.Quiet only registering the filter) and still read
+-- (NotFound).
 --
 -- 1.5.4 (the presentation): a relay served whoever whispered it, so any build of the addon, changed
 -- or not, could register as a guild's reporter and take every guild's feed. Now a client identifies
@@ -54,6 +56,15 @@ ns.Relay = Relay
 -- versions are the relay rules (RU): the author's client hands them to the relays in game and the
 -- relays carry them to one another, so none of the three needs a release to change. A guild whose
 -- members did not update still receives the census through a guildmate who did (hop 3, RG).
+--
+-- 1.6.0 (a guild master kept seeing "GM verification pending" on a guild his guildmates saw verified):
+-- a guildmate hands its guild the verifier's approval its own client holds, unchanged, as hop 3 from
+-- that verifier (Relay.ToOwnGuild; Verify.lua says when). An approval's resend heard over GUILD is
+-- taken for our own guild alone (HandleGuild), as hop 2's always was (HandleRelayed).
+--
+-- 1.6.0 (the moderators' report of 2026-11-16): a chat moderator's sanction, a logged word, waited in the
+-- chat lane behind every chat line there and, at a busy hour, reached a guild minutes late or never. Now a
+-- sanction from a sender the relay's own WatchChat trusts goes first in the lane, once (FirstSanction).
 
 Relay.PICK_WINDOW = 600      -- seconds one relay serves a guild before the pick moves on
 Relay.DEAD_FOR = 600         -- a relay that did not answer, or is offline, is left out this long
@@ -90,7 +101,7 @@ Relay.PRESENT_FOR = 1800     -- a presentation is kept this long past its last w
 Relay.PRESENT_GAP = 60       -- a client presents itself to one relay once this long at most
 Relay.MAX_PRESENTED = 4000   -- characters a relay keeps a presentation for: every client that may whisper it, not only reporters
 Relay.MAX_REFUSED = 200      -- refusals a relay notes for /oly relay admitted
-Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7", "1.5.8", "1.5.9" }
+Relay.PUBLISHED = { "1.4.0", "1.4.1", "1.4.3", "1.4.4", "1.4.5", "1.4.6", "1.5.0", "1.5.1", "1.5.2", "1.5.3", "1.5.4", "1.5.5", "1.5.6", "1.5.7", "1.5.8", "1.5.9", "1.6.0", "1.6.0.1" }
 Relay.RULES_EVERY = 1800     -- a relay asks the others for the rules this often; the author's client hands them out this often
 Relay.MAX_RULE_VERSIONS = 40 -- versions one word of rules may name
 Relay.VERIFY_ASK_EVERY = 180 -- one recovery ask across the signed relays, never per reporter
@@ -248,6 +259,12 @@ function Relay.Stats()
 		-- (nobody to send to by then: ChatAddressee).
 		chatWaiting = Relay.ChatWaiting and Relay.ChatWaiting() or 0, chatLost = stats.chatLost or 0,
 		chatSkipped = stats.chatSkipped or 0,
+		-- (1.6.0) Of those waiting, the copies to other relays and those of lines the public channel carried
+		-- too; and the lines this relay's client heard in that channel (Relay.HeardInChannel).
+		chatAcross = Relay.ChatLanes and Relay.ChatLanes().across or 0, chatCarried = Relay.ChatLanes and Relay.ChatLanes().carried or 0,
+		heardInChannel = stats.heardInChannel or 0,
+		-- (The review of 1.6.0) And their copies let go past Relay.CARRIED_FOR.
+		chatLate = stats.chatLate or 0,
 		-- (1.5.9's review) The drip's whispers handed to Comm: census transfers', the others', and those
 		-- of either that went past its pace (Relay.DRIP_PER_MIN) while nothing else waited.
 		dripCensus = stats.dripCensus or 0, dripOther = stats.dripOther or 0, dripFree = stats.dripFree or 0 }
@@ -449,8 +466,9 @@ local function Envelope(kind, text)
 end
 
 -- A relay not answered lately is pinged once; no answer in PING_WAIT leaves it out.
--- The server's "No player named X" for a whisper to someone offline: kept out of the chat for the
--- Accord's quiet window (Accord.Quiet, gated there); NotFound still reads the event.
+-- The server's "No player named X" for a whisper to someone offline: (1.6.0) kept out of the chat by
+-- Comm.SendNow's Accord.Tried, one line for each whisper when the game is handed it; this registers
+-- the Accord's filter before the first (Accord.Quiet, gated there). NotFound still reads the event.
 local function Quiet(name)
 	local A = ns.Accord
 	if type(A) == "table" and type(A.Quiet) == "function" then ns.SafeCall("relay quiet", A.Quiet, name) end
@@ -1000,7 +1018,7 @@ ToGuild = function(flag, origin, text, census)
 	if not IsInGuild() then return false end
 	local pieces = Envelope("RG", "RG~" .. flag .. "~" .. origin .. "~" .. text)
 	if census == true then return GuildLane(pieces) end
-	local urgent = flag == "L"
+	local urgent = flag == "L" or Relay.ApprovalResendGuild(text) ~= nil
 	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], nil, urgent, false) ~= false end
 	return ns.Comm.SendBatch("GUILD", pieces, nil, nil, urgent) ~= false
 end
@@ -1961,15 +1979,87 @@ end
 -- later, and the 9th is the first that waits past CHAT_LANE_TTL. Past CHAT_LANE_MAX waiting the
 -- oldest goes, and one that waited CHAT_LANE_TTL is no longer news (both counted: Stats().chatLost,
 -- "lost" in /oly status). The real cure is several lines in one whisper: a new form, for 1.5.6.
+--
+-- (1.6.0, a member's /oly bug on 1.5.9: lines up to five minutes late, repeated or missing, his own
+-- queue empty.) A busy relay's lane stayed full: at 90 registrants a line every 30 s is past
+-- CHAT_PER_MIN, so every whisper it sent had waited some CHAT_LANE_TTL and the rest went unsent (the
+-- load harness, tests/relay-tree-load.lua, 30 minutes: a line every 30 s took 182 s to a member at
+-- the median and 292 s at most; every 20 s the members missed a third of the lines, one member 41 of
+-- 57). The lane now sends, in this order:
+--   * the copies to the other relays (across): each serves a whole relay's guilds. Queued after the
+--     line's reporters, they were the first a full lane let go (two relays, 60 and 30 registrants, a
+--     line every 15 s: the second relay's members missed 858 of the first one's lines; none now);
+--   * the lines only the relays carry;
+--   * last, the lines the public channel carried as well (ChatHall.lua: a line typed there reaches
+--     everyone in the channel at once, this relay's client too, Relay.HeardInChannel), which only a
+--     client outside that channel still needs from the relay.
+-- And each line's reporters start further round their list than the last line's did (by the golden
+-- ratio's step, so whatever part of a line a full lane gets out, every guild gets its share): in the
+-- table's order the same guilds came last in every line, and a full lane let them go every time.
 Relay.CHAT_INFLIGHT = 8
 Relay.CHAT_PER_MIN = 160
 Relay.CHAT_BURST = 8
 Relay.CHAT_LANE_MAX = 1500
 Relay.CHAT_LANE_TTL = 300
-local chatQ, chatFirst, chatLast, chatInflight, chatFeeding = {}, 1, 0, 0, false
+-- The queues of the lane, in the order they are served (a queue: first, last, and its entries). (1.6.0,
+-- the moderators' report of 2026-11-16) A chat moderator's sanction first (FirstSanction, below): its copies
+-- to the other relays, then to this relay's reporters, ahead of every chat line.
+local chatLanes = { { first = 1, last = 0 }, { first = 1, last = 0 }, { first = 1, last = 0 }, { first = 1, last = 0 },
+	{ first = 1, last = 0 } }
+local ACROSS, ONLY, CARRIED, FIRST_ACROSS, FIRST = chatLanes[1], chatLanes[2], chatLanes[3], chatLanes[4], chatLanes[5]
+local LET_GO = { CARRIED, ONLY, ACROSS, FIRST, FIRST_ACROSS } -- (past CHAT_LANE_MAX: the first that holds one gives its oldest)
+local chatInflight, chatFeeding = 0, false
 local chatWaitUntil, chatTimer = -math.huge, false
 local chatBucket = { tokens = Relay.CHAT_BURST, at = -math.huge }
-local function ChatWaiting() return chatLast - chatFirst + 1 end
+local chatTurn = 0 -- (1.6.0) the lines queued so far: each starts its reporters further round
+local function QueueSize(q) return q.last - q.first + 1 end
+local function ChatWaiting()
+	return QueueSize(FIRST_ACROSS) + QueueSize(FIRST) + QueueSize(ACROSS) + QueueSize(ONLY) + QueueSize(CARRIED)
+end
+local function Push(q, e) q.last = q.last + 1; q[q.last] = e end
+local function Pop(q)
+	local e = q[q.first]
+	q[q.first] = nil
+	q.first = q.first + 1
+	return e
+end
+local function Unshift(q, e) q.first = q.first - 1; q[q.first] = e end
+-- (1.6.0) The lines the public channel carried, as this relay's client heard them there: the sender's
+-- short name and the line (lower name .. "|" .. line) -> when. Kept CHAT_LANE_TTL, as a whisper waits.
+Relay.CARRIED_MAX = 600
+local carried, carriedCount = {}, 0
+local function Carried(line, now)
+	local at = line and carried[line]
+	return at ~= nil and now - at < Relay.CHAT_LANE_TTL
+end
+-- The front of the lines only the relays carry, once those the channel carried meanwhile went behind
+-- (each with when this relay's client heard its line there).
+local function OnlyFront(now)
+	while ONLY.first <= ONLY.last and Carried(ONLY[ONLY.first].line, now) do
+		local e = Pop(ONLY)
+		e.heard = carried[e.line]
+		Push(CARRIED, e)
+	end
+	return ONLY[ONLY.first]
+end
+-- (The review of 1.6.0) A copy of a line the public channel carried goes within CARRIED_FOR of when
+-- this relay's client heard it there (or was handed it, if sooner), else not at all: a client before
+-- 1.6.0 keeps a line's id 120 s (Channels' window then), so a later copy showed that line a second
+-- time to each such client in the channel. Waiting last in the lane and holding no census back, at a
+-- line every 40 s (90 registrants and a guildmate behind every 10th, half the lines typed in the
+-- channel, every 10th member outside it) 318 copies reached a member in the channel more than 120 s
+-- after he showed the line (the load harness, tests/relay-tree-load.lua; 40 at a line every 50 s, 865
+-- every 35 s; 50 every 20 s with every member in the channel); none now. A copy handed on at
+-- CARRIED_FOR reached its last member up to 14 s later there (its place among the relay's whispers in
+-- flight, then its registrant's hand-on to the guild), hence 100 s and not 120. The cost falls on a
+-- client outside the channel (an older one on another lane, one that failed to join): it misses the
+-- copies let go (Stats().chatLate, apart from the lost). With every 10th member outside, those missed
+-- 15 of the 258 lines they should have shown at a line every 40 s (none before), 61 of 294 every 35 s
+-- (30 before); they still showed every line only the relays carry.
+Relay.CARRIED_FOR = 100
+local function CarriedLate(e, now)
+	return now - math.min(e.t, e.heard or e.t) >= Relay.CARRIED_FOR
+end
 local FeedChat
 -- Fed again after `seconds` (one timer at a time); meanwhile a word that arrives feeds it once it is due.
 local function ChatLater(seconds)
@@ -1991,9 +2081,8 @@ local function ChatSend(e)
 		settled = true
 		chatInflight = math.max(0, chatInflight - 1)
 		if not sent and why == "full" and Now() - e.t < Relay.CHAT_LANE_TTL then
-			-- (No room even for an urgent whisper: back at the front, tried again in a second.)
-			chatFirst = chatFirst - 1
-			chatQ[chatFirst] = e
+			-- (No room even for an urgent whisper: back at the front of its queue, tried again in a second.)
+			Unshift(e.queue or ONLY, e)
 			ChatLater(1)
 			return
 		end
@@ -2021,23 +2110,41 @@ local function ChatAddressee(e, now)
 	if not r or now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) or not Served(r, e.body, now) then return nil end
 	return r.name
 end
-local function ChatPop()
-	chatQ[chatFirst] = nil
-	chatFirst = chatFirst + 1
+-- (1.6.0) The whisper to send next and its queue: a sanction's (across first), else the first of the copies
+-- across, else of the lines only the relays carry, else of those the channel carried too; nil when none waits.
+local function ChatNext(now)
+	local e = FIRST_ACROSS[FIRST_ACROSS.first]
+	if e then return e, FIRST_ACROSS end
+	e = FIRST[FIRST.first]
+	if e then return e, FIRST end
+	e = ACROSS[ACROSS.first]
+	if e then return e, ACROSS end
+	e = OnlyFront(now)
+	if e then return e, ONLY end
+	e = CARRIED[CARRIED.first]
+	if e then return e, CARRIED end
+	return nil
 end
 local function FeedChatNow(now)
 	local b = chatBucket
 	if now > b.at then b.tokens = math.min(Relay.CHAT_BURST, b.tokens + (now - b.at) * Relay.CHAT_PER_MIN / 60) end
 	b.at = math.max(b.at, now)
-	while chatInflight < Relay.CHAT_INFLIGHT and chatFirst <= chatLast and now >= chatWaitUntil do
-		local e = chatQ[chatFirst]
+	while chatInflight < Relay.CHAT_INFLIGHT and now >= chatWaitUntil do
+		local e, q = ChatNext(now)
+		if not e then break end
 		if now - e.t >= Relay.CHAT_LANE_TTL then
-			ChatPop()
+			Pop(q)
 			stats.chatLost = (stats.chatLost or 0) + 1
+		elseif q == CARRIED and CarriedLate(e, now) then
+			-- (The review of 1.6.0: past CARRIED_FOR, let go.)
+			Pop(q)
+			stats.chatLate = (stats.chatLate or 0) + 1
 		elseif b.tokens < #e.pieces then
 			ChatLater(math.max(1, (#e.pieces - b.tokens) * 60 / Relay.CHAT_PER_MIN))
+			break
 		else
-			ChatPop()
+			Pop(q)
+			e.queue = q
 			local to = ChatAddressee(e, now)
 			if not to then
 				stats.chatSkipped = (stats.chatSkipped or 0) + 1
@@ -2061,25 +2168,109 @@ FeedChat = function()
 	-- feeding for good, every later word stopped at its first line until a /reload.
 	local ok = ns.SafeCall("relay chat", FeedChatNow, now)
 	chatFeeding = false
-	if not ok and chatFirst <= chatLast then ChatLater(1) end
+	if not ok and ChatWaiting() > 0 then ChatLater(1) end
 end
 -- A chat line's whisper in the lane: to `guild`'s reporter (`name` when queued; `wire` and `body` the
--- line as ToReporters has it), or, `across` (the relay's key), to that other relay.
-local function ChatTo(name, pieces, body, wire, guild, across)
+-- line as ToReporters has it), or, `across` (the relay's key), to that other relay. (1.6.0) Past
+-- CHAT_LANE_MAX waiting, the oldest of the lines the channel carried goes first, then of the others, a
+-- sanction's last. `ahead` (1.6.0): a sanction's whisper (FirstSanction), ahead of every chat line.
+local function ChatTo(name, pieces, body, wire, guild, across, ahead)
 	while ChatWaiting() >= Relay.CHAT_LANE_MAX do
-		ChatPop()
+		local q = CARRIED
+		for _, o in ipairs(LET_GO) do
+			if QueueSize(o) > 0 then q = o break end
+		end
+		Pop(q)
 		stats.chatLost = (stats.chatLost or 0) + 1
 	end
-	chatLast = chatLast + 1
-	chatQ[chatLast] = { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now() }
+	local line = Lower(ns.ShortName(wire or "")) .. "|" .. tostring(body)
+	local q = ahead and (across and FIRST_ACROSS or FIRST) or (across and ACROSS or ONLY)
+	Push(q, { name = name, pieces = pieces, body = body, wire = wire, guild = guild, across = across, t = Now(), line = line })
 	FeedChat()
 end
 function Relay.ChatWaiting() return ChatWaiting() end -- (/oly status, tests)
+
+-- (1.6.0, the moderators' report of 2026-11-16: "it simply doesn't mute them"; "the entire reason to time
+-- people out is to remove it from the sight of others".) A chat moderator's sanction (WatchChat's MD
+-- action: a timeout, its lift, a deletion; or a player's own word about his guild's) is a logged word, so it
+-- rode this lane behind every chat line waiting in it: through a relay with 90 registrants and seven lines
+-- waiting (630 whispers) the first registrant took a timeout 235 s later and the last 267 s later; with
+-- eight lines three never did, let go past CHAT_LANE_TTL (tests/chat-delivery.lua). Meanwhile the player's
+-- lines reached everyone in the public channel at once. Now a word the relay's own WatchChat says is a
+-- sanction from a sender it trusts (WatchChat.SanctionWord: its actor may give it, by this client's facts,
+-- as every reader asks) goes first in the lane, its copies to the other relays first: at the lane's pace
+-- (CHAT_PER_MIN, urgent whispers CHAT_INFLIGHT at a time), never more than the lane's share of the relay's
+-- whispers. Bounded: once for each sanction in SANCTION_ONCE (its repeats every five minutes and another
+-- moderator's pass-on wait in line, as before) and SANCTION_PER_MIN of one actor's a minute. A list, an
+-- appeal, any other word, and a sanction from anyone else wait in line as before.
+Relay.SANCTION_ONCE = 3600
+Relay.SANCTION_PER_MIN = 6
+Relay.SANCTION_MAX = 300 -- sanctions remembered at most (the stale ones leave first)
+local sanctionAt, sanctionCount, sanctionBy = {}, 0, {} -- sanction key -> when it went first; actor (lower) -> times
+local function FirstSanction(origin, body, now)
+	if type(body) ~= "string" or body:sub(1, 5) ~= "MD~1~" then return false end
+	local WC = ns.WatchChat
+	if type(WC) ~= "table" or WC.missing or type(WC.SanctionWord) ~= "function" then return false end
+	local ok, key, actor = pcall(WC.SanctionWord, body, origin)
+	if not ok or type(key) ~= "string" then return false end
+	if now - (sanctionAt[key] or -math.huge) < Relay.SANCTION_ONCE then return false end
+	local who = Lower(actor or origin)
+	local times = sanctionBy[who] or {}
+	sanctionBy[who] = times
+	for i = #times, 1, -1 do if now - times[i] >= 60 then table.remove(times, i) end end
+	if #times >= Relay.SANCTION_PER_MIN then
+		stats.sanctionsInLine = (stats.sanctionsInLine or 0) + 1
+		return false
+	end
+	if not sanctionAt[key] and sanctionCount >= Relay.SANCTION_MAX then
+		for k, t in pairs(sanctionAt) do
+			if now - t >= Relay.SANCTION_ONCE then sanctionAt[k], sanctionCount = nil, sanctionCount - 1 end
+		end
+		if sanctionCount >= Relay.SANCTION_MAX then wipe(sanctionAt); sanctionCount = 0 end
+	end
+	if not sanctionAt[key] then sanctionCount = sanctionCount + 1 end
+	sanctionAt[key], times[#times + 1] = now, now
+	stats.sanctionsFirst = (stats.sanctionsFirst or 0) + 1
+	ns.Log("relay: a sanction (%s) by %s goes first", body:sub(1, 8), tostring(actor or origin))
+	return true
+end
+-- (1.6.0) The lane's whispers waiting in each of its queues (Relay.Stats): `first`, a sanction's.
+function Relay.ChatLanes()
+	return { across = QueueSize(ACROSS), only = QueueSize(ONLY), carried = QueueSize(CARRIED),
+		first = QueueSize(FIRST_ACROSS) + QueueSize(FIRST) }
+end
 -- (1.5.9's review) How long the chat lane's oldest whisper still waiting has waited, 0 when none does:
--- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn).
+-- the drip's transfers not begun wait while it is past DRIP_CHAT_AGE (Turn). (1.6.0) Of those only the
+-- relays carry: a line the public channel carried too holds no census back.
 function Relay.ChatOldest()
-	local e = chatQ[chatFirst]
-	return e and math.max(0, Now() - e.t) or 0
+	local now, oldest = Now(), 0
+	for i = 3, 5 do -- (ACROSS, FIRST_ACROSS, FIRST)
+		local q = LET_GO[i]
+		local e = q[q.first]
+		if e then oldest = math.max(oldest, now - e.t) end
+	end
+	local e = OnlyFront(now)
+	if e then oldest = math.max(oldest, now - e.t) end
+	return oldest
+end
+-- (1.6.0) A chat line this relay's client heard in the public channel (ChatHall.lua), by its sender as
+-- the channel names him: its whispers still waiting in the lane go after the lines only the relays
+-- carry (OnlyFront). True when noted. (The review of 1.6.0) As the server writes him first (ns.Normal):
+-- a "First-Surname" cut at its hyphen never met the lane's "First Surname-Realm".
+function Relay.HeardInChannel(sender, text)
+	if not Relay.On() or not Relay.IsRelay(ns.me) or type(sender) ~= "string" or type(text) ~= "string"
+		or text:sub(1, 3) ~= "M1~" then return false end
+	local now = Now()
+	local line = Lower(ns.ShortName(ns.Normal(sender))) .. "|" .. text
+	if carriedCount >= Relay.CARRIED_MAX then
+		for k, t in pairs(carried) do
+			if now - t >= Relay.CHAT_LANE_TTL then carried[k], carriedCount = nil, carriedCount - 1 end
+		end
+		if carriedCount >= Relay.CARRIED_MAX then wipe(carried); carriedCount = 0 end
+	end
+	if not carried[line] then carriedCount, stats.heardInChannel = carriedCount + 1, (stats.heardInChannel or 0) + 1 end
+	carried[line] = now
+	return true
 end
 
 -- (1.5.4) The King's presence (T1~o, King.SendPresence: one piece from his signed character every
@@ -2222,7 +2413,8 @@ local function GuildCensus(transfer, now)
 	return transfer.ourGuild
 end
 
-local function ToReporters(flag, origin, body, sender)
+-- ahead (1.6.0): a sanction that goes first in the chat lane (FirstSanction).
+local function ToReporters(flag, origin, body, sender, ahead)
 	local now = Now()
 	if Crown(origin, body) then
 		local n = 0
@@ -2232,7 +2424,10 @@ local function ToReporters(flag, origin, body, sender)
 	end
 	local own = ns.FullName(origin) == ns.me
 	local approvalGuild = Relay.ApprovalResendGuild(body)
-	if approvalGuild then approvalGuild = Lower(approvalGuild) end
+	if approvalGuild then
+		if not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin)) then return end
+		approvalGuild = Lower(approvalGuild)
+	end
 	local fresh = 0
 	for _, r in pairs(reporters) do
 		if now - r.t <= Relay.REPORTER_FOR then fresh = fresh + 1 end
@@ -2293,7 +2488,7 @@ local function ToReporters(flag, origin, body, sender)
 			wordKey, first = Lower(origin) .. "#" .. id, tonumber(i) == 1
 		end
 	end
-	local pieces
+	local pieces, chatTo
 	local snap = flag ~= "L" and type(set) == "table" and CensusSet(origin, set, now) or nil -- (1.5.5: a census set, held)
 	for g, r in pairs(reporters) do
 		if now - r.t > Relay.REPORTER_FOR or Quarantined(r.name) then
@@ -2360,10 +2555,12 @@ local function ToReporters(flag, origin, body, sender)
 			-- (1.5.0) Another client's word that is not a chat line: within the reporter's trickle
 			-- (REPORTER_RATE) or not sent to him; the relay's own words and chat lines always.
 			if flag == "L" then
-				-- (1.5.5) A chat line: by the chat lane (above), never pushed out of the queue.
+				-- (1.5.5) A chat line: by the chat lane (above), never pushed out of the queue. (1.6.0) Its
+				-- reporters queued below, after this loop, each line starting further round them.
 				stats.forwarded = stats.forwarded + 1
-				ChatTo(r.name, pieces, body, wire, g)
-			elseif own or snapshot or presence or KingLayer(origin, body, r.name, now) or Afford(r.name, #pieces, now, need, wordKey, first) then
+				chatTo = chatTo or {}
+				chatTo[#chatTo + 1] = { name = r.name, guild = g }
+			elseif own or snapshot or presence or approvalGuild or KingLayer(origin, body, r.name, now) or Afford(r.name, #pieces, now, need, wordKey, first) then
 				stats.forwarded = stats.forwarded + 1
 				Quiet(r.name) -- (a reporter gone offline since: the server's line out of the chat)
 				-- A word that is not a chat line is keyed by its origin, kind and reporter: a newer
@@ -2372,11 +2569,24 @@ local function ToReporters(flag, origin, body, sender)
 				-- piece by its kind (ListKind), so two kinds' lists never take each other's place.
 				local word = presence and "T1~o" or ListKind(body) or QueueWord(body)
 				local key = flag ~= "L" and ("relay " .. r.name .. " " .. Lower(origin) .. " " .. word) or nil
-				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, presence, false)
-				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, presence) end
+				local urgent = presence or approvalGuild ~= nil
+				if #pieces == 1 then ns.Comm.Whisper(r.name, pieces[1], key, urgent, false)
+				else ns.Comm.SendBatch("WHISPER", pieces, key, r.name, urgent) end
 			else
 				stats.trickled = (stats.trickled or 0) + 1
 			end
+		end
+	end
+	-- (1.6.0) A chat line's reporters into the lane by name, from a place a golden ratio's step further
+	-- round than the last line's: the part of each line a full lane sends goes round them all evenly.
+	if chatTo then
+		table.sort(chatTo, function(a, b) return a.name < b.name end)
+		chatTurn = chatTurn + 1
+		local k = #chatTo
+		local start = math.floor(chatTurn * k * 0.6180339887) % k
+		for i = 0, k - 1 do
+			local c = chatTo[(start + i) % k + 1]
+			ChatTo(c.name, pieces, body, wire, c.guild, nil, ahead)
 		end
 	end
 	local n = 0
@@ -2496,7 +2706,7 @@ end
 -- (1.4.6) The same word to the other relays (RX), each to hand to its own reporters. (1.5.5)
 -- Only mesh peers hear this relay's own census snapshots (CG, CX and GV "S" words), lists (LS)
 -- and chat lines. The guilds' individual reports stay on their relay and are reflected in CG.
-local function Across(flag, origin, body, set)
+local function Across(flag, origin, body, set, ahead)
 	if set == false then return end -- the whole transfer follows its last piece
 	local mine, from = Lower(ns.ShortName(ns.me or "")), Lower(ns.ShortName(origin))
 	local kind, signedLook -- (a chat line is unkeyed, as ever; signedLook: the author's signed look, QA)
@@ -2542,7 +2752,7 @@ local function Across(flag, origin, body, set)
 				pieces = pieces or Envelope("RX", "RX~" .. flag .. "~" .. origin .. "~" .. body)
 				stats.across = (stats.across or 0) + 1
 				if flag == "L" then
-					ChatTo(name, pieces, body, origin, nil, key)
+					ChatTo(name, pieces, body, origin, nil, key, ahead)
 				else
 					Quiet(name)
 					local qkey = "across " .. name .. " " .. from .. " " .. kind
@@ -2593,6 +2803,19 @@ local function ToRelays(flag, origin, body, staff)
 	end
 	-- (The review of the 1.5.4 candidate.) A line for /oly bug: that it crossed, and to how many.
 	if pieces then ns.Log("relay: %s's word (%s) across to %d relays", tostring(origin), body:sub(1, 6), n) end
+end
+
+-- A Watch resend on a relay's own client enters the remote queues synchronously. Reserve
+-- enough local send slots for its whole fan-out before Verify starts the resend.
+function Relay.ApprovalResendCost(body)
+	if not Relay.On() then return 1 end
+	if not Relay.IsRelay(ns.me) then return #body + 5 > 255 and 2 or 1 end
+	local now, targets = Now(), 1 -- allow one local reporter or guild handoff too
+	for _, name in ipairs(Relay.Names(false)) do
+		if (offline[name:lower()] or 0) <= now then targets = targets + 1 end
+	end
+	local size = #body + #(ns.me or "") + 6
+	return targets * (size > 255 and math.ceil(size / ns.Codec.CHUNK) or 1)
 end
 
 -- (1.5.4) A verifier's answer to the one client that asked, never to every reporter: a whole store
@@ -2718,12 +2941,13 @@ function Relay.HandleIn(dist, sender, text)
 		end
 		return true
 	end
-	local set = WithHop("L", sender, ToReporters, flag, origin, body, sender)
+	local ahead = flag == "L" and FirstSanction(origin, body, now) -- (1.6.0)
+	local set = WithHop("L", sender, ToReporters, flag, origin, body, sender, ahead)
 	-- (1.4.6) To the other relays that answered our pings too (hop 1b, RX): each hands it to its
 	-- own reporters. Without this every live relay was an island of the guilds registered with it
 	-- (the dev's cousin saw other guilds and other numbers, 2026-11-05). A relay forwards RX no
 	-- further, and a word already taken is not sent across again.
-	if fresh then Across(flag, origin, body, set) end
+	if fresh then Across(flag, origin, body, set, ahead) end
 	return true
 end
 
@@ -2740,7 +2964,7 @@ function Relay.HandleAcross(dist, sender, text)
 	-- (1.5.4) A word of a client marked as a modified build (Builds.lua): forwarded to nobody.
 	if Quarantined(origin) then stats.dropped = stats.dropped + 1 return true end
 	if VerificationAsk(body) then WithHop("X", sender, Deliver, origin, body, false); return true end
-	WithHop("X", sender, ToReporters, flag, origin, body, sender)
+	WithHop("X", sender, ToReporters, flag, origin, body, sender, flag == "L" and FirstSanction(origin, body, Now()))
 	return true
 end
 
@@ -2775,7 +2999,7 @@ function Relay.HandleVerify(dist, sender, text)
 		if Seen("rw " .. origin, body) then return true end
 		mesh.n.staffIn = (mesh.n.staffIn or 0) + 1
 		ns.Log("relay: RW %s from %s", body:sub(1, 6), tostring(sender))
-		WithHop("W", sender, ToReporters, flag, origin, body, sender)
+		WithHop("W", sender, ToReporters, flag, origin, body, sender, flag == "L" and FirstSanction(origin, body, Now()))
 		return true
 	end
 	if not Relay.IsRelay(sender) or not Relay.IsRelay(ns.me) or not (body:match("^GV~1~[ARQS]~") or body:match("^BD~1~")) then
@@ -2817,16 +3041,26 @@ function Relay.HandleRelayed(dist, sender, text)
 	verified[ns.ShortName(sender):lower()] = Now()
 	-- (1.5.4) A word of a client marked as a modified build (Builds.lua): not heard, not handed on.
 	if Quarantined(origin) then stats.dropped = stats.dropped + 1 return true end
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval and (Lower(approval) ~= Lower(GetGuildInfo("player") or "")
+		or not (ns.Verify and ns.Verify.CanForwardResend and ns.Verify.CanForwardResend(body, origin))) then return false end
 	if not Remembered(origin, body) then ns.Log("relay: %s's word (%s) by %s", tostring(origin), body:sub(1, 2), tostring(sender)) end
 	if Relay.TakeVia("M", sender, origin, body, flag == "L") then ToGuild(flag, origin, body) end
 	return true
 end
 
--- Hop 3 heard (a guildmate's hand-over): delivered here once.
+-- Hop 3 heard (a guildmate's hand-over): delivered here once. (1.6.0) An approval's resend (a
+-- reporter handing on the Watch's, or a guildmate's own, Relay.ToOwnGuild) for another guild than
+-- ours is not taken: what a guild is handed over GUILD is its own approval, as hop 2's is.
 function Relay.HandleGuild(dist, sender, text)
 	if dist ~= "GUILD" or not Relay.On() then return false end
 	local flag, origin, body = tostring(text):match("^RG~([LP])~([^~]+)~(.*)$")
 	if not flag then return false end
+	local approval = Relay.ApprovalResendGuild(body)
+	if approval and Lower(approval) ~= Lower(GetGuildInfo("player") or "") then
+		stats.dropped = stats.dropped + 1
+		return false
+	end
 	Relay.TakeVia("G", sender, origin, body, flag == "L")
 	return true
 end
@@ -3105,29 +3339,17 @@ ns.Comm.Handle("RU", function(...) Relay.HandleRules(...) end) -- (1.5.4: the re
 ns.Comm.Handle("RJ", function(...) Relay.HandleMesh(...) end) -- (1.5.5: the mesh between the signed relays)
 ns.Comm.RelayPieces({ RL = true, RM = true, RG = true, RX = true, RW = true, RU = true })
 
--- (1.4.6, the dev's ask) The server's "No player named X is currently playing" for a relay or a
--- reporter the relay whispered: out of the chat for good, not for a window (Accord.Quiet's ten
--- seconds left the login's first sweep in sight). Read all the same (NotFound, the event).
-local function NotFoundName(text)
-	-- (1.5.5) A secret line (Forever's chat locked down) goes on unread: the chat frame calls this
-	-- filter itself, in the game's chat code, outside the event guard in Core.lua.
-	if type(text) ~= "string" or ns.Secret("relay quiet line", text) then return nil end
-	local T = ns.Treasury
-	local pattern = type(T) == "table" and type(T.NotFoundPattern) == "function" and T.NotFoundPattern()
-	local who = type(pattern) == "string" and type(text) == "string" and text:match(pattern)
-	if type(who) ~= "string" then return nil end
-	return (who:gsub("^'", ""):gsub("'$", ""))
-end
-function Relay.QuietLine(_, _, text) -- gp:system-filters
+-- Only shield errors correlated with a recent addon send, not all errors about a known relay
+-- or reporter. The relay still reads the event to manage its next delivery attempt.
+-- (1.6.0) The line's own values go with it: the Accord's filter keeps one line out for each of our
+-- whispers and tells one line from the next by its lineID, else by who asks in which chat window
+-- (this filter as the relay's: Accord.QuietLineForRelay).
+function Relay.QuietLine(frame, event, text, ...) -- gp:system-filters
 	if not ns.Gate.Allowed("system-filters") or not Relay.On() then return false end
-	local who = NotFoundName(text)
-	if not who then return false end
-	if Relay.IsRelay(who) then return true end
-	local key = ns.ShortName(who):lower()
-	for _, r in pairs(reporters) do
-		if ns.ShortName(r.name or ""):lower() == key then return true end
-	end
-	return false
+	if ns.Secret("relay quiet line", text) then return false end
+	local A = ns.Accord
+	local ask = type(A) == "table" and (A.QuietLineForRelay or A.QuietLine) or nil
+	return type(ask) == "function" and ask(frame, event, text, ...) == true
 end
 local filtering
 local function QuietLines() -- gp:system-filters!hook
@@ -3196,6 +3418,19 @@ function Relay.Take(origin, text, logged) return Deliver(origin, text, logged) e
 -- (1.5.9's review) census: a census word (a snapshot, CG; another server's census, QA or CX), which goes by
 -- the census lane to our guild (ToGuild).
 function Relay.HandOn(flag, origin, text, census) return ToGuild(flag, origin, text, census) end
+-- (1.6.0) A word our own client holds, handed to our guild as hop 3 hands one on, its origin named (RG):
+-- Verify.lua's guild hand-over, a verifier's approval as that verifier said it. Urgent, as a reporter
+-- hands on a Watch resend (ToGuild); done and options as Comm.Send's (the guard is asked at the send).
+function Relay.ToOwnGuild(origin, text, key, done, options)
+	if not Relay.On() or not IsInGuild() or type(origin) ~= "string" or origin == "" or origin:find("~", 1, true)
+		or type(text) ~= "string" then
+		if done then ns.SafeCall("relay done", done, false, "guild") end
+		return false
+	end
+	local pieces = Envelope("RG", "RG~P~" .. origin .. "~" .. text)
+	if #pieces == 1 then return ns.Comm.Send("GUILD", pieces[1], key, true, false, done, options) ~= false end
+	return ns.Comm.SendBatch("GUILD", pieces, key, nil, true, done, options) ~= false
+end
 Relay.Envelope = Envelope
 function Relay.SetBatches(flag, origin, set, kind) return SetBatches(flag, origin, set, kind) end
 -- A whole transfer to `name` through the drip, keyed `word` (a newer one takes a waiting one's place).
@@ -3333,6 +3568,7 @@ function Relay.IsLaunchAuthor(name)
 end
 Relay.ResetHooks = {} -- (each lane appends its reset: Relay.Reset calls them last)
 Relay.ResetHooks[#Relay.ResetHooks + 1] = ForgetCensus -- (lane tree: the census sets held, ToReporters)
+Relay.ResetHooks[#Relay.ResetHooks + 1] = function() wipe(sanctionAt); wipe(sanctionBy); sanctionCount = 0 end -- (1.6.0: FirstSanction)
 
 -- (1.5.5) The mesh's round (on a signed relay's client: 10 s after login, then every MESH_EVERY):
 -- every other signed relay not left out is pinged (Ping: one answered within DEAD_FOR is not), and
@@ -3348,7 +3584,11 @@ function mesh.Join(name, now)
 	mesh.sent[key] = now
 	mesh.n.rjOut = (mesh.n.rjOut or 0) + 1
 	Quiet(name)
-	ns.Comm.Whisper(name, ("RJ~1~%d~%d"):format(regs, tree), "relay rj " .. key, false)
+	-- (1.6.0) Urgent: as an ordinary whisper a busy relay's queue pushed it out (the load harness, two
+	-- relays at a line every 30 s: 3 of the 10 RJ they sent each other in 20 minutes), MESH_FOR passed with
+	-- none, and for most of a round the other relay sent it no chat line, census or list (its guilds'
+	-- members missed 213 of the 3,724 lines; none since).
+	ns.Comm.Whisper(name, ("RJ~1~%d~%d"):format(regs, tree), "relay rj " .. key, true)
 end
 function mesh.JoinAnswered()
 	if not Relay.On() or not Relay.IsSignedRelay(ns.me) then return end
@@ -3504,7 +3744,9 @@ function Relay.Reset()
 	wipe(listOrigins); wipe(Origins()); wipe(listShares); wipe(listSets)
 	dripBusy, dripping = false, false
 	dripBucket.tokens, dripBucket.at, dripOwed = nil, -math.huge, 0 -- (1.5.9's review: the drip's pace)
-	wipe(chatQ); chatFirst, chatLast, chatInflight, chatFeeding = 1, 0, 0, false -- (1.5.5: the chat lane)
+	for _, q in ipairs(chatLanes) do wipe(q); q.first, q.last = 1, 0 end -- (1.5.5: the chat lane; 1.6.0: its queues)
+	chatInflight, chatFeeding = 0, false
+	chatTurn = 0; wipe(carried); carriedCount = 0 -- (1.6.0)
 	wipe(guildLane); wipe(guildCensusAt); guildInflight, guildFeeding, guildTimer = 0, false, false -- (1.5.9's review)
 	chatWaitUntil, chatTimer, chatBucket.tokens, chatBucket.at = -math.huge, false, Relay.CHAT_BURST, -math.huge
 	for k in pairs(stats) do stats[k] = 0 end

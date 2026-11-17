@@ -500,7 +500,7 @@ end
 --   Authority H2 H3
 --   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   OfficerMuster OM (bounded, zone-only officer gathering, logged)
---   Other 1.1 work: Recruit J1 J3 | RecruitHandoff J4 | GuildCharter recruiting help J5 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
+--   Other 1.1 work: Recruit J1 J3 JD (guild-only decline hints) | RecruitHandoff J4 | GuildCharter recruiting help J5 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU
 --   Board G0 G1 GQ | Groups GA GL GM GR GW GX | Keys K3 K4 K5 K7 K8 | Channels N1 | Moderation O1 | ProfileEffects FX | The Watch MW | Treasury TA TD TW
 --   Bank TL TN TO TS | Week Y2 | Wanted WS WY W4 W5, and 1.2.3's WK (a member's own kill or death,
 --   and a reviewer's relay of one) WV (a reviewer's removal or void), and 1.2.4's W7 (a member's
@@ -560,7 +560,9 @@ end
 --   on the Olympus channel).
 --   1.4.0, PrivatePresence PP (Private presence on or off, to the player's own guild over GUILD only).
 --   Verify GV (guild verification: a verifier's approval or revocation of a guild and its master,
---   logged; any member's ask; a verifier's client's answer with the words and the guilds' starts).
+--   logged; any member's ask; a verifier's client's answer with the words and the guilds' starts;
+--   1.6.0, a guild master's ask to his own guild over GUILD, which a guildmate answers as the relay's
+--   hop 3 does, below).
 --   1.4.3, Relay RL RM RG RY RX (Relay.lua: what the channel carried, by whisper where Forever delivered
 --   nothing on it at launch: origin to relay, relay to each guild's reporter, reporter to its guild over GUILD,
 --   the relay's answer to a ping, and 1.4.6 a relay's copy to the other relays); 1.5.4 RW (guild
@@ -871,8 +873,15 @@ function Comm.SendChat(msg, done, line, guard)
 	-- (Forever), a tier's line goes as his own text in the joined channel too (ChatHall.lua):
 	-- the same channel hears it at once, every other lane and guild by the hidden way below.
 	local H = ns.ChatHall
-	if type(H) == "table" and H.On() then pcall(H.Send, msg) end
-	chatQueue[#chatQueue + 1] = { msg = msg, done = done, t = GetTime(), channel = joinedName, line = line, guard = guard }
+	-- A native channel echo proves delivery to that channel even if there is no relay. Keep
+	-- sending the relay copy for wider coverage, but resolve the writer's send only once.
+	local function Complete(sent, why)
+		local f = done
+		done = nil
+		if f then return f(sent, why) end
+	end
+	if type(H) == "table" and H.On() then pcall(H.Send, msg, function() Complete(true) end) end
+	chatQueue[#chatQueue + 1] = { msg = msg, done = done and Complete or nil, t = GetTime(), channel = joinedName, line = line, guard = guard }
 	return true
 end
 function Comm.ChatRoom()
@@ -929,18 +938,25 @@ local function SendNow(dist, msg, logged, whisperTo)
 	-- (A whisper goes to the name the server finds: ns.TellName. Group distributions have no target.)
 	local target = dist == "CHANNEL" and channelIndex or (dist == "WHISPER" and ns.TellName(whisperTo) or nil)
 	local send = logged and C_ChatInfo.SendAddonMessageLogged or C_ChatInfo.SendAddonMessage
+	-- The server can report an offline recipient during a rejected call. Mark the attempted
+	-- whisper before calling it, including whispers that waited in the queue.
+	-- (1.6.0) Counted: the server answers each whisper to a player who is not online with one line,
+	-- and one line is kept out of the chat for each of ours, QUIET seconds from this call (Accord.Tried,
+	-- one mark each). A call that sent nothing (a throttle, an error) takes its own mark back
+	-- (Accord.Untried), so the player's own whisper to him still shows; one the game refused itself
+	-- (an offline target, 12) keeps it REFUSED_GRACE seconds, for a line printed during or just after
+	-- the call, whether the client prints one or not.
+	local A, mark = dist == "WHISPER" and ns.Accord or nil, nil
+	if type(A) == "table" and type(A.Tried) == "function" then
+		local marked, m = pcall(A.Tried, whisperTo)
+		mark = marked and type(A.Untried) == "function" and m or nil
+	end
 	local ok, res = pcall(send, ns.PREFIX, msg, dist, target)
+	if mark and (not ok or RETRYABLE[res]) then pcall(A.Untried, mark)
+	elseif mark and not IsSuccess(res) then pcall(A.Untried, mark, A.REFUSED_GRACE or 0) end
 	if ok and IsSuccess(res) then
 		stats.sent = stats.sent + 1
 		refusedInRow = 0
-		-- (1.5.4, the dev's live report: "No player named <a reporter> is currently playing" kept
-		-- filling his chat.) The server's line answers the whisper that actually went, and a whisper
-		-- can wait in the queue (a relay's batch behind thirty reporters' turns) far longer than the
-		-- quiet window opened when it was handed in. The window opens again now, whoever sent it.
-		if dist == "WHISPER" then
-			local A = ns.Accord
-			if type(A) == "table" and type(A.Quiet) == "function" then pcall(A.Quiet, whisperTo) end
-		end
 		if dist == "CHANNEL" then laneRefused = 0 end -- (1.4.1: the channel takes our words)
 		return true
 	end
@@ -2035,10 +2051,13 @@ end
 -- it 20 seconds.) Whether this client takes recruitment handoffs now (RecruitHandoff.lua: its switch
 -- on, for the guild whose roster confirms it may invite): "J", the hello's 9th field, so the automatic
 -- offers of its guildmates ask such members first; "j" when it takes none, so they never ask it.
+-- (1.6.0) "j" while the member paused recruiting (Recruit.Paused): his guildmates' answers to a Join
+-- Olympus screen do not name him first, and their offers do not ask him, until the pause ends.
 local function TakesHandoffs()
 	local R = ns.Recruit
 	local H = type(R) == "table" and R.Handoff
 	return type(H) == "table" and type(H.Accepting) == "function" and H.Accepting() == true
+		and not (type(R.Paused) == "function" and R.Paused())
 end
 
 -- force: now, whatever the above (the player changed what the hello says).

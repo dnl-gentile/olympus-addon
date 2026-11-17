@@ -29,15 +29,15 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
+- **1.6.0.1**: Hotfix: on WoW: Forever's PvP, RP and RP-PvP realms guild verification waits until 30 November: no guild there shows as overdue or has its guild master's powers held, and an approval still verifies; from then each unverified guild there has 7 days. A short line sent again in the Olympus chat, like "gz", no longer goes missing for the other players after its writer has sent a hundred lines within 22 minutes.
+- **1.6.0**: Confirmed recruits from linked alts count for their Apostle or Missionary main; on Forever an alt links by its plain name from any sub-realm. Recruiting prompts respect focus and guild capacity, and only explicit requests are passed on automatically. The ad reminder the Census offer turns on comes every 30 minutes instead of 5 and waits behind other recruiting popups; its popup has Less often, an interval saved before is kept, and the menu adds 60 and 120 minutes. Every recruiting popup that opens by itself has Pause recruiting (15 minutes to 4 hours, kept across a reload; Church > Invites says until when, with Resume) and Turn off recruiting (that kind of popup, or all of it). Handoffs: a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window; a claim is answered while the member who passed the player is in combat; busy members are skipped, and a claim that gets no name says so. Join Olympus asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask. Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds. Census recovery keeps the original observation time, and while no newer report arrives the census keeps its last count, dated, instead of dropping a guild at a time. Guild approval resends are paced, and the guild master can see the retained approval. On Forever a guild master whose guild is already verified now receives that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online. Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check. A confirmed channel echo settles chat without waiting for a relay; a relay's late copy of a chat line no longer shows twice, and under load relays keep their mesh link, serve copies to other relays first and spread a full chat lane's losses across all guilds. Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice. Under All in the Olympus chat, a line whose writer's ruleset can't be told (versions before 1.5.9) is marked [?], and hovering a writer's name says when he plays another ruleset, whose guilds can't invite you. Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and the Chat tab ([#110](https://github.com/dnl-gentile/olympus-addon/issues/110)). On Forever a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines instead of minutes behind them at busy hours.
 - **1.5.9**: The recruiting ranking for everyone, and the census for every guild. Church > Ranking is open to every member, with an Everyone list: 10 points for each confirmed recruit who joins after a member's invite, 5 more if he is still in the guild 7 days later, and 25% of those points to the member who passed that player on; a recruit counts once a Church keeper's addon, or the inviter's own and another member's a keeper can check, saw the join, and the keepers hold these records on a ledger of their own, so the Church's rankings count as before. Church > Invites is laid out in four sections (Recruiting, Recruiting ads, Find unguilded players, Handoffs); a client's guild hello says whether it takes handoffs, and those members are asked and listed first. A player who declined a guild invite is not offered again for 7 days (a hash of his name, kept on the recruiter's client); every recruiting switch stays as the player left it across reloads, logins and Forever sub-realms, and turning recruiting off in Church > Invites brings the Census offer back until Done or Don't ask again. A Join Olympus request reaches a recruiting member as a JOIN, with the same invite pop-up and handoffs; one from a player on the ignore list is dropped. While recruiting is on, a line at the top of the Census says so and opens its settings. On WoW: Forever every client joins its faction's public Olympus channel whatever its realm key, and keeps the older Olympus channels it is still in, off the chat windows, for the census older clients send there; a key there only keeps a guild's typed chat lines out of that channel, the relays carrying them to the writer's own ruleset alone, and the key's texts in game say so. A relay paces the census through a busy send queue, chat first at its peak, serves its own guild by a census lane of its own, and hands another relay's snapshot on while it runs no round of its own; /oly bug names the guild's registrant and shows a relay's census sends. Other rulesets' totals from a trusted source stay until a newer count replaces them, and the author's client signs the newest it holds for each ruleset; the census details date the other servers' totals, /oly bug carries a census line near its top, and the author's relay asks clients on an older version to update, once a day at most. Each [Olympus] chat line shows under its writer's ruleset, and a line written in the Chat tab with one's own ruleset chosen shows under that ruleset alone (older versions show every line). The King's guild wears the verified mark. A relay asks at most two signed 1.5.9 peers for a pending game record whose two confirmations reached different relays.
-- **1.5.8**: Recruiting and census. An officer who can invite turns recruiting on from the top of the Census or in Church > Invites, now the Church's first page (the choice is kept per character and guild). A player who whispers JOIN, with or without Olympus, opens a window with the /ginvite command, selected: the officer copies it (Ctrl+C), pastes it into the game's chat and presses Enter, because Forever blocks a /ginvite an addon fills in, so the invite is always the player's own; Queue only keeps requests in the list instead, and a request can be offered to another officer who accepts handoffs, or, opted in, to the guild's other officers while three or more wait. Public recruitment announcements name the recruiter's guild and post on a click or Enter; an optional reminder opens one every 2, 5, 10, 15 or 30 minutes, rotating through joined public channels, each channel with its own wait. Scan unguilded players (off by default) lists players without a guild seen nearby or in the player's own /who results (it starts no /who) for a copied invite, optional invite pop-ups or optional whisper drafts. Guild masters can ask the Apostles for recruiting help for 24 hours. A player without a guild gets the Join Olympus page at the first login: Request to join, a 45-second wait for the invite, Request again with another member and optional reminders. The Census shows its connection (lane, relay, the latest other guild's report) and tells linked alts from the staff sample; relays answer census asks during their own broadcast, pack snapshots, try recent reporters when saved fallbacks do not answer and keep clients on a healthy lane. Church keepers recover verified recent history. The Watch can resend a guild approval, check the current guild master, hide guilds and copy names. Layer hop asks sister-guild helpers when no guildmate answers. Olympus guild chat gives each speaker a colour of their own. The Workshop names the last release marked in game beside the running build, and warns the author while the signed relay rules leave a published version off (the running build or a release out since they were signed), with the command that admits them.
-- **1.5.7**: Census startup and relay recovery. The saved count keeps its observation date while the header shows how many guilds have reported since login. Census transfers rotate guild coverage and age reports from their original observation. Church scores, Records and guild verification retry incomplete delivery. The optional personal Discord verification panel reports local delivery, and Olympus Prime can export its own aggregate manually. A recruitment ranking for all guild members is planned for a future update.
 
 Every version's notes are in the [GitHub releases](https://github.com/dnl-gentile/olympus-addon/releases). This page is the short one for CurseForge: the [README](https://github.com/dnl-gentile/olympus-addon#olympus) has every section in full.
 
 ## Who can use it
 
-**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not. The check is fixed in the code and
+**Only members of a guild with "Olympus" in its name**, however it was spelled: OLYMPVS the Roman way, Olimpus, Olmps, Olympuz, Olympos, Olimpo and other misspellings count too (Olympia or Olympic do not), and a guild against Olympus ("ANTI OLYMPUS", "Olympus Haters") does not, nor (1.6.0) one that names Olympus only to measure itself against it or to say it is not Olympus ("Stronger Than Olympus", "Not Even Olympus"). The check is fixed in the code and
 cannot be switched off with a command. Outside an Olympus guild the addon joins no channel
 and hears nothing of the army, but for the author's signed list below, over its own guild.
 The only thing it offers there is the **Join Olympus**
@@ -71,23 +71,13 @@ doing?"* Then it helps you get in. The **Join Olympus** screen uses the game's o
 find Olympus members online, groups them by guild, and whispers one of them a ready-made
 request that you can edit ("Hi! I'd love to join Olympus. Does <Olympus II> have room for
 one more?"). No answer? **Try someone else** picks a member you have not asked yet. Replies
-are highlighted. It is rate limited, so nobody gets spammed.
+are highlighted. It is rate limited, so nobody gets spammed. From 1.6.0 it asks a member who
+recruits first (after the King's gates), passes over one whose addon says he can't invite (no
+invite right, or a full guild), tells you why when the member asked can't take your request or
+nobody is left to ask, and searches again before it asks a member a second time, 10 minutes after
+the first.
 
-**Where to go**: a search also asks one member's addon (an addon whisper, not a chat line)
-where recruits should go, and its census answers: the guild the King opened **the gates** of
-first, then the guilds with the **most free slots**, and a couple of their Lords and Captains
-online (never the King). It names only what the census confirms: guilds two members' reports
-agree on, and Lords and Captains two reports name. The screen lists them in that order, each
-once `/who` found one of its members (the gates once a second member's answer agrees: one more
-is asked), the guilds found with `/who` too, and a click asks one of those officers that `/who`
-found in that guild, or another member it found there. Just before, their addon is asked
-whether they take recruit whispers (again if it never answered). A member who set **do not
-contact** (`/oly nocontact on`) is never offered, however many recruits ask him, and the
-question closes before anything is sent. It stays **one whisper per click**, in your
-own words (no dues line), 20 seconds apart. With it goes your request to the same member, so an
-officer's addon shows it with **Invite** and **Decline** instead of a raw whisper; one who
-recruits by whisper (1.5.9) gets it as a **JOIN**: the invite pop-up opens by itself, unless he
-chose **Queue only**. Members on versions before 1.1 just get the whisper, as before.
+*Continued in the README: [Not in Olympus yet?](https://github.com/dnl-gentile/olympus-addon#not-in-olympus-yet).*
 
 ## What it does
 
@@ -506,28 +496,14 @@ publish the request to the board.
 
 ### The Missionary Church of Olympus (1.1.6)
 
-**Guild fullness (1.2.4).** The correspondents' ranking counts the current correspondent's own
-management of that guild, not invitation points. Every new appointment starts afresh, including
-the same person returning after another correspondent. Only completed server UTC days score:
-all admitted native-roster observations must be **above 950**; any observed 950 or fewer breaks
-the streak. An unobserved or budget-capped day is **unknown**: no point and no erasure of the
-proved streak. Each qualifying day's observations are averaged first, then those daily means
-receive equal weight in the streak's tie-break. This is role-authenticated, client-observed
-evidence, **not server certification or proof of continuous 24-hour fullness**. Incomplete,
-filtered or stale rosters and census totals do not supply observations. The counter reuses
-the existing complete native roster cache and its captured server timestamp; it performs no
-second 1,000-member scan. Current verified
-correspondents send only live own-guild observations privately to a Church keeper; census-only
-appointments and retrospective correspondent claims cannot establish a day elsewhere.
-Authorized keepers privately relay only retained admitted observations, in requested batches
-of at most 150, rotating through the bounded cache. Contiguous same-count observations are
-coalesced without changing their count or mean. Seven days of relay evidence, 128 guilds and
-20,000 runs at most are retained; older days fold into a durable checkpoint on this computer for
-that exact person and appointment, with at most 32 management checkpoints per guild.
-Checkpoints are never accepted from another client: a fresh client without older evidence keeps
-that history unknown. A predecessor's proof, a person's former appointment and an old unscoped
-guild aggregate cannot score the new management. Ordinary presence with an unchanged appointment
-does not reset its own proven streak. No new honour, gold rule or public/general-channel feed is added.
+**Recruiting on linked characters.** Confirm a character with [alt links](#alt-links-11-one-player-counted-once)
+and its confirmed recruits count as direct recruits of its Apostle or Missionary main. They must
+still join an Olympus guild and be confirmed independently. Each recruit counts once; linking
+does not give the alt the main's role or permissions. On WoW: Forever (1.6.0) such characters also
+tell their guild and the Church's keepers online that they are linked, since the Olympus channel
+reaches other guilds only through the relays: a guildmate's addon reports the alt's recruit on the
+alt's word, and a keeper credits it once it has heard both the alt and the main. Earlier recruits
+can only be recovered where a client still has usable guild-log evidence.
 
 *Continued in the README: [The Missionary Church of Olympus (1.1.6)](https://github.com/dnl-gentile/olympus-addon#the-missionary-church-of-olympus-116).*
 

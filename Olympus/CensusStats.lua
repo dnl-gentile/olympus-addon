@@ -425,6 +425,16 @@ function CS.ServerLines(lines, s, now)
 			tt:AddLine(L.CENSUS_STATS_SERVERS_AS_OF_TIP, 1, 1, 1, true)
 		end }
 	end
+	-- (1.6.0) This server's count in them when it is the saved one (Data.ApplyGroupSnapshot: it stays while
+	-- nothing newer reaches this client), with its date too.
+	local saved = type(s) == "table" and type(s.snapshot) == "table" and tonumber(s.snapshot.observed)
+	if saved then
+		local text = L.CENSUS_STATS_HERE_AS_OF:format(date("%Y-%m-%d %H:%M", saved))
+		lines[#lines + 1] = { text = Grey(text), indent = 1, tooltip = function(tt)
+			tt:AddLine(text, 1, 0.82, 0)
+			tt:AddLine(L.CENSUS_STATS_HERE_AS_OF_TIP, 1, 1, 1, true)
+		end }
+	end
 	local function Split(title, order, totals, label, field)
 		local any = 0
 		for _, key in ipairs(order) do if totals[key] then any = any + 1 end end

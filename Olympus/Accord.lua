@@ -78,6 +78,9 @@ Accord.TAKE_GAP = 600       -- the same character and tag kept again at most thi
 Accord.KEEP = 180 * 86400   -- a kept tag, after it was last received
 Accord.ROWS_MAX = 3000
 Accord.QUIET = 10           -- the server's "No player named" for an asker we just whispered: out of chat this long
+Accord.MARKS_MAX = 64       -- (1.6.0) marks kept for one name (Accord.Tried): the oldest goes first
+Accord.REFUSED_GRACE = 2    -- (1.6.0) a whisper the game refused itself: its line, if any, this soon after the call
+Accord.LATE = 60           -- (1.6.0) a line naming one we whispered this recently, past QUIET: counted late (/oly status)
 Accord.RETELL_WINDOW = 600  -- I accept tells the askers heard this recently (an older one may have left)
 Accord.TEAM_GRACE = 2 * 86400 -- a client off the team this long drops its BattleTags (a namer's list may lapse a while)
 Accord.GUARD_FIRST, Accord.GUARD_EVERY = 300, 600
@@ -103,9 +106,19 @@ local frame
 local session = { declined = false, newSaid = false, revealUntil = 0, teamRevealUntil = 0, lastRead = -math.huge }
 local askers = {}  -- [Fold(name)] = { name, at }: team members whose ask was heard this session
 local pending = {} -- [Fold(name)] = { name }: an answer waiting for its delay (NotFound takes it away)
-local quiet = {}   -- [lower(name as the server writes it)] = until (GetTime): our whisper's not-found line
+-- [lower(name as the server writes it)] = { marks = { { untilAt (GetTime) }, ... }, oldest first;
+-- last = GetTime of our last whisper to him }: one mark for each whisper of ours the game was handed
+-- (1.6.0, Accord.Tried), the not-found line that whisper may still cause, until its own QUIET is
+-- out; his name's forms share one entry, kept LATE seconds after our last whisper (/oly status
+-- counts his lines hidden, shown within QUIET of it, and late, past it).
+local quiet = {}
+-- The line the chat windows are asking about now, its answer, and (1.6.0, a line with no lineID) who
+-- asked it: [the filter: "own" or "relay"][the chat window, or NOFRAME] = true.
+local lastLine = { key = false, hide = false, asked = { own = {}, relay = {} } }
+local NOFRAME = {}
 local watchingNotFound, filtering = false, false
-local stats = { asks = 0, heard = 0, told = 0, kept = 0, refused = 0, askNotTeam = 0, lower = 0, gone = 0, wiped = 0 }
+local stats = { asks = 0, heard = 0, told = 0, kept = 0, refused = 0, askNotTeam = 0, lower = 0, gone = 0, wiped = 0,
+	quieted = 0, passed = 0, late = 0, noLineID = 0, refusedTries = 0, refusedLines = 0 }
 
 local function Mono() return type(GetTime) == "function" and GetTime() or 0 end
 -- A sanction that follows the BattleTag (TagFollow.lua, loaded after this file): its calls, guarded.
@@ -419,7 +432,9 @@ local function NotFoundName(text)
 	local T = ns.Treasury
 	local pattern = type(T) == "table" and type(T.NotFoundPattern) == "function" and T.NotFoundPattern()
 	local who = type(pattern) == "string" and text:match(pattern)
-	return type(who) == "string" and who:lower() or nil
+	if type(who) ~= "string" then return nil end
+	who = who:gsub("^'", ""):gsub("'$", "")
+	return ((ns.splitNames and ns.Normal(who)) or who):lower()
 end
 local function NamedAs(name, who)
 	return (ns.TellName(name) or ""):lower() == who or (ns.DisplayName(name) or ""):lower() == who
@@ -448,23 +463,134 @@ local function WatchNotFound()
 	pcall(ns.RegisterEvent, "CHAT_MSG_SYSTEM", function(text) ns.SafeCall("olympus accord not found", Accord.NotFound, text) end)
 end
 
+-- His marks still running (the others dropped): the newest one taken, and returned, when there is one.
+-- (1.6.0) The newest of the whispers the game sent goes first, then the newest it refused itself: the
+-- server never answers a refused one, so a line after its call is likelier the server's answer to one
+-- it got (a client may refuse the next whispers to a name the server just said is gone, and print
+-- nothing), and a refused one's mark runs out by itself a moment later (Accord.Untried).
+local function TakeMark(q, now)
+	local marks = q.marks
+	for i = #marks, 1, -1 do
+		if marks[i].untilAt < now then table.remove(marks, i) end
+	end
+	local pick = #marks
+	if pick == 0 then return nil end
+	for i = #marks, 1, -1 do
+		if not marks[i].refused then pick = i break end
+	end
+	local mark = table.remove(marks, pick)
+	mark.taken = true
+	return mark
+end
+
 -- The same line, kept out of the chat frames QUIET seconds after our whisper to him went (the
 -- player typed nothing: a line naming a moderator out of nowhere says nothing to him). With the
 -- gamepad UI (the gate's system-filters) none is registered, and one registered before does
 -- nothing from its first line: the line shows, as the game's own would.
-function Accord.QuietLine(_, _, text)
-	if not ns.Gate.Allowed("system-filters") then return false end
+-- (1.6.0) One line for each whisper of ours (Accord.Tried, from Comm.SendNow): the server answers
+-- every whisper to a player who is not online with one line, so as many of his lines stay out as
+-- whispers of ours went to him in those seconds, and the next one shows. The player's own whisper
+-- to him still says he is gone: Join Olympus's request, sent beside our J3 to the same member
+-- (Recruit.Ask), or one typed to a High Councillor whose relay we just pinged. 1.6.0's first build
+-- hid every line naming him in those seconds. Each whisper's mark runs out QUIET after its own call,
+-- and a line takes the newest one still running: a whisper the game delivered while he was online
+-- never gets a line, and its mark goes by itself however long we go on whispering him after he left
+-- (one count per name, its deadline moved on by each whisper, kept those marks, and his own lines
+-- out of the chat, as long as we did). Each chat window that shows system lines runs the filters for
+-- the same line, and the relay's filter asks here too (Accord.QuietLineForRelay): one answer per line
+-- (lastLine). A line is told by its lineID (CHAT_MSG_SYSTEM's eleventh value), else by its text and
+-- the frame's time (GetTime is one value through a frame) and who asks: identical lines in one frame
+-- (a relay's pieces to one reporter in one pump, refused) come to each window in turn, so the same
+-- filter asking again in the same window is the next of them and takes a mark of its own; another
+-- window, or the other filter in the same one, is the same line. (Given one answer, the first's, those
+-- lines kept the marks they did not take, and the player's next own lines out of the chat with them.)
+local function Answer(asker, chatFrame, text, ...)
 	if next(quiet) == nil then return false end
 	local who = NotFoundName(text)
-	local untilAt = who and quiet[who]
-	return untilAt ~= nil and Mono() <= untilAt
+	local q = who and quiet[who]
+	if not q then return false end
+	local now = Mono()
+	local lineID = select(10, ...)
+	if Secret(lineID) or type(lineID) ~= "number" or lineID <= 0 then lineID = nil end
+	local key = lineID and ("#" .. lineID) or (text .. "\n" .. tostring(now))
+	local window = chatFrame or NOFRAME
+	if lastLine.key == key then
+		if lineID then return lastLine.hide end
+		local asked = lastLine.asked[asker]
+		if not asked[window] then
+			asked[window] = true
+			return lastLine.hide
+		end
+	end
+	if not lineID then stats.noLineID = stats.noLineID + 1 end
+	local hide = TakeMark(q, now) ~= nil
+	if hide then
+		stats.quieted = stats.quieted + 1
+	elseif now - q.last <= Accord.QUIET then
+		stats.passed = stats.passed + 1
+	elseif now - q.last <= Accord.LATE then
+		stats.late = stats.late + 1 -- (the player's own whisper, or the server answering ours past QUIET)
+	end
+	lastLine.key, lastLine.hide = key, hide
+	wipe(lastLine.asked.own); wipe(lastLine.asked.relay)
+	lastLine.asked[asker][window] = true
+	return hide
 end
+function Accord.QuietLine(chatFrame, _, text, ...)
+	if not ns.Gate.Allowed("system-filters") then return false end
+	return Answer("own", chatFrame, text, ...)
+end
+-- (1.6.0) The relay's filter (Relay.QuietLine), asking for the same line in the same window.
+function Accord.QuietLineForRelay(chatFrame, _, text, ...)
+	if not ns.Gate.Allowed("system-filters") then return false end
+	return Answer("relay", chatFrame, text, ...)
+end
+-- (1.6.0) A whisper to `name` the game is being handed now (Comm.SendNow, before its call: a refused
+-- whisper's line comes during it): one more of his lines kept out, until QUIET seconds from now.
+-- Its mark, for Accord.Untried.
+function Accord.Tried(name)
+	if type(name) ~= "string" or name == "" then return nil end
+	local tell, shown = ns.TellName(name), ns.DisplayName(name)
+	tell = type(tell) == "string" and tell ~= "" and tell:lower() or nil
+	shown = type(shown) == "string" and shown ~= "" and shown:lower() or nil
+	if not (tell or shown) then return nil end
+	Accord.Quiet(name) -- (the old entries go, and the filter is registered the first time)
+	local now = Mono()
+	local q = (tell and quiet[tell]) or (shown and quiet[shown]) or { marks = {} }
+	local marks = q.marks
+	for i = #marks, 1, -1 do
+		if marks[i].untilAt < now then table.remove(marks, i) end
+	end
+	if #marks >= Accord.MARKS_MAX then table.remove(marks, 1) end
+	local mark = { untilAt = now + Accord.QUIET }
+	marks[#marks + 1] = mark
+	q.last = now
+	if tell then quiet[tell] = q end
+	if shown then quiet[shown] = q end
+	return mark
+end
+-- (1.6.0) The call sent nothing after all. A throttle or an error (no grace): that whisper's line
+-- never comes, and its mark goes now. The game refused it itself (grace: an offline target, 12, or an
+-- old client's false): the server never got it, so a line for it comes during the call or just after
+-- (if the client prints one at all: nothing in game shows yet whether Forever does), and its mark
+-- runs out `grace` seconds from now, not QUIET: a refusal that printed nothing kept the player's own
+-- whisper's line out of the chat those ten seconds.
+-- (/oly status counts these refusals, and how many had their line during the call: what Forever does
+-- with them, for the in-game check.)
+function Accord.Untried(mark, grace)
+	if type(mark) ~= "table" then return end
+	if grace then
+		mark.refused = true
+		stats.refusedTries = stats.refusedTries + 1
+		if mark.taken then stats.refusedLines = stats.refusedLines + 1 end
+	end
+	mark.untilAt = grace and math.min(mark.untilAt, Mono() + grace) or -math.huge
+end
+-- The filter, registered the first time a whisper may need it (1.6.0: it opens no window itself;
+-- Comm.SendNow counts the whisper when the game is handed it, Accord.Tried).
 function Accord.Quiet(name)
 	local now = Mono()
-	for who, untilAt in pairs(quiet) do if untilAt < now then quiet[who] = nil end end
-	for _, shown in ipairs({ ns.TellName(name), ns.DisplayName(name) }) do
-		if type(shown) == "string" and shown ~= "" then quiet[shown:lower()] = now + Accord.QUIET end
-	end
+	for who, q in pairs(quiet) do if now - q.last > Accord.LATE then quiet[who] = nil end end
 	if filtering or not ns.Gate.Allowed("system-filters") then return end
 	-- (The global, as FarkleTable's filter: every supported client has it, and Forever's
 	-- ChatFrameUtil has no AddMessageEventFilter; that one only where the global is gone.)
@@ -489,12 +615,9 @@ function Accord.SendTag(name)
 	local msg = Wire(tag)
 	if not msg then return false end
 	local guardKey = "accord-tag:" .. ns.Fold(name)
-	Accord.Quiet(name)
+	Accord.Quiet(name) -- (the filter; 1.6.0: Comm.SendNow counts the whisper when it really goes)
 	return C.Whisper(name, msg, guardKey, false, true, function(sent)
-		if sent then
-			RecordTold(name)
-			Accord.Quiet(name) -- (from when it really left the queue)
-		end
+		if sent then RecordTold(name) end
 	end,
 		{ owner = Accord, key = guardKey, permit = function(owner, key, dist, to, payload)
 			if owner ~= Accord or key ~= guardKey or dist ~= "WHISPER" or payload ~= msg or ns.Fold(ns.FullName(ns.Normal(to))) ~= ns.Fold(name) then
@@ -1264,8 +1387,9 @@ function Accord.StatusLine()
 	local team = Accord.TeamMember() and (" | team: %d characters, %d BattleTags"):format(Accord.Count(), #Accord.Groups()) or ""
 	local T = TF()
 	local follows = T and T.StatusLine and (" | " .. T.StatusLine()) or ""
-	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d%s"):format(state,
-		why or "readable", team, stats.asks, stats.heard, stats.told, stats.kept, stats.refused, stats.askNotTeam, stats.lower, stats.gone, stats.wiped, follows)
+	return ("%s | battletag %s%s | asks %d, heard %d, told %d, kept %d, refused %d, not team %d, below %d, gone %d, wiped %d | no-player lines hidden %d, shown %d, late %d, without lineID %d; whispers refused %d, their line during the call %d%s"):format(state,
+		why or "readable", team, stats.asks, stats.heard, stats.told, stats.kept, stats.refused, stats.askNotTeam, stats.lower, stats.gone, stats.wiped,
+		stats.quieted, stats.passed, stats.late, stats.noLineID, stats.refusedTries, stats.refusedLines, follows)
 end
 function Accord.Stats() return stats end
 
@@ -1273,6 +1397,8 @@ function Accord.Stats() return stats end
 function Accord.Reset()
 	session.declined, session.newSaid, session.revealUntil, session.teamRevealUntil, session.lastRead = false, false, 0, 0, -math.huge
 	wipe(askers); wipe(pending); wipe(quiet)
+	lastLine.key, lastLine.hide = false, false
+	wipe(lastLine.asked.own); wipe(lastLine.asked.relay)
 	watchingNotFound = false -- (each test's own events; the game never resets it)
 	for k in pairs(stats) do stats[k] = 0 end
 	if frame and rawget(_G, "OlympusAccordFrame") ~= frame then frame = nil elseif frame then frame:Hide() end

@@ -39,6 +39,12 @@ local L = ns.L
 -- (Verify.VerifierHere). Elsewhere (ForeverPvP today) every guild waits, pending: no deadline, no notice to
 -- its guild master, no hold. The signed list that brings the first verifier there starts it with a fresh
 -- GRACE from the moment it arrives (Verify.ListTaken, Verify.HoldFrom).
+-- (1.6.0.1, the dev: "Bota aí mais 2 semanas") On Forever's realm groups but PvE (ForeverPvP, ForeverRP,
+-- ForeverRPPvP: Verify.OtherForeverGroup) the guilds there cannot verify properly yet, and they showed
+-- overdue. Until OTHER_GROUPS_WAIT_UNTIL (2026-11-30 00:00 UTC) every guild there waits as where nobody
+-- can verify: pending, no deadline, no notice to its guild master, no hold, nothing overdue on the
+-- verifiers' list. An approval still verifies. From then on a deadline there counts from it at the
+-- earliest (GRACE more for every guild). ForeverPvE and the beta's groups are as they were.
 --
 -- The verifiers (the King, the High Council, the author) see the pending and overdue guilds in The
 -- Watch (Guilds), are told once of each new pending guild (and of each new guild master to check),
@@ -49,13 +55,30 @@ local L = ns.L
 -- ns.VERIFY_GATE (Core.lua) is off, and ns.GuildSanctioned(guild), the one predicate a feature
 -- would ask, says yes while it is.
 --
+-- (1.6.0, a player's report of 11-15: a guild the staff excommunicated still wore its check.) What
+-- takes the check away, on each client that holds the word: a verifier's revocation (the guild stays
+-- in the Census, unmarked); the moderators' net-off of the guild (Moderation.lua: no census row, and
+-- its verification shows unmarked in The Watch and on its guild master's line; net-off revokes
+-- nothing, so the check is back once the word lapses or is lifted); a release's removal by name
+-- (ns.REMOVED_BUILTIN: no Olympus guild). An answer carries only the newest words a store holds
+-- (MAX_BYTES: that guild's approval, of 11-05, had 117 newer words by 11-13), so an old approval
+-- reached no verifier who was away when it was given, and Revoke refused there ("no verification to
+-- revoke") while the clients that heard it kept the check: a verifier now revokes a guild he knows
+-- whether or not his client holds its approval (Verify.Revoke), and an answer carries the newest
+-- revocations first (in REVOKE_BYTES of it at most), so a client back after days drops the check of a
+-- guild revoked meanwhile. Past MAX the oldest approvals go before any revocation (Verify.Prune): a
+-- client that drops one shows no check for a guild approved long ago, where a revocation dropped first
+-- left a check that no longer held.
+--
 -- How it travels (GV, Comm.lua's list), on the Olympus channel:
 --   GV~1~A~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's approval (logged)
 --   GV~1~R~<server time>~<Guild>~<Guild master Name-Realm>   a verifier's revocation (logged)
 --   GV~1~Q~<count>~<newest>~<starts>~<digest>                 any member's ask (after login, then
 --                                                             every half hour): what it holds
 --   GV~1~S~<made>~<row>;<row>;...                             a verifier's client's answer, rows
---     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first
+--     A|R,<at>,<Guild>,<master>,<by>   every word it holds, the newest first (1.6.0: the newest
+--                                      revocations before, in REVOKE_BYTES at most; none a guildmate
+--                                      handed over, the review of 1.6.0: Take)
 --     T,<at>,<Guild>,<by>              then the guilds' starts (the unverified first)
 -- A single approval with a final semicolon is an explicit Watch resend. Older clients read the
 -- same snapshot row; relays that know the marker can send it to the named guild's reporter.
@@ -63,12 +86,52 @@ local L = ns.L
 --   GV~1~N~<id>~<faction>~<Guild>~<Guild master>   private reply after a complete native roster scan
 --                                      in MAX_ROWS rows and MAX_BYTES at most (names without a realm
 --                                      are the sender's realm's)
+--   GV~1~G~<Guild>~<at>                            (1.6.0) a guild master's ask to his own guild, over
+--                                                  GUILD: the time of the word he holds on it (0: none)
 -- Each client keeps, per guild, the newest word by its time (the approver's server time, which a
 -- relay carries unchanged: an old approval relayed is as old as it was). On the same second a
 -- revocation stands over an approval. A relay is taken only from a verifier's client, which only
 -- answers an ask from a client with different contents. Kept in the realm group's saved data: approvals
--- until revoked (MAX words at most), revocations REVOKE_KEEP, starts START_KEEP and first sightings
--- SEEN_KEEP after the guild was last seen.
+-- and revocations until a newer word on the guild (MAX words at most: past it the oldest approvals go
+-- first, then the oldest revocations), starts START_KEEP and first sightings SEEN_KEEP after the guild was
+-- last seen. (The review of 1.6.0) A revocation was kept REVOKE_KEEP, 30 days: then the clients that heard
+-- it dropped it, and a guildmate that had missed it handed the approval it revoked back to its guild.
+--
+-- (1.6.0, a guild master's report: "GM verification pending" on his old PC and on a new laptop, for a
+-- guild his guildmates' Census showed verified, with him as its guild master.) A guild master who was
+-- away when his guild was approved had it only from a verifier's answer to his ask: one ask every
+-- ANSWER_GAP for the whole realm group, and only while a verifier is online. Where the relay runs
+-- (Forever) his own guild now hands it to him (the guild's hand-over, the section before the session's): a
+-- guildmate's client that holds its guild's approval from a verifier, naming the guild master it sees
+-- now, with no newer revocation, says it over GUILD as the Watch's resend says it (one row, the
+-- original time and verifier: nothing is approved anew), as hop 3 from that verifier (Relay.lua: a
+-- guildmate is believed by its guild). It answers his ask (GV~1~G, which he says with his own ask while
+-- his guild is not verified here); and a guild master whose hello names a version before
+-- GUILD_ASK_SINCE, who never asks, is handed it at his login (his hello after GUILD_LOGIN_GAP without
+-- one, heard by a guildmate listening that long) and once GUILD_SHARE_EVERY while online. Each waits a
+-- few seconds at random (AnswerWait: longer the more guildmates run 1.6.0) and is given up once another
+-- is heard (at the send too): a guild hears one every GUILD_WINDOW at most, nothing goes to other guilds.
+-- A guild master takes it as any resend (CanForwardResend: a newer revocation wins; for his own guild
+-- alone, Relay.HandleGuild).
+-- (The review of the 1.6.0 hand-over.) A guildmate that missed a revocation still holds the approval
+-- it revoked, and hands that over: a guild master or a guildmate with a fresh store took it, and the
+-- guildmate handed it on later. A 1.6.0 guildmate whose newest word on its guild is a newer revocation
+-- answers such a hand-over with that revocation over GUILD, as hop 3 from its verifier (AnswerRevoked:
+-- one row, no final semicolon, a snapshot's row that every version keeps over the older approval), and
+-- so answers a guild master's ask that names an older word. One guild's word alone (a resend, a
+-- hand-over, that answer) is no answer to a client's own ask (Verify.Handle: its login's retry stays).
+-- (The review, again.) A guild master who logs in before the guildmates who hold the approval asks
+-- his guild again when one of them comes online (Verify.GuildAskTick: the first hello this session of a
+-- guildmate on GUILD_ASK_SINCE or newer). A 1.5.9 guild master never asks: logging in together with
+-- them (a realm restart), when none has heard the guild GUILD_LOGIN_GAP yet, he is handed nothing at his
+-- login and waits for the turn (GUILD_SHARE_EVERY, about half an hour), once: his client keeps it.
+-- (The review, a trade-off kept.) A 1.5.9 client counts any snapshot it takes as the answer to its own
+-- ask, a hand-over too, and skips its login's retry: a 1.5.9 guild master handed his approval at his
+-- login, and a 1.5.9 guildmate whose login came within its retry's window (about six minutes) before a
+-- hand-over, get the rest of the store (other guilds' words and starts) at their next half-hourly ask,
+-- or sooner from a guildmate's answered ask handed to the guild. 1.5.9 cannot change, and holding the
+-- login's hand-over past his retry would show the guild master his notice again; 1.6.0 counts no one
+-- guild's word alone (Verify.Handle).
 
 local Verify = {}
 ns.Verify = Verify
@@ -76,6 +139,7 @@ ns.Verify = Verify
 Verify.PROTOCOL = 1
 Verify.GRACE = 7 * 86400         -- a guild's grace, from its start (1.5.4: 7 days, where it was 48 hours)
 Verify.RESET_AT = 1794193200     -- (1.5.4) no deadline counts from before: 2026-11-09 00:00 BRT (03:00 UTC), the release night
+Verify.OTHER_GROUPS_WAIT_UNTIL = 1795996800 -- (1.6.0.1) Forever's groups but PvE wait until 2026-11-30 00:00 UTC (see the top)
 Verify.REMIND_LEFT = 12 * 3600   -- the verifiers are reminded of a pending guild this long before its deadline
 Verify.NOTICE_AFTER = 90         -- the session's notices wait this long after login (roster and census in)
 Verify.TICK = 60                 -- the guilds seen and the notices, every minute
@@ -87,16 +151,28 @@ Verify.RELAY_ANSWER_GAP = 900    -- (1.5.4) and each relay that asked (relays fi
 Verify.ANSWER_RETRIES, Verify.ANSWER_RETRY_EVERY = 6, 5 -- (1.5.4) a relay's answer its full queue refused, tried again
 Verify.REQUEST_GAP = 300         -- a guild master's queued request, kept across reloads
 Verify.RESEND_GAP = 15           -- a verifier can resend one existing decision at a time
+Verify.RESEND_QUEUE_MAX = 60
+Verify.RESEND_RETRY = 5
+Verify.RESEND_MAX_WAIT = 30 * 60
+Verify.RESEND_SPARE = 6           -- leave room for other urgent local traffic
 Verify.POLL_GAP = 30             -- at most one roster poll per client in this interval
 Verify.POLL_WAIT = 20            -- private replies only count for this long
-Verify.REVOKE_KEEP = 30 * 86400  -- a revocation is kept (and relayed) this long
+-- (1.6.0) The guild's hand-over (see the top).
+Verify.GUILD_ASK_GAP = 240       -- a guild master asks his guild this often at most (his login ask, its retry)
+Verify.GUILD_ANSWER_MIN, Verify.GUILD_ANSWER_MAX = 2, 12 -- a guildmate's hand-over waits this long, at random,
+Verify.GUILD_ANSWER_PER_PEER, Verify.GUILD_ANSWER_SPREAD = 1, 60 -- or a second more each 1.6.0 guildmate heard, 60 at most
+Verify.GUILD_WINDOW = 300        -- one hand-over a guild in this window, heard or sent
+Verify.GUILD_LOGIN_GAP = 720     -- a guild master's hello after this long without one: his login (quiet ones: every 10-11 min)
+Verify.GUILD_SHARE_EVERY = 1800  -- an older guild master online is handed it this often at most, by a guildmate here that long
+Verify.GUILD_ASK_SINCE = "1.6.0" -- a guild master of this version or newer asks his guild himself
 Verify.START_KEEP = 90 * 86400   -- a guild's start, this long after it was last seen or heard
 Verify.SEEN_KEEP = 30 * 86400    -- a guild's own first sighting, this long after it was last seen
-Verify.MAX = 400                 -- words kept (past it: the oldest revocations, then the oldest approvals)
+Verify.MAX = 400                 -- words kept (past it: the oldest approvals, then the oldest revocations; 1.6.0)
 Verify.MAX_STARTS = 600          -- starts kept, and first sightings (past it: the longest unseen go)
 Verify.MAX_ROWS = 240            -- rows in one answer
 -- (1.5.4: room left for the relay's envelope, "RM~P~<verifier>~", around a direct answer.)
 Verify.MAX_BYTES = ns.Codec.CHUNK * ns.Codec.MAX_CHUNKS - 96
+Verify.REVOKE_BYTES = math.floor(Verify.MAX_BYTES / 2) -- (1.6.0) an answer's revocations ahead of its other words, this much of it at most
 Verify.EPOCH = 1767225600        -- 2026-01-01: no word or start is older
 Verify.AHEAD = 300               -- a time further ahead of the server's clock is not taken
 Verify.SHOWN_MAX = 5             -- guilds named in one notice line to the verifiers
@@ -110,9 +186,13 @@ function Verify.Clock()
 	return math.floor(tonumber(t) or ns.Now())
 end
 
-local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0 }
+local stats = { taken = 0, starts = 0, refused = 0, bad = 0, asked = 0, answered = 0, unsent = 0, guildAsked = 0, handed = 0,
+	revocations = 0 }
 local snapshots, startup = 0, nil
-function Verify.Stats() return stats end -- (unsent: answers refused a send, the review of the 1.5.4 candidate)
+-- (unsent: answers refused a send, the review of the 1.5.4 candidate; 1.6.0, the guild's hand-over:
+-- guildAsked, the guild master's asks to his guild; handed, the hand-overs this client sent its guild;
+-- revocations, its answers to its guild with a newer revocation, the review of the hand-over)
+function Verify.Stats() return stats end
 
 local function Key(s) return ns.Fold(tostring(s or "")) end
 local function Grey(s) return "|cff9d9d9d" .. tostring(s or "") .. "|r" end
@@ -244,6 +324,14 @@ function Verify.HoldFrom()
 	return s and tonumber(s.holdFrom) or nil
 end
 
+-- (1.6.0.1) Whether this client's realm group is one of Forever's but PvE (ForeverPvP, ForeverRP,
+-- ForeverRPPvP), by its realm's family (ns.ForeverFamily, as ns.OnForever reads it): their guilds wait
+-- until OTHER_GROUPS_WAIT_UNTIL (Verify.Status). The beta's groups and any other realm have no family.
+function Verify.OtherForeverGroup()
+	local family = type(ns.ForeverFamily) == "function" and ns.ForeverFamily(ns.realm or ns.CurrentRealm()) or nil
+	return type(family) == "string" and family:lower() ~= "foreverpve"
+end
+
 -- A guild's census row, by its name in any case.
 local function Row(guild)
 	local guilds = ns.rdb and ns.rdb.guilds
@@ -267,6 +355,14 @@ function Verify.GuildMaster(guild)
 	local leader = type(g) == "table" and g.leader or nil
 	if type(leader) ~= "string" or leader == "" or leader == "?" then return nil end
 	return ns.FullName(leader, g.realm or ns.realm)
+end
+
+-- (1.6.0) A guild the moderators took off the network (Moderation.lua, Data.NetOff) wears no check,
+-- whatever its verification (Verify.Mark, The Watch, its guild master's line). Its verification is
+-- untouched: the check is back where its approval stands once the word lapses or is lifted.
+local function OffNetwork(guild)
+	local D = ns.Data
+	return type(guild) == "string" and type(D) == "table" and type(D.NetOff) == "function" and D.NetOff(guild) == true
 end
 
 ---------------------------------------------------------------------------
@@ -315,14 +411,18 @@ function Verify.Status(guild, now)
 	if since > now then since = now end
 	info.since, info.shared = since, shared
 	-- (1.5.5) Nobody here who can verify (Verify.VerifierHere): no deadline runs, the guild waits.
-	if not Verify.VerifierHere(now) then
+	-- (1.6.0.1) Nor on Forever's groups but PvE before OTHER_GROUPS_WAIT_UNTIL.
+	local other = Verify.OtherForeverGroup()
+	if other and now < Verify.OTHER_GROUPS_WAIT_UNTIL then info.paused = true end
+	if info.paused or not Verify.VerifierHere(now) then
 		info.waiting, info.deadline, info.left = true, now + Verify.GRACE, Verify.GRACE
 		return "pending", info
 	end
 	-- (1.5.4) The deadline alone counts from RESET_AT at the earliest (see the top): since stays the
 	-- guild's start, as it is kept and relayed. (1.5.5) And from the first verifier's arrival here, when
-	-- one came after the rest (Verify.HoldFrom).
-	info.deadline = math.max(since, Verify.RESET_AT, Verify.HoldFrom() or Verify.RESET_AT) + Verify.GRACE
+	-- one came after the rest (Verify.HoldFrom). (1.6.0.1) And there from the end of their wait.
+	info.deadline = math.max(since, Verify.RESET_AT, Verify.HoldFrom() or Verify.RESET_AT,
+		other and Verify.OTHER_GROUPS_WAIT_UNTIL or Verify.RESET_AT) + Verify.GRACE
 	info.left = info.deadline - now
 	if info.left > 0 then return "pending", info end
 	return "overdue", info
@@ -337,7 +437,8 @@ end
 
 -- Whether an overdue guild's master's own powers wait (ns.VERIFY_HOLD, Core.lua): Data.AuthorizedRank,
 -- GuildCharter, Nominees, Decree and Bank ask it. Never the King's guild, nor (1.5.5) where nobody can
--- verify (Verify.Status: no guild is overdue there). Asked often: kept a second.
+-- verify, nor (1.6.0.1) on Forever's groups but PvE before their wait ends (Verify.Status: no guild is
+-- overdue there). Asked often: kept a second.
 function ns.MasterHeld(guild)
 	if ns.VERIFY_HOLD ~= true or type(guild) ~= "string" or guild == "" then return false end
 	local now = Verify.Clock()
@@ -398,15 +499,19 @@ function Verify.Prune(now)
 	if not s then return end
 	local kept = {}
 	for key, e in pairs(s.list) do
-		if not Valid(e) or (e.k == "R" and now - e.at > Verify.REVOKE_KEEP) then
+		if not Valid(e) then
 			s.list[key] = nil
 		else
 			kept[#kept + 1] = { key = key, e = e }
 		end
 	end
+	-- (1.6.0, the review of the 1.6.0 fixes: a store at MAX words) Past MAX the oldest approvals go first,
+	-- then the oldest revocations. The revocations went first: once a store held MAX words (132 by 11-13,
+	-- some 13 more a day), the next approval's tick dropped a revocation however recent, and the relay
+	-- passed it to no client back after it, which kept the check of the guild it revoked.
 	if #kept > Verify.MAX then
 		table.sort(kept, function(a, b)
-			if (a.e.k == "R") ~= (b.e.k == "R") then return a.e.k == "R" end
+			if (a.e.k == "R") ~= (b.e.k == "R") then return a.e.k ~= "R" end
 			if a.e.at ~= b.e.at then return a.e.at < b.e.at end
 			return a.key < b.key
 		end)
@@ -439,8 +544,24 @@ end
 -- The words and the starts
 ---------------------------------------------------------------------------
 
--- Keeps a word when it is newer than the guild's (see the top). True when kept.
-local function Take(kind, at, guild, gm, by, now)
+-- (The review of 1.6.0) Whether the hop delivering a word now vouches for the origin it names: never a
+-- guildmate's hand-over (G: a guild believes its guildmate, from the origin he writes, Relay.HandleGuild),
+-- nor a hop the relay does not trust (Relay.HopTrusted: a provisional relay's, an unsigned relay's);
+-- first-hand, a signed relay's hops and across them, and none (a direct call, off Forever) do. Any member
+-- of a verifier's guild wrote one GUILD line naming another verifier as its origin, and the verifier's
+-- answers carried that word to every client that asked (a guild's check taken away, or given unapproved).
+local function Vouched()
+	local R = ns.Relay
+	if type(R) ~= "table" or type(R.Hop) ~= "function" then return true end
+	if R.Hop() == "G" then return false end
+	return type(R.HopTrusted) ~= "function" or R.HopTrusted() ~= false
+end
+
+-- Keeps a word when it is newer than the guild's (see the top). True when kept. (The review of 1.6.0)
+-- `vouched` false: a word taken on a hop that does not vouch for its origin (Vouched), marked so (vouch =
+-- false): it stands here as any word does, and no answer carries it (Payload) nor resends it; the same
+-- word on a hop that does lifts the mark.
+local function Take(kind, at, guild, gm, by, now, vouched)
 	local s = Store()
 	if not s then return false, "store" end
 	local key = Key(guild)
@@ -448,7 +569,10 @@ local function Take(kind, at, guild, gm, by, now)
 	if Valid(old) then
 		if at < old.at then return false, "older" end
 		if at == old.at then
-			if old.k == kind and SamePerson(old.gm, gm) then return false, "same" end
+			if old.k == kind and SamePerson(old.gm, gm) then
+				if vouched ~= false and old.vouch == false and SamePerson(old.by, by) then old.vouch = nil end
+				return false, "same"
+			end
 			-- One second, two words: every client keeps the same one. A revocation stands over an
 			-- approval; between two of a kind, the guild master's name first in order.
 			if old.k == "R" and kind == "A" then return false, "older" end
@@ -456,6 +580,7 @@ local function Take(kind, at, guild, gm, by, now)
 		end
 	end
 	s.list[key] = { k = kind, at = at, guild = guild, gm = gm, by = by, heard = now }
+	if vouched == false then s.list[key].vouch = false end
 	stats.taken = stats.taken + 1
 	return true
 end
@@ -529,12 +654,20 @@ end
 -- A verifier's client's answer: every word it holds, the newest first, then the starts (the
 -- unverified guilds' first, the oldest first), bounded. And how many rows; with coverage supplied,
 -- whether that received snapshot contains every row this answer would actually send.
+-- (1.6.0) The revocations before the approvals: an answer holds some 80 rows of Forever's names, and
+-- a realm group's store held 132 words by 11-13 (the oldest 50 in no answer since 11-07), so a
+-- revocation a few days old fell behind the newer approvals, and a client back after those days kept
+-- the check of the guild it revoked. Revocations are few, and a missed approval costs a
+-- check where a missed revocation leaves a wrong one. (The review of the 1.6.0 fixes: a purge.) The
+-- newest of them in REVOKE_BYTES (half the answer) at most, then every other word, the newest first:
+-- with every revocation first, a purge of some 50 guilds or more filled the answer,
+-- and no approval given since reached a client back after it.
 function Verify.Payload(now, coverage)
 	now = now or Verify.Clock()
 	local s = Store()
 	local words, starts = {}, {}
 	for _, e in pairs(s and s.list or {}) do
-		if Valid(e) then words[#words + 1] = e end
+		if Valid(e) and e.vouch ~= false then words[#words + 1] = e end -- (the review of 1.6.0: Take)
 	end
 	table.sort(words, function(a, b)
 		if a.at ~= b.at then return a.at > b.at end
@@ -560,9 +693,20 @@ function Verify.Payload(now, coverage)
 		if coverage and not coverage[key] then covered = false end
 		return true
 	end
-	for _, e in ipairs(words) do
-		if not Add(("%s,%d,%s,%s,%s"):format(e.k, e.at, e.guild, Relative(e.gm), Relative(e.by)),
-			coverage and CoverageKey(e.k, e.at, e.guild, e.gm, e.by)) then break end
+	local function Word(e) -- its row, and its coverage key
+		return ("%s,%d,%s,%s,%s"):format(e.k, e.at, e.guild, Relative(e.gm), Relative(e.by)),
+			coverage and CoverageKey(e.k, e.at, e.guild, e.gm, e.by)
+	end
+	local ahead = {}
+	for i, e in ipairs(words) do
+		if e.k == "R" then
+			local row, key = Word(e)
+			if bytes + #row + (#out > 0 and 1 or 0) > Verify.REVOKE_BYTES or not Add(row, key) then break end
+			ahead[i] = true
+		end
+	end
+	for i, e in ipairs(words) do
+		if not ahead[i] and not Add(Word(e)) then break end
 	end
 	for _, x in ipairs(starts) do
 		if not Add(("T,%d,%s,%s"):format(x.e.at, x.e.guild, Relative(type(x.e.by) == "string" and x.e.by or ns.FullName(ns.me))),
@@ -680,6 +824,7 @@ end
 
 function Verify.Ask()
 	if not ns.IsMember() or Quiet() then return false end
+	Verify.GuildAsk() -- (1.6.0: a guild master whose guild is not verified here asks his own guild too)
 	local n, newest, sum, fingerprint = Verify.Digest()
 	stats.asked = stats.asked + 1
 	local body = ("GV~%d~Q~%d~%d~%d"):format(Verify.PROTOCOL, n, newest, sum)
@@ -687,8 +832,28 @@ function Verify.Ask()
 	return ns.Comm.Send("CHANNEL", body, "verify-ask")
 end
 
+-- (1.6.0) The guild's hand-over (its section, before the session's): our guild (folded) -> when a resend of
+-- its approval was last heard or sent here, and that mark for a resend heard (any hop: a guildmate's
+-- hand-over, or the Watch's resend a reporter handed on). Only our own guild's counts.
+local handedAt = {}
+local function HeardHandOver(guild, now)
+	local mine = IsInGuild() and GetGuildInfo("player")
+	if type(guild) ~= "string" or type(mine) ~= "string" or Key(mine) ~= Key(guild) then return end
+	handedAt[Key(guild)] = now or Verify.Clock()
+end
+-- (The review of the hand-over.) Our guild (folded) -> { at, t }: the revocation a guildmate's answer
+-- (AnswerRevoked, below) last carried, heard or sent here, and when. Our own answer waiting is given up.
+local revokeHeard = {}
+local function HeardRevocation(guild, at, now)
+	local mine = IsInGuild() and GetGuildInfo("player")
+	if type(guild) ~= "string" or type(mine) ~= "string" or Key(mine) ~= Key(guild) then return end
+	revokeHeard[Key(guild)] = { at = at, t = now or Verify.Clock() }
+end
+local StaleHandOver -- (the guild's hand-over, below: a resend heard older than our revocation)
+
 function Verify.Handle(dist, sender, text)
 	if dist == "WHISPER" then return Verify.HandleGuildPoll(sender, text) end
+	if dist == "GUILD" then return Verify.HandleGuildAsk(sender, text) end -- (1.6.0)
 	if dist ~= "CHANNEL" or type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return false end
 	local ver, kind, body = text:match("^GV~(%d+)~(%u)~(.*)$")
 	if tonumber(ver) ~= Verify.PROTOCOL then return false end
@@ -700,6 +865,7 @@ function Verify.Handle(dist, sender, text)
 		stats.refused = stats.refused + 1
 		return false
 	end
+	local vouched = Vouched() -- (the review of 1.6.0: Take)
 	if kind == "A" or kind == "R" then
 		local at, guild, gm = body:match("^(%d+)~([^~]+)~([^~]+)$")
 		at, guild, gm = TimeField(at), GuildField(guild), NameField(gm, ns.RealmOf(sender))
@@ -707,15 +873,21 @@ function Verify.Handle(dist, sender, text)
 			stats.bad = stats.bad + 1
 			return false
 		end
-		if not Take(kind, at, guild, gm, sender, now) then return false end
+		if not Take(kind, at, guild, gm, sender, now, vouched) then return false end
 		Changed()
 		TellOurs(kind, guild, sender)
 		return true
 	end
 	if kind == "S" then
 		local relay = ns.Relay
-		if relay and relay.ApprovalResendGuild and relay.ApprovalResendGuild(text)
-			and not Verify.CanForwardResend(text, sender) then return false end
+		local resend = relay and relay.ApprovalResendGuild and relay.ApprovalResendGuild(text)
+		-- (1.6.0) A resend of our own guild's approval heard: our hand-over waiting is given up, and
+		-- none goes for GUILD_WINDOW (HandOver), whether this client takes it or not.
+		if resend then HeardHandOver(resend, now) end
+		if resend and not Verify.CanForwardResend(text, sender) then
+			StaleHandOver(resend, text) -- (the review of the hand-over: older than our revocation, answered)
+			return false
+		end
 		local made, rows = body:match("^(%d+)~(.*)$")
 		if not TimeField(made) then
 			stats.bad = stats.bad + 1
@@ -723,6 +895,7 @@ function Verify.Handle(dist, sender, text)
 		end
 		local realm = ns.RealmOf(sender)
 		local count, changed, bad = 0, false, false
+		local words, wordKind, wordAt, wordGuild = 0, nil, nil, nil -- (the words' rows, and the last one's)
 		-- (only while answering on the channel; at most MAX_ROWS received entries)
 		local coverage = pending and not Direct() and {}
 		for row in rows:gmatch("[^;]+") do
@@ -732,8 +905,9 @@ function Verify.Handle(dist, sender, text)
 			if k then
 				at, guild, gm, by = TimeField(at), GuildField(guild), NameField(gm, realm), NameField(by, realm)
 				if at and guild and gm and by then
-					if Take(k, at, guild, gm, by, now) then changed = true end
+					if Take(k, at, guild, gm, by, now, vouched) then changed = true end
 					if coverage then coverage[CoverageKey(k, at, guild, gm, by)] = true end
+					words, wordKind, wordAt, wordGuild = words + 1, k, at, guild
 				else
 					bad = true
 				end
@@ -749,7 +923,13 @@ function Verify.Handle(dist, sender, text)
 			end
 		end
 		if pending and not bad then pending.coverage = coverage end
-		if count > 0 and not bad then snapshots = snapshots + 1 end
+		-- (1.6.0) One guild's resend (the Watch's, or a guild's hand-over at its guild master's login) is
+		-- no answer to our ask: the login's retry (Verify.Login) still asks for the whole store. (The review
+		-- of the hand-over) Nor is one guild's word alone, a guildmate's answer with a newer revocation
+		-- (AnswerRevoked) among them; that answer heard gives up ours.
+		local lone = count == 1 and words == 1
+		if lone and wordKind == "R" and not bad then HeardRevocation(wordGuild, wordAt, now) end
+		if count > 0 and not bad and not lone then snapshots = snapshots + 1 end
 		if changed then Changed() end
 		if bad then stats.bad = stats.bad + 1 end
 		return not bad
@@ -764,6 +944,8 @@ ns.Comm.Handle("GV", function(...) return Verify.Handle(...) end)
 
 -- The guild named by a verifier as this client spells it (the census's, a word's, our own), with
 -- what follows the name (a guild master's name, or ""); the longest known name the input starts with.
+-- (The review of 1.6.0) A start's too: The Watch lists a guild known by its start alone (Verify.Pending),
+-- and /oly verify revoke there called it unknown.
 function Verify.FindGuild(input)
 	input = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if input == "" then return nil end
@@ -778,6 +960,7 @@ function Verify.FindGuild(input)
 	for name in pairs(ns.rdb.guilds or {}) do Try(name) end
 	local s = Store()
 	for _, e in pairs(s and s.list or {}) do if Valid(e) then Try(e.guild) end end
+	for _, e in pairs(s and s.start or {}) do if ValidStart(e) then Try(e.guild) end end
 	if IsInGuild() then Try((GetGuildInfo("player"))) end
 	return best, rest
 end
@@ -833,12 +1016,41 @@ function Verify.Approve(guild, gm)
 	return true, gm
 end
 
-function Verify.Revoke(guild)
+-- Revokes a guild's verification. (1.6.0) Whether or not this client holds its approval: one an
+-- answer never brought here (it carries the newest words alone) still stands on the clients that
+-- heard it, and Revoke refused it ("none") while they kept the check. With no approval here, the
+-- guild as this client knows it (FindGuild), naming the guild master given, else the census's; a
+-- revocation held already is given again, newer, as Approve gives an approval again. A revocation
+-- stands over any approval of the guild, whoever its guild master (Verify.Status). Never the King's
+-- guild, which needs none (Verify.Exempt). (The review of the 1.6.0 fixes.) A guild master given must be
+-- the one known here for the guild, its word's or the census's: RevokeInput takes the longest known guild
+-- name the input starts with and the rest for that name, so "<Guild> II", a guild unknown here, revoked
+-- <Guild> with "II" for its guild master (1.5.9 too, where this client held <Guild>'s approval). ok, or
+-- false and why not (and with "other master", the guild master known).
+function Verify.Revoke(guild, gm)
 	if not Verify.Trusted(ns.me) or not ns.IsMember() then return false, "trust" end
 	local s = Store()
 	local e = s and type(guild) == "string" and s.list[Key(guild)]
-	if not (Valid(e) and e.k == "A") then return false, "none" end
-	return Say("R", e.guild, e.gm)
+	local held = Valid(e)
+	if not held then
+		local known = type(guild) == "string" and Verify.FindGuild(guild)
+		if not known or Key(known) ~= Key(guild) then return false, "unknown" end
+		e = { guild = known }
+	end
+	local given = type(gm) == "string" and gm ~= ""
+	local typed = given and NameField(gm) or nil
+	if given then
+		local census = Verify.GuildMaster(e.guild)
+		local master = e.gm or census
+		if master and not (typed and (SamePerson(typed, e.gm) or SamePerson(typed, census))) then
+			return false, "other master", master
+		end
+	end
+	if held and e.k == "A" then return Say("R", e.guild, e.gm) end
+	if Verify.Exempt(e.guild) then return false, "none" end
+	gm = e.gm or typed or Verify.GuildMaster(e.guild)
+	if not gm then return false, "revoke master" end
+	return Say("R", e.guild, gm)
 end
 
 -- Called by the relay before it shares a Watch resend. Its retained revocation or newer approval
@@ -856,33 +1068,96 @@ function Verify.CanForwardResend(body, origin)
 	return not old or old.at < at or (status == "verified" and old.at == at and SamePerson(old.gm, gm) and SamePerson(old.by, by))
 end
 
-local resendPending, lastResend
+local resendQueue, resendTimer, resendPending, lastResend, lastResendKey = {}, false, nil, nil, nil
+local PumpResends
+local function ResendLater(delay)
+	if resendTimer then return end
+	resendTimer = true
+	ns.After(delay, "verify resend", function()
+		resendTimer = false
+		PumpResends()
+	end)
+end
+
+local function ResendPayload(entry, now)
+	return ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at,
+		entry.guild, Relative(entry.gm), Relative(entry.by))
+end
+
+local function ResendCurrent(item)
+	if not Verify.CouncilShown() or Quiet() or ns.rdb ~= item.store or ns.group ~= item.group or ns.faction ~= item.faction then
+		return false
+	end
+	local status, info = Verify.Status(item.guild)
+	return status == "verified" and info.entry == item.entry
+end
+
+local function SendResend(item, body, now)
+	resendPending = item
+	lastResend, lastResendKey = now, item.key
+	local function Current() return ResendCurrent(item) and Verify.CanForwardResend(body, ns.me) end
+	local function Done(sent)
+		resendPending = nil
+		if sent then lastResend = Verify.Clock() end
+		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(item.guild))
+		if resendQueue[1] then ResendLater(Verify.RESEND_GAP) end
+	end
+	ns.Comm.Send("CHANNEL", body, "verify resend#" .. item.key, true, false, Done, { owner = Verify, guard = Current })
+end
+
+PumpResends = function()
+	if resendPending or resendTimer then return end
+	while resendQueue[1] do
+		local item, now = resendQueue[1], Verify.Clock()
+		if now - item.at >= Verify.RESEND_MAX_WAIT or not ResendCurrent(item) then
+			table.remove(resendQueue, 1)
+			ns.Print(L.VERIFY_RESEND_FAILED:format(item.guild))
+		else
+			local remaining = lastResend and lastResend + Verify.RESEND_GAP - now or 0
+			if remaining > 0 then return ResendLater(remaining) end
+			local body, C, R = ResendPayload(item.entry, now), ns.Comm, ns.Relay
+			local cost = R and R.ApprovalResendCost and R.ApprovalResendCost(body) or 1
+			if C.MAX_QUEUE and cost > C.MAX_QUEUE then
+				table.remove(resendQueue, 1)
+				ns.Print(L.VERIFY_RESEND_FAILED:format(item.guild))
+			else
+				-- Wait for the entire fan-out without evicting scheduled census work.
+				local room = math.min(C.MAX_QUEUE or math.huge, cost + Verify.RESEND_SPARE)
+				if C.QueueRoom and C.QueueRoom() < room then return ResendLater(Verify.RESEND_RETRY) end
+				table.remove(resendQueue, 1)
+				return SendResend(item, body, now)
+			end
+		end
+	end
+end
+
 function Verify.ResendApproval(guild, expected)
 	if not Verify.CouncilShown() or Quiet() then return false, "trust" end
 	local status, info = Verify.Status(guild)
 	local entry = status == "verified" and info.entry
-	if not entry or (expected and expected ~= entry) then return false, "none" end
-	local now = Verify.Clock()
-	if resendPending or (lastResend and now - lastResend < Verify.RESEND_GAP) then return false, "busy" end
-	local body = ("GV~%d~S~%d~A,%d,%s,%s,%s;"):format(Verify.PROTOCOL, now, entry.at, entry.guild, Relative(entry.gm), Relative(entry.by))
-	if not Verify.CanForwardResend(body, ns.me) then return false, "none" end
-	local store, group, faction = ns.rdb, ns.group, ns.faction
-	local function StillCurrent()
-		if not Verify.CouncilShown() or Quiet() or ns.rdb ~= store or ns.group ~= group or ns.faction ~= faction then return false end
-		local current, details = Verify.Status(guild)
-		return current == "verified" and details.entry == entry and Verify.CanForwardResend(body, ns.me)
+	-- (The review of 1.6.0) Never one a guildmate handed over (Take: vouch false): only what a verifier said.
+	if not entry or entry.vouch == false or (expected and expected ~= entry) then return false, "none" end
+	local now, key = Verify.Clock(), Key(guild)
+	if (resendPending and resendPending.key == key) or (lastResendKey == key and now - lastResend < Verify.RESEND_GAP) then
+		return false, "busy"
 	end
-	resendPending = true
-	return ns.Comm.Send("CHANNEL", body, "verify resend#" .. Key(guild), true, false, function(sent)
-		resendPending = false
-		if sent then lastResend = Verify.Clock() end
-		ns.Print((sent and L.VERIFY_RESEND_SENT or L.VERIFY_RESEND_FAILED):format(guild))
-	end, { owner = Verify, guard = StillCurrent }) == true
+	for _, item in ipairs(resendQueue) do if item.key == key then return false, "busy" end end
+	if #resendQueue >= Verify.RESEND_QUEUE_MAX then return false, "busy" end
+	if not Verify.CanForwardResend(ResendPayload(entry, now), ns.me) then return false, "none" end
+	resendQueue[#resendQueue + 1] = { guild = guild, key = key, entry = entry, at = now,
+		store = ns.rdb, group = ns.group, faction = ns.faction }
+	PumpResends()
+	return true
 end
 
-local function SayWhy(why, guild)
+local function SayWhy(why, guild, master, typed)
 	if why == "trust" then return ns.Print(L.VERIFY_ONLY) end
 	if why == "master" then return ns.Print(L.VERIFY_NO_MASTER:format(guild)) end
+	if why == "revoke master" then return ns.Print(L.VERIFY_REVOKE_NO_MASTER:format(guild)) end -- (1.6.0)
+	if why == "other master" then return ns.Print(L.VERIFY_REVOKE_OTHER_MASTER:format(guild, Shown(master), tostring(typed or ""))) end -- (1.6.0)
+	-- (1.6.0, the review of the 1.6.0 fixes) A guild this client no longer knows (a week off the network
+	-- leaves no census row): Revoke's alone, which a verifier's client holding its approval can give.
+	if why == "unknown" then return ns.Print(L.VERIFY_REVOKE_UNKNOWN) end
 	if why == "none" then return ns.Print(L.VERIFY_NOTHING:format(guild)) end
 	if why == "older" then return ns.Print(L.VERIFY_REFUSED:format(guild)) end
 	return ns.Print(L.VERIFY_BAD_GUILD)
@@ -894,6 +1169,11 @@ function Verify.ResendClick(data)
 	if why == "busy" then return ns.Print(L.VERIFY_RESEND_BUSY) end
 	if why == "none" then return ns.Print(L.VERIFY_RESEND_FAILED:format(data.guild)) end
 	if not ok and why then return SayWhy(why, data.guild) end
+	if ok then
+		for _, item in ipairs(resendQueue) do
+			if item.key == Key(data.guild) then ns.Print(L.VERIFY_RESEND_QUEUED:format(data.guild)); break end
+		end
+	end
 	return ok
 end
 
@@ -1029,11 +1309,16 @@ function Verify.ApproveInput(input)
 	return true
 end
 
+-- /oly verify revoke <Guild> [Guild master] | <code> (1.6.0: the guild master's name, or his code as
+-- approve takes it, only where this client holds no approval of the guild and the census names none;
+-- a name that is not the guild master known here sends nothing, Verify.Revoke).
 function Verify.RevokeInput(input)
 	if not Verify.Trusted(ns.me) then return ns.Print(L.VERIFY_ONLY) end
-	local guild = Verify.FindGuild(input) or tostring(input or "")
-	local ok, why = Verify.Revoke(guild)
-	if not ok then return SayWhy(why, guild) end
+	local guild, gm = Verify.FindGuild(input)
+	if not guild then guild, gm = Verify.FromCode(input) end
+	if not guild then guild, gm = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", ""), nil end
+	local ok, why, master = Verify.Revoke(guild, gm)
+	if not ok then return SayWhy(why, guild, master, gm) end
 	ns.Print(L.VERIFY_REVOKED:format(guild))
 	return true
 end
@@ -1051,14 +1336,17 @@ end
 
 -- Member-facing notices are paused, including overdue guilds. The master still has the original
 -- deadline and reminder. Approval state and the verifiers' follow-up are independent of notices.
-function Verify.Mine(now)
+local function MasterStatus(now)
 	if not ns.IsMember() then return nil end
 	local guild, _, rank = GetGuildInfo("player")
+	if rank ~= 0 then return nil end
 	local status, info = Verify.Status(guild, now)
-	if status == nil or status == "verified" or status == "exempt" then return nil end
-	if info.waiting then return nil end -- (1.5.5: nobody here could verify him yet)
-	local master = rank == 0
-	if not master then return nil end
+	if status then return guild, status, info end
+end
+
+function Verify.Mine(now)
+	local guild, status, info = MasterStatus(now)
+	if not guild or status == "verified" or status == "exempt" or info.waiting then return nil end
 	return "master", guild, status, info
 end
 
@@ -1153,52 +1441,64 @@ function Verify.AskCouncil(guild)
 	return true
 end
 
+local function StatusText(guild, status, info)
+	if not status then return L.VERIFY_STATUS_NONE end
+	if status == "exempt" then return L.VERIFY_STATUS_EXEMPT:format(guild) end
+	if status == "verified" then
+		local e = info.entry
+		return L.VERIFY_STATUS_VERIFIED:format(guild, Shown(e.gm), Shown(e.by), date("%Y-%m-%d", e.at))
+	end
+	if info.paused then
+		return L.VERIFY_STATUS_PAUSED:format(guild, date("!%Y-%m-%d", Verify.OTHER_GROUPS_WAIT_UNTIL))
+	end
+	if info.waiting then return L.VERIFY_STATUS_WAITING:format(guild) end
+	if status == "pending" then return L.VERIFY_STATUS_GRACE:format(guild, Verify.Duration(info.left)) end
+	return L.VERIFY_STATUS_LATE:format(guild)
+end
+
 -- The notice, in a window it can be copied from; auto: opened by itself (no keyboard taken).
 function Verify.ShowNotice(auto)
-	local who, guild, status, info = Verify.Mine()
+	local guild, status, info = MasterStatus()
 	local UI = ns.UI
-	if not who or not (type(UI) == "table" and type(UI.ShowCopy) == "function") then return false end
-	local action, second
-	if who == "master" then
-		-- (Neither button greys out: the window stays to try again.)
-		action = { label = L.VERIFY_WHISPER_BTN, fn = function() Verify.WhisperVerifier(guild) end }
-		second = { label = L.VERIFY_ASK_BTN, fn = function() Verify.AskCouncil(guild) end }
+	if not guild or not (type(UI) == "table" and type(UI.ShowCopy) == "function") then return false end
+	if status == "verified" or status == "exempt" or info.waiting then
+		if auto then return false end
+		UI.ShowCopy(L.VERIFY_TITLE, StatusText(guild, status, info), nil, { key = "verify" })
+		return true
 	end
-	UI.ShowCopy(L.VERIFY_TITLE, Verify.NoticeText(who, guild, status, info), action, { key = "verify", auto = auto and true or nil, second = second })
+	-- Neither button greys out: the window stays to try again.
+	local action = { label = L.VERIFY_WHISPER_BTN, fn = function() Verify.WhisperVerifier(guild) end }
+	local second = { label = L.VERIFY_ASK_BTN, fn = function() Verify.AskCouncil(guild) end }
+	UI.ShowCopy(L.VERIFY_TITLE, Verify.NoticeText("master", guild, status, info), action, { key = "verify", auto = auto and true or nil, second = second })
 	return true
 end
 
--- On top of the Census (Views.lua) while our guild asks something of this player: a click opens
--- the notice (with the gamepad UI too, where nothing is typed).
+-- The guild master can inspect the decision at the same place as the original request.
 function Verify.Lines(now)
-	local who, guild, status, info = Verify.Mine(now)
-	if not who then return {} end
-	local text
-	if who == "master" then
-		text = status == "pending" and L.VERIFY_LINE_MASTER_GRACE:format(Verify.Duration(info.left)) or L.VERIFY_LINE_MASTER_LATE
+	local guild, status, info = MasterStatus(now)
+	if not guild or status == "exempt" then return {} end
+	local text, tip
+	if status == "verified" then
+		text, tip = (OffNetwork(guild) and "" or Verify.MARK_OK) .. L.VERIFY_LINE_VERIFIED, StatusText(guild, status, info)
+	elseif info.waiting then
+		text, tip = Grey(L.VERIFY_LINE_WAITING), StatusText(guild, status, info)
+	elseif status == "pending" then
+		text, tip = Gold(L.VERIFY_LINE_MASTER_GRACE:format(Verify.Duration(info.left))), L.VERIFY_LINE_TIP
 	else
-		text = L.VERIFY_LINE_MEMBER:format(guild)
+		text, tip = Red(L.VERIFY_LINE_MASTER_LATE), L.VERIFY_LINE_TIP
 	end
-	return { { id = "verify-notice", text = status == "pending" and Gold(text) or Red(text), gapAfter = true,
+	return { { id = "verify-notice", text = text, gapAfter = true,
 		onClick = function() Verify.ShowNotice() end,
 		tooltip = function(tt)
 			tt:AddLine(L.VERIFY_TITLE, 1, 0.82, 0)
-			tt:AddLine(L.VERIFY_LINE_TIP, 1, 1, 1, true)
+			tt:AddLine(tip, 1, 1, 1, true)
 		end } }
 end
 
 function Verify.PrintStatus()
 	local guild = IsInGuild() and GetGuildInfo("player")
 	local status, info = Verify.Status(guild)
-	if not status then return ns.Print(L.VERIFY_STATUS_NONE) end
-	if status == "exempt" then return ns.Print(L.VERIFY_STATUS_EXEMPT:format(guild)) end
-	if status == "verified" then
-		local e = info.entry
-		return ns.Print(L.VERIFY_STATUS_VERIFIED:format(guild, Shown(e.gm), Shown(e.by), date("%Y-%m-%d", e.at)))
-	end
-	if info.waiting then return ns.Print(L.VERIFY_STATUS_WAITING:format(guild)) end -- (1.5.5)
-	if status == "pending" then return ns.Print(L.VERIFY_STATUS_GRACE:format(guild, Verify.Duration(info.left))) end
-	return ns.Print(L.VERIFY_STATUS_LATE:format(guild))
+	return ns.Print(StatusText(guild, status, info))
 end
 
 ---------------------------------------------------------------------------
@@ -1268,6 +1568,7 @@ function Verify.Pending(now)
 end
 
 local function StateText(r)
+	if r.info.paused then return L.VERIFY_COUNCIL_PAUSED end
 	if r.status == "overdue" then return r.info.lapsed and L.VERIFY_COUNCIL_LAPSED_LATE or L.VERIFY_COUNCIL_LATE end
 	if r.info.lapsed then return L.VERIFY_COUNCIL_LAPSED:format(Verify.Duration(r.info.left)) end
 	return L.VERIFY_COUNCIL_GRACE:format(Verify.Duration(r.info.left))
@@ -1431,6 +1732,7 @@ function Verify.CouncilLines(now)
 				tt:AddLine(L.VERIFY_COUNCIL_SEEN:format(Verify.Duration(now - r.info.since)), 0.7, 0.7, 0.7)
 				if r.info.gm then tt:AddLine(L.VERIFY_COUNCIL_CODE:format(Verify.Code(r.guild, r.info.gm) or "?"), 0.7, 0.7, 0.7) end
 				tt:AddLine(StateText(r), late and 1 or 0.7, late and 0.4 or 0.7, late and 0.4 or 0.7, true)
+				if OffNetwork(r.guild) then tt:AddLine(L.NETOFF_GUILD_OFF, 1, 0.4, 0.4, true) end -- (1.6.0)
 				tt:AddLine(L.VERIFY_COUNCIL_CLICK, 0.25, 1, 0.25, true)
 			end,
 			onClick = function() SelectGuild(r.guild) end,
@@ -1441,12 +1743,15 @@ function Verify.CouncilLines(now)
 	lines[#lines + 1] = { header = true, text = L.VERIFY_COUNCIL_VERIFIED, right = Grey(#verified) }
 	for _, r in ipairs(verified) do
 		local e = r.info.entry
+		-- (1.6.0) Off the network: listed (a verifier may revoke it here), without the check.
+		local off = OffNetwork(r.guild)
 		lines[#lines + 1] = {
-			indent = 1, text = Verify.MARK_OK .. "<" .. r.guild .. ">  " .. Shown(e.gm),
+			indent = 1, text = (off and "" or Verify.MARK_OK) .. "<" .. r.guild .. ">  " .. Shown(e.gm),
 			right = Grey(L.VERIFY_COUNCIL_BY:format(By(e.by), date("%Y-%m-%d", e.at))),
 			tooltip = function(tt)
 				tt:AddLine("<" .. r.guild .. ">", 1, 0.82, 0)
 				tt:AddLine(L.VERIFY_COUNCIL_MASTER:format(Shown(e.gm)), 1, 1, 1)
+				if off then tt:AddLine(L.NETOFF_GUILD_OFF, 1, 0.4, 0.4, true) end
 				tt:AddLine(L.VERIFY_COUNCIL_REVOKE_CLICK, 1, 0.4, 0.4, true)
 			end,
 			onClick = function() SelectGuild(r.guild) end,
@@ -1471,13 +1776,16 @@ end
 -- (1.5.9, the author's: "a Olympus Prime aparece como não validada... Ela é a guilda principal, não
 -- precisa de validação para ela, mas bota o checkzinho para ela e pronto") The King's guild, which
 -- needs no verification (Verify.Exempt), wears the same mark, whoever its guild master is today.
+-- (1.6.0) None for a guild off the network (OffNetwork), whose row the Census does not draw either.
 function Verify.Mark(guild)
+	if OffNetwork(guild) then return "" end
 	local status = Verify.Status(guild)
 	if status == "verified" or status == "exempt" then return Verify.MARK_OK end
 	if status == "overdue" and Verify.Trusted(ns.me) then return Verify.MARK_LATE end
 	return ""
 end
 function Verify.Tooltip(tt, guild)
+	if OffNetwork(guild) then return end
 	local status = Verify.Status(guild)
 	if status == "verified" or status == "exempt" then
 		tt:AddLine(L.VERIFY_MARK_VERIFIED, 0.25, 1, 0.25)
@@ -1629,6 +1937,237 @@ StaticPopupDialogs["OLYMPUS_VERIFY_SELF"] = {
 }
 
 ---------------------------------------------------------------------------
+-- (1.6.0) The guild's hand-over (see the top): our guild hands its guild master the approval it holds
+---------------------------------------------------------------------------
+
+-- handing: our hand-over waiting its turn; guildAsked: our last ask as guild master; gmHello: our guild
+-- master's last hello seen by GuildShareTick; listenGuild, listenFrom: our guild, and since when this
+-- client hears it (the login, or the guild joined since). The hellos' times are this computer's clock
+-- (ns.Now, as Comm keeps them), so listenFrom is too; the hand-overs' are the server's (Verify.Clock).
+-- (The review of the hand-over) guildAskedWall: our last ask on this computer's clock; matesHeard,
+-- matesGuild: the guildmates (folded short names) whose hellos GuildAskTick heard this session, and for
+-- which guild; mateNew: whether one that may answer came since our last ask.
+local handing, guildAsked, gmHello, listenGuild, listenFrom = nil, -math.huge, nil, nil, nil
+local guildAskedWall, matesHeard, matesGuild, mateNew = -math.huge, {}, nil, false
+
+-- Our guild, where the relay runs (Forever) and this client is a member, out of quiet presence: the
+-- hand-over's whole scope. Elsewhere the channel carries verification as before.
+local function OwnGuild()
+	local R = ns.Relay
+	if type(R) ~= "table" or type(R.On) ~= "function" or R.On() ~= true or type(R.ToOwnGuild) ~= "function" then return nil end
+	if not ns.IsMember() or Quiet() or not IsInGuild() then return nil end
+	local mine = GetGuildInfo("player")
+	if type(mine) ~= "string" or mine == "" then return nil end
+	return mine
+end
+
+-- The approval this client may hand its guild, and the guild master it names: our own word on our
+-- guild, from a verifier we trust, naming the guild master we see now (Status: never past a newer
+-- revocation, nor lapsed); nil while we see no guild master, and when we are him.
+local function Handable(guild)
+	local status, info = Verify.Status(guild)
+	local e = status == "verified" and info.entry
+	if not e or not info.gm or not SamePerson(info.gm, e.gm) or SamePerson(info.gm, ns.me) or not Verify.Trusted(e.by) then return nil end
+	return e, info.gm
+end
+
+-- How long our hand-over waits: GUILD_ANSWER_MIN on, at random over GUILD_ANSWER_MAX's spread, wider by
+-- GUILD_ANSWER_PER_PEER for each guildmate whose hello lately named GUILD_ASK_SINCE or newer (Comm's count,
+-- ourselves in it), GUILD_ANSWER_SPREAD at most. Each of them may hold it and draw its own wait: the
+-- first still answers within seconds, and about one answers before the others hear it, however many.
+local function AnswerWait()
+	local C, R, n = ns.Comm, ns.Relay, 0
+	if type(C.PeerVersions) == "function" and type(R) == "table" and type(R.AtLeast) == "function" then
+		for version, count in pairs(C.PeerVersions()) do
+			if R.AtLeast(version, Verify.GUILD_ASK_SINCE) then n = n + (tonumber(count) or 0) end
+		end
+	end
+	local spread = math.max(Verify.GUILD_ANSWER_MAX - Verify.GUILD_ANSWER_MIN, Verify.GUILD_ANSWER_PER_PEER * n)
+	return Verify.random(Verify.GUILD_ANSWER_MIN, Verify.GUILD_ANSWER_MIN + math.floor(math.min(Verify.GUILD_ANSWER_SPREAD, spread)))
+end
+
+-- One hand-over of our guild's approval, after AnswerWait: the Watch's resend, its original time and
+-- verifier, from that verifier over GUILD (Relay.ToOwnGuild). None while ours waits or within
+-- GUILD_WINDOW of one heard; given up when one is heard meanwhile, and again at the send.
+local function HandOver(guild, why)
+	local key, now = Key(guild), Verify.Clock()
+	if handing and handing.key == key and now - handing.since < Verify.GUILD_WINDOW then return false end
+	if now - (handedAt[key] or -math.huge) < Verify.GUILD_WINDOW then return false end
+	local entry = Handable(guild)
+	if not entry then return false end
+	local item = { key = key, entry = entry, since = now, store = ns.rdb }
+	handing = item
+	local function Current()
+		local mine = OwnGuild()
+		return handing == item and ns.rdb == item.store and mine ~= nil and Key(mine) == key
+			and (handedAt[key] or -math.huge) < item.since and Handable(mine) == item.entry
+	end
+	ns.After(AnswerWait(), "verify guild hand-over", function()
+		if not Current() then
+			if handing == item then handing = nil end
+			return
+		end
+		local e = item.entry
+		local queued = ns.Relay.ToOwnGuild(Relative(e.by), ResendPayload(e, Verify.Clock()), "verify guild#" .. key, function(sent)
+			if handing == item then handing = nil end
+			if not sent then return end
+			handedAt[key] = Verify.Clock()
+			stats.handed = stats.handed + 1
+			ns.Log("verify: <%s>'s approval (%s, %d) handed to the guild (%s)", e.guild, tostring(e.by), e.at, why)
+		end, { owner = Verify, guard = Current })
+		if not queued and handing == item then handing = nil end
+	end)
+	return true
+end
+
+-- (The review of the hand-over: see the top.) Our newest word on our guild when it is a revocation, by a
+-- verifier we trust: what a stale hand-over, and a guild master's ask that names an older word, are
+-- answered with. And Status's info.
+local function Revocation(guild)
+	local status, info = Verify.Status(guild)
+	local r = status and info.revoked
+	if not r or not Verify.Trusted(r.by) then return nil end
+	return r, info
+end
+
+-- One answer with that revocation, after AnswerWait: its original time, guild master and verifier, from
+-- that verifier over GUILD (Relay.ToOwnGuild), one row with no final semicolon (no resend: a snapshot's
+-- row). Not held back by GUILD_WINDOW, which the stale hand-over just set. One waits at a time (a stale
+-- word heard meanwhile renews it); given up once another client's answer with it, or a newer one, is
+-- heard after the last stale word (HeardRevocation), and again at the send.
+local revoking = nil
+local function AnswerRevoked(guild, why)
+	local key, now = Key(guild), Verify.Clock()
+	local r = Revocation(guild)
+	if not r then return false end
+	if revoking and revoking.key == key and revoking.entry == r then
+		revoking.since = now
+		return true
+	end
+	local item = { key = key, entry = r, since = now, store = ns.rdb }
+	revoking = item
+	local function Current()
+		local mine, heard = OwnGuild(), revokeHeard[key]
+		return revoking == item and ns.rdb == item.store and mine ~= nil and Key(mine) == key
+			and Revocation(mine) == item.entry and not (heard and heard.t >= item.since and heard.at >= item.entry.at)
+	end
+	ns.After(AnswerWait(), "verify guild revocation", function()
+		if not Current() then
+			if revoking == item then revoking = nil end
+			return
+		end
+		local e = item.entry
+		local body = ("GV~%d~S~%d~R,%d,%s,%s,%s"):format(Verify.PROTOCOL, Verify.Clock(), e.at, e.guild, Relative(e.gm), Relative(e.by))
+		local queued = ns.Relay.ToOwnGuild(Relative(e.by), body, "verify guild revoked#" .. key, function(sent)
+			if revoking == item then revoking = nil end
+			if not sent then return end
+			revokeHeard[key] = { at = e.at, t = Verify.Clock() }
+			stats.revocations = stats.revocations + 1
+			ns.Log("verify: <%s>'s revocation (%s, %d) handed to the guild (%s)", e.guild, tostring(e.by), e.at, why)
+		end, { owner = Verify, guard = Current })
+		if not queued and revoking == item then revoking = nil end
+	end)
+	return true
+end
+
+-- A resend of our guild's approval heard, and refused (Verify.Handle): when our revocation is as new or
+-- newer (on the same second a revocation stands), a guildmate that missed it is handing the old approval
+-- over, and every fresh store in the guild would keep it: answered.
+StaleHandOver = function(guild, text)
+	local mine = OwnGuild()
+	if not mine or type(guild) ~= "string" or Key(mine) ~= Key(guild) then return false end
+	local at = tonumber(tostring(text):match("^GV~%d+~S~%d+~A,(%d+),"))
+	local r = Revocation(mine)
+	if not at or not r or r.at < at then return false end
+	return AnswerRevoked(mine, "stale")
+end
+
+-- The guild master's ask to his guild, with his own ask (Verify.Ask: the login's, its retry, the half
+-- hour's), GUILD_ASK_GAP at most: while his guild is not verified here, naming the time of the word he
+-- holds on it, so a guildmate answers only with a newer approval.
+function Verify.GuildAsk(now)
+	now = now or Verify.Clock()
+	if not OwnGuild() or now - guildAsked < Verify.GUILD_ASK_GAP then return false end
+	local guild, status, info = MasterStatus(now)
+	if not guild or status == "verified" or status == "exempt" then return false end
+	local held = info.entry or info.revoked
+	guildAsked, guildAskedWall = now, ns.Now()
+	stats.guildAsked = stats.guildAsked + 1
+	return ns.Comm.Send("GUILD", ("GV~%d~G~%s~%d"):format(Verify.PROTOCOL, guild, held and held.at or 0), "verify guild ask", true) ~= false
+end
+
+-- His ask heard (GUILD: the server stamps the guildmate): for our own guild, from the guild master we see,
+-- older than the approval we hold for him. (The review of the hand-over) Or older than our revocation:
+-- answered with that (AnswerRevoked), so a stale hand-over finds it there.
+function Verify.HandleGuildAsk(sender, text)
+	if type(sender) ~= "string" or sender == "" or type(text) ~= "string" then return false end
+	local guild, held = text:match("^GV~1~G~([^~]+)~(%d+)$")
+	local mine = guild and #held <= 10 and OwnGuild()
+	if not mine or Key(mine) ~= Key(guild) then return false end
+	local r, info = Revocation(mine)
+	if r then
+		if not info.gm or not SamePerson(info.gm, ns.FullName(sender)) or r.at <= tonumber(held) then return false end
+		return AnswerRevoked(mine, "asked")
+	end
+	local entry, gm = Handable(mine)
+	if not entry or not SamePerson(gm, ns.FullName(sender)) or entry.at <= tonumber(held) then return false end
+	return HandOver(mine, "asked")
+end
+
+-- (The review of the hand-over) A guild master who logged in before the guildmates who hold his guild's
+-- approval: his login's ask and its retry went before they came, and his next ask (Verify.Ask) was half
+-- an hour away. From Verify.Tick, while his guild is not verified here: a guildmate whose hello names
+-- GUILD_ASK_SINCE or newer, heard for the first time this session after his last ask (one that may hold
+-- the approval and answers, and may not have heard that ask), makes him ask his guild again, GUILD_ASK_GAP
+-- after the last at the earliest (Verify.GuildAsk); his guildmates' GUILD_WINDOW bounds the hand-overs.
+function Verify.GuildAskTick(now)
+	now = now or Verify.Clock()
+	local mine, C, R = OwnGuild(), ns.Comm, ns.Relay
+	if not mine or type(C.Peers) ~= "function" or type(C.PeerVersion) ~= "function" or type(R.AtLeast) ~= "function" then return false end
+	if matesGuild ~= Key(mine) then matesGuild, matesHeard, mateNew = Key(mine), {}, false end
+	local guild, status = MasterStatus(now)
+	if not guild or status == "verified" or status == "exempt" then return false end
+	for _, name in ipairs(C.Peers()) do
+		local key = Key(ns.ShortName(name))
+		if not matesHeard[key] then
+			matesHeard[key] = true
+			local version, at = C.PeerVersion(name)
+			if type(at) == "number" and at > guildAskedWall and R.AtLeast(version, Verify.GUILD_ASK_SINCE) then mateNew = true end
+		end
+	end
+	if not mateNew or now - guildAsked < Verify.GUILD_ASK_GAP then return false end
+	mateNew = false
+	return Verify.GuildAsk(now)
+end
+
+-- A guild master whose hello names a version before GUILD_ASK_SINCE never asks: from Verify.Tick, his
+-- guild hands it to him at his login (his hello after GUILD_LOGIN_GAP without one, while this client
+-- heard the guild) and once GUILD_SHARE_EVERY while he is online (by a guildmate that heard the guild
+-- that long, so all of them know the last one). Never to a guild master who is not online lately.
+function Verify.GuildShareTick(now)
+	now = now or Verify.Clock()
+	local mine = OwnGuild()
+	local C, R, wall = ns.Comm, ns.Relay, ns.Now()
+	if not mine or type(C.PeerVersion) ~= "function" then return false end
+	local key = Key(mine)
+	if listenGuild ~= key then listenGuild, listenFrom, gmHello = key, wall, nil end
+	local gm = Verify.GuildMaster(mine)
+	if not gm or SamePerson(gm, ns.me) then return false end
+	local who = Key(ns.ShortName(gm))
+	if not gmHello or gmHello.who ~= who then gmHello = { who = who } end
+	local version, at = C.PeerVersion(gm)
+	if type(at) ~= "number" then return false end
+	local last = gmHello.at
+	gmHello.at = at
+	if wall - at > Verify.GUILD_LOGIN_GAP or type(R.VersionOf) ~= "function" or not R.VersionOf(version)
+		or type(R.AtLeast) ~= "function" or R.AtLeast(version, Verify.GUILD_ASK_SINCE) then return false end
+	local login = at ~= last and at - (last or listenFrom) >= Verify.GUILD_LOGIN_GAP
+	local turn = wall - listenFrom >= Verify.GUILD_SHARE_EVERY and now - (handedAt[key] or -math.huge) >= Verify.GUILD_SHARE_EVERY
+	if not (login or turn) then return false end
+	return HandOver(mine, login and "login" or "turn")
+end
+
+---------------------------------------------------------------------------
 -- The session: the guilds seen, the notices, the asks
 ---------------------------------------------------------------------------
 
@@ -1640,6 +2179,8 @@ function Verify.Tick(now)
 	now = now or Verify.Clock()
 	Verify.Observe(now)
 	Verify.Prune(now)
+	Verify.GuildShareTick(now) -- (1.6.0: an older guild master's hand-over)
+	Verify.GuildAskTick(now) -- (the review of the hand-over: a guild master's ask again, a guildmate come online)
 	if not loginAt or now - loginAt < Verify.NOTICE_AFTER then return false end
 	Verify.CouncilNotices(now)
 	if told then return false end
@@ -1655,6 +2196,10 @@ end
 function Verify.Login(now)
 	loginAt, told = now or Verify.Clock(), false
 	Verify.Observe(loginAt)
+	-- (1.6.0) The guild's hand-over hears our guild from now on (Verify.GuildShareTick: this computer's clock).
+	local mine = IsInGuild() and GetGuildInfo("player")
+	listenGuild, listenFrom, gmHello = type(mine) == "string" and mine ~= "" and Key(mine) or nil, ns.Now(), nil
+	matesHeard, matesGuild, mateNew = {}, nil, false -- (Verify.GuildAskTick: this session's guildmates)
 	local session = {}
 	startup = session
 	ns.After(Verify.ASK_AFTER + Verify.random(0, Verify.ASK_SPREAD), "verify ask", function()
@@ -1688,6 +2233,7 @@ function Verify.Slash(rest)
 	if verb == "" then
 		if Verify.Mine() then return Verify.ShowNotice() end
 		if Verify.CouncilShown() then return Verify.OpenCouncil() end
+		if Verify.ShowNotice() then return true end
 		return Verify.PrintStatus()
 	elseif verb == "status" then
 		return Verify.PrintStatus()

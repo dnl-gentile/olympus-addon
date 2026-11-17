@@ -28,11 +28,16 @@ local function Key(name) return ns.Fold(ns.ShortName(tostring(name or ""))) end
 World.Key = Key
 
 -- A world: opts.apostles (names, signed), opts.head (the Head, World.HEAD, signed as an Apostle
--- marked Head, "*"; false: none), opts.listAt (the signed list's time).
+-- marked Head, "*"; false: none), opts.listAt (the signed list's time), opts.stamp (1.6.0: Forever's
+-- stamp on a guildmate's GUILD word, the reader's own sub-realm: Stamped, below), opts.live (the review
+-- of 1.6.0: every route's stamp on Forever's live realms, Stamped; the relay's sub-realm, or true while no
+-- signed relay answers).
 function World.New(opts)
 	opts = opts or {}
-	local w = setmetatable({ clock = World.EPOCH, clients = {}, byKey = {}, pending = {}, sent = {}, timers = {}, alts = {}, off = {},
+	local w = setmetatable({ clock = World.EPOCH, clients = {}, byKey = {}, seen = {}, pending = {}, sent = {}, timers = {}, alts = {}, off = {},
 		gm = {}, ranks = {}, council = {}, census = {}, log = {}, members = {} }, World)
+	w.stamp = opts.stamp == true
+	w.live = opts.live
 	w.council[Key(World.HEAD)] = true
 	w.council[Key("Dela Moss")] = true
 	w.council[Key(World.COUNCILLOR)] = true
@@ -154,6 +159,14 @@ function World:Client(name, opts)
 		ChannelName = function() return "OlympusNet" end,
 		DeliveredLogged = function() return true end,
 		Cancel = function() end, CancelQueued = function() return 0 end,
+		-- (1.6.0) The sub-realm a guildmate's hello named (Comm.PeerRealm): every client says hello to its
+		-- guild as it logs in, so one of this client's guild that logged in this session, by its own
+		-- sub-realm; none for anyone else, or while the world holds his hello back (w.noHello, by key).
+		PeerRealm = function(n)
+			local o = w.seen[Key(n)]
+			if o and o.guild ~= nil and o.guild == cl.guild and not (w.noHello and w.noHello[o.key]) then return o.ns.realm, w.clock end
+			return nil
+		end,
 	}
 	c.Channels = { IsMe = function(n) return Key(n) == cl.key end, Admit = function() return true, "ok" end }
 	c.Consent = { Register = function() end, Ask = function() end }
@@ -177,6 +190,7 @@ function World:Client(name, opts)
 	cl.c = c
 	w.clients[#w.clients + 1] = cl
 	w.byKey[cl.key] = cl
+	w.seen[cl.key] = cl
 	w:RefreshRosters()
 	if not opts.old then
 		-- (1.2.3: ChatRooms.lua no longer defines a dialog in the game's global table, the race and class
@@ -265,22 +279,50 @@ function World:Queue(from, dist, msg, target, logged)
 	return true
 end
 
--- Who hears one message: the channel, the guild, or the one name (online, and a member).
+-- Who hears one message: the channel, the guild, or the one name (online, and a member). (1.6.0)
+-- w.lost: message types the channel hands to nobody, still sent: WoW: Forever, where another client's
+-- word reaches another guild only through one relay's trickle (Relay.lua), at its worst.
+-- (The review of 1.6.0) w.live == true: no signed relay answers (Relay.Out), and a channel word reaches the
+-- sender's own guild alone, which his own client hands it over GUILD (Relay.lua's OwnGuild).
 local function Recipients(w, e)
 	local out = {}
+	if e.dist == "CHANNEL" and w.lost and w.lost[e.msg:sub(1, 2)] then return out end
 	for _, cl in ipairs(w.clients) do
 		if cl ~= e.from and cl.online and cl.guild and ns.IsFederation(cl.guild) then
-			if e.dist == "CHANNEL" or (e.dist == "GUILD" and cl.guild == e.from.guild)
+			if (e.dist == "CHANNEL" and (w.live ~= true or cl.guild == e.from.guild)) or (e.dist == "GUILD" and cl.guild == e.from.guild)
 				or (e.dist == "WHISPER" and Key(e.target) == cl.key) then out[#out + 1] = cl end
 		end
 	end
 	return out
 end
 
+-- (1.6.0) The sender as a reader's client gets him. WoW: Forever stamps a guildmate's word over GUILD
+-- with the reader's own sub-realm, never his (measured: Comm.PeerRealm, Layers.lua, tests/hop-forever.lua).
+-- w.stamp (World.New's opts.stamp): a GUILD word between two sub-realms of one Forever family reaches its
+-- reader so stamped. Otherwise every sender as he is.
+-- (The review of 1.6.0) w.live (World.New's opts.live): every route's stamp there. The server sends a GUILD
+-- or WHISPER sender's bare name (a member's /oly bug dump on a live ruleset: every GUILD sender bare), to
+-- which the reader's Comm gives his own sub-realm (its OnAddonMessage); a channel word reaches the other
+-- guilds through a relay, whose client stamps its own sub-realm on the word's origin (Relay.HandleIn:
+-- w.live, that sub-realm), or, while no signed relay answers (w.live == true), only the sender's guild,
+-- handed over under his plain name (OwnGuild), which the reader's Comm gives his own sub-realm.
+local function Stamped(w, e, cl)
+	local sender = e.from.name
+	local here, there = cl.ns and cl.ns.realm, ns.RealmOf(sender)
+	local family = type(here) == "string" and ns.ForeverFamily(here) or nil
+	if not (family and there and ns.ForeverFamily(there) == family) then return sender end
+	if w.live then
+		if e.dist == "CHANNEL" and w.live ~= true then return ns.ShortName(sender) .. "-" .. w.live end
+		return ns.ShortName(sender) .. "-" .. here
+	end
+	if w.stamp and e.dist == "GUILD" and there ~= here then return ns.ShortName(sender) .. "-" .. here end
+	return sender
+end
+
 function World:Deliver(e)
 	for _, cl in ipairs(Recipients(self, e)) do
 		local h = cl.handlers[e.msg:sub(1, 2)]
-		if h and e.msg:sub(3, 3) == "~" then self:As(cl, h, e.dist, e.from.name, e.msg) end
+		if h and e.msg:sub(3, 3) == "~" then self:As(cl, h, e.dist, Stamped(self, e, cl), e.msg) end
 		cl.log[#cl.log + 1] = e
 	end
 end

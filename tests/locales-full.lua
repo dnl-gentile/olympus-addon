@@ -256,3 +256,90 @@ test("languages (1.5.9, regression): the recruiting handoffs' lines in every lan
 		assert(L.RECRUIT_HANDOFF_PASSING:find(L.CHURCH_NAV_INVITES, 1, true), file .. ": Church > Invites named as its tab is")
 	end
 end)
+
+-- 1.6.0 (players' reports on 1.5.9: the ad popup came too often and said nothing of how to stop it):
+-- the ad reminder's popup, its Less often and Turn off and the line under its Post line, and the chat
+-- lines after them, in every language: its own words, the English codes, Church > Invites named as
+-- that language's tabs are, buttons short enough for the popup, and (Russian) no em dash. (Changed on
+-- purpose, the author's ask of 11-16: the popup's own Turn off became its Turn off recruiting, the test
+-- after this one; its "only ad reminders" still ends with RECRUIT_ANNOUNCE_REMINDER_STOPPED.)
+local AD_REMINDER = { "RECRUIT_ANNOUNCE_LESS", "RECRUIT_ANNOUNCE_REMINDER_NOTE",
+	"RECRUIT_ANNOUNCE_REMINDER_SLOWER", "RECRUIT_ANNOUNCE_REMINDER_STOPPED" }
+test("languages (1.6.0): the ad reminder's Less often, Turn off and where to turn it back on, in every language", function()
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Load(code).L
+		for _, k in ipairs(AD_REMINDER) do
+			-- (rawget: a missing line reads as its own key, Locales.lua's L.)
+			assert(type(rawget(english.L, k)) == "string" and english.L[k] ~= "", "English " .. k)
+			assert(type(rawget(L, k)) == "string" and L[k] ~= "", code .. " " .. k)
+			if code ~= "enUS" then assert(L[k] ~= english.L[k], code .. " " .. k .. ": its own words") end
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), code .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, code .. " " .. k .. ": no em dash")
+		end
+		for _, k in ipairs({ "RECRUIT_ANNOUNCE_REMINDER_NOTE", "RECRUIT_ANNOUNCE_REMINDER_SLOWER", "RECRUIT_ANNOUNCE_REMINDER_STOPPED" }) do
+			assert(L[k]:find(L.TAB_CHURCH, 1, true) and L[k]:find(L.CHURCH_NAV_INVITES, 1, true),
+				code .. " " .. k .. ": Church > Invites named as its tabs are")
+		end
+		for _, k in ipairs({ "RECRUIT_ANNOUNCE_LESS" }) do
+			assert(Chars(L[k]) <= 16, ("%s %s: a button of %d characters: %s"):format(code, k, Chars(L[k]), L[k]))
+		end
+	end
+end)
+
+-- 1.6.0 (the author's ask, 11-16: "nos pop-ups que avisam, podiam ter dois botões ... pausar recrutamento
+-- ou desativar recrutamento"): Pause recruiting and Turn off recruiting under every recruiting popup that
+-- opens by itself, their two questions, the chat lines after them and Church > Invites' row and button
+-- while paused, in every language: its own words, the English codes, no em dash, Church > Invites named
+-- as that language's tabs are where a line sends the player there, and the buttons and lines it names as
+-- they show; buttons short enough for a popup's row, the paused row short enough not to be cut. Fails
+-- before: none of these lines.
+local PAUSE_LINES = { "RECRUIT_PAUSE_BUTTON", "RECRUIT_TURN_OFF_BUTTON", "RECRUIT_PAUSE_ASK", "RECRUIT_PAUSED", "RECRUIT_PAUSED_UNTIL",
+	"RECRUIT_RESUME", "RECRUIT_RESUMED", "RECRUIT_TURN_OFF_ASK", "RECRUIT_OFF_ONLY_ADS", "RECRUIT_OFF_ONLY_JOINS",
+	"RECRUIT_OFF_ONLY_HANDOFFS", "RECRUIT_OFF_ONLY_SCAN", "RECRUIT_OFF_ONLY_ALL", "RECRUIT_OFF_JOINS", "RECRUIT_OFF_HANDOFFS",
+	"RECRUIT_OFF_SCAN", "RECRUIT_OFF_ALL", "RECRUIT_ASK_LATER" }
+local PAUSE_INVITES = { "RECRUIT_PAUSE_ASK", "RECRUIT_PAUSED", "RECRUIT_TURN_OFF_ASK", "RECRUIT_OFF_JOINS", "RECRUIT_OFF_HANDOFFS",
+	"RECRUIT_OFF_SCAN", "RECRUIT_OFF_ALL" }
+local PAUSE_BUTTONS = { "RECRUIT_PAUSE_BUTTON", "RECRUIT_TURN_OFF_BUTTON", "RECRUIT_RESUME", "RECRUIT_OFF_ONLY_ADS",
+	"RECRUIT_OFF_ONLY_JOINS", "RECRUIT_OFF_ONLY_HANDOFFS", "RECRUIT_OFF_ONLY_SCAN", "RECRUIT_OFF_ONLY_ALL" }
+test("languages (1.6.0): Pause recruiting and Turn off recruiting, their questions and lines, in every language", function()
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Load(code).L
+		for _, k in ipairs(PAUSE_LINES) do
+			assert(type(rawget(english.L, k)) == "string" and english.L[k] ~= "", "English " .. k)
+			assert(type(rawget(L, k)) == "string" and L[k] ~= "", code .. " " .. k)
+			if code ~= "enUS" then assert(L[k] ~= english.L[k], code .. " " .. k .. ": its own words") end
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), code .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, code .. " " .. k .. ": no em dash")
+		end
+		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
+		for _, k in ipairs(PAUSE_INVITES) do
+			assert(L[k]:find(invites, 1, true), code .. " " .. k .. ": Church > Invites named as its tabs are: " .. L[k])
+		end
+		assert(L.RECRUIT_PAUSED:find(L.RECRUIT_RESUME, 1, true), code .. ": the chat line names Resume as its button shows")
+		local arrival = assert(L.RECRUIT_WHISPER_POPUP_ON:match("^(.-)%s*:"))
+		assert(L.RECRUIT_OFF_JOINS:find(arrival, 1, true), code .. ": the JOIN line named as Church > Invites shows it: " .. arrival)
+		for _, k in ipairs(PAUSE_BUTTONS) do
+			assert(Chars(L[k]) <= 32, ("%s %s: a button of %d characters: %s"):format(code, k, Chars(L[k]), L[k]))
+		end
+		local row = L.RECRUIT_PAUSED_UNTIL:format("23:59")
+		assert(Chars(row) <= 54, ("%s: the paused row of %d characters: %s"):format(code, Chars(row), row))
+		eq(rawget(L, "RECRUIT_ANNOUNCE_TURN_OFF"), nil, code .. ": the ad popup's own Turn off is gone")
+	end
+end)
+
+-- Fails before: the time between automatic recruiting pop-ups (Church > Invites, added for 1.6.0) and
+-- its choices were English in the five language files.
+local POPUP_GAP = { "RECRUIT_POPUP_GAP_TITLE", "RECRUIT_POPUP_GAP_DEFAULT", "RECRUIT_POPUP_GAP_HOURS", "RECRUIT_POPUP_GAP_DAILY" }
+test("languages (1.6.0, regression): the time between automatic recruiting pop-ups in every language, short enough for its menu", function()
+	for code, file in pairs(LANGS) do
+		local L = Load(code).L
+		for _, k in ipairs(POPUP_GAP) do
+			assert(type(rawget(english.L, k)) == "string", "English " .. k)
+			assert(L[k] ~= english.L[k], file .. " " .. k .. ": its own words")
+			eq(ns.LocaleCodes(L[k]), ns.LocaleCodes(english.L[k]), file .. " " .. k .. " codes")
+			eq(L[k]:find("\226\128\148", 1, true), nil, file .. " " .. k .. ": no em dash")
+		end
+		assert(Chars(L.RECRUIT_POPUP_GAP_TITLE) <= Chars(english.L.RECRUIT_POPUP_GAP_TITLE) + 2,
+			file .. ": the menu's label no longer than the English one's: " .. L.RECRUIT_POPUP_GAP_TITLE)
+	end
+end)

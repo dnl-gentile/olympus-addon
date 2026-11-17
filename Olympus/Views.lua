@@ -1818,7 +1818,8 @@ local RECRUIT_SWITCHES = {
 	{ key = "ads", label = "RECRUIT_CENSUS_ADS", hint = "RECRUIT_CENSUS_ADS_HINT" },
 	{ key = "scan", label = "RECRUIT_CENSUS_SCAN", hint = "RECRUIT_CENSUS_SCAN_HINT" },
 }
-Views.RECRUIT_AD_MINUTES = 5
+-- (1.6.0: every 30 minutes, Recruit.AD_MINUTES; 5 before, which players found too often.)
+Views.RECRUIT_AD_MINUTES = ns.Recruit and ns.Recruit.AD_MINUTES
 
 -- (Review of the 1.5.9 release) The ads interval the offer's switch turns on: the one the player kept
 -- (Church > Invites keeps it while recruiting is off), else RECRUIT_AD_MINUTES.
@@ -3633,14 +3634,15 @@ function Views.RecruitLines()
 		lines[#lines].gapAfter = true
 	end
 	for _, g in ipairs(guilds) do
+		local canAsk = g.free ~= 0
 		lines[#lines + 1] = {
 			text = (g.gates and CROWN or "") .. Green("<" .. g.name .. ">"),
 			right = Grey(L.RECRUIT_ONLINE:format(#g.members)) .. (g.free and ("  " .. Grey(L.FREE_SLOTS:format(ns.FormatNumber(g.free)))) or "")
-				.. "  " .. Gold(L.RECRUIT_ASK),
-			onClick = function() R.PromptNext(g.name) end,
+				.. (canAsk and ("  " .. Gold(L.RECRUIT_ASK)) or ""),
+			onClick = canAsk and function() R.PromptNext(g.name) end or nil,
 			tooltip = function(tt)
 				tt:AddLine("<" .. g.name .. ">", 0.25, 1, 0.25)
-				tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true)
+				if canAsk then tt:AddLine(L.RECRUIT_ASK_TIP, 1, 1, 1, true) end
 			end,
 		}
 		if ns.GuildCharter then
@@ -3657,7 +3659,7 @@ function Views.RecruitLines()
 				text = ClassColored(ns.ShortName(p.name), p.class) .. "  " .. Grey((p.level and L.LEVEL_N:format(p.level) or "") .. (p.zone and ("  " .. p.zone) or "")),
 				right = state,
 				-- (Not one who asked not to be contacted, 1.1.)
-				onClick = not closed and function() R.Prompt(p) end or nil,
+				onClick = canAsk and not closed and function() R.Prompt(p) end or nil,
 				tooltip = R.replied[p.name] and function(tt)
 					tt:AddLine(ns.ShortName(p.name), 1, 0.82, 0)
 					-- (A whisper: its links stay, like a chat line's; no other escape code, 0.9.2.)
@@ -3672,12 +3674,17 @@ end
 
 function Views.JoinLines(height)
 	local R = ns.Recruit
-	local searching, left, last, reminder, guilds = R.JoinStatus()
+	-- (1.6.0) `notice`: what the screen learned about the last request (the member recruits, he can't
+	-- invite, the guild is full, nobody is left to ask), under the wait while it runs, in its place after
+	-- (that he recruits, while the wait runs alone: Recruit.JoinStatus).
+	local searching, left, last, reminder, guilds, notice = R.JoinStatus()
 	local pending = searching or left > 0
 	local status = searching and L.RECRUIT_SEARCHING
 		or left > 0 and L.RECRUIT_JOIN_WAITING:format(left)
+		or notice
 		or last and L.RECRUIT_JOIN_TIMEOUT
 		or ns.Who.Searched() and #R.found == 0 and L.RECRUIT_NONE_FOUND
+	local under = not searching and left > 0 and notice or nil
 	local lines = {
 		{ text = L.RECRUIT_JOIN_TITLE, center = true, color = "GameFontNormalLarge", gapAfter = true,
 			spaceBefore = guilds and 6 or math.max(6, math.floor(((height or 0) - 210) / 2)) },
@@ -3687,7 +3694,8 @@ function Views.JoinLines(height)
 		{ text = last and L.RECRUIT_JOIN_AGAIN or L.RECRUIT_JOIN_REQUEST, primary = true,
 			onClick = not pending and R.RequestJoin or nil, gapAfter = true },
 	}
-	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = true } end
+	if status then lines[#lines + 1] = { text = status, center = true, gapAfter = under == nil } end
+	if under then lines[#lines + 1] = { text = under, center = true, gapAfter = true } end
 	lines[#lines + 1] = { text = Gold((reminder and "[x] " or "[ ] ") .. L.RECRUIT_JOIN_REMINDER),
 		center = true, onClick = R.ToggleJoinReminder }
 	lines[#lines + 1] = { text = Gold(guilds and L.RECRUIT_JOIN_HIDE_GUILDS or L.RECRUIT_JOIN_SHOW_GUILDS),

@@ -49,12 +49,13 @@ local function NameKey(name)
 	local who = ns.FullName(name)
 	return ns.Fold(ns.splitNames and ns.ShortName(who) or who)
 end
-local function Source(item, blocked)
+local function Source(item, blocked, claimed)
 	if type(item) ~= "table" then return false end
 	if item.scanned then
 		-- (Review of 1.5.8) Once the same player whispers JOIN, the JOIN is his entry: a claim of the
-		-- sighting's offer no longer gets his name, so two members never invite him.
-		if not (R.Candidates ~= nil and R.Candidates.Passable(item)) then return false end
+		-- sighting's offer no longer gets his name, so two members never invite him. (`claimed`, 1.6.0:
+		-- SourceReady's, a claim under way that a fight no longer holds.)
+		if not (R.Candidates ~= nil and R.Candidates.Passable(item, claimed)) then return false end
 		for _, req in ipairs(R.requests) do if SamePlayer(req.name, item.full) then return false end end
 		return true
 	end
@@ -104,6 +105,9 @@ local function Prune(now)
 	for id, r in pairs(incoming) do
 		if r.expires <= now then
 			if Unclaimed[r.state] then H.Log("EXPIRED", ("%s < %s"):format(r.state, ns.ShortName(r.peer) or "?")) end
+			-- (1.6.0) His claim that no name answered in time is said, not left silent (a Horde recruiter's
+			-- report of 11-14: "and then nothing happens"): the member who passed the player keeps him.
+			if r.state == "claiming" and not r.named then ns.Print(L.RECRUIT_HANDOFF_NO_NAME:format(ns.DisplayName(r.peer) or r.peer)) end
 			incoming[id] = nil
 		end
 	end
@@ -193,9 +197,21 @@ local function AutoAllowed(own)
 	return own ~= nil and (autoGuild == own or passGuild == own) and AvailableNow()
 end
 
-local function SourceReady(ref)
-	return Source(ref.request) and (not ref.automatic
-		or (AutoAllowed(ref.from) and not PromptOpen(ref.request)))
+-- `claimed` (1.6.0): a member's claim of the offer, and the name it sends back. Combat no longer holds
+-- these: the name is one addon whisper, which a fight does not stop. 1.5.8 and 1.5.9 refused the claim,
+-- or dropped the name waiting to leave, while the member who passed the player was fighting, and the
+-- one who claimed heard nothing (a Horde recruiter's report of 11-14: "and then nothing happens"). The
+-- probes and offers still wait for the end of a fight; a chat lockdown and quiet presence hold all of it.
+local function SourceReady(ref, claimed)
+	if not Source(ref.request, nil, claimed) then return false end
+	if not ref.automatic then return true end
+	local own, allowed = ref.from, nil
+	if claimed then
+		allowed = own ~= nil and (autoGuild == own or passGuild == own) and not ns.ChatLocked() and not ns.QuietPresence()
+	else
+		allowed = AutoAllowed(own)
+	end
+	return allowed and not PromptOpen(ref.request)
 end
 
 local function NextID(now)
@@ -247,6 +263,8 @@ function H.Claim(ref)
 			and Same(acceptingGuild, ref.to) and Member(ref.peer, ref.from)
 	end
 	if not Transmit("C", ref, ref.peer, nil, Guard) then ref.state = "offered"; return false end
+	-- (1.6.0) Once its time is out, a claim no name answered is said (Prune).
+	ns.After(math.max(1, ref.expires - ns.Now()) + 1, "recruit claim expiry", function() Prune(ns.Now()) end)
 	Changed()
 	return true
 end
@@ -448,10 +466,9 @@ function H.Pass(req, all)
 	return true
 end
 
--- (1.5.8) At this player's invite limit, with the automatic offers on, a new JOIN or scanned player
--- goes to the other members instead of popping up here (Church > Invites still lists it).
+-- At the invite limit, automatically hand off only requests with explicit JOIN intent.
 function H.Overflow(item)
-	if not H.AutoOn() or not H.CanPass(item) then return false end
+	if type(item) ~= "table" or item.scanned or not H.AutoOn() or not H.CanPass(item) then return false end
 	Want(item, true)
 	H.LogItem("OVERFLOW", item)
 	return true
@@ -465,16 +482,72 @@ end
 
 -- An offer for a member who accepts handoffs: a chat line, and a Claim question when nothing
 -- else of the recruitment is on screen. The name still comes only after his Claim click.
+-- (1.6.0, a Horde recruiter's report of 11-14 on 1.5.9: "I get a ton of [these lines] and then nothing
+-- happens".) The question waits for every recruiting popup the invite command waits for after it (an
+-- ad's draft and a scanned player's whisper review too: once claimed, the name came and no command
+-- opened while one of them stayed up), and for what holds the automatic popups (Recruit.PopupsWait,
+-- the interval). What holds it back says no to the probes too (Receive), so offers go to a member who
+-- can answer. An offer that came while it could not be asked is asked once it can, while it lasts;
+-- 1.5.9 printed the line and never asked. A question still up when its offer expires closes.
 local CLAIM_DIALOG = "OLYMPUS_RECRUIT_HANDOFF_CLAIM"
-local busyDialogs = { CLAIM_DIALOG, "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF" }
+local busyDialogs = { CLAIM_DIALOG, "OLYMPUS_RECRUIT_INVITE_DRAFT", "OLYMPUS_RECRUIT_REPLY", "OLYMPUS_RECRUIT_NETOFF",
+	"OLYMPUS_RECRUIT_OUTREACH", "OLYMPUS_RECRUIT_ANNOUNCEMENT", "OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF" }
+H.ASK_RETRY = 2 -- seconds between looks while an offer waits for its question
+
+-- Whether the Claim question can be on his screen now.
+local function CanAsk()
+	local D = ns.Dialog
+	if not D or D.missing or not D.Show or not D.Find or R.PopupsWait() or R.PopupWait() > 0 then return false end
+	for _, which in ipairs(busyDialogs) do if D.Find(which) then return false end end
+	return true
+end
+
+-- The offer to ask about next: still to claim, its question not shown yet, the one ending first.
+local function Unasked(now)
+	local nextRef
+	for _, ref in pairs(incoming) do
+		if ref.state == "offered" and not ref.asked and ref.expires > now and Same(ref.to, acceptingGuild)
+			and (not nextRef or ref.expires < nextRef.expires) then nextRef = ref end
+	end
+	return nextRef
+end
+
+local looking -- a look due in ASK_RETRY seconds
+local Ask
+local function AskLater()
+	if looking then return end
+	looking = true
+	ns.After(H.ASK_RETRY, "recruit claim question", function()
+		looking = nil
+		Ask()
+	end)
+end
+
+Ask = function()
+	local now = ns.Now()
+	Prune(now)
+	local ref = Accepting() and Unasked(now)
+	if not ref then return end
+	if not CanAsk() then return AskLater() end
+	ref.asked = true
+	local D = ns.Dialog
+	local prompt = Sighting(ref.id) and L.RECRUIT_HANDOFF_CLAIM_PROMPT_SCAN or L.RECRUIT_HANDOFF_CLAIM_PROMPT
+	if D.Show(CLAIM_DIALOG, prompt:format(ns.DisplayName(ref.peer) or ref.peer, ref.from), nil, ref) then
+		R.PopupShown()
+		ns.After(math.max(1, ref.expires - now), "recruit claim expiry", function()
+			local open = D.Find(CLAIM_DIALOG, ref)
+			if open then open:Hide() end
+			Ask()
+		end)
+	end
+	if Unasked(now) then AskLater() end
+end
 
 Notify = function(ref)
 	local who = ns.DisplayName(ref.peer) or ref.peer
-	ns.Print(L.RECRUIT_HANDOFF_ARRIVED:format(who, ref.from))
-	local D = ns.Dialog
-	if not D or D.missing or not D.Show or not AvailableNow() then return end
-	for _, which in ipairs(busyDialogs) do if D.Find(which) then return end end
-	D.Show(CLAIM_DIALOG, L.RECRUIT_HANDOFF_CLAIM_PROMPT:format(who, ref.from), nil, ref)
+	local scan = Sighting(ref.id)
+	ns.Print((scan and L.RECRUIT_HANDOFF_ARRIVED_SCAN or L.RECRUIT_HANDOFF_ARRIVED):format(who, ref.from))
+	Ask()
 end
 
 function H.Receive(dist, sender, word)
@@ -514,8 +587,10 @@ function H.Receive(dist, sender, word)
 		repliedAt = now
 		-- (1.5.8) A member at his own invite limit is not available for more names. (Review of 1.5.8)
 		-- He, and a member who takes no handoffs or may not invite, says so at once ("D"): a probe
-		-- nobody answered held the busy recruiter's next one back PROBE_TTL seconds.
-		if not Accepting() or not Room(incoming) or R.AtInviteLimit() then
+		-- nobody answered held the busy recruiter's next one back PROBE_TTL seconds. (1.6.0) So does one
+		-- whose screen cannot show the Claim question now (CanAsk): he said yes, and the offer that came
+		-- was a chat line and nothing else.
+		if not Accepting() or not Room(incoming) or R.AtInviteLimit() or not CanAsk() then
 			return Transmit("D", ref, sender, nil, function()
 				return expires > ns.Now() and AvailableNow() and Member(sender, own)
 			end)
@@ -535,6 +610,7 @@ function H.Receive(dist, sender, word)
 			local ref = incoming[id]
 			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or not SamePlayer(ref.peer, sender)
 				or ref.from ~= from or ref.to ~= to or not InScope(applicant) or SamePlayer(applicant, ns.me) then return false end
+			ref.named = true -- (a name came: whatever this client does with it, no "no name" line, Prune)
 			for _, req in ipairs(R.requests) do
 				if SamePlayer(applicant, req.name) then return false end
 			end
@@ -549,14 +625,14 @@ function H.Receive(dist, sender, word)
 		if not ref or ref.expires ~= expires or ref.from ~= from or ref.to ~= to or not SamePlayer(ref.peer, sender)
 			or ref.from ~= own or not Member(sender, to) then return false end
 		if op == "C" then
-			if ref.state ~= "offered" or not SourceReady(ref) then return false end
+			if ref.state ~= "offered" or not SourceReady(ref, true) then return false end
 			-- A queued or delivered name might have been acted on even without an
 			-- acknowledgement, so the origin stays locked rather than retry elsewhere.
 			ref.state = "assigning"
 			local key = NameKey(NameOf(ref.request))
 			handed[key] = true
 			local function Guard()
-				local ready = ref.expires > ns.Now() and ref.from == LocalGuild() and SourceReady(ref)
+				local ready = ref.expires > ns.Now() and ref.from == LocalGuild() and SourceReady(ref, true)
 					and Member(sender, to) and ref.state == "assigning"
 				return ready, "invalid"
 			end
@@ -580,7 +656,9 @@ function H.Receive(dist, sender, word)
 			-- his share in the recruiting ranking for everyone counts only when the inviter's own report
 			-- names him too (RecruitRanking.HandedOut).
 			local ranking = ns.RecruitRanking
-			if ranking and ranking.HandedOut then ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender) end
+			if ranking and ranking.HandedOut and not ref.request.scanned then
+				ns.SafeCall("recruit ranking handed out", ranking.HandedOut, NameOf(ref.request), sender)
+			end
 		end
 	end
 	Changed()
@@ -677,7 +755,9 @@ function H.Controls(lines, V, hint)
 	if not Accepting() then return end
 	for _, ref in pairs(incoming) do
 		if Same(ref.to, own) and Member(ref.peer, ref.from) and ref.state ~= "received" then
-			local label = ref.state == "offered" and L.RECRUIT_HANDOFF_CLAIM or L.RECRUIT_HANDOFF_WAITING
+			local scan = Sighting(ref.id)
+			local label = ref.state == "offered" and (scan and L.RECRUIT_HANDOFF_CLAIM_SCAN or L.RECRUIT_HANDOFF_CLAIM)
+				or (scan and L.RECRUIT_HANDOFF_WAITING_SCAN or L.RECRUIT_HANDOFF_WAITING)
 			lines[#lines + 1] = {
 				indent = 1, text = V.Gold(label:format(Who(ref.peer, ref.from))),
 				onClick = ref.state == "offered" and function() H.Claim(ref) end or nil,
@@ -711,6 +791,8 @@ StaticPopupDialogs[CLAIM_DIALOG] = {
 	button1 = L.RECRUIT_HANDOFF_TAKE,
 	button2 = L.RECRUIT_HANDOFF_SKIP,
 	OnAccept = function(_, ref) H.Claim(ref) end,
+	-- (1.6.0) It opens by itself alone (Ask): Pause recruiting and Turn off recruiting under it (Recruit.StopRow).
+	more = function() return R.StopRow("handoffs") end,
 	timeout = 60,
 	whileDead = true,
 	hideOnEscape = true,
@@ -718,7 +800,7 @@ StaticPopupDialogs[CLAIM_DIALOG] = {
 }
 
 function H.Reset()
-	acceptingGuild, choosing = nil, nil
+	acceptingGuild, choosing, looking = nil, nil, nil
 	if autoTimer then autoTimer.Cancel(); autoTimer = nil end
 	autoGuild, passGuild, autoProbe, repliedAt = nil, nil, nil, -math.huge
 	ResetTurns()

@@ -13,7 +13,7 @@ local function WithHandoff(fn)
 		fresh = ns.Roster.Fresh, rank = ns.Roster.RankOf, online = ns.Roster.online,
 		canRank = ns.Data.CanRank, authorized = ns.Data.AuthorizedRank,
 		every = ns.Every, quiet = ns.QuietPresence, after = ns.After, rdb = ns.rdb, print = ns.Print,
-		candidates = R.Candidates, unitExists = UnitExists,
+		candidates = R.Candidates, unitExists = UnitExists, count = GetNumGuildMembers,
 	}
 	-- (The scan looks at the target and the nameplates: in these tests nobody stands nearby.)
 	UnitExists = function() return false end
@@ -22,6 +22,7 @@ local function WithHandoff(fn)
 	local scene = { now = 5000, fresh = true, permission = true, support = 2, packets = {}, later = {}, timers = {}, printed = {} }
 	ns.Print = function(msg) scene.printed[#scene.printed + 1] = tostring(msg) end
 	GetGuildInfo = function() return own end
+	GetNumGuildMembers = function() return 2, 2 end
 	CanGuildInvite = function() return scene.permission end
 	ns.IsMember = function() return true end
 	ns.ChatLocked = function() return scene.locked == true end
@@ -63,7 +64,7 @@ local function WithHandoff(fn)
 	ns.Roster.Fresh, ns.Roster.RankOf, ns.Roster.online = saved.fresh, saved.rank, saved.online
 	ns.Data.CanRank, ns.Data.AuthorizedRank = saved.canRank, saved.authorized
 	ns.Every, ns.QuietPresence, ns.After, ns.rdb, ns.Print = saved.every, saved.quiet, saved.after, saved.rdb, saved.print
-	R.Candidates, UnitExists = saved.candidates, saved.unitExists
+	R.Candidates, UnitExists, GetNumGuildMembers = saved.candidates, saved.unitExists, saved.count
 	if not ok then error(err, 0) end
 end
 
@@ -80,8 +81,11 @@ local function Dialogs()
 			if f.which == which and f.open and (data == nil or f.data == data) then return f end
 		end
 	end
-	function D.Show(which, a, _, data)
+	function D.Show(which, a, b, data)
 		local f = { which = which, text = a, data = data, open = true, def = StaticPopupDialogs[which] }
+		-- (1.6.0) The whole text as Dialog.Show formats it, with both arguments (an ad reminder's line).
+		local formatted, whole = pcall(string.format, tostring(f.def and f.def.text or ""), a, b)
+		f.shown = formatted and whole or nil
 		f.Hide = function() f.open = false end
 		f.IsShown = function() return f.open end
 		shown[#shown + 1] = f
@@ -205,6 +209,10 @@ end)
 
 test("recruit overflow: an eligible recipient privately replies only while opted in and available", function()
 	WithHandoff(function(scene)
+		-- (Changed on purpose in 1.6.0: a yes now also means his screen can show the Claim question,
+		-- RecruitHandoff's CanAsk, and WithHandoff leaves ns.Dialog out. Every client has Olympus's
+		-- dialogs, Dialog.lua: here an empty screen. tests/recruit-handoff-sides.lua covers a busy one.)
+		ns.Dialog = Dialogs()
 		local function Probe(id)
 			return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
 		end
@@ -570,8 +578,13 @@ test("recruit handoff (1.5.8): a scanned unguilded player is passed from his pop
 		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~C~"))), true)
 		local named = assert(scene.packets[3])
 		assert(named.word:match("^J4~N~") and named.word:sub(-#wolf) == wolf, "the name goes after the claim")
-		eq(H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~"))), true)
+		local ranking, credited = ns.RecruitRanking, 0
+		ns.RecruitRanking = { HandedOut = function() credited = credited + 1 end }
+		local ack = H.Receive("WHISPER", mate, (offer.word:gsub("^J4~O~", "J4~A~")))
+		ns.RecruitRanking = ranking
+		eq(ack, true)
 		eq(H.State(row), "assigned")
+		eq(credited, 0, "passing a scan does not earn referral credit")
 		-- The same player, now whispering JOIN, is never offered a second time, and (review of 1.5.8)
 		-- his JOIN does not pop the same /ginvite here: the member has his name.
 		R.OnWhisper("JOIN", wolf)
@@ -610,7 +623,7 @@ end)
 
 -- 1.5.8 (the author's message to the streamer: "it lines them up for him up to his 10 a minute and
 -- passes the rest to other members accepting requests").
-test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings go to other members or say the limit", function()
+test("recruit handoff (1.5.8): at ten invites a minute only explicit JOINs go to other members automatically", function()
 	WithHandoff(function(scene)
 		local D = Dialogs()
 		ns.Dialog = D
@@ -639,7 +652,7 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 			assert(draft.text:find(ns.L.RECRUIT_INVITE_LIMIT_PASS:format(10), 1, true), "the popup says the limit is reached")
 			assert(draft.def.button2Shown(draft, draft.data), "and offers Pass")
 			draft:Hide()
-			-- Automatic offers on: the next JOIN and the next sighting go to other members, no popup.
+			-- Automatic offers on: the next JOIN goes out and the sighting stays in our queue.
 			eq(H.ToggleAuto(), true)
 			scene.now = scene.now + 21
 			R.OnWhisper("JOIN", "Twelfth Recruit-" .. home)
@@ -650,6 +663,11 @@ test("recruit handoff (1.5.8): at ten invites a minute new JOINs and sightings g
 			local tick = ScanOne(scene, "Far Walker-" .. home)
 			tick()
 			eq(D.Find(DRAFT), nil, "nor for a new sighting")
+			local sighting
+			R.Candidates.EachRow(function(row) sighting = row end)
+			assert(sighting, "scan remains queued locally")
+			eq(sighting.passWanted, nil, "scan is never marked for automatic handoff")
+			eq(H.Overflow(sighting), false, "the overflow handler also rejects scans")
 			scene.tick()
 			eq(H.Receive("WHISPER", mate, (assert(scene.packets[1]).word:gsub("^J4~P~", "J4~V~"))), true)
 			scene.tick()
@@ -1372,6 +1390,9 @@ end)
 test("recruit overflow (review of 1.5.8): a member who takes no names says no to a probe at once", function()
 	WithHandoff(function(scene)
 		WithLog(function()
+			-- (Changed on purpose in 1.6.0, as in "an eligible recipient privately replies...": his yes asks
+			-- that his screen can show the Claim question; an empty screen of Olympus's dialogs here.)
+			ns.Dialog = Dialogs()
 			local function Probe(id)
 				return ("J4~P~%s~%d~ForeverPvE~Alliance~%s~%s~"):format(id, scene.now + 20, own, own)
 			end
@@ -2350,11 +2371,14 @@ test("recruit hello (1.5.9, regression): a member who takes handoffs says so in 
 			eq(heard.full[mate].takes, false)
 			eq(heard.short[ns.Fold(ns.ShortName(me))], heard.full[me], "by the short name too")
 			eq(reader.Comm.PeerRealm(me), reader.Comm.PeerRealm(mate), "the realm field reads the same")
-			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other.
+			-- A 0.9.8 client (the fixture) counts the flagged hello's version as any other. (1.6.0.1: it reads a
+			-- hello's first three numbers, ^H1~(%d+%.%d+%.%d+) in its Comm, so 1.6.0.1 counts there as 1.6.0,
+			-- beside its own count under its own.)
 			local oldest, hearOld = FreshComm(true)
 			oldest.me = "Reader Member-" .. home
 			hearOld("GUILD", me, flagged:sub(7))
-			eq(oldest.Comm.PeerVersions()[ns.VERSION], 2, "ours and the flagged peer's, its flag ignored")
+			local versions, read = oldest.Comm.PeerVersions(), ns.VERSION:match("^%d+%.%d+%.%d+")
+			eq((versions[read] or 0) + (read ~= ns.VERSION and versions[ns.VERSION] or 0), 2, "ours and the flagged peer's, its flag ignored")
 		end)
 		C_ChatInfo, GetTime = savedChat, savedTime
 		if not ok then error(err, 0) end
@@ -2427,7 +2451,10 @@ test("recruit hello (review of 1.5.9, regression): a client that takes no handof
 			local oldest, hearOld = FreshComm(true)
 			oldest.me = "Reader Member-" .. home
 			if hello then hearOld("GUILD", "Refusing Member-" .. home, hello) end
-			oldCount = oldest.Comm.PeerVersions()[ns.VERSION]
+			-- (1.6.0.1: a 0.9.8 client reads a hello's first three numbers, ^H1~(%d+%.%d+%.%d+) in its Comm, so a
+			-- four-number version such as 1.6.0.1 counts there as 1.6.0, beside its own count under its own.)
+			local versions, read = oldest.Comm.PeerVersions(), ns.VERSION:match("^%d+%.%d+%.%d+")
+			oldCount = (versions[read] or 0) + (read ~= ns.VERSION and versions[ns.VERSION] or 0)
 		end)
 		C_ChatInfo = savedChat
 		if not ok then error(err, 0) end
@@ -3126,5 +3153,611 @@ test("join screen request (1.5.9): mixed versions: a 1.5.8 member takes this bui
 		eq(R.OnJoinRequest("WHISPER", applicant, oldSent), true)
 		local draft = assert(D.Find(DRAFT), "the JOIN's popup")
 		eq(draft.data.req.name, applicant)
+	end)
+end)
+
+test("recruit handoff: a claimed scan is identified as a sighting and earns no referral credit", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(H.Toggle(), true)
+		local id = "1234-ab-1-0"
+		eq(H.Receive("WHISPER", mate, Packet(scene, "O", own, own, nil, id)), true)
+		local claim = assert(D.Find(CLAIM))
+		assert(claim.text:find("scanning", 1, true), "the claim says how the player was found")
+		assert(Find(R.WhisperLines(), "Claim scanned player from"), "the queue distinguishes a sighting")
+		claim:Hide()
+		eq(H.Claim(claim.data), true)
+		local ranking, credited = ns.RecruitRanking, 0
+		ns.RecruitRanking = { HandedIn = function() credited = credited + 1 end }
+		local accepted = H.Receive("WHISPER", mate, Packet(scene, "N", own, own, applicant, id))
+		ns.RecruitRanking = ranking
+		eq(accepted, true)
+		eq(credited, 0, "no referral credit for a sighting")
+		assert(R.requests[1].sighting, "origin preserved in the queue")
+		assert(scene.printed[#scene.printed]:find("found by a scan", 1, true), "no claim that the player asked to join")
+		assert(assert(D.Find(DRAFT)).text:find("found by a scan", 1, true), "the invite shows how the player was found")
+	end)
+end)
+
+test("recruit join routing skips a full guild and withholds gates without known room", function()
+	local saved = { guild = GetGuildInfo, inGuild = IsInGuild, outside = ns.Comm.WhisperOutside,
+		open = R.OpenGuilds, gates = ns.Acts.Gates, count = GetNumGuildMembers, now = ns.Now,
+		send = SendChatMessage, dialog = ns.Dialog }
+	local ok, err = pcall(function()
+		R.ResetForTests()
+		local now = ns.Now()
+		ns.Now = function() return now end
+		GetGuildInfo = function() return own end
+		GetNumGuildMembers = function() return ns.Codec.GUILD_CAP, 10 end
+		R.OpenGuilds = function()
+			return { { name = own, free = 10, e = { g = {} } }, { name = sister, free = 400, e = { g = {} } } }
+		end
+		ns.Acts.Gates = function() return { guild = own, at = ns.Now() + 3600 } end
+		local route = assert(R.ParseRoute(R.RouteAnswer()))
+		eq(route.gates, nil, "the local roster takes precedence over an older estimate with room")
+		eq(route.byName[own].free, 0, "a full guild is explicitly marked")
+		eq(#route.byName[own].contacts, 0, "there are no contacts in a full guild's report")
+		eq(route.byName[sister].free, 400, "a guild with room stays available")
+
+		GetGuildInfo, IsInGuild = function() return nil end, function() return false end
+		ns.Comm.WhisperOutside = function() return true end
+		ns.Dialog = Dialogs()
+		local full, roomy = { name = "Full-Realm", guild = own }, { name = "Roomy-Realm", guild = sister }
+		R.OnFound({ roomy, full })
+		eq(R.OnRoute(roomy.name, "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
+		eq(R.Route().byName[own], nil, "an outsider cannot close another guild")
+		eq(R.NextContact(own), full, "unknown capacity keeps the manual contact available")
+		eq(R.OnRoute(full.name, "J2~y~" .. own .. "~3600~" .. own .. "=0=Full;" .. sister .. "=400=Roomy"), true)
+		local positive = "J2~y~" .. own .. "~3600~" .. sister .. "=400=Roomy"
+		eq(R.OnRoute(roomy.name, positive), true)
+		eq(R.Route().gates, nil, "legacy gates cannot override a full guild")
+		eq(R.Prompt(full), nil, "opening an invite request directly also respects the guild's capacity")
+		local sent = 0
+		SendChatMessage = function() sent = sent + 1 end
+		R.lastAsk = -1000
+		eq(R.Ask(full, "JOIN"), false, "an already-open draft cannot route to a guild that filled up")
+		eq(sent, 0, "no native whisper went out")
+		eq(R.NextContact(own), nil, "no contact for a full guild, even through /who")
+		eq(R.NextContact().guild, sister, "the general request goes to a guild with room")
+		R.asked["Roomy-Realm"] = ns.Now()
+		eq(R.NextContact(), nil, "does not fall back to the only remaining full guild")
+		eq(R.OnRoute(full.name, "J2~y~" .. own .. "~3600~" .. own .. "=10=Full"), true)
+		eq(R.NextContact(own).name, full.name, "a fresh answer from the guild reopens it")
+		eq(R.Route().gates, own, "confirmed gates can use the newly available space")
+	end)
+	R.ResetForTests()
+	GetGuildInfo, IsInGuild, ns.Comm.WhisperOutside = saved.guild, saved.inGuild, saved.outside
+	R.OpenGuilds, ns.Acts.Gates, GetNumGuildMembers = saved.open, saved.gates, saved.count
+	ns.Now, SendChatMessage, ns.Dialog = saved.now, saved.send, saved.dialog
+	if not ok then error(err, 0) end
+end)
+
+test("recruit decline reports suppress cold scans only in the same guild and on updated clients", function()
+	WithHandoff(function(scene)
+		WithDecline(function()
+			local chatInfo = C_ChatInfo
+			local ok, err = pcall(function()
+				local modern = FreshComm()
+				local legacy, deliverLegacy = FreshComm(true)
+				local guild, words = own, {}
+				local guildApi = GetGuildInfo
+				local function Test()
+					GetGuildInfo = function() return guild end
+					local function LoadRecruit(client, name)
+						client.me, client.db, client.rdb = name, { blocked = {} }, {}
+						client.Now = function() return scene.now end
+						client.Recruit = nil
+						-- Recruit.lua defines several pop-ups in the live table. Restore all of
+						-- them so later tests still call the primary client's handlers.
+						local definitions = {}
+						for name, def in pairs(StaticPopupDialogs) do definitions[name] = def end
+						local loaded, why = pcall(assert(loadfile(FIXTURES .. "../../Olympus/Recruit.lua")), "Olympus", client)
+						for name in pairs(StaticPopupDialogs) do StaticPopupDialogs[name] = definitions[name] end
+						assert(loaded, why)
+					end
+					-- The older client has no JD handler. It can still receive the packet from the game.
+					LoadRecruit(modern, me)
+					modern.Comm.Send = function(dist, word, _, _, _, _, options)
+						eq(dist, "GUILD")
+						assert(options.guard())
+						words[#words + 1] = word
+						return true
+					end
+					local otherClient, deliverOther = FreshComm()
+					LoadRecruit(otherClient, mate)
+					eq(modern.Recruit.OnSystemLine(DECLINE:format("New Recruit")), true)
+					local word = assert(words[1], "a genuine game decline emitted a guild hint")
+					assert(not word:find("New Recruit", 1, true), "the hint carries no player name")
+					eq(modern.Recruit.Declined(applicant), true, "the inviter still keeps the native decline")
+					deliverLegacy("GUILD", me, word)
+					eq(legacy.Comm.Stats().byType.JD, nil, "the legacy client ignores the unknown hint")
+
+					local remote = otherClient.Recruit
+					deliverOther("WHISPER", me, word)
+					deliverOther("GUILD", officer, word)
+					eq(remote.ScanDeclined(applicant), false, "whispers and users outside this roster are ignored")
+					-- Have the second client's roster confirm both guild members.
+					ns.Roster.RankOf = function(name) return (name == me or name == mate) and 0 or nil end
+					scene.fresh = false
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), false, "a stale roster cannot vouch for a guildmate")
+					scene.fresh = true
+					otherClient.Dialog = Dialogs()
+					eq(remote.ToggleWhisperRecruiting(), true)
+					remote.OnWhisper("JOIN", applicant)
+					local req = assert(remote.requests[1])
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), true, "new client honors the same-guild report")
+					eq(remote.Declined(applicant), false, "peer hints do not become native declines")
+					eq(remote.requests[1], req, "a real JOIN is kept")
+					eq(remote.TakeHandoff(applicant, me, true), false, "the cold handoff is suppressed")
+					guild = sister
+					eq(remote.ScanDeclined(applicant), false, "another guild has independent scan choices")
+					guild = own
+					scene.now = scene.now + 7 * 86400
+					deliverOther("GUILD", me, word)
+					eq(remote.ScanDeclined(applicant), false, "expired hints cannot return from replay")
+				end
+				local ran, why = pcall(Test)
+				GetGuildInfo = guildApi
+				if not ran then error(why, 0) end
+			end)
+			C_ChatInfo = chatInfo
+			if not ok then error(err, 0) end
+		end)
+	end)
+end)
+
+test("recruit popup interval: one automatic prompt, persisted per guild, with manual queue review", function()
+	WithHandoff(function(scene)
+		local D = Dialogs()
+		ns.Dialog = D
+		local function Setting()
+			local line = assert(Id(R.WhisperLines(), "recruit-popup-gap"))
+			return line.filters[1]
+		end
+		local filter = Setting()
+		eq(filter.value, ns.L.RECRUIT_POPUP_GAP_DEFAULT)
+		local daily = filter.options[#filter.options]
+		eq(daily.text, ns.L.RECRUIT_POPUP_GAP_DAILY)
+		daily.onClick()
+		R.OnWhisper("JOIN", "First Applicant-" .. home)
+		local first = assert(D.Find(DRAFT), "first automatic prompt")
+		first:Hide()
+		scene.now = scene.now + 22
+		R.OnWhisper("JOIN", "Second Applicant-" .. home)
+		eq(D.Find(DRAFT), nil, "no automatic prompt inside the selected interval")
+		local second = assert(R.requests[2])
+		eq(R.Accept(second), true, "manual review of the queue is still available")
+		assert(D.Find(DRAFT)).Hide()
+
+		R.ResetForTests()
+		eq(R.ToggleWhisperRecruiting(), true)
+		eq(Setting().value, daily.text, "the preference survives reset")
+		R.OnWhisper("JOIN", "After Reload-" .. home)
+		eq(D.Find(DRAFT), nil, "the clock is kept across sessions")
+		-- A new request just after the interval still gets the normal popup.
+		scene.now = scene.now + 86400
+		R.OnWhisper("JOIN", "After A Day-" .. home)
+		local draft = assert(D.Find(DRAFT), "automatic prompt returns after the interval")
+		eq(draft.data.req.name, "After A Day-" .. home)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.6.0: the ad reminder (players' reports on 1.5.9: the popup asking to post the recruiting ad in
+-- General came every few minutes and nothing on it said how to slow it down or turn it off).
+---------------------------------------------------------------------------
+
+-- Two joined public channels, the scene's ad reminder every `minutes`, and its tick.
+local function WithAdReminder(scene, minutes, fn)
+	local savedList, savedChat = GetChannelList, C_ChatInfo
+	GetChannelList = function() return 1, "General", false, 2, "Trade", false end
+	C_ChatInfo = setmetatable({ GetChannelInfoFromIdentifier = function(name) return { zoneChannelID = #name } end },
+		{ __index = savedChat })
+	local ok, err = pcall(function()
+		local D = Dialogs()
+		ns.Dialog = D
+		eq(R.SetAnnounceReminder(minutes), true)
+		fn(D, function() return scene.timers["recruiting reminder"]() end)
+	end)
+	GetChannelList, C_ChatInfo = savedList, savedChat
+	if not ok then error(err, 0) end
+end
+local AD = "OLYMPUS_RECRUIT_ANNOUNCEMENT"
+
+-- Fails before 1.6.0: a reminder's tick opened its draft over a JOIN's invite pop-up or a handoff's
+-- Claim, two recruiting popups on screen at once (theirs already waited for an ad's draft).
+test("recruit ad reminder (1.6.0, regression): one recruiting popup at a time: its tick waits while a JOIN's invite draft or a Claim is open", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 30, function(D, Tick)
+			R.OnWhisper("JOIN", "First Applicant-" .. home)
+			local invite = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
+			Tick()
+			eq(D.Find(AD), nil, "no ad draft over the invite pop-up")
+			invite:Hide()
+			Tick()
+			local ad = assert(D.Find(AD), "the next tick opens it")
+			ad:Hide()
+			D.Show(CLAIM, "Guild Recruiter", nil, {})
+			Tick()
+			eq(D.Find(AD), nil, "nor over a handoff's Claim")
+			D.Hide(CLAIM)
+			Tick()
+			assert(D.Find(AD), "then it opens")
+			local open = D.Find(AD)
+			Tick()
+			eq(D.Find(AD), open, "and one ad draft at most")
+		end)
+	end)
+end)
+
+-- Fails before 1.6.0: the popup had Close and Post alone. Its Less often (1.5.9's 5 minutes: 30, then
+-- 60, then 120, where it is no longer offered) and Turn off are the player's choices as the menu in
+-- Church > Invites makes them, saved for this character, and its text says how often it comes and
+-- where to change it or turn it back on. An ad the player opened himself has neither.
+-- (Changed on purpose, the author's ask of 11-16: its own Turn off became Turn off recruiting under it,
+-- beside Pause recruiting, as on every recruiting popup that opens by itself; it asks first, and its
+-- "only ad reminders" does what the Turn off did. The tests after this one cover the rest.)
+test("recruit ad reminder (1.6.0, regression): its popup's Less often and Turn off, saved; the line saying where to turn it back on; none on an ad opened by hand", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 5, function(D, Tick)
+			local L, def = ns.L, StaticPopupDialogs[AD]
+			-- (Kept by the character's name alone on Forever, its family's sub-realms sharing it.)
+			local key = ns.ShortName(me)
+			local function Saved() return ns.rdb.recruitAds and ns.rdb.recruitAds[key] and ns.rdb.recruitAds[key].minutes end
+			local function Printed(text)
+				for _, line in ipairs(scene.printed) do if line == text then return true end end
+				return false
+			end
+			eq(Saved(), 5, "1.5.9's interval, as its Census offer saved it")
+			Tick()
+			local draft = assert(D.Find(AD), "a reminder's draft")
+			eq(draft.data.reminder, true)
+			assert(draft.shown:find("\n\n" .. L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(5), 1, true), "it says every 5 min and where: " .. tostring(draft.shown))
+			eq(def.button3, L.RECRUIT_ANNOUNCE_LESS)
+			eq(def.button3Shown(draft, draft.data), true, "Less often")
+			local function Row(f) return def.more(f, f.data) end
+			eq(Row(draft)[2].label, L.RECRUIT_TURN_OFF_BUTTON, "Turn off (recruiting)")
+			for _, step in ipairs({ 30, 60, 120 }) do
+				def.OnAlt(draft, draft.data, "clicked")
+				eq(R.AnnounceReminderMinutes(), step, "Less often: every " .. step .. " min")
+				eq(Saved(), step, "saved as a choice")
+				eq(draft.open, false, "the draft closes")
+				assert(Printed(L.RECRUIT_ANNOUNCE_REMINDER_SLOWER:format(step)), "a chat line says where to change it")
+				Tick()
+				draft = assert(D.Find(AD), "the next reminder")
+				assert(draft.shown:find(L.RECRUIT_ANNOUNCE_REMINDER_NOTE:format(step), 1, true), draft.shown)
+			end
+			eq(def.button3Shown(draft, draft.data), false, "at 120 min no Less often")
+			eq(Row(draft)[2].label, L.RECRUIT_TURN_OFF_BUTTON, "Turn off still")
+			def.OnAlt(draft, draft.data, "clicked")
+			eq(R.AnnounceReminderMinutes(), 120, "a stale Less often changes nothing")
+			scene.cancelled = nil
+			Row(draft)[2].onClick(draft, draft.data)
+			local question = assert(D.Find("OLYMPUS_RECRUIT_TURN_OFF"), "Turn off asks first")
+			local only = StaticPopupDialogs.OLYMPUS_RECRUIT_TURN_OFF.more(question, question.data)
+			eq(only[1].label, L.RECRUIT_OFF_ONLY_ADS, "only the ad reminder, or all of recruiting")
+			only[1].onClick(question, question.data)
+			eq(R.AnnounceReminderMinutes(), 0, "Turn off")
+			eq(Saved(), 0, "saved off")
+			eq(scene.cancelled, true, "its timer stops")
+			eq(draft.open, false, "the draft closes")
+			assert(Printed(L.RECRUIT_ANNOUNCE_REMINDER_STOPPED), "a chat line says where to turn it back on")
+			eq(R.IsWhisperRecruiting(), true, "recruiting itself stays on")
+			-- An ad opened from Church > Invites: Close and Post alone, and no line about a reminder.
+			assert(Find(R.WhisperLines(), L.RECRUIT_ANNOUNCE_CHANNEL:format(1, "General"))).onClick()
+			local manual = assert(D.Find(AD), "the ad opened by hand")
+			eq(manual.data.reminder, nil)
+			eq(def.button3Shown(manual, manual.data), false)
+			eq(Row(manual), nil, "no Pause recruiting nor Turn off recruiting")
+			eq(manual.shown, L.RECRUIT_ANNOUNCE_COPY:format("General"), "the Post line alone")
+			def.OnAlt(manual, manual.data, "clicked")
+			eq(manual.open, true, "neither acts on it")
+			eq(R.AnnounceReminderMinutes(), 0)
+			-- Turned on again in Church > Invites, the popup is the reminder's again.
+			eq(R.SetAnnounceReminder(30), true)
+			manual:Hide()
+			scene.timers["recruiting reminder"]()
+			draft = assert(D.Find(AD))
+			eq(def.button3Shown(draft, draft.data), true, "at 30 min Less often again")
+		end)
+	end)
+end)
+
+---------------------------------------------------------------------------
+-- 1.6.0 (the author's ask, 11-16: "nos pop-ups que avisam, podiam ter dois botões ... pausar
+-- recrutamento ou desativar recrutamento ... na hora de parar, ele pode perguntar se é parar só aquele
+-- de convite, deixar os outros, ou parar tudo"): Pause recruiting and Turn off recruiting under every
+-- recruiting popup that opens by itself. Each fails before: no such row, no Recruit.Pause.
+---------------------------------------------------------------------------
+local PAUSE, TURN_OFF = "OLYMPUS_RECRUIT_PAUSE", "OLYMPUS_RECRUIT_TURN_OFF"
+-- The row under a popup (Dialog.lua's `more`) as Dialog.Show reads it, and the player's click on one of it.
+local function Row(f)
+	local more = f.def and f.def.more
+	if type(more) == "function" then more = more(f, f.data) end
+	return more
+end
+local function Labels(row)
+	local out = {}
+	for _, item in ipairs(row or {}) do out[#out + 1] = item.label end
+	return table.concat(out, " | ")
+end
+local function Choose(f, label)
+	for _, item in ipairs(Row(f) or {}) do
+		if item.label == label then return item.onClick(f, f.data) end
+	end
+	error("no " .. label .. " under " .. tostring(f.which) .. ": " .. Labels(Row(f)))
+end
+local function Printed(scene, text)
+	for _, line in ipairs(scene.printed) do if line == text then return true end end
+	return false
+end
+-- The pause's end and a waiting question's look, by name (WithHandoff keeps ns.After's calls unnamed).
+local function NamedLater()
+	local named, plain = {}, ns.After
+	ns.After = function(delay, name, fn)
+		if name == "recruiting pause" or name == "recruit question" then named[name] = { delay = delay, fn = fn } return end
+		return plain(delay, name, fn)
+	end
+	return named
+end
+
+test("recruit pause (1.6.0): every recruiting popup that opens by itself has Pause recruiting and Turn off recruiting, its Turn off naming its own switch; none on one a click opened", function()
+	WithHandoff(function(scene)
+		local L, D = ns.L, Dialogs()
+		ns.Dialog = D
+		local both = L.RECRUIT_PAUSE_BUTTON .. " | " .. L.RECRUIT_TURN_OFF_BUTTON
+		local function OnlyOf(f)
+			Choose(f, L.RECRUIT_TURN_OFF_BUTTON)
+			local q = assert(D.Find(TURN_OFF), "Turn off asks first")
+			local labels = Labels(Row(q))
+			q:Hide()
+			return labels
+		end
+		-- A JOIN's invite command.
+		R.OnWhisper("JOIN", applicant)
+		local draft = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
+		eq(draft.data.automatic, true)
+		eq(Labels(Row(draft)), both)
+		eq(OnlyOf(draft), L.RECRUIT_OFF_ONLY_JOINS .. " | " .. L.RECRUIT_OFF_ONLY_ALL)
+		draft:Hide()
+		-- The same JOIN's command opened by a click (Prepare invite in Church > Invites): neither.
+		eq(R.Accept(R.requests[1]), true)
+		local clicked = assert(D.Find(DRAFT))
+		eq(clicked.data.automatic, nil)
+		eq(Row(clicked), nil, "none on a popup a click opened")
+		clicked:Hide()
+		-- A handoff's Claim.
+		eq(H.Toggle(), true)
+		H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+		local claim = assert(D.Find(CLAIM), "the Claim question")
+		eq(Labels(Row(claim)), both)
+		eq(OnlyOf(claim), L.RECRUIT_OFF_ONLY_HANDOFFS .. " | " .. L.RECRUIT_OFF_ONLY_ALL)
+		claim:Hide()
+		-- A scanned player's invite command.
+		local tick = ScanOne(scene, "Lone Wolf-" .. home)
+		tick()
+		local scan = assert(D.Find(DRAFT), "the scan's pop-up")
+		assert(scan.data.candidate and scan.data.automatic)
+		eq(Labels(Row(scan)), both)
+		eq(OnlyOf(scan), L.RECRUIT_OFF_ONLY_SCAN .. " | " .. L.RECRUIT_OFF_ONLY_ALL)
+		scan:Hide()
+		-- A reply to review (it opens by itself alone), and the moderation warning in an invite's place:
+		-- opened by itself, the JOIN's row; opened from a click, none.
+		eq(Labels(StaticPopupDialogs.OLYMPUS_RECRUIT_REPLY.more()), both)
+		local netoff = StaticPopupDialogs.OLYMPUS_RECRUIT_NETOFF
+		eq(Labels(netoff.more(nil, { req = R.requests[1], automatic = true })), both)
+		eq(netoff.more(nil, { req = R.requests[1] }), nil)
+		-- Neither question has a box of its own to take the keyboard; each has Cancel.
+		for _, which in ipairs({ PAUSE, TURN_OFF }) do
+			eq(StaticPopupDialogs[which].hasEditBox, nil, which)
+			eq(StaticPopupDialogs[which].button1, CANCEL or "Cancel", which)
+		end
+	end)
+end)
+
+test("recruit pause (1.6.0): Pause asks for how long; while paused no recruiting popup opens by itself and requests and offers wait in Church > Invites; it ends on time and what waited pops up; Resume", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 30, function(D, AdTick)
+			local L = ns.L
+			local later = NamedLater()
+			eq(H.Toggle(), true, "accepting handoffs")
+			local scanTick = ScanOne(scene, "Lone Wolf-" .. home)
+			eq(R.SelfWord(), "r", "recruiting: a request pops up for him")
+			R.OnWhisper("JOIN", applicant)
+			local draft = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
+			Choose(draft, L.RECRUIT_PAUSE_BUTTON)
+			local q = assert(D.Find(PAUSE), "Pause asks for how long")
+			eq(draft.open, true, "its popup stays up until he answers")
+			local choices = {}
+			for _, m in ipairs({ 15, 30 }) do choices[#choices + 1] = L.RECRUIT_ANNOUNCE_REMINDER_ON:format(m) end
+			for _, h in ipairs({ 1, 2, 4 }) do choices[#choices + 1] = L.RECRUIT_POPUP_GAP_HOURS:format(h) end
+			eq(Labels(Row(q)), table.concat(choices, " | "), "15 min to 4 hours")
+			Choose(q, L.RECRUIT_ANNOUNCE_REMINDER_ON:format(15))
+			local ends = scene.now + 15 * 60
+			eq(R.Paused(), true); eq(R.PausedUntil(), ends)
+			eq(q.open, false, "the question closes"); eq(draft.open, false, "and the popup it was asked from")
+			assert(Printed(scene, L.RECRUIT_PAUSED:format(date("%H:%M", ends))), "a chat line says until when")
+			eq(R.IsWhisperRecruiting(), true, "recruiting stays on")
+			-- Church > Invites says until when, with Resume.
+			local lines = R.WhisperLines()
+			eq(Id(lines, "recruit-paused").text, L.RECRUIT_PAUSED_UNTIL:format(date("%H:%M", ends)))
+			local resume = assert(Id(lines, "recruit-resume"))
+			eq(resume.text, L.RECRUIT_RESUME); eq(resume.primary, true)
+			-- While paused nothing pops up by itself, and nothing is lost.
+			scene.now = scene.now + 60
+			R.OnWhisper("JOIN", "Second Recruit-" .. home)
+			eq(#R.requests, 2, "the JOIN is taken")
+			eq(D.Find(DRAFT), nil, "no invite pop-up")
+			assert(Find(R.RequestLines(true), "Second Recruit"), "it waits in Church > Invites")
+			AdTick(); eq(D.Find(AD), nil, "no ad draft")
+			scanTick(); eq(D.Find(DRAFT), nil, "no scanned player's pop-up")
+			H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+			eq(D.Find(CLAIM), nil, "no Claim question")
+			assert(Find(R.WhisperLines(), L.RECRUIT_HANDOFF_CLAIM:format("Sister Recruiter", sister)), "the offer waits under Handoffs")
+			-- A guildmate's probe is told no at once, and a recruit's Join screen reads that a request waits in his list.
+			local before = #scene.packets
+			eq(H.Receive("WHISPER", mate, ("J4~P~5678-cd-1~%d~ForeverPvE~Alliance~%s~%s~"):format(scene.now + 20, own, own)), true)
+			assert(scene.packets[before + 1].word:match("^J4~D~"), "the probe is told no")
+			eq(R.SelfWord(), "i", "paused: a request waits in his list")
+			-- On time it ends, and the JOIN that waited pops up.
+			local timer = assert(later["recruiting pause"], "the pause's end is timed")
+			eq(timer.delay, 15 * 60)
+			scene.now = ends
+			eq(R.Paused(), false, "over at its end")
+			timer.fn()
+			assert(Printed(scene, L.RECRUIT_RESUMED), "a chat line says it")
+			local popped = assert(D.Find(DRAFT), "the JOIN that waited pops up")
+			eq(popped.data.req.name, "Second Recruit-" .. home)
+			eq(R.SelfWord(), "r")
+			eq(Id(R.WhisperLines(), "recruit-paused"), nil, "Church > Invites no longer says paused")
+			-- Resume ends one at once.
+			popped:Hide()
+			eq(R.Pause(30), true)
+			eq(R.Paused(), true)
+			Id(R.WhisperLines(), "recruit-resume").onClick()
+			eq(R.Paused(), false, "Resume")
+			eq(Id(R.WhisperLines(), "recruit-resume"), nil)
+			eq(R.Resume(), false, "nothing to resume")
+		end)
+	end)
+end)
+
+test("recruit turn off (1.6.0): Turn off recruiting asks: only the switch behind its popup (ad reminder, JOIN pop-ups, accepting handoffs, the scan) or all of recruiting; Church > Invites turns each back on", function()
+	WithHandoff(function(scene)
+		WithAdReminder(scene, 30, function(D, AdTick)
+			local L = ns.L
+			local function TurnOff(f, label)
+				Choose(f, L.RECRUIT_TURN_OFF_BUTTON)
+				local q = assert(D.Find(TURN_OFF), "Turn off asks first")
+				eq(f.open, true, "its popup stays up until he answers")
+				Choose(q, label)
+				eq(q.open, false, "the question closes")
+				eq(f.open, false, "and the popup it was asked from")
+			end
+			local function Line(id) return Id(R.WhisperLines(), id) end
+			-- The ad reminder alone.
+			AdTick()
+			TurnOff(assert(D.Find(AD), "an ad reminder's draft"), L.RECRUIT_OFF_ONLY_ADS)
+			eq(R.AnnounceReminderMinutes(), 0, "the ad reminder off")
+			assert(Printed(scene, L.RECRUIT_ANNOUNCE_REMINDER_STOPPED))
+			eq(R.IsWhisperRecruiting(), true, "recruiting stays on")
+			-- The JOIN pop-ups alone: Incoming JOIN, Queue only; the JOIN waits in Church > Invites.
+			R.OnWhisper("JOIN", applicant)
+			TurnOff(assert(D.Find(DRAFT)), L.RECRUIT_OFF_ONLY_JOINS)
+			assert(Line("recruit-whisper-arrival").text:find(L.RECRUIT_WHISPER_QUEUE_ONLY, 1, true), "Incoming JOIN: Queue only")
+			assert(Printed(scene, L.RECRUIT_OFF_JOINS))
+			eq(#R.requests, 1, "the JOIN waits in Church > Invites")
+			scene.now = scene.now + 30
+			R.OnWhisper("JOIN", "Second Recruit-" .. home)
+			eq(D.Find(DRAFT), nil, "the next JOIN pops up nothing")
+			Line("recruit-whisper-arrival").onClick()
+			assert(Line("recruit-whisper-arrival").text:find(L.RECRUIT_WHISPER_POPUP_ON, 1, true), "Church > Invites turns them back on")
+			local back = assert(D.Find(DRAFT), "and the JOIN that waited pops up")
+			back:Hide()
+			-- Accepting handoffs alone.
+			eq(H.Toggle(), true)
+			H.Receive("WHISPER", officer, Packet(scene, "O", sister, own))
+			TurnOff(assert(D.Find(CLAIM)), L.RECRUIT_OFF_ONLY_HANDOFFS)
+			eq(H.Accepting(), false, "handoffs off")
+			assert(Find(R.WhisperLines(), L.RECRUIT_HANDOFF_OFF), "Church > Invites shows it off")
+			assert(Printed(scene, L.RECRUIT_OFF_HANDOFFS))
+			-- The scan alone.
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			TurnOff(assert(D.Find(DRAFT), "the scan's pop-up"), L.RECRUIT_OFF_ONLY_SCAN)
+			eq(R.Candidates.Enabled(), false, "the scan off")
+			assert(Printed(scene, L.RECRUIT_OFF_SCAN))
+			eq(R.IsWhisperRecruiting(), true, "recruiting on after each")
+			-- Each comes back on in Church > Invites.
+			assert(Find(R.WhisperLines(), L.RECRUIT_CANDIDATES_OFF)).onClick()
+			eq(R.Candidates.Enabled(), true)
+			assert(Find(R.WhisperLines(), L.RECRUIT_HANDOFF_OFF)).onClick()
+			eq(H.Accepting(), true)
+			-- All of recruiting: the Recruiting switch, as Church > Invites turns it off; it turns it back on.
+			scene.now = scene.now + 600
+			R.OnWhisper("JOIN", "Third Recruit-" .. home)
+			TurnOff(assert(D.Find(DRAFT)), L.RECRUIT_OFF_ONLY_ALL)
+			eq(R.IsWhisperRecruiting(), false, "recruiting off")
+			assert(Printed(scene, L.RECRUIT_OFF_ALL))
+			assert(Find(R.WhisperLines(), L.RECRUIT_WHISPER_OFF)).onClick()
+			eq(R.IsWhisperRecruiting(), true, "Church > Invites turns it back on")
+			eq(H.Accepting(), true, "with the switches as he left them")
+			eq(R.Candidates.Enabled(), true)
+		end)
+	end)
+end)
+
+test("recruit pause (1.6.0): its questions wait out a fight, an instance and typing in the chat box, then open; asked from the popup's own box they open at once", function()
+	WithHandoff(function(scene)
+		local L, D = ns.L, Dialogs()
+		ns.Dialog = D
+		local later = NamedLater()
+		local saved = { combat = InCombatLockdown, instance = IsInInstance, focus = GetCurrentKeyBoardFocus }
+		local state = {}
+		InCombatLockdown = function() return state.combat == true end
+		IsInInstance = function() return state.instance == true end
+		GetCurrentKeyBoardFocus = function() return state.focus end
+		local ok, err = pcall(function()
+			R.OnWhisper("JOIN", applicant)
+			local draft = assert(D.Find(DRAFT))
+			for _, case in ipairs({ { "combat", true }, { "instance", true }, { "focus", {} } }) do -- ({}: the game's chat box)
+				local what = case[1]
+				state[what] = case[2]
+				local printed = #scene.printed
+				Choose(draft, L.RECRUIT_PAUSE_BUTTON)
+				eq(D.Find(PAUSE), nil, what .. ": the question waits")
+				eq(scene.printed[printed + 1], L.RECRUIT_ASK_LATER, what .. ": a chat line says when it opens")
+				local look = assert(later["recruit question"], what .. ": looked at again in a moment")
+				later["recruit question"] = nil
+				eq(look.delay, R.ASK_RETRY)
+				look.fn()
+				eq(D.Find(PAUSE), nil, what .. ": still waiting")
+				look = assert(later["recruit question"])
+				later["recruit question"] = nil
+				state[what] = nil
+				look.fn()
+				assert(D.Find(PAUSE), what .. " over: the question opens"):Hide()
+				eq(draft.open, true, "the popup it was asked from stays up")
+			end
+			-- Typing in a box of the popup's own (its command, for Ctrl+C): the question opens at once.
+			state.focus = { olympusBox = true }
+			Choose(draft, L.RECRUIT_TURN_OFF_BUTTON)
+			assert(D.Find(TURN_OFF), "asked from the popup's own box, it opens at once")
+			eq(later["recruit question"], nil)
+		end)
+		InCombatLockdown, IsInInstance, GetCurrentKeyBoardFocus = saved.combat, saved.instance, saved.focus
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("recruit pause (1.6.0): a paused member's hello says he takes no handoffs, so guildmates neither name him first to a recruit nor ask him; J again once it ends", function()
+	WithHandoff(function(scene)
+		local savedChat, savedTime = C_ChatInfo, GetTime
+		local ok, err = pcall(function()
+			local cns = FreshComm()
+			local sent = {}
+			C_ChatInfo.SendAddonMessage = function(_, msg, dist) sent[#sent + 1] = dist .. " " .. msg end
+			local function Flag()
+				local before = #sent
+				cns.Comm.Hello(true)
+				for _ = 1, 4 do cns.Comm.Pump() end
+				for i = before + 1, #sent do
+					local flag = sent[i]:match("^GUILD H1~.*~([Jj])$")
+					if flag then return flag end
+				end
+			end
+			eq(H.Toggle(), true)
+			eq(Flag(), "J", "he takes handoffs")
+			eq(R.Pause(15), true)
+			eq(Flag(), "j", "paused: none")
+			eq(H.Accepting(), true, "his switch as he left it")
+			eq(R.Resume(), true)
+			eq(Flag(), "J", "resumed")
+		end)
+		C_ChatInfo, GetTime = savedChat, savedTime
+		if not ok then error(err, 0) end
 	end)
 end)

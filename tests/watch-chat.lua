@@ -201,8 +201,9 @@ local function World(fn)
 				ChannelName = function() return "OlympusChannel" end, Audience = function() return "everyone" end,
 				IsPublic = function() return true end, DropLine = function() end, PeerCount = function() return 1 end,
 				CancelQueued = function() return 0 end,
-				Send = function(dist, msg, key, plain, logged, done, options)
-					w.wire[#w.wire + 1] = { from = cl, dist = dist, msg = msg, key = key, logged = logged, done = done, options = options }
+				Send = function(dist, msg, key, urgent, logged, done, options)
+					w.wire[#w.wire + 1] = { from = cl, dist = dist, msg = msg, key = key, urgent = urgent == true, logged = logged, done = done,
+						options = options }
 					return true
 				end,
 				SendChat = function(msg, done, line, guard)
@@ -387,8 +388,10 @@ test("watch: chat moderation: one line is deleted on every client: the Chat tab'
 		eq(after, beforeLines, "nothing more to a companion")
 		local late = ns.Codec.EncodeChat("A", X, id, "", "first rude line")
 		local shown, why = w.Inject("CHANNEL", B.name, D, late)
-		eq(why, "dup", "heard twice within two minutes: the duplicate check drops it first")
-		w.epoch = w.epoch + 121 -- (past Channels' DEDUPE_WINDOW: only the tombstone knows it now)
+		eq(why, "dup", "heard twice within the duplicate window: the duplicate check drops it first")
+		-- (Past Channels' duplicate window, Channels.DedupeWindow: 120 s before 1.6.0, as long as a relay copy
+		-- may still come since. Only the tombstone knows it now.)
+		w.epoch = w.epoch + D.ns.Channels.DedupeWindow() + 1
 		shown, why = w.Inject("CHANNEL", B.name, D, late)
 		eq(shown, false); eq(why, "deleted", "a late copy is dropped")
 		shown, why = w.Inject("CHANNEL", B.name, Y1, late)
@@ -997,6 +1000,102 @@ test("watch: chat moderation: the guild master names and removes Watchers; only 
 		eq(w.As(A, A.W.IsAuthorized, D.name), true)
 		eq(w.As(D, D.WC.MayApplyJudgment), true)
 		eq(w.As(A, A.WC.MayApplyJudgment), false, "another officer does not")
+	end)
+end)
+
+-- (1.6.0, the moderators' report of 2026-11-16: a timeout silenced the player for the moderator who gave
+-- it, others still saw him.) On WoW: Forever a name is one across its realm family, and each client sees a
+-- player under its own sub-realm (a bare name in the channel's text, completed with its own) or as a
+-- relay's client stamped him: the namer's list, the relay's stamp of the moderator and of the player, the
+-- reader's stamp of his lines and the player's own name all differ. Keyed as stamped, the reader took the
+-- moderator for nobody, the timeout matched none of the player's lines, and his own client never knew.
+test("watch: chat moderation (1.6.0, Forever): a moderator's timeout counts under any sub-realm stamp of the family: the reader drops the player's lines, the player's own client refuses to send; another family's namesake and a stranger's word stay as before", function()
+	World(function(w)
+		local G, A, B, D, Y1 = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local Tr = w.Client("Troll", X, 3)
+		Tr.ns.me = "Troll-CAMWOWUS2Realm3PvE" -- (his own client: his own sub-realm)
+		-- The councillor names the moderator as his own client writes him, under the councillor's sub-realm.
+		assert(w.As(Co, Co.WC.SetMod, "Modder-CAMWOWUS2Realm1PvE", true))
+		w.epoch = w.epoch + 3
+		w.Run()
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvE"), true, "the moderator under another stamp of his family")
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvP"), false, "another family's namesake is nobody's moderator")
+		-- The timeout as a relay hands it on: the moderator and the player as that relay's client stamped them.
+		local at = w.epoch
+		local word = ("MD~1~T~O~%d~%d~-~Troll-CAMWOWUS2Realm1PvE~%d~-~-~spam"):format(at - D.WC.SEQ_EPOCH, at, at + 600)
+		for _, cl in ipairs({ D, Tr }) do
+			local ok, why = w.Inject("CHANNEL", "Modder-CAMWOWUS2Realm5PvE", cl, word)
+			eq(ok, true, "taken on " .. cl.short .. ": " .. tostring(why))
+		end
+		-- His line as the reader's channel names him: bare, under the reader's own sub-realm.
+		local shown, why = w.Inject("CHANNEL", "Troll-CAMWOWUS2Realm7PvE", D, ns.Codec.EncodeChat("A", X, 77, "", "still here"))
+		eq(shown, false); eq(why, "timeout", "the reader drops his line")
+		eq(w.As(D, D.WC.Silenced, "Troll-CAMWOWUS2Realm1PvE"), true, "and under the moderator's stamp")
+		-- His own client holds it at once: told, and it refuses to send.
+		assert(w.As(Tr, Tr.WC.SelfTimeout), "his own client holds the timeout")
+		eq(select(2, w.As(Tr, Tr.WC.RefuseSend)), "timeout", "his own client refuses to send")
+		-- Another family's namesake is another player; a stranger's word is still nobody's.
+		shown, why = w.Inject("CHANNEL", "Troll-CAMWOWUS2Realm7PvP", D, ns.Codec.EncodeChat("A", X, 78, "", "not him"))
+		assert(why ~= "timeout", "another family's namesake is not silenced: " .. tostring(why))
+		local _, refused = w.Inject("CHANNEL", "Faker-CAMWOWUS2Realm7PvE", D,
+			("MD~1~T~O~%d~%d~-~Other-CAMWOWUS2Realm1PvE~%d~-~-~"):format(at - D.WC.SEQ_EPOCH + 1, at, at + 600))
+		eq(refused, "actor", "a stranger gives no timeout under any stamp")
+		eq(w.As(D, D.WC.Silenced, "Other-CAMWOWUS2Realm7PvE"), false)
+		-- A save from before 1.6.0: the same timeout and list kept under the stamps they came with. Filed again
+		-- once under the family (WatchChat's Store), they count at once, without a repeat.
+		local s = D.ns.rdb.chatMod
+		s.timeouts["troll-camwowus2realm1pve"], s.timeouts["troll-foreverpve"] = s.timeouts["troll-foreverpve"], nil
+		for _, list in pairs(s.modLists) do list.set = { ["modder-camwowus2realm1pve"] = true } end
+		s.familyKeys = nil
+		eq(w.As(D, D.WC.Silenced, "Troll-CAMWOWUS2Realm7PvE"), true, "an old save's timeout counts under the reader's stamp")
+		eq(w.As(D, D.WC.IsMod, "Modder-CAMWOWUS2Realm7PvE"), true, "and its moderators' list")
+		eq(s.timeouts["troll-camwowus2realm1pve"], nil, "filed again under the family")
+	end)
+end)
+
+-- (1.6.0, the moderators' report of 2026-11-16) What a relay carries ahead of the chat lines in its chat lane
+-- (Relay.lua's FirstSanction) is what its own WatchChat calls a sanction from whoever may give it, the
+-- check every reader makes (TakeAction, TakeSelf), applying and spending nothing.
+test("watch: chat moderation (1.6.0): the words a relay carries first are a sanction itself from whoever may give it (WatchChat.SanctionWord): a moderator's timeout, a member's own word on his guild's; never the moderators' list, an appeal, a stranger's word or one he passes on; a sanction's first word leaves urgent, its repeat as before", function()
+	World(function(w)
+		local G, A, B, D, Y1 = Standard(w)
+		w.council[Fold("Councillor-Realm")] = true
+		local Co = w.Client("Councillor", Y, 3)
+		local Mo = w.Client("Modder", Y, 3)
+		assert(w.As(Co, Co.WC.SetMod, Mo.name, true))
+		w.epoch = w.epoch + 3
+		w.Run()
+		local function Job(prefix)
+			for i = #w.wire, 1, -1 do if w.wire[i].msg:sub(1, #prefix) == prefix then return w.wire[i] end end
+		end
+		assert(w.As(Mo, Mo.WC.Timeout, B.name, 1800, "spam"))
+		local job = assert(Job("MD~1~T~O~"), "the timeout queued")
+		eq(job.urgent, true, "a sanction's first word leaves urgent")
+		local word = job.msg
+		w.Run()
+		local key, actor = w.As(D, D.WC.SanctionWord, word, Mo.name)
+		assert(key, "a moderator's timeout is a sanction"); eq(actor, Mo.name)
+		eq(w.As(D, D.WC.SanctionWord, word, Y1.name), nil, "the same word from a stranger is nobody's")
+		local passed = word:gsub("~%-~spam$", "~" .. Mo.name .. "~spam")
+		eq(w.As(D, D.WC.SanctionWord, passed, Y1.name), nil, "nor passed on by him")
+		eq(w.As(D, D.WC.SanctionWord, w.Sent("MD~1~O~")[1].msg, Co.name), nil, "the moderators' list goes in line")
+		eq(w.As(D, D.WC.SanctionWord, ("MD~1~A~%d~%s~5~T~let me speak"):format(w.epoch, Mo.name), B.name), nil, "an appeal too")
+		-- A guild's timeout: the player's own word on the channel (S), a member's of the guild it names.
+		assert(w.As(A, A.WC.Timeout, D.name, 300, ""))
+		w.Run()
+		local own = assert(w.Sent("MD~1~S~T~")[1], "D's own word").msg
+		assert(w.As(B, B.WC.SanctionWord, own, D.name), "a member's own word is a sanction (his guildmate's roster says so)")
+		eq(w.As(B, B.WC.SanctionWord, own, Y1.name), nil, "not from someone outside the guild it names")
+		-- Its repeat (WatchChat.REPEAT later) as before: not urgent.
+		w.epoch = w.epoch + Mo.WC.REPEAT + 1
+		local queued = #w.wire
+		w.As(Mo, Mo.WC.Tick)
+		local again
+		for i = queued + 1, #w.wire do if w.wire[i].msg == word then again = w.wire[i] end end
+		assert(again, "the timeout repeated")
+		eq(again.urgent, false, "its repeat as before")
 	end)
 end)
 

@@ -1076,8 +1076,19 @@ function UI.CensusHeader(s, now)
 	now = now or ns.Now()
 	local F = ns.FormatNumber
 	local all = ns.Data.Groups and ns.Data.Groups(s, now)
-	local header = { characters = s.characters or s.total or 0,
-		secondary = L.CENSUS_HEADER_ALL:format(F(all and all.characters or s.characters or s.total or 0)) }
+	local total = F(all and all.characters or s.characters or s.total or 0)
+	local header = { characters = s.characters or s.total or 0, secondary = L.CENSUS_HEADER_ALL:format(total) }
+	-- (1.6.0) A server's last count stays in the totals until a newer one arrives (Data.lua's Lasting), ours
+	-- too while nothing newer reaches this client (Data.ApplyGroupSnapshot): past a day (TOTAL_KEEP, when a
+	-- guild's own report leaves the count) the smaller number says the date of its oldest count.
+	local keep = tonumber(ns.Data.TOTAL_KEEP) or 86400
+	local oldest = all and tonumber(all.oldestOther)
+	local saved = s.snapshot and tonumber(s.snapshot.observed)
+	if saved then oldest = math.min(oldest or saved, saved) end
+	if oldest and now - oldest > keep then
+		header.secondary = L.CENSUS_HEADER_ALL_OLD:format(total, date("%m/%d", oldest))
+		header.allNote = L.CENSUS_HEADER_ALL_OLD_TIP:format(date("%m/%d %H:%M", oldest))
+	end
 	local heard = ns.Data.Rebuilding and ns.Data.Rebuilding(now)
 	if s.snapshot then
 		local observed = date("%m/%d %H:%M", s.snapshot.observed)
@@ -1088,6 +1099,10 @@ function UI.CensusHeader(s, now)
 			local live = s.live or {}
 			header.sub = L.CENSUS_HEADER_SAVED:format(observed, F(live.freshCharacters or 0), live.freshGuilds or 0)
 			header.note = L.CENSUS_HEADER_SAVED_TIP:format(observed)
+			-- (1.6.0) Kept past its day because no newer report has reached this client: say so.
+			if s.snapshot.quiet and now - s.snapshot.observed > keep then
+				header.note = header.note .. " " .. L.CENSUS_HEADER_QUIET_TIP
+			end
 		end
 	elseif s.history then
 		local label = s.history.unscoped and L.CENSUS_HEADER_UNSCOPED or L.CENSUS_HEADER_HISTORY
@@ -1335,7 +1350,9 @@ local function CreateMain(style)
 		local s = ns.Data.Summary()
 		GameTooltip:AddLine(L.CENSUS_HEADER_ALL_TIP, 0.8, 0.8, 0.8, true)
 		local header = UI.CensusHeader(s)
-		if header.note then GameTooltip:AddLine(header.note, 0.8, 0.8, 0.8, true) end
+		-- (1.6.0) And the date of the oldest count in the all-server total, when it is old.
+		local note = header.allNote and (header.note and (header.note .. "\n" .. header.allNote) or header.allNote) or header.note
+		if note then GameTooltip:AddLine(note, 0.8, 0.8, 0.8, true) end
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(L.HEADER_TIP_DIFFER, 0.8, 0.8, 0.8, true)
 		-- 1.1.2: why the list's columns don't add up to these totals (the answer bank's).
@@ -3359,7 +3376,8 @@ ns.RegisterEvent("UI_SCALE_CHANGED", function() ns.SafeCall("relayout", Relayout
 -- The bug report, with "Send to <author>" while the addon's author is online (Workshop.lua).
 function UI.ShowBugReport()
 	local text = ns.BuildBugReport()
-	UI.ShowCopy(L.REPORT_BUG, text, ns.Workshop and ns.Workshop.BugAction and ns.Workshop.BugAction(text) or nil)
+	local send = ns.Workshop and ns.Workshop.BugAction and ns.Workshop.BugAction(text) or nil
+	UI.ShowCopy(L.REPORT_BUG, text, send, { hint = L.BUG_COPY_HINT })
 end
 
 -- Where the addon lives: its code and issues (the toc's X-Website), its CurseForge page.
@@ -3428,7 +3446,8 @@ end
 -- "versions", his /oly status "status"; the help and every Copy share "copy"), big = larger, with
 -- a Select all button (the reports: long, and read before copied), auto = opened by itself (no
 -- keyboard: see the end), second = (1.1.5) a { label, fn } button after the first (the help's
--- version letters) }. Each key's window keeps its place and text while another one shows.
+-- version letters), hint = custom copy instructions }. Each key's window keeps its place and
+-- text while another one shows.
 local copyFrames = {}
 local COPY_PLACES = { bug = { 0, 30 }, versions = { 60, -30 }, status = { -60, 30 } }
 
@@ -3520,6 +3539,7 @@ function UI.ShowCopy(title, text, action, opts)
 	local selectAll = rawget(copyFrame, "selectAll")
 	button.fn = action and action.fn or nil
 	button:SetShown(action ~= nil)
+	copyFrame.hint:SetText(opts.hint or L.COPY_HINT)
 	-- With the button on the left, the hint moves right.
 	copyFrame.hint:ClearAllPoints()
 	if action or selectAll then

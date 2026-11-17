@@ -977,7 +977,8 @@ test("1.5.9 recruiting ranking: the README and the CurseForge page tell of the r
 			-- mark kept him from counting twice "never"; the keepers catch a move only where their own addon saw
 			-- the player, for 120 days. And the inviter's own report, the passer's word, the top 10.)
 			"a move no keeper's addon saw is not caught", "so he does not count again in that time",
-			"when his addon and yours both say so", "each inviter's own report and each passer's word",
+			"when both addons confirm the handoff", "Passing on a player found by a scan does not earn that share.",
+			"each inviter's own report and each passer's word",
 			"the top 10 and his own place", "your own invites whose player joined, always",
 			-- (Review of the 1.5.9 release: the pages put the keeper's guildmate whose invite the keeper's own
 			-- log saw among the witnesses that need your own report, left out a High Councillor, who confirms
@@ -1367,6 +1368,47 @@ test("1.5.9 recruiting ranking: a join, a quit and two members' invites in one h
 		eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, before .. " older events: no own report of Ivo's")
 		eq(Naming(w, c.ivo, "Sid Pass", "Quick Leave"), 2, before .. " older events: his word names Sid")
 	end
+end)
+
+test("1.5.9 recruiting ranking: one-hour guild logs never credit an invite sent after the join", function()
+	for _, newestFirst in ipairs({ false, true }) do
+		for _, knownOrder in ipairs({ false, true }) do
+			local w, c = Cast()
+			w.newestFirst = newestFirst
+			if knownOrder then Recruit(w, World.GUILD, "Wes Brook", "Fresh Kid", 0) end
+			Recruit(w, World.GUILD, "Sid Pass", "Quick Leave", 0)
+			w:Run(60)
+			w:LogEvent(World.GUILD, "quit", "Quick Leave", nil, 0)
+			Leave(w, World.GUILD, "Quick Leave")
+			w:LogEvent(World.GUILD, "invite", "Ivo Plain", "Quick Leave", 0)
+			w:ClearSent()
+			eq(w:ReadLog(c.ivo), true)
+			w:Run(10)
+			eq(Naming(w, c.ivo, "Ivo Plain", "Quick Leave"), 0, "the later invite earns no report")
+			eq(Naming(w, c.ivo, "Sid Pass", "Quick Leave"), knownOrder and 2 or 0, "the join has a report only when its order is known")
+			if knownOrder then eq(Naming(w, c.ivo, "Wes Brook", "Fresh Kid"), 2, "the clean pair still counts") end
+		end
+	end
+end)
+
+test("1.5.9 recruiting ranking: another character on the inviter's account is not an independent witness", function()
+	local shared = {}
+	local w, c = Cast({ ivy = { name = "Ivy Plain", rdb = shared } })
+	c.ivo.c.rdb = shared
+	c.ivy.c.db.myCharacters = { ["ivo plain-realm"] = true }
+	Recruit(w, World.GUILD, "Ivo Plain", "New Guy", 0)
+	c.ivo.online = false
+	w:Presence()
+	w:ClearSent()
+	eq(w:ReadLog(c.ivy), true)
+	eq(Naming(w, c.ivy, "Ivo Plain", "New Guy"), 0, "the alt never reports the pair")
+	c.ivy.online, c.ivo.online = false, true
+	w:Presence()
+	w:ReadLog(c.ivo)
+	eq(Naming(w, c.ivo, "Ivo Plain", "New Guy"), 2, "the original inviter can still report it")
+	eq(Score(w, c.a1, "Ivo Plain"), 0, "the inviter alone does not confirm the recruit")
+	w:ReadLog(c.wes)
+	eq(Score(w, c.a1, "Ivo Plain"), 10, "a guildmate can still confirm the recruit")
 end)
 
 -- The account's record of the events read goes (EV_DAYS, or wiped past EV_MAX) while the events are still in a

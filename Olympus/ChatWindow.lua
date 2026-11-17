@@ -47,7 +47,7 @@ local L = ns.L
 --   ns.EscapeCloses (nothing on UISpecialFrames with the gamepad UI: its X closes it there).
 -- - Links in a line show their tooltip on hover (GameTooltip:SetHyperlink) and go into its own
 --   box with a Shift-click; never ChatEdit_InsertLink or HandleModifiedItemClick. 1.5.4: a left
---   click on an item, spell, enchant or quest link opens the game's link window as a click in the
+--   click on an item, spell, enchant, quest or trade link opens the game's link window as a click in the
 --   game's chat does (SetItemRef, the gate's item-ref), with mouse and keyboard alone; and an item
 --   shows with the name and colour this client's item data gives it (ChatWindow.Relink).
 -- Nothing is drawn while the tab is hidden: a change marks it dirty and it redraws at most every
@@ -87,7 +87,7 @@ local GUIDE_X = 20                                    -- the Olympus tab's line:
 local MAX_NOTES = 5
 local LOOK_GAP = 1                                    -- the Olympus tab awaited: the game's chat windows read this often
 local GREY = "|cff9d9d9d"
-local LINK_TIPS = { item = true, spell = true, enchant = true, quest = true } -- (the links Codec lets through)
+local LINK_TIPS = { item = true, spell = true, enchant = true, quest = true, trade = true } -- (the links Codec lets through)
 local WHY = { moved = "CHATWIN_WHY_MOVED", late = "CHATWIN_WHY_LATE", failed = "CHATWIN_WHY_FAILED", left = "CHATWIN_WHY_LEFT",
 	-- 1.2.4: a room's line refused at Enter (ChatRooms.Send's reasons), or every whisper of it lost
 	-- on its way (Comm's and the room's permit's reasons): each its own words, not "the game refused it".
@@ -677,9 +677,15 @@ local function InsertLink(text)
 	if eb.Insert then eb:Insert(text) else eb:SetText((eb:GetText() or "") .. text) end
 end
 
+local function SafeLinkKind(link)
+	if type(link) ~= "string" then return nil end
+	local kind, data = link:match("^(%a+):(.*)$")
+	if not kind or not LINK_TIPS[kind] or not ns.Codec.ValidLinkData(kind, data) then return nil end
+	return kind
+end
+
 local function LinkTip(owner, link)
-	local kind = type(link) == "string" and link:match("^(%a+):")
-	if not kind or not LINK_TIPS[kind] then return end
+	if not SafeLinkKind(link) then return end
 	GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
 	if pcall(GameTooltip.SetHyperlink, GameTooltip, link) then
 		GameTooltip:Show()
@@ -690,100 +696,32 @@ local function LinkTip(owner, link)
 end
 
 -- 1.5.4 (the dev: items "clicável, com hover que aparece os detalhes do item"): a left click on an
--- item, spell, enchant or quest link in a line opens the game's link window, as a click in the
+-- item, spell, enchant, quest or trade link in a line opens the game's link window, as a click in the
 -- game's chat does (ChatFrame's OnHyperlinkClick calls SetItemRef, which shows ItemRefTooltip).
--- Never for another link type (a player link would open the game's chat box), and never with the
--- gamepad UI (a game panel from Olympus there): the hover tooltip stays, the click does nothing.
+-- The target is checked again at this native boundary; never for malformed data or another link
+-- type (a player link would open the game's chat box), and never with the gamepad UI (a game panel
+-- from Olympus there): the hover tooltip stays, the click does nothing.
 function ChatWindow.LinkClick(link, text, button) -- gp:item-ref
 	if not ns.Gate.Allowed("item-ref") then return false end
-	local kind = type(link) == "string" and link:match("^(%a+):")
-	if not kind or not LINK_TIPS[kind] or button ~= "LeftButton" then return false end
+	if not SafeLinkKind(link) or button ~= "LeftButton" then return false end
 	if type(SetItemRef) ~= "function" then return false end
 	return (pcall(SetItemRef, link, text, button)) -- gp:item-ref
 end
 
--- 1.5.4: an item link in a line as this client's item data has the item: its name and its
--- quality's colour (C_Item.GetItemInfo on Forever, the global on an older client), in place of
--- the sender's, which a modified client could write as it liked; the link's own data stays (the
--- item the tooltip and the click open). An item the client holds no data of yet keeps its name,
--- the data is asked for once (RequestLoadItemDataByID), and its arrival (GET_ITEM_INFO_RECEIVED,
--- below) redraws the tab. Worked out once an era for each line that shows (ChatWindow.ViewOf).
--- Forever can return |cnIQ3:, which this FontString prints literally. Use the client's quality
--- RGB as hex instead; without usable RGB, Relink keeps a hex colour or leaves the link uncoloured.
-local function ItemColour(quality) -- gp:lookups
-	if not ns.Gate.Allowed("lookups") then return end
-	if not Finite(quality) or quality < 0 or quality % 1 ~= 0 then return end
-	local colours = ITEM_QUALITY_COLORS
-	local c = type(colours) == "table" and colours[quality]
-	if type(c) ~= "table" or not Finite(c.r) or not Finite(c.g) or not Finite(c.b) then return end
-	return "|c" .. Hex({ c.r, c.g, c.b })
-end
-ChatWindow.itemLooks = {} -- item id -> { name, colour } as the client has it, false for none to be had
-ChatWindow.itemsAsked = {} -- item id -> asked the client for its data
+-- 1.5.4/1.6.0: item names and colours use the same presentation boundary as native chat and
+-- Chattynator (Channels.Relink). The Chat tab keeps a cache of its own because item-data arrival
+-- redraws its existing bubbles; native chat only presents each new line and never rewrites one.
+ChatWindow.itemLooks = {}
+ChatWindow.itemsAsked = {}
 function ChatWindow.ItemLook(id)
-	local itemLooks, itemsAsked = ChatWindow.itemLooks, ChatWindow.itemsAsked
-	local look = itemLooks[id]
-	if look ~= nil then return look or nil end
-	local I = C_Item
-	local get = type(I) == "table" and type(I.GetItemInfo) == "function" and I.GetItemInfo
-		or (type(GetItemInfo) == "function" and GetItemInfo) or nil
-	if not get then
-		itemLooks[id] = false
-		return nil
-	end
-	local ok, name, link, quality = pcall(get, id)
-	if ok and type(name) == "string" and name ~= "" and #name <= 100 and not name:find("[%[%]|%c]") then
-		local colour = (type(link) == "string" and link:match("^|c%x%x%x%x%x%x%x%x")) or ItemColour(quality)
-		look = { name = name, colour = colour }
-		itemLooks[id] = look
-		return look
-	end
-	if not itemsAsked[id] and type(I) == "table" and type(I.RequestLoadItemDataByID) == "function" then
-		itemsAsked[id] = true
-		pcall(I.RequestLoadItemDataByID, id)
-	end
-	return nil
+	return ns.Channels.ItemLook(id, ChatWindow)
 end
 function ChatWindow.Relink(text)
-	if type(text) ~= "string" or not text:find("|Hitem:", 1, true) then return text end
-	local Codec = ns.Codec
-	local out, i, n = {}, 1, #text
-	while i <= n do
-		local j = text:find("|", i, true)
-		if not j then
-			out[#out + 1] = text:sub(i)
-			break
-		end
-		if j > i then out[#out + 1] = text:sub(i, j - 1) end
-		local len = text:byte(j + 1) ~= 124 and Codec.LinkAt(text, j) or nil
-		if not len then
-			out[#out + 1] = text:sub(j, j + 1)
-			i = j + 2
-		else
-			local link = text:sub(j, j + len - 1)
-			local colour, data = link:match("^(|c[^|]*)|Hitem:([^|]*)|h%["), nil
-			if colour then data = link:match("^|c[^|]*|Hitem:([^|]*)|h%[") else data = link:match("^|Hitem:([^|]*)|h%[") end
-			if data and colour and colour:sub(1, 3) == "|cn" then
-				-- A validated item link only: drop its unsupported colour and matching reset, even
-				-- while the item is unknown. Its payload and name stay available to hover and click.
-				link, colour = link:sub(#colour + 1, -3), nil
-			end
-			local look = data and ChatWindow.ItemLook(tonumber(data:match("^(%d+)")))
-			if look then
-				colour = look.colour or colour
-				link = "|Hitem:" .. data .. "|h[" .. look.name .. "]|h"
-				if colour then link = colour .. link .. "|r" end
-			end
-			out[#out + 1] = link
-			i = j + len
-		end
-	end
-	return table.concat(out)
+	return ns.Channels.Relink(text, ChatWindow)
 end
 -- (GET_ITEM_INFO_RECEIVED, registered with the tab's other events below.)
 function ChatWindow.ItemInfoReceived(id)
-	id = tonumber(id)
-	if not id or not ChatWindow.itemsAsked[id] or ChatWindow.itemLooks[id] then return false end
+	if not ns.Channels.ItemInfoReceived(id, ChatWindow) then return false end
 	ChatWindow.Changed() -- (a new era: each line's look worked out again at the next redraw)
 	return true
 end
@@ -826,6 +764,8 @@ local function NewBubble(pane)
 		if not self.whisper then return end
 		Tip(self, function(tt)
 			tt:AddLine(self.full or self.whisper, 1, 0.82, 0)
+			-- (1.6.0) Another ruleset's writer, or one nobody can place: said before the whisper's line.
+			if self.note then tt:AddLine(self.note, 1, 0.5, 0.5, true) end
 			tt:AddLine(L.CHATWIN_WHISPER_TIP:format(self.whisper), 0.6, 0.6, 0.6)
 		end)
 	end)
@@ -1047,7 +987,11 @@ function ChatWindow.HeaderOf(v, e, deleted, chat)
 			v.whisper = tell or nil
 			v.tip = who .. "  <" .. ns.Codec.Plain(e.guild or "?") .. ">"
 		end
-		if not mine and tier == "A" then v.who = ns.Channels.GroupTag(tier, e) .. v.who end
+		-- (1.6.0: by the bubble's own room, `chat`, as an embedded pane's bubbles are drawn while the tab
+		-- shows [Olympus]; a tag now marks a line nobody can place too, Channels.GroupTag.)
+		if not mine and chat == "A" then v.who = ns.Channels.GroupTag(chat, e) .. v.who end
+		-- (1.6.0) The name's tooltip says when the writer plays another ruleset, or one nobody can place.
+		v.note = not mine and ns.Channels.RulesetNote(chat, e) or nil
 		v.headed, v.nativeGuild = true, nativeGuild
 	end
 	return v.who, v.when, v.whisper, v.tip
@@ -1096,7 +1040,7 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		veiled, modRoom, c[1], c[2], c[3], who
 	k[11], k[12], k[13], k[14], k[15], k[16], k[17], k[18], k[19], k[20] = when, whisper, full, text,
 		bodyFont, bodySize, bodyFlags, whoFont, whoSize, whoFlags
-	k[21], k[22], k.n = replyWho, replyText, 22
+	k[21], k[22], k[23], k.n = replyWho, replyText, start and v.note or nil, 23 -- (1.6.0: the name's ruleset note)
 	if ChatWindow.SameLook(b, k) then
 		b:ClearAllPoints()
 		if mine then
@@ -1124,10 +1068,11 @@ local function Bubble(i, e, start, y, maxInner, hides, pane, room)
 		headerW = math.ceil(TextWidth(b.who)) + 8 + timeW + (modRoom and 18 or 0) -- (room for the moderator's button, 1.1.6)
 		b.header.whisper = whisper
 		b.header.full = full
+		b.header.note = v.note
 		b.header:EnableMouse(not mine)
 		b.header:Show()
 	else
-		b.header.whisper, b.header.full = nil, nil
+		b.header.whisper, b.header.full, b.header.note = nil, nil, nil
 		b.header:Hide()
 	end
 	b.body:SetText(text)

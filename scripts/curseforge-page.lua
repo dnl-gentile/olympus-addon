@@ -63,6 +63,10 @@ M.CUTS = {
 	-- (1.2.6: the Olympus Companion named in the privacy section's first words passed the budget:
 	-- the alt links' rules are the README's; their opening stays.)
 	{ title = "Alt links (1.1): one player, counted once", keep = 1 },
+	-- (1.6.0 release integration: the merged lanes' news in the recent versions passed the budget by
+	-- about a thousand bytes: the Join screen keeps its opening, with 1.6.0's changes; Where to go is the
+	-- README's.)
+	{ title = "Not in Olympus yet?", keep = 1 },
 }
 
 -- The commands table's rows that stay, by their first command as the table writes it. (1.2.4: the

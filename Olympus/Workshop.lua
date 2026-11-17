@@ -669,7 +669,8 @@ function Workshop.AskServedOutdated(now)
 	local n = 0
 	for _, p in ipairs(due) do
 		if n >= budget then break end
-		-- (Gone offline since: the server's "No player named" kept out of his chat, as the relay's.)
+		-- (Gone offline since: the server's "No player named" stays out of his chat, as the relay's:
+		-- 1.6.0, Comm.SendNow's Accord.Tried marks the notice when it goes; R.Quiet registers the filter.)
 		if type(R.Quiet) == "function" then R.Quiet(p.name) end
 		-- (Marked before it is queued: a refusal can come back at once, and then unmarks him.)
 		local key = p.name:lower()

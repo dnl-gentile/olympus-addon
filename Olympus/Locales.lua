@@ -296,6 +296,52 @@ To everyone who sent ideas, bug reports and fixes: thank you. Special thanks to 
 Close and reopen WoW after updating. If something still fails, send an /oly bug report.
 
 Long live the King. Long live Olympus.]==]
+-- 1.6.0.1 (the dev: "Bota aí mais 2 semanas"): guild verification on Forever's realm groups but PvE
+-- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
+-- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
+L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_6_0_1 = [==[Your Majesty. Soldiers of Olympus.
+
+- {watch} Guild verification on the PvP and RP realms waits two more weeks: no guild there shows as overdue until 30 November.
+- {news} A short line sent again in the Olympus chat, like "gz", no longer goes missing for the other players after you have sent many lines.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
+-- 1.6.0: the alt's recruits for the main, the recruiting windows, the census rebuild; then (the review
+-- of the players' reports) the ad reminder's popup every 30 minutes (Recruit.AD_MINUTES) with Less
+-- often and Turn off, the census's last count kept with its date while nothing newer arrives, and a
+-- chat line shown once when a relay's copy arrives late; then (the fixes merged for the release) a
+-- Forever alt linked by its plain name, the handoffs, the Join screen asking recruiters first, the
+-- offline notices of Olympus's own whispers alone, the [?] of a line nobody can place, the name rule's
+-- comparisons, a guild master handed his guild's verification and the revocations that reach
+-- everyone; and (issue #110, pull request #109) profession and crafted item links that arrive whole.
+-- In every shipped language.
+L.LETTER_1_6_0_TITLE = "The Recruiter's Record"
+L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+L.LETTER_1_6_0 = [==[Your Majesty. Soldiers of Olympus.
+
+- {church} If you recruit on a confirmed alt, your Apostle or Missionary main gets the usual direct points once the guild log and an independent witness confirm the recruit. Link your characters with /oly alt add on your main, then confirm on the alt. On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.
+- {church} Recruiting prompts no longer take keyboard focus. Guilds without room for new players are skipped, and a nearby player who never asked to join is not automatically passed to another recruiter.
+- {church} Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window. The ad window has a Less often button; Church > Invites changes how often or turns it back on. If yours still comes every 5 minutes, click Less often.
+- {church} Handoffs: a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window. The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.
+- {church} Every recruiting window that opens by itself (an ad, a JOIN, a handoff or a scanned player) now has Pause recruiting and Turn off recruiting. Pause asks for how long, 15 minutes to 4 hours: until then nothing pops up, requests wait in Church > Invites and the Join Olympus page asks other recruiters first; Church > Invites shows until when, with Resume. Turn off asks whether to turn off only that kind of window or all of recruiting; Church > Invites turns it back on.
+- {guild} During a census rebuild, the last known count keeps its original time. Refresh requests can compare against that saved view and ask for updates it is missing.
+- {guild} When no new census reports reach your addon, the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.
+- {guild} The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.
+- {news} An Olympus chat line no longer shows twice when a relay's copy arrives late. At busy hours the relays stay linked, pass each line to the other relays first and share the wait fairly between guilds.
+- {news} Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.
+- {news} In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?], and hovering a writer's name says when he plays another ruleset, whose guilds can't invite you.
+- {news} Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and in the Chat tab.
+- {watch} Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.
+- {watch} On WoW: Forever, a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.
+- {watch} Revoking a guild's verification now reaches everyone: any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.
+- {watch} On WoW: Forever, a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines instead of minutes behind them at busy hours.
+
+Close and reopen WoW after updating. If something still fails, send an /oly bug report.
+
+Long live the King. Long live Olympus.]==]
 -- 1.5.9 (the author, 11-12: "Você pode, por favor, finalizar 1.5.9? ... tem coisa que a gente deixou
 -- para ela da estrutura da rede, do repasse"): the rest the 1.5.8 letter promised. The ranking for
 -- everyone, Church > Invites in sections, the kept switches, the Join page's request as a JOIN, the
@@ -535,6 +581,40 @@ A todos que mandaram ideias, relatos de bugs e correções: muito obrigado. Um a
 Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_0_1_HEAD, L.LETTER_1_6_0_1_SIGNED, L.LETTER_1_6_0_1_LINK = L.LETTER_1_6_0_1_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_6_0_1 = [==[Vossa Majestade. Soldados do Olympus.
+
+- {watch} A verificação de guildas nos reinos PvP e RP espera mais duas semanas: nenhuma guilda de lá aparece como atrasada até 30 de novembro.
+- {news} Uma frase curta enviada de novo no chat do Olympus, como "gz", não some mais para os outros jogadores depois de você mandar muitas linhas.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
+	L.LETTER_1_6_0_TITLE = "O registro do recrutador"
+	L.LETTER_1_6_0_HEAD, L.LETTER_1_6_0_SIGNED, L.LETTER_1_6_0_LINK = L.LETTER_1_6_0_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
+	L.LETTER_1_6_0 = [==[Vossa Majestade. Soldados do Olympus.
+
+- {church} Se você recrutar em um alt confirmado, seu Apóstolo ou Missionário principal recebe os pontos diretos de sempre quando o registro da guilda e uma testemunha independente confirmarem o recruta. Vincule os personagens com /oly alt add no principal e confirme no alt. No WoW: Forever, um alt em outro sub-reino é adicionado pelo nome simples; quando seus alts confirmarem, entre de novo no principal.
+- {church} As janelas de recrutamento não tiram mais o foco do teclado. Guildas sem vaga ficam fora da busca, e jogadores próximos que nunca pediram para entrar não são repassados automaticamente a outro recrutador.
+- {church} Os anúncios de recrutamento ligados pelo Censo agora aparecem a cada 30 minutos, não mais a cada 5, e nunca por cima de outra janela de recrutamento. A janela do anúncio tem o botão Menos vezes; Igreja > Convites muda a frequência ou liga de novo. Se o seu ainda aparece a cada 5 minutos, clique em Menos vezes.
+- {church} Repasses: o comando de convite de um jogador que você assumiu abre na hora, mesmo por cima da janela de um anúncio ou da janela de sussurro para um jogador da busca. O membro que repassou o jogador responde ao seu pedido mesmo em combate, membros ocupados são pulados e, se o nome não chegar, você é avisado.
+- {church} Toda janela de recrutamento que abre sozinha (um anúncio, um JOIN, um repasse ou um jogador da busca) agora tem Pausar recrutamento e Desativar recrutamento. Pausar pergunta por quanto tempo, de 15 minutos a 4 horas: até lá nada aparece, os pedidos esperam em Igreja > Convites e a página Entre na Olympus pergunta antes a outros recrutadores; Igreja > Convites mostra até quando, com Retomar. Desativar pergunta se desliga só aquele tipo de janela ou todo o recrutamento; Igreja > Convites liga de novo.
+- {guild} Durante a reconstrução do censo, a última contagem mantém o horário original. Os pedidos de atualização podem comparar com os dados salvos e pedir o que falta.
+- {guild} Quando nenhum relato novo do censo chega ao seu addon, o Censo mantém a última contagem, com a data em que foi feita, em vez de perder uma guilda de cada vez.
+- {guild} A página Entre na Olympus chama primeiro os membros que estão recrutando, pula quem não pode convidar e avisa quando todas as guildas encontradas estão cheias ou não sobrou ninguém para chamar.
+- {news} Uma linha do chat do Olympus não aparece mais duas vezes quando a cópia de um relay chega atrasada. Nos horários de pico, os relays continuam ligados entre si, passam cada linha primeiro aos outros relays e dividem a espera de forma justa entre as guildas.
+- {news} Só ficam escondidos os avisos de jogador offline causados pelos sussurros do próprio Olympus: se você mesmo sussurrar um jogador offline, ainda vê o aviso do jogo.
+- {news} No chat do Olympus, em Todos, uma linha cujo autor tem conjunto de regras desconhecido (versões antes da 1.5.9) aparece marcada com [?], e passar o mouse no nome de quem escreveu diz quando ele joga em outro conjunto de regras, cujas guildas não podem te convidar.
+- {news} Links de profissão e de itens fabricados enviados no chat do Olympus agora chegam inteiros a quem está na 1.6.0, clicáveis no chat do jogo e na aba Chat.
+- {watch} Guildas cujo nome só se compara ao Olympus ou diz que não é o Olympus deixam de contar como guildas do Olympus.
+- {watch} No WoW: Forever, o GM de uma guilda já verificada agora recebe essa verificação dos colegas de guilda na 1.6.0 que a têm, então uma instalação nova ou uma aprovação perdida não mostra mais Verificação do GM pendente, mesmo sem nenhum verificador online.
+- {watch} Revogar a verificação de uma guilda agora chega a todos: qualquer verificador pode revogar uma aprovação que o próprio cliente nunca recebeu, quem volta depois de alguns dias fora recebe a revogação, e uma guilda tirada da rede não mostra a marca de guilda verificada.
+- {watch} No WoW: Forever, o castigo de um moderador do chat, a retirada dele ou uma linha apagada agora vale para o jogador sob qualquer nome de sub-reino do mesmo conjunto de regras, e os relays levam isso à frente das linhas do chat, em vez de minutos depois delas nos horários de pico.
+
+Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
+
+Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_5_9_TITLE = "Todo o exército contado"
 	L.LETTER_1_5_9_HEAD, L.LETTER_1_5_9_SIGNED, L.LETTER_1_5_9_LINK = L.LETTER_1_5_9_TITLE, L.LETTER_1_5_4_SIGNED, L.LETTER_1_5_4_LINK
 	L.LETTER_1_5_9 = [==[Vossa Majestade. Soldados do Olympus.
@@ -647,6 +727,7 @@ L.COPY_DISCORD = "Copy for Discord"
 L.REPORT_BUG = "Report a bug"
 L.SHOW_MAP = "Show on map"
 L.COPY_HINT = "Copy with Ctrl+C or Cmd+C (Mac), then paste in Discord."
+L.BUG_COPY_HINT = "Copy with Ctrl+C or Cmd+C. GitHub Issues link in Help."
 L.STATUS_REPORTER = "You are reporting %s  (%d with the addon)"
 L.STATUS_PEER = "%s is reported by %s  (%d with the addon)"
 L.STATUS_NOGUILD = "You are not in a guild. You still see every Olympus guild."
@@ -1019,6 +1100,13 @@ L.RECRUIT_JOIN_REMINDER = "If no invite arrives, remind me to ask another member
 L.RECRUIT_JOIN_REMINDER_PROMPT = "Ready to try another Olympus member?"
 L.RECRUIT_JOIN_SHOW_GUILDS = "Browse Olympus guilds"
 L.RECRUIT_JOIN_HIDE_GUILDS = "Hide guild list"
+-- 1.6.0: what the Join screen learned of the member it asked (his own answer, Recruit.SelfWord), and
+-- why it found nobody to ask.
+L.RECRUIT_JOIN_CANT_INVITE = "%s can't invite: ask another member."
+L.RECRUIT_JOIN_FULL = "<%s> is full: ask another guild."
+L.RECRUIT_JOIN_ALL_FULL = "Every Olympus guild found is full. Try again later."
+L.RECRUIT_JOIN_NOBODY = "Everyone found was already asked or can't take your request. Try again in a few minutes."
+L.RECRUIT_JOIN_RECRUITS = "%s recruits for <%s>: your request goes to their invite queue."
 L.RECRUIT_START = "Press Find Olympus online to see who is playing."
 L.RECRUIT_NONE_FOUND = "No Olympus member online in this search. Try again in a moment."
 L.RECRUIT_ONLINE = "%d online"
@@ -1544,7 +1632,7 @@ L.OFFICER_FIXED = "Captains are rank 1 (right below the guild master) in every g
 L.KEY_OFFICERS_ONLY = "Only officers of an Olympus guild can set the realm key."
 L.KEY_TOO_SHORT = "The key needs at least 6 characters."
 L.KEY_SET = "Realm key set: the Olympus channel is now sealed, your guildmates receive the key automatically."
-L.KEY_SET_FOREVER = "Realm key set: your guildmates receive it automatically. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your guild's typed chat lines out of it, and they reach the other guilds by the relays."
+L.KEY_SET_FOREVER = "Realm key set: your guildmates receive it automatically. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your guild's typed chat lines out of it, and the relays carry them only within your ruleset."
 L.KEY_CLEARED = "Realm key cleared: your guild is returning to the public Olympus channel."
 L.KEY_CLEARED_FOREVER = "Realm key cleared. On WoW: Forever your guild was on the public Olympus channel already: your guild's typed chat lines show in it again."
 L.KEY_CLEARED_TAKEN = "A guild officer returned your guild to the public Olympus channel."
@@ -1664,11 +1752,9 @@ L.CHANNEL_LOCKED = "Someone locked Olympus's hidden channel (%s) with a password
 -- 0.9.1: privacy
 L.CHANNEL_PUBLIC = "Your guild set no realm key, so the channel is public: anyone can join it by name."
 L.CHANNEL_SEALED = "Your guild sealed the channel with a realm key: anyone who holds the key can join it."
--- (1.5.9's review) A key holder's audience on Forever (Comm.Audience): the chat warning's, and what the zone, Board,
--- groups, privacy page and Treasurer's share questions say, so it fits any message they send. (Round 2) And it follows
--- their own "on the Olympus channel" without denying it: on Forever that channel is the public one, which the relays
--- carry; the key keeps none of it from showing as text there.
-L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key. On WoW: Forever the relays carry the Olympus channel: what goes on it reaches every Olympus guild, where any of their players can read it, and none of it shows as text in the game's public channel, which anyone can join."
+-- Used by privacy prompts for chat and other addon messages. Explain what a recipient can read
+-- and which part the realm key changes on Forever.
+L.CHANNEL_SEALED_FOREVER = "Your guild holds a realm key. On WoW: Forever, other Olympus players can read what their addons receive from relays. Your guild's typed chat stays off the public game channel and relays carry it within your ruleset."
 L.LOCATION_ASK = "|cffe6c35cOlympus: share your zone and layer?|r\n\nIf you share, the addon may announce on the Olympus channel your zone, your layer, your guild rank and your guild, with your name on each message (the game adds it): officers and one member in eight do, every 10 minutes and when their layer changes. Your guild's census then names your zone if you lead your guild or are an officer, and counts members per zone when your addon is the one sending it.\n\nEveryone on the Olympus channel receives it. %s\n\nKeep it private and none of that is sent. Asking to hop to a layer still sends the zone you are in and the layer you want.\n\nChange it any time with /oly location on or /oly location off."
 L.LOCATION_SHARE = "Share"
 L.LOCATION_KEEP = "Keep private"
@@ -2035,7 +2121,7 @@ L.QUIET_PRESENCE_LINE = "Quiet presence: Olympus stops announcing you and where 
 L.QUIET_PRESENCE_TIP = "You turned on Private presence, or an addon you authorized turned on a quiet presence. Olympus stops sending the words that announce you online or say where you are: no hello, census report, layer, map dot, layer-hop offer, court, donations or duty notice, help or crafter answer, Wanted sighting or sighting answer, profile presentation, nor the King's crown or the lists his client repeats. What other clients heard before lapses as after a logout. Your guildmates' census still reads the guild roster: a guild leader or officer still shows online there, and your zone may show for up to 12 minutes. With Private presence your guild is told, and its members' Olympus clients count you offline in the census they send (an older Olympus may not). Olympus chat lines you type, what you post yourself and the records your client relays still go out. Private presence stays on across logins until you turn it off. An addon's quiet presence ends when that addon turns it off, on a /reload or at logout; after a /reload, Olympus may say hello before that addon turns it on again."
 L.QUIET_PRESENCE_HELD = "Quiet presence is on: Olympus sends this once it is off."
 L.PUBLIC_NET_TIP = "No realm key is set, so every Olympus addon meets on the public %s channel. Anyone can join it by name and, with a one-line script, read everything sent there: the census, where people are (for those who share it), the three chats ([Captains] and [Lords] too) and the decrees. Sealed with a key, the channel's name and password come from the key and only players who hold it get in. An officer types /oly key <secret> once, and guildmates with the addon get the key over guild chat. Use the secret the officers of the other guilds use: a key of your own splits your guild off the army."
-L.PUBLIC_NET_TIP_FOREVER = "On WoW: Forever every Olympus addon meets on the public %s channel, whatever key its guild holds. Addons on 1.5.5 or later send the census and the rest by the relays, never on the channel, so what anyone who joins it can read is the chat lines typed by guilds without a realm key ([Captains] and [Lords] too) and the census older addons still send there. A realm key (/oly key) keeps your guild's typed lines out of it: they then reach the other guilds by the relays."
+L.PUBLIC_NET_TIP_FOREVER = "On WoW: Forever every Olympus addon meets on the public %s channel, whatever key its guild holds. Addons on 1.5.5 or later send the census and the rest by the relays, never on the channel, so what anyone who joins it can read is the chat lines typed by guilds without a realm key ([Captains] and [Lords] too) and the census older addons still send there. A realm key (/oly key) keeps your guild's typed lines out of it: the relays then carry them only within your ruleset."
 -- 1.1: the pinned line (request #9).
 L.PIN_LABEL = "Pinned"
 L.PIN_TIP = "Pinned by %s <%s>, %s. It ends in %d min, or when its author (or a higher rank) takes it down. Its words are the author's own, sent with the logged API, so abuse can be reported."
@@ -2186,10 +2272,10 @@ L.MENTOR_CAPTAIN_TIP = "Click: make them the mentor of %s (you are asked first).
 L.HELP_MENTORS = "  /oly recruits - Lords: your recruits, and a Captain as each one's mentor (one whisper to each, from your click)"
 -- 1.1 (Fern's #20): the Join screen's routing, do not contact, and an officer's yes or no.
 L.RECRUIT_ROUTE_TITLE = "Where to go"
-L.RECRUIT_ROUTE_TIP = "What %s's census says: the guild the King opened the gates of first (once two members say so), then the guilds with the most free slots that /who found online. A click asks one of that guild's Lords or Captains /who found, who can say yes or no."
+L.RECRUIT_ROUTE_TIP = "What %s's census says: the guild the King opened the gates of first (once two members say so), then the guilds with the most free slots that /who found online. A click asks one of that guild's recruiters, Lords or Captains /who found, who can say yes or no."
 L.RECRUIT_GATES = "the King's gates are open"
 L.RECRUIT_GATES_TIP = "The King chose this guild for new recruits: ask here first."
-L.RECRUIT_ROUTE_ASK_TIP = "Opens a ready-made whisper to one of its officers /who found online (or another member /who found). You can edit it before sending: one whisper per click."
+L.RECRUIT_ROUTE_ASK_TIP = "Opens a ready-made whisper to one of its recruiters or officers /who found online (or another member /who found). You can edit it before sending: one whisper per click."
 L.RECRUIT_STATE_DNC = "no recruit whispers"
 L.RECRUIT_DNC = "%s takes no recruit whispers: ask someone else (the list says who has room)."
 L.NOCONTACT_ON = "Do not contact: recruits' Join screens skip you. /oly nocontact off undoes it."
@@ -2275,7 +2361,7 @@ L.RECRUIT_CENSUS_ELSEWHERE = "You can turn these on any time in Church > Invites
 L.RECRUIT_CENSUS_ENABLED = "Recruiting on: popups will help you invite. To stop them, turn it off in Church > Invites."
 L.RECRUIT_CENSUS_STOP = "Stop the popups any time in Church > Invites."
 L.RECRUIT_CENSUS_ON_LINE = "Your recruiting is on. Click here for settings."
-L.RECRUIT_ACTIVATED_NOTICE = "Recruiting is on.\n\nWhile it is, popups will help you whisper and invite players: press Ctrl+C, then Ctrl+V, then Enter.\n\nTo stop the popups, turn recruiting off in Church > Invites."
+L.RECRUIT_ACTIVATED_NOTICE = "Recruiting is on.\n\nPop-ups help you whisper and invite players. To invite, click the command to select it, then press Ctrl+C, Ctrl+V, and Enter.\n\nTo stop the popups, turn recruiting off in Church > Invites."
 L.RECRUIT_CANDIDATES_OFF = "Scan unguilded players: Off"
 L.RECRUIT_CANDIDATES_ON = "Scan unguilded players: On"
 L.RECRUIT_CANDIDATE_PROMPTS_OFF = "Invite pop-ups: Off"
@@ -2291,6 +2377,10 @@ L.RECRUIT_EXPERIMENTAL = "(Experimental)"
 L.RECRUIT_CANDIDATE_SEARCH_MORE = "Search more unguilded players (/who)"
 L.RECRUIT_CANDIDATE_SEARCH_WAIT = "A /who is still on its way: try again in a few seconds."
 L.RECRUIT_WHISPER_POPUP_ON = "Incoming JOIN: Pop-up"
+L.RECRUIT_POPUP_GAP_TITLE = "Time between automatic recruiting pop-ups"
+L.RECRUIT_POPUP_GAP_DEFAULT = "Default"
+L.RECRUIT_POPUP_GAP_HOURS = "%d hr"
+L.RECRUIT_POPUP_GAP_DAILY = "24 hr"
 L.RECRUIT_WHISPER_QUEUE_ONLY = "Incoming JOIN: Queue only"
 L.RECRUIT_WHISPER_ON = "Recruiting: On"
 L.RECRUIT_WHISPER_OFF = "Recruiting: Off"
@@ -2334,6 +2424,32 @@ L.RECRUIT_ANNOUNCE_POST_WAIT = "A post was requested in this channel. Check the 
 L.RECRUIT_ANNOUNCE_POST_FALLBACK = "Posting is unavailable. You can copy the draft into the game chat."
 L.RECRUIT_ANNOUNCE_POST_EDITED = "Copy the edited draft into the game chat to post it."
 L.RECRUIT_ANNOUNCE_POST_CHECK = "Post requested. Check the channel before posting again."
+-- 1.6.0: on the ad reminder's popup, Less often and the line under the Post line; then one chat line.
+L.RECRUIT_ANNOUNCE_LESS = "Less often"
+L.RECRUIT_ANNOUNCE_REMINDER_NOTE = "Ad reminder: every %d min. Change it or turn it back on in Church > Invites."
+L.RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Ad reminder: every %d min. Change it in Church > Invites."
+L.RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Ad reminder off. Turn it back on in Church > Invites."
+-- 1.6.0 (the author's ask, 11-16): every recruiting pop-up that opens by itself has Pause recruiting and
+-- Turn off recruiting under its buttons, each asking first (Recruit.lua's StopRow); then a chat line, and
+-- Church > Invites' row and button while paused. (The ad popup's own Turn off became its Turn off recruiting.)
+L.RECRUIT_PAUSE_BUTTON = "Pause recruiting"
+L.RECRUIT_TURN_OFF_BUTTON = "Turn off recruiting"
+L.RECRUIT_PAUSE_ASK = "Pause recruiting for how long? Until then no recruiting pop-up opens by itself, and requests wait in Church > Invites."
+L.RECRUIT_PAUSED = "Recruiting paused until %s. Requests wait in Church > Invites, where Resume ends the pause."
+L.RECRUIT_PAUSED_UNTIL = "Paused until %s"
+L.RECRUIT_RESUME = "Resume"
+L.RECRUIT_RESUMED = "Recruiting resumed: its pop-ups open again."
+L.RECRUIT_TURN_OFF_ASK = "Turn off only this kind of pop-up, or all of recruiting? Church > Invites turns it back on."
+L.RECRUIT_OFF_ONLY_ADS = "Only ad reminders"
+L.RECRUIT_OFF_ONLY_JOINS = "Only JOIN pop-ups"
+L.RECRUIT_OFF_ONLY_HANDOFFS = "Only handoffs"
+L.RECRUIT_OFF_ONLY_SCAN = "Only the scan"
+L.RECRUIT_OFF_ONLY_ALL = "All recruiting"
+L.RECRUIT_OFF_JOINS = "JOIN pop-ups off: requests wait in Church > Invites, where Incoming JOIN turns them back on."
+L.RECRUIT_OFF_HANDOFFS = "Accepting handoffs off. Turn it back on in Church > Invites."
+L.RECRUIT_OFF_SCAN = "Unguilded player scan off. Turn it back on in Church > Invites."
+L.RECRUIT_OFF_ALL = "Recruiting off. Turn it back on in Church > Invites."
+L.RECRUIT_ASK_LATER = "That question opens once you are out of combat and instances and not typing."
 L.RECRUIT_ANNOUNCE_OPENING = "%s is recruiting!"
 L.RECRUIT_ANNOUNCE_OPENING_NAMED = "Looking for a guild? I'm %s from %s."
 L.RECRUIT_ANNOUNCE_OPENING_PLAY = "The Olympus army needs you! %s is recruiting. I'm %s."
@@ -2693,7 +2809,7 @@ L.KEY_ROTATION_MOVED = "You and your guild are on the new army key: the old chan
 L.KEY_ROTATION_MOVED_FOREVER = "You and your guild hold the new army key. On WoW: Forever every guild stays on the public Olympus channel: the key keeps your typed chat lines out of it."
 L.KEY_ROTATED_AGO = "Rotated %s: %d Lords and Captains have it (%d guilds)"
 L.KEY_ROTATED_TAKEN = "The army's channel key changed (the King's new key, or your officers'): joining the new channel."
-L.KEY_ROTATED_TAKEN_FOREVER = "The army's channel key changed (the King's new key, or your officers'): it is kept. On WoW: Forever your guild stays on the public Olympus channel, and its typed chat lines reach the other guilds by the relays."
+L.KEY_ROTATED_TAKEN_FOREVER = "The army's channel key changed (the King's new key, or your officers'): it is kept. On WoW: Forever your guild stays on the public Olympus channel, and the relays carry its typed chat lines only within your ruleset."
 -- 1.1: the dues (Dues.lua, Fern's #36 and #37): one fixed amount a week to the Treasurer, never public.
 L.DUES_TITLE = "Dues, week of %s"
 L.DUES_A_WEEK = "%s a week"
@@ -3268,6 +3384,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.REPORT_BUG = "Reportar bug"
 	L.SHOW_MAP = "Mostrar no mapa"
 	L.COPY_HINT = "Copie com Ctrl+C ou Cmd+C (Mac) e cole no Discord."
+	L.BUG_COPY_HINT = "Copie com Ctrl+C ou Cmd+C. Link para reportar no GitHub na Ajuda."
 	L.STATUS_REPORTER = "Você está reportando %s  (%d com o addon)"
 	L.STATUS_PEER = "%s é reportada por %s  (%d com o addon)"
 	L.STATUS_NOGUILD = "Você não está em guilda. Ainda vê todas as Olympus."
@@ -3633,6 +3750,11 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_JOIN_REMINDER_PROMPT = "Quer tentar com outro membro da Olympus?"
 	L.RECRUIT_JOIN_SHOW_GUILDS = "Ver guildas Olympus"
 	L.RECRUIT_JOIN_HIDE_GUILDS = "Ocultar lista de guildas"
+	L.RECRUIT_JOIN_CANT_INVITE = "%s não pode convidar: peça a outro membro."
+	L.RECRUIT_JOIN_FULL = "A <%s> está cheia: tente outra guilda."
+	L.RECRUIT_JOIN_ALL_FULL = "Todas as guildas Olympus encontradas estão cheias. Tente mais tarde."
+	L.RECRUIT_JOIN_NOBODY = "Todos os encontrados já foram chamados ou não podem receber o seu pedido. Tente de novo em alguns minutos."
+	L.RECRUIT_JOIN_RECRUITS = "%s recruta para a <%s>: o seu pedido vai para a fila de convites."
 	L.RECRUIT_START = "Aperte Achar Olympus online para ver quem está jogando."
 	L.RECRUIT_NONE_FOUND = "Nenhum membro Olympus online nesta busca. Tente de novo daqui a pouco."
 	L.RECRUIT_ONLINE = "%d online"
@@ -4150,7 +4272,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_OFFICERS_ONLY = "Só officers de uma guilda Olympus podem definir a chave do reino."
 	L.KEY_TOO_SHORT = "A chave precisa de pelo menos 6 caracteres."
 	L.KEY_SET = "Chave do reino definida: o canal Olympus agora é selado, seus colegas recebem a chave sozinhos."
-	L.KEY_SET_FOREVER = "Chave do reino definida: seus colegas de guilda a recebem sozinhos. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém as linhas de chat digitadas da sua guilda fora dele, e elas chegam às outras guildas pelos relays."
+	L.KEY_SET_FOREVER = "Chave do reino definida: seus colegas de guilda a recebem sozinhos. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém as linhas de chat digitadas da sua guilda fora dele, e os relays as levam apenas dentro do seu conjunto de regras."
 	L.KEY_CLEARED = "Chave do reino removida: sua guilda está voltando ao canal público do Olympus."
 	L.KEY_CLEARED_FOREVER = "Chave do reino removida. No WoW: Forever sua guilda já estava no canal público do Olympus: as linhas de chat digitadas da sua guilda voltam a aparecer nele."
 	L.KEY_CLEARED_TAKEN = "Um officer da guilda levou sua guilda de volta ao canal público do Olympus."
@@ -4270,7 +4392,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	-- 0.9.1: privacy
 	L.CHANNEL_PUBLIC = "Sua guilda não definiu uma chave de reino, então o canal é público: qualquer um pode entrar nele pelo nome."
 	L.CHANNEL_SEALED = "Sua guilda selou o canal com uma chave de reino: qualquer um que tenha a chave pode entrar nele."
-	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino. No WoW: Forever os relays levam o canal Olympus: o que vai nele chega a todas as guildas Olympus, onde qualquer jogador delas pode ler, e nada disso aparece como texto no canal público do jogo, em que qualquer um pode entrar."
+	L.CHANNEL_SEALED_FOREVER = "Sua guilda tem uma chave de reino. No WoW: Forever, outros jogadores Olympus podem ler o que seus addons recebem dos relays. O chat digitado da sua guilda fica fora do canal público do jogo e os relays o levam dentro do seu conjunto de regras."
 	L.LOCATION_ASK = "|cffe6c35cOlympus: compartilhar sua zona e seu layer?|r\n\nSe você compartilhar, o addon pode anunciar no canal Olympus sua zona, seu layer, seu rank na guilda e sua guilda, com seu nome em cada mensagem (o jogo coloca): os officers e um membro em cada oito anunciam, a cada 10 minutos e quando o layer muda. O censo da sua guilda passa a mostrar sua zona se você for o líder ou officer, e a contar os membros por zona quando é o seu addon que o envia.\n\nTodos no canal Olympus recebem isso. %s\n\nSe mantiver privado, nada disso é enviado. Pedir para pular de layer ainda envia a zona onde você está e o layer que você quer.\n\nMude quando quiser com /oly location on ou /oly location off."
 	L.LOCATION_SHARE = "Compartilhar"
 	L.LOCATION_KEEP = "Manter privado"
@@ -4628,7 +4750,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.QUIET_PRESENCE_TIP = "Você ligou a Presença privada, ou um addon que você autorizou ligou uma presença silenciosa. O Olympus deixa de enviar, por conta própria, as palavras que anunciam você online ou dizem onde você está: nenhum olá, relatório do censo, camada, ponto no mapa, oferta de troca de camada, corte, aviso de doações ou de plantão, resposta de ajuda ou de artesão, avistamento do Wanted ou resposta de avistamento, apresentação de perfil, nem a coroa do Rei ou as listas que o cliente dele repete. O que os outros clientes ouviram antes expira como após um logout. O censo dos seus colegas de guilda ainda lê a lista da guilda: um mestre ou oficial de guilda ainda aparece online lá, e sua zona pode aparecer por até 12 minutos. Com a Presença privada a sua guilda é avisada, e os clientes Olympus dos membros dela contam você offline no censo que enviam (um Olympus mais antigo pode não contar). As linhas de chat do Olympus que você digitar, o que você mesmo publicar e os registros que seu cliente repassa ainda são enviados. A Presença privada continua ligada entre logins até você desligar. A presença silenciosa de um addon termina quando esse addon a desligar, num /reload ou ao sair do jogo; depois de um /reload, o Olympus pode dizer olá antes que esse addon a ligue de novo."
 	L.QUIET_PRESENCE_HELD = "A presença silenciosa está ligada: o Olympus envia isto quando ela for desligada."
 	L.PUBLIC_NET_TIP = "Nenhuma chave de reino foi definida, então todo addon de Olympus se encontra no canal público %s. Qualquer um pode entrar nele pelo nome e, com um script de uma linha, ler tudo o que passa por lá: o censo, onde as pessoas estão (de quem compartilha), os três chats ([Capitães] e [Lordes] também) e os decretos. Selado com uma chave, o nome e a senha do canal vêm da chave e só entra quem a tem. Um oficial digita /oly key <segredo> uma vez, e os colegas de guilda com o addon recebem a chave sozinhos pelo chat da guilda. Use o segredo que os oficiais das outras guildas usam: uma chave só sua separa a sua guilda do exército."
-	L.PUBLIC_NET_TIP_FOREVER = "No WoW: Forever todo addon de Olympus se encontra no canal público %s, seja qual for a chave da guilda dele. Os addons na 1.5.5 ou mais nova mandam o censo e o resto pelos relays, nunca pelo canal, então o que qualquer um que entrar nele pode ler são as linhas de chat digitadas pelas guildas sem chave de reino ([Capitães] e [Lordes] também) e o censo que addons mais antigos ainda mandam ali. Uma chave de reino (/oly key) mantém as linhas digitadas da sua guilda fora dele: elas passam a chegar às outras guildas pelos relays."
+	L.PUBLIC_NET_TIP_FOREVER = "No WoW: Forever todo addon de Olympus se encontra no canal público %s, seja qual for a chave da guilda dele. Os addons na 1.5.5 ou mais nova mandam o censo e o resto pelos relays, nunca pelo canal, então o que qualquer um que entrar nele pode ler são as linhas de chat digitadas pelas guildas sem chave de reino ([Capitães] e [Lordes] também) e o censo que addons mais antigos ainda mandam ali. Uma chave de reino (/oly key) mantém as linhas digitadas da sua guilda fora dele: os relays passam a levá-las apenas dentro do seu conjunto de regras."
 	-- 1.1: a linha fixada (pedido #9).
 	L.PIN_LABEL = "Fixado"
 	L.PIN_TIP = "Fixado por %s <%s>, %s. Acaba em %d min, ou quando o autor (ou alguém de posto mais alto) tirar. As palavras são do próprio autor, enviadas pela API registrada, então abusos podem ser denunciados."
@@ -4773,10 +4895,10 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.MENTOR_CAPTAIN_TIP = "Clique: fazer mentor de %s (você confirma antes)."
 	L.HELP_MENTORS = "  /oly recruits - Lordes: seus recrutas, e um Capitão como mentor de cada um (um whisper para cada, do seu clique)"
 	L.RECRUIT_ROUTE_TITLE = "Para onde ir"
-	L.RECRUIT_ROUTE_TIP = "O que o censo de %s diz: primeiro a guilda cujos portões o Rei abriu (quando dois membros dizem o mesmo), depois as guildas com mais vagas que o /who achou online. Um clique chama um Lorde ou Capitão dessa guilda que o /who achou, que pode dizer sim ou não."
+	L.RECRUIT_ROUTE_TIP = "O que o censo de %s diz: primeiro a guilda cujos portões o Rei abriu (quando dois membros dizem o mesmo), depois as guildas com mais vagas que o /who achou online. Um clique chama um recrutador, Lorde ou Capitão dessa guilda que o /who achou, que pode dizer sim ou não."
 	L.RECRUIT_GATES = "os portões do Rei estão abertos"
 	L.RECRUIT_GATES_TIP = "O Rei escolheu esta guilda para os novos recrutas: peça aqui primeiro."
-	L.RECRUIT_ROUTE_ASK_TIP = "Abre um whisper pronto para um dos oficiais dela que o /who achou online (ou outro membro que o /who achou). Dá pra editar antes de enviar: um whisper por clique."
+	L.RECRUIT_ROUTE_ASK_TIP = "Abre um whisper pronto para um dos recrutadores ou oficiais dela que o /who achou online (ou outro membro que o /who achou). Dá pra editar antes de enviar: um whisper por clique."
 	L.RECRUIT_STATE_DNC = "não recebe recrutas"
 	L.RECRUIT_DNC = "%s não recebe whispers de recrutas: chame outra pessoa (a lista mostra quem tem vaga)."
 	L.NOCONTACT_ON = "Não contatar: as telas Entrar na Olympus dos recrutas pulam você. /oly nocontact off desfaz."
@@ -4862,7 +4984,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_CENSUS_ENABLED = "Recrutamento ativado: pop-ups vão te ajudar a convidar. Para pará-los, desative em Igreja > Convites."
 	L.RECRUIT_CENSUS_STOP = "Pare os pop-ups quando quiser em Igreja > Convites."
 	L.RECRUIT_CENSUS_ON_LINE = "Seu recrutamento está ativado. Clique para configurar."
-	L.RECRUIT_ACTIVATED_NOTICE = "O recrutamento está ativado.\n\nEnquanto estiver, pop-ups vão te ajudar a sussurrar e convidar jogadores: aperte Ctrl+C, depois Ctrl+V e Enter.\n\nPara parar os pop-ups, desative o recrutamento em Igreja > Convites."
+	L.RECRUIT_ACTIVATED_NOTICE = "O recrutamento está ativado.\n\nOs pop-ups ajudam você a sussurrar e convidar jogadores. Para convidar, clique no comando para selecioná-lo, depois aperte Ctrl+C, Ctrl+V e Enter.\n\nPara parar os pop-ups, desative o recrutamento em Igreja > Convites."
 	L.RECRUIT_CANDIDATES_OFF = "Buscar jogadores sem guilda: Desligado"
 	L.RECRUIT_CANDIDATES_ON = "Buscar jogadores sem guilda: Ligado"
 	L.RECRUIT_CANDIDATE_PROMPTS_OFF = "Janelas de convite: Desligadas"
@@ -4878,6 +5000,10 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_CANDIDATE_SEARCH_MORE = "Buscar mais jogadores sem guilda (/who)"
 	L.RECRUIT_CANDIDATE_SEARCH_WAIT = "Um /who ainda está a caminho: tente de novo em alguns segundos."
 	L.RECRUIT_WHISPER_POPUP_ON = "Pedidos JOIN: Janela de convite"
+	L.RECRUIT_POPUP_GAP_TITLE = "Intervalo entre janelas automáticas de recrutamento"
+	L.RECRUIT_POPUP_GAP_DEFAULT = "Padrão"
+	L.RECRUIT_POPUP_GAP_HOURS = "%d h"
+	L.RECRUIT_POPUP_GAP_DAILY = "24 h"
 	L.RECRUIT_WHISPER_QUEUE_ONLY = "Pedidos JOIN: Só na fila"
 	L.RECRUIT_WHISPER_ON = "Recrutamento: ativado"
 	L.RECRUIT_WHISPER_OFF = "Recrutamento: desativado"
@@ -4921,6 +5047,28 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.RECRUIT_ANNOUNCE_POST_FALLBACK = "O envio está indisponível. Você pode copiar o rascunho para o chat do jogo."
 	L.RECRUIT_ANNOUNCE_POST_EDITED = "Copie o rascunho editado para o chat do jogo para publicar."
 	L.RECRUIT_ANNOUNCE_POST_CHECK = "Envio solicitado. Confira o canal antes de publicar novamente."
+	L.RECRUIT_ANNOUNCE_LESS = "Menos vezes"
+	L.RECRUIT_ANNOUNCE_REMINDER_NOTE = "Lembrete de anúncio: a cada %d min. Mude ou ligue de novo em Igreja > Convites."
+	L.RECRUIT_ANNOUNCE_REMINDER_SLOWER = "Lembrete de anúncio: a cada %d min. Mude em Igreja > Convites."
+	L.RECRUIT_ANNOUNCE_REMINDER_STOPPED = "Lembrete de anúncio desligado. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_PAUSE_BUTTON = "Pausar recrutamento"
+	L.RECRUIT_TURN_OFF_BUTTON = "Desativar recrutamento"
+	L.RECRUIT_PAUSE_ASK = "Pausar o recrutamento por quanto tempo? Até lá nenhuma janela de recrutamento abre sozinha, e os pedidos esperam em Igreja > Convites."
+	L.RECRUIT_PAUSED = "Recrutamento pausado até %s. Os pedidos esperam em Igreja > Convites, onde Retomar encerra a pausa."
+	L.RECRUIT_PAUSED_UNTIL = "Pausado até %s"
+	L.RECRUIT_RESUME = "Retomar"
+	L.RECRUIT_RESUMED = "Recrutamento retomado: as janelas voltam a abrir."
+	L.RECRUIT_TURN_OFF_ASK = "Desativar só este tipo de janela, ou todo o recrutamento? Igreja > Convites ativa de novo."
+	L.RECRUIT_OFF_ONLY_ADS = "Só lembretes de anúncio"
+	L.RECRUIT_OFF_ONLY_JOINS = "Só janelas de JOIN"
+	L.RECRUIT_OFF_ONLY_HANDOFFS = "Só repasses"
+	L.RECRUIT_OFF_ONLY_SCAN = "Só a busca"
+	L.RECRUIT_OFF_ONLY_ALL = "Todo o recrutamento"
+	L.RECRUIT_OFF_JOINS = "Janelas de JOIN desligadas: os pedidos esperam em Igreja > Convites, onde Pedidos JOIN as liga de novo."
+	L.RECRUIT_OFF_HANDOFFS = "Aceitar repasses desligado. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_OFF_SCAN = "Busca de jogadores sem guilda desligada. Ligue de novo em Igreja > Convites."
+	L.RECRUIT_OFF_ALL = "Recrutamento desativado. Ative de novo em Igreja > Convites."
+	L.RECRUIT_ASK_LATER = "Essa pergunta abre quando você sair de combate e de instâncias e parar de digitar."
 	-- Public announcements use the same English keyword and wording across locales.
 	L.RECRUIT_ANNOUNCE_OPENING = "%s is recruiting!"
 	L.RECRUIT_ANNOUNCE_OPENING_NAMED = "Looking for a guild? I'm %s from %s."
@@ -6003,7 +6151,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.KEY_ROTATION_MOVED_FOREVER = "Você e a sua guilda estão com a chave nova do exército. No WoW: Forever toda guilda fica no canal público do Olympus: a chave mantém suas linhas de chat digitadas fora dele."
 	L.KEY_ROTATED_AGO = "Trocada %s: %d Lordes e Capitães têm (%d guildas)"
 	L.KEY_ROTATED_TAKEN = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): entrando no canal novo."
-	L.KEY_ROTATED_TAKEN_FOREVER = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): ela fica guardada. No WoW: Forever sua guilda continua no canal público do Olympus, e as linhas de chat digitadas dela chegam às outras guildas pelos relays."
+	L.KEY_ROTATED_TAKEN_FOREVER = "A chave do canal do exército mudou (a chave nova do Rei, ou a dos seus oficiais): ela fica guardada. No WoW: Forever sua guilda continua no canal público do Olympus, e os relays levam as linhas digitadas dela apenas dentro do seu conjunto de regras."
 	-- 1.1: a contribuição (Dues.lua, pedidos #36 e #37 do Fern): um valor fixo por semana ao Tesoureiro, nunca público.
 	L.DUES_TITLE = "Contribuição, semana de %s"
 	L.DUES_A_WEEK = "%s por semana"
@@ -6858,6 +7006,9 @@ L.CENSUS_HEADER_SAVED_TIP = "The large number is the saved census from %s. The p
 L.CENSUS_HEADER_UNSCOPED = "Saved %s on %s (origin not confirmed; excluded)"
 L.CENSUS_HEADER_HISTORY = "Last snapshot: %s on %s (out of date)"
 L.CENSUS_HEADER_ALL_TIP = "The large number counts soldiers on this server. The smaller number combines the available accepted server snapshots, each counted once. Open the census for dates, server breakdowns and player estimates. Servers with no accepted data are not included."
+L.CENSUS_HEADER_ALL_OLD = "%s all servers (as of %s)"
+L.CENSUS_HEADER_ALL_OLD_TIP = "Part of the all-servers total was counted on %s. A server's last count stays in it until a newer one arrives."
+L.CENSUS_HEADER_QUIET_TIP = "No newer census report has reached your addon since then, so the saved count stays until one does."
 L.CENSUS_STATS_DETAILS_PENDING = "Guild details have not arrived from this server yet."
 L.CENSUS_STATS_DETAILS_PARTIAL = "Carried guild details may be incomplete; the server total above is counted only once."
 L.PLAYERMENU_VERSION = "Their Olympus version"
@@ -6990,6 +7141,9 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CENSUS_HEADER_UNSCOPED = "Salvo: %s em %s (origem não confirmada; fora da soma)"
 	L.CENSUS_HEADER_HISTORY = "Último registro: %s em %s (desatualizado)"
 	L.CENSUS_HEADER_ALL_TIP = "O número maior conta os soldados deste servidor. O menor soma os registros aceitos dos servidores disponíveis, contando cada um uma vez. Abra o censo para ver datas, dados por servidor e estimativas de pessoas. Servidores sem dados aceitos ficam de fora."
+	L.CENSUS_HEADER_ALL_OLD = "%s em todos os servidores (de %s)"
+	L.CENSUS_HEADER_ALL_OLD_TIP = "Parte do total de todos os servidores foi contada em %s. O último registro de um servidor fica nele até chegar um mais novo."
+	L.CENSUS_HEADER_QUIET_TIP = "Nenhum relato mais novo do censo chegou ao seu addon desde então, por isso o censo salvo fica até chegar um."
 	L.CENSUS_STATS_DETAILS_PENDING = "Os detalhes das guildas deste servidor ainda não chegaram."
 	L.CENSUS_STATS_DETAILS_PARTIAL = "Os detalhes recebidos das guildas podem estar incompletos; o total do servidor acima é contado uma única vez."
 	L.PLAYERMENU_VERSION = "A versão Olympus dessa pessoa"
@@ -8348,16 +8502,22 @@ L.CHATWIN_GROUP_PVE = "PvE"
 L.CHATWIN_GROUP_RP = "Roleplay"
 L.CHATWIN_GROUP_RPPVP = "RP-PvP"
 L.CHATWIN_GROUP_TITLE = "Rulesets"
-L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels messages from other rulesets."
+L.CHATWIN_GROUP_TIP = "Choose which rulesets appear in Olympus chat. All labels messages from other rulesets, and [?] those whose ruleset is not known."
 L.CHATWIN_GROUP_EMPTY = "No messages for this ruleset."
 L.CHATWIN_GROUP_HARDCORE = "Hardcore"
+-- (1.6.0) Under All, a line whose writer's ruleset nobody can place is marked [?] (Channels.GroupTag): bare,
+-- it read as a line of the reader's own ruleset. On hover, a writer's name in the Chat tab says when he plays
+-- another ruleset or nobody can place him (Channels.RulesetNote): whispers and guild invites stay within one.
+L.CHATWIN_GROUP_UNKNOWN = "?"
+L.CHATWIN_RULESET_OTHER = "Plays on %s servers. Whispers and guild invites stay within one ruleset, so this character cannot join this player's guild."
+L.CHATWIN_RULESET_UNKNOWN = "Ruleset not known: versions of Olympus before 1.5.9 do not send it. This player may be on other servers, and whispers and guild invites stay within one ruleset."
 -- (1.5.9) A line written in the box under this character's own ruleset goes to it alone; under All or
 -- another ruleset, and with /ol, to every ruleset (Channels.SendTo, Codec.EncodeChat), where it goes as the
 -- channel's text too (ChatHall.On): with the gamepad UI, the channel not joined, or a realm key held on
 -- Forever, the hidden way alone reaches the writer's own ruleset (the box names it under another one).
 -- The box's words come after its label ("[Olympus]:") and must fit beside it in the default window,
 -- " (public channel)" and the longest ruleset's name with them (tests/chat-rulesets.lua).
-L.CHATWIN_GROUP_SEND = "With your own ruleset chosen, what you write here goes to it alone; under All or another ruleset, and with /ol, to every ruleset. It reaches your own ruleset alone with the gamepad UI, while the Olympus channel is not joined, and on WoW: Forever when your guild holds a realm key. Versions of Olympus before 1.5.9 show every line to everyone."
+L.CHATWIN_GROUP_SEND = "With your own ruleset selected, others can see your message by choosing that ruleset. Under All or another ruleset, and with /ol, it shows for all rulesets. It reaches your own ruleset alone with the gamepad UI, while the Olympus channel is not joined, and on WoW: Forever when your guild holds a realm key. Versions of Olympus before 1.5.9 show every line to everyone."
 L.CHATWIN_PLACEHOLDER_TO = "Only to %s..."
 L.CHATWIN_PLACEHOLDER_EVERY = "To every ruleset..."
 if GetLocale and GetLocale() == "ptBR" then
@@ -8367,9 +8527,12 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.CHATWIN_GROUP_RP = "Roleplay"
 	L.CHATWIN_GROUP_RPPVP = "RP-PvP"
 	L.CHATWIN_GROUP_TITLE = "Conjuntos de regras"
-	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos."
+	L.CHATWIN_GROUP_TIP = "Escolha quais conjuntos de regras aparecem no chat Olympus. Todos identifica as mensagens de outros conjuntos, e [?] as de conjunto desconhecido."
 	L.CHATWIN_GROUP_EMPTY = "Nenhuma mensagem deste conjunto de regras."
-	L.CHATWIN_GROUP_SEND = "Com o seu conjunto escolhido, o que você escreve aqui vai só para ele; em Todos ou em outro conjunto, e com /ol, vai para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
+	L.CHATWIN_GROUP_UNKNOWN = "?"
+	L.CHATWIN_RULESET_OTHER = "Joga nos servidores %s. Sussurros e convites de guilda ficam dentro de um mesmo conjunto de regras, então este personagem não pode entrar na guilda deste jogador."
+	L.CHATWIN_RULESET_UNKNOWN = "Conjunto de regras desconhecido: versões do Olympus antes da 1.5.9 não o enviam. Este jogador pode estar em outros servidores, e sussurros e convites de guilda ficam dentro de um mesmo conjunto de regras."
+	L.CHATWIN_GROUP_SEND = "Com o seu conjunto de regras selecionado, outros jogadores podem ver sua mensagem escolhendo esse conjunto. Em Todos ou em outro conjunto, e com /ol, ela aparece para todos. Vai só para o seu conjunto com a interface de gamepad, enquanto você não está no canal Olympus e, no WoW: Forever, quando a sua guilda tem uma chave de reino. Versões do Olympus antes da 1.5.9 mostram tudo para todos."
 	L.CHATWIN_PLACEHOLDER_TO = "Só para %s..."
 	L.CHATWIN_PLACEHOLDER_EVERY = "Para todos..."
 end

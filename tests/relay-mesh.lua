@@ -8,7 +8,7 @@
 local ns, test, eq, extra = ...
 local RelayWorld = extra.RelayWorld
 local T0 = 1794100000
-local A_NAME, B_NAME, C_NAME = "Max Ran-Realm", "Hildryn Payne-Realm", "Third Relay-Realm" -- all three signed (the council)
+local A_NAME, B_NAME, C_NAME = "Max Ran-Realm", "Harbor Warden-Realm", "Third Relay-Realm" -- all three signed (the council)
 
 -- Clients of one realm group, their whispers and guild words carried by Flush, their timers by Advance.
 local function World(fn)
@@ -24,7 +24,7 @@ local function World(fn)
 	end
 	-- relayFile (1.5.9): another release's Relay.lua (tests/fixtures/relay-1.5.8.lua: a mesh peer on 1.5.8).
 	local function Node(name, guild, relayFile)
-		local c, deliver, sent, heard, pump = RelayWorld(name, guild, relayFile)
+		local c, deliver, sent, heard, pump = RelayWorld(name, guild, relayFile, "Harbor Warden")
 		local n = { c = c, deliver = deliver, sent = sent, heard = heard, pump = pump, guild = guild,
 			chat = C_ChatInfo, cursor = 0, got = {}, logs = {} }
 		c.Log = function(fmt, ...) local ok, msg = pcall(string.format, fmt, ...) n.logs[#n.logs + 1] = ok and msg or tostring(fmt) end
@@ -297,12 +297,12 @@ test("relay mesh (1.5.5): while the relays carry the channel (Relay.On), the lan
 		IsInGuild = function() return true end
 		GetGuildInfo = function() return "Olympus II", "Member", 3 end
 		for _, forever in ipairs({ true, false }) do
-			local R, deliver, sent = RelayWorld("Lane Keeper-Realm", "Olympus II")
+			local R, deliver, sent = RelayWorld("Lane Keeper-Realm", "Olympus II", nil, "Harbor Warden")
 			R.Roster = setmetatable({ RankOf = function(name) return name == "Lord-Realm" and 0 or nil end }, { __index = ns.Roster })
 			if not forever then R.splitNames = false end
 			eq(R.Relay.On(), forever)
 			-- No relay to pick (both left out): only off Forever does a channel word become a native job.
-			R.Relay.LeaveOut("Max Ran"); R.Relay.LeaveOut("Hildryn Payne")
+			R.Relay.LeaveOut("Max Ran"); R.Relay.LeaveOut("Harbor Warden")
 			eq(R.Relay.Pick(), nil)
 			C_ChatInfo.SendAddonMessage = function(_, msg, dist, target)
 				sent[#sent + 1] = { msg = msg, dist = dist, target = target }
@@ -377,7 +377,7 @@ test("relay mesh (1.5.5): /oly bug's relay lines (Relay.BugLines): the relay, th
 		local lines = As(a, a.c.Relay.BugLines, 1500)
 		assert(Bytes(lines) <= 1500, "within the bytes: " .. Bytes(lines))
 		assert(Find(lines, "relay: "), "the relay line")
-		assert(Find(lines, "mesh: ") and Find(lines, "mesh: "):find("Hildryn Payne", 1, true), "the mesh line names the peer")
+		assert(Find(lines, "mesh: ") and Find(lines, "mesh: "):find("Harbor Warden", 1, true), "the mesh line names the peer")
 		assert(Find(lines, "queue: "), "the queue line")
 		-- Missing modules, a stand-in (a client that updated without restarting), one that fails: lines
 		-- for each, and the rest still there.
@@ -560,5 +560,35 @@ test("relay mesh (1.5.9's review): a relay's own signed look crossing to a mesh 
 		eq(Count(a, "RX~", B_NAME) - base > 0, true, "the look's first whispers went to the peer")
 		Flush()
 		assert(Took(b, qa), "B's client takes it whole")
+	end)
+end)
+
+-- 1.6.0 (a member's /oly bug on 1.5.9: lines late, repeated or missing). A relay told a mesh peer it was of
+-- the mesh (RJ) by an ordinary whisper, which a busy relay's queue pushed out (the load harness, two
+-- relays at a line every 30 s: 3 of the 10 RJ they sent each other in 20 minutes); past MESH_FOR the peer sent it
+-- no chat line, census or list for the rest of a round. RJ goes urgent now. Fails before: after three
+-- rounds of A's queue full of ordinary whispers, A was no longer B's mesh peer and B's chat line stayed
+-- on its own island.
+test("relay mesh (1.6.0): a relay whose queue is full of ordinary whispers at every round still tells its mesh peer it is of the mesh (RJ), so three rounds on the peer still holds it, and a chat line said at the peer crosses to it", function()
+	World(function(Node, As, Flush, Advance)
+		local a, b = Node(A_NAME, "Olympus Alpha"), Node(B_NAME, "Olympus Beta")
+		Mesh(a, As); Mesh(b, As)
+		Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		eq(As(b, b.c.Relay.MeshPeer, A_NAME), true, "A is B's mesh peer")
+		for _ = 1, 3 do
+			Advance(a.c.Relay.MESH_EVERY - a.c.Relay.PING_WAIT - 1)
+			-- A's round, then more ordinary whispers than its queue holds, handed in right after, as a busy relay's.
+			Mesh(a, As)
+			As(a, function()
+				for i = 1, a.c.Comm.MAX_QUEUE do a.c.Comm.Whisper("Busy Target-Realm", "X1~busy " .. i, nil, false, false) end
+			end)
+			Mesh(b, As)
+			Flush(); Advance(a.c.Relay.PING_WAIT + 1)
+		end
+		eq(As(b, b.c.Relay.MeshPeer, A_NAME), true, "A is still B's mesh peer, three rounds and some 900 s on")
+		local before = Count(b, "RX~L~", A_NAME)
+		As(b, b.deliver, "WHISPER", "Line Speaker-Realm", "RL~L~M1~A~Olympus Beta~5~WA~still crossing")
+		Flush()
+		eq(Count(b, "RX~L~", A_NAME) - before, 1, "the chat line crossed from B to A")
 	end)
 end)

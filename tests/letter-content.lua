@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 19),
-			"1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3 1.3.2",
+		eq(table.concat(versions, " ", 1, 20),
+			"1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[4], "1.5.6")
+		eq(cns.Letters.Versions()[6], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)
@@ -365,8 +365,8 @@ test("1.5.7 letter content: each locale explains census progress, relay availabi
 		local cns = Language(code, file)
 		local raw = assert(cns.L.LETTER_1_5_7)
 		local title, body = cns.Letters.Text("1.5.7")
-		eq(cns.Letters.Versions()[3], "1.5.7", code)
-		eq(cns.Letters.Versions()[4], "1.5.6", code)
+		eq(cns.Letters.Versions()[5], "1.5.7", code)
+		eq(cns.Letters.Versions()[6], "1.5.6", code)
 		eq(title, cns.L.LETTER_1_5_7_HEAD, code)
 		assert(title ~= cns.L.LETTER_1_5_6_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and body:find("/oly bug", 1, true), code .. ": rendered bug report instructions")
@@ -412,8 +412,8 @@ test("1.5.8 letter content: each locale explains recruiting, the Join page and t
 		local L = cns.L
 		local raw = assert(L.LETTER_1_5_8)
 		local title, body = cns.Letters.Text("1.5.8")
-		eq(cns.Letters.Versions()[2], "1.5.8", code)
-		eq(cns.Letters.Versions()[3], "1.5.7", code)
+		eq(cns.Letters.Versions()[4], "1.5.8", code)
+		eq(cns.Letters.Versions()[5], "1.5.7", code)
 		eq(title, L.LETTER_1_5_8_HEAD, code)
 		assert(title ~= L.LETTER_1_5_7_HEAD, code .. ": distinct release title")
 		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
@@ -507,8 +507,8 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 		local L = cns.L
 		local raw = assert(rawget(L, "LETTER_1_5_9"), code)
 		local title, body = cns.Letters.Text("1.5.9")
-		eq(cns.Letters.Versions()[1], "1.5.9", code .. ": the newest letter first")
-		eq(cns.Letters.Versions()[2], "1.5.8", code)
+		eq(cns.Letters.Versions()[3], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(cns.Letters.Versions()[4], "1.5.8", code)
 		eq(title, rawget(L, "LETTER_1_5_9_HEAD"), code .. ": its window names it by its title")
 		assert(title ~= rawget(L, "LETTER_1_5_8_HEAD"), code .. ": distinct release title")
 		eq(rawget(L, "LETTER_1_5_9_SIGNED"), rawget(L, "LETTER_1_5_8_SIGNED"), code .. ": the dev's signature in this language, as 1.5.8's")
@@ -566,4 +566,262 @@ test("1.5.9 letter content: each locale tells the ranking for everyone, Church >
 	-- guild's typed chat lines out of the public one, Comm.ChannelSpec and ChatHall.On.)
 	assert(english:find("on WoW: Forever every Olympus guild of your faction now joins the same channel, guilds with a realm key too (the key now only keeps their typed chat lines out of it), and the relays pass the whole census on again", 1, true))
 	assert(english:find("The King's guild wears the verified check mark in the Census.", 1, true))
+end)
+
+-- 1.6.0, in every shipped language: the alt's recruits for the main, the recruiting windows, then (the
+-- review of the players' reports, merged for the release) the ad reminder's popup every
+-- Recruit.AD_MINUTES with its Less often and Turn off, the census's last count kept with its date while
+-- nothing newer arrives, and a chat line shown once when a relay's copy arrives late. Each page and
+-- button is named as that language's player sees it; plain text in the game's fonts, as 1.5.9's.
+local AD_EVERY_1_6_0 = { enUS = "every %d minutes instead of 5", ptBR = "a cada %d minutos, não mais a cada 5",
+	deDE = "alle %d Minuten statt alle 5", esES = "cada %d minutos en lugar de cada 5", esMX = "cada %d minutos en lugar de cada 5",
+	frFR = "toutes les %d minutes au lieu de 5", itIT = "ogni %d minuti invece che ogni 5", ruRU = "каждые %d минут вместо 5" }
+
+test("1.6.0 letter content: each locale tells the alt's recruits, the recruiting windows, the ad reminder every 30 minutes with its two buttons, the census kept with its date and the chat line shown once, each page and button named as shown", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local Recruit = assert(ns.Recruit)
+	eq(Recruit.AD_MINUTES, 30, "the Census offer's ads every 30 minutes, as the letter says")
+	local english = Client("enUS").L.LETTER_1_6_0
+	local previous
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local cns = Client(code)
+		local L = cns.L
+		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
+		local title, body = cns.Letters.Text("1.6.0")
+		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": the release's letter, after 1.6.0.1's")
+		eq(cns.Letters.Versions()[3], "1.5.9", code .. ": the previous letter remains in the archive")
+		eq(title, rawget(L, "LETTER_1_6_0_HEAD"), code .. ": its window names it by its title")
+		assert(title ~= rawget(L, "LETTER_1_5_9_HEAD"), code .. ": distinct release title")
+		eq(rawget(L, "LETTER_1_6_0_SIGNED"), rawget(L, "LETTER_1_5_9_SIGNED"), code .. ": the dev's signature in this language, as 1.5.9's")
+		eq(rawget(L, "LETTER_1_6_0_LINK"), rawget(L, "LETTER_1_5_9_LINK"), code .. ": the site's link, as 1.5.9's")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code == "esMX" then eq(raw, previous, code .. ": Spanish translation")
+		elseif code ~= "enUS" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		-- (Changed on purpose with the fixes merged for the release: the handoffs, the Join screen, the
+		-- offline notices, the [?] under All, the name rule and the two verification fixes are news too,
+		-- each under its section's mark; the test below names them. And with the author's ask of 11-16: a
+		-- fifth {church} bullet, after the handoffs', for Pause recruiting and Turn off recruiting. And with
+		-- pull request #109 merged, a fourth news: the profession and crafted item links of issue #110. And with
+		-- the Forever chat moderation fixes merged, a fourth {watch}, last: a moderator's sanction on every
+		-- sub-realm name, carried ahead of the chat lines by the relays.)
+		eq(table.concat(marks, ","), "church,church,church,church,church,guild,guild,guild,news,news,news,news,watch,watch,watch,watch", code .. ": release topics")
+		for _, text in ipairs({ raw, title }) do
+			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
+				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
+			end
+			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
+		end
+		-- The pages and the ad window's buttons as this language's player sees them named.
+		local invites = L.TAB_CHURCH .. " > " .. L.CHURCH_NAV_INVITES
+		assert(raw:find(invites, 1, true), code .. ": Church > Invites as shown: " .. invites)
+		-- (Changed on purpose, the author's ask of 11-16: the ad window's own Turn off became Turn off recruiting,
+		-- beside Pause recruiting on every recruiting window that opens by itself, and Church > Invites' Resume.)
+		for _, key in ipairs({ "TAB_CENSUS", "RECRUIT_ANNOUNCE_LESS", "RECRUIT_PAUSE_BUTTON", "RECRUIT_TURN_OFF_BUTTON", "RECRUIT_RESUME" }) do
+			assert(raw:find(L[key], 1, true), code .. ": " .. key .. " as shown: " .. L[key])
+		end
+		local every = AD_EVERY_1_6_0[code]:format(Recruit.AD_MINUTES)
+		assert(raw:find(every, 1, true), code .. ": the reminder's interval, as Recruit.lua sets it: " .. every)
+		for _, word in ipairs({ "/oly alt add", "/oly bug" }) do
+			assert(raw:find(word, 1, true), code .. ": " .. word)
+		end
+		previous = raw
+	end
+	-- The three news of the review, in plain words.
+	assert(english:find("Recruiting ads turned on from the Census now pop up every 30 minutes instead of 5, and never over another recruiting window.", 1, true))
+	assert(english:find("If yours still comes every 5 minutes, click Less often.", 1, true), "an interval saved before 1.6.0 is kept")
+	-- (The author's ask of 11-16) Pause recruiting and Turn off recruiting, as Recruit.lua's StopRow and its questions do them.
+	assert(english:find("Every recruiting window that opens by itself (an ad, a JOIN, a handoff or a scanned player) now has Pause recruiting and Turn off recruiting.", 1, true))
+	assert(english:find("Pause asks for how long, 15 minutes to 4 hours: until then nothing pops up, requests wait in Church > Invites and the Join Olympus page asks other recruiters first; Church > Invites shows until when, with Resume.", 1, true))
+	assert(english:find("Turn off asks whether to turn off only that kind of window or all of recruiting; Church > Invites turns it back on.", 1, true))
+	eq(Recruit.PAUSE_MINUTES[1], 15, "15 minutes, as the letter says"); eq(Recruit.PAUSE_MINUTES[#Recruit.PAUSE_MINUTES], 240, "to 4 hours")
+	assert(english:find("the Census keeps its last count, with the date it was counted, instead of dropping guilds one by one.", 1, true))
+	assert(english:find("An Olympus chat line no longer shows twice when a relay's copy arrives late.", 1, true))
+end)
+
+-- (The review of 1.6.0) A claimed player's command opens over an ad window and a scanned player's whisper
+-- window (Recruit.lua's PromptReply), never over the scan's own invite popup, which it waits behind (they
+-- share one dialog): every language's letter said "an ad or scan popup", its search window. Fails before:
+-- no language's handoffs bullet named the whisper window.
+local HANDOFF_OVER_1_6_0 = { enUS = "even over an ad window or a scanned player's whisper window",
+	ptBR = "mesmo por cima da janela de um anúncio ou da janela de sussurro para um jogador da busca",
+	deDE = "auch über einem Anzeigenfenster oder dem Flüsterfenster für einen bei der Suche gefundenen Spieler",
+	esES = "incluso sobre una ventana de anuncio o la ventana para susurrar a un jugador de la búsqueda",
+	esMX = "incluso sobre una ventana de anuncio o la ventana para susurrar a un jugador de la búsqueda",
+	frFR = "même par-dessus une fenêtre d'annonce ou la fenêtre pour chuchoter à un joueur de la recherche",
+	itIT = "anche sopra una finestra di annuncio o la finestra per sussurrare a un giocatore della ricerca",
+	ruRU = "даже поверх окна объявления или окна шёпота игроку из поиска" }
+
+-- The ROADMAP's line of a version (the store page's Recent versions take it, scripts/curseforge-page.lua).
+local function RoadmapLine(version)
+	local f = assert(io.open(ROOT .. "ROADMAP.md", "r"))
+	local text = f:read("*a")
+	f:close()
+	return assert(("\n" .. text):match("\n%- v" .. version:gsub("%.", "%%.") .. " ([^\n]+)"), "ROADMAP.md: v" .. version)
+end
+
+-- 1.6.0, the fixes merged for the release, in every shipped language: a Forever alt added by its plain
+-- name and the main logged in again (Alts.lua), the handoffs (RecruitHandoff.lua), the Join screen asking
+-- recruiters first (Recruit.SelfWord), the offline notices kept out for Olympus's own whispers alone
+-- (Accord.Tried), the [?] under All for a line nobody can place (Channels.GroupTag), the name rule's
+-- comparisons (Core.lua), a guild master handed his guild's verification by his guildmates and the
+-- revocations that reach everyone (Verify.lua), and (issue #110, pull request #109) the profession and
+-- crafted item links that reach players on 1.6.0 whole (Codec.lua), and on Forever a chat moderator's
+-- sanction keyed by the player's realm family and carried first by the relays (WatchChat.lua, Relay.lua).
+-- Each page, tag and line named as that language's player sees it. Fails before: the letter told none of them.
+test("1.6.0 letter content (the fixes merged for the release): each locale tells the Forever alt's plain name, the handoffs, the Join screen asking recruiters first, the offline notices, the [?] under All, the profession and crafted item links, the name rule, the guild master's verification from his guild, the revocations and the chat moderation on Forever, each named as shown", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	-- The bullets of a section's mark, in their order.
+	local function Bullets(raw, mark)
+		local out = {}
+		for line in ("\n" .. raw):gmatch("\n%- {" .. mark .. "} ([^\n]+)") do out[#out + 1] = line end
+		return out
+	end
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local L = Client(code).L
+		local raw = assert(rawget(L, "LETTER_1_6_0"), code)
+		local church, guild, news, watch = Bullets(raw, "church"), Bullets(raw, "guild"), Bullets(raw, "news"), Bullets(raw, "watch")
+		-- The alt's bullet: still the link's command, and now Forever's plain name and the main logged in again.
+		assert(church[1]:find("/oly alt add", 1, true) and church[1]:find("WoW: Forever", 1, true), code .. ": the alt's bullet tells Forever's link")
+		-- The handoffs, by the Invites section's own heading, and the windows a claimed player's command opens over.
+		eq(church[4]:sub(1, #L.RECRUIT_SECTION_HANDOFFS), L.RECRUIT_SECTION_HANDOFFS, code .. ": the handoffs' bullet opens with their section as shown")
+		assert(church[4]:find(HANDOFF_OVER_1_6_0[code], 1, true), code .. ": the windows it opens over: " .. HANDOFF_OVER_1_6_0[code])
+		-- The Join screen, by its page's title.
+		assert(guild[3]:find(L.RECRUIT_JOIN_TITLE, 1, true), code .. ": the Join page as shown: " .. L.RECRUIT_JOIN_TITLE)
+		-- The [?] under All, the tag and the view as shown, and the versions that send no ruleset.
+		local tag = "[" .. L.CHATWIN_GROUP_UNKNOWN .. "]"
+		assert(news[3]:find(tag, 1, true) and news[3]:find(L.CHATWIN_GROUP_ALL, 1, true) and news[3]:find("1.5.9", 1, true),
+			code .. ": the tag under All as shown: " .. tag .. ", " .. L.CHATWIN_GROUP_ALL)
+		-- (Issue #110, pull request #109) The profession and crafted item links: the Chat tab named as shown,
+		-- and only for players on 1.6.0 (an older client keeps a profession link's token as text).
+		assert(news[4]:find(L.TAB_CHAT, 1, true) and news[4]:find("1.6.0", 1, true), code .. ": the links' news, the Chat tab as shown: " .. L.TAB_CHAT)
+		eq(#news, 4, code .. ": the chat's news")
+		-- The guild master's line his guild's verification now takes away, as his Census shows it.
+		local pending = assert(L.VERIFY_LINE_MASTER_GRACE:match("^(.-)%s*:"), code)
+		assert(watch[2]:find(pending, 1, true) and watch[2]:find("WoW: Forever", 1, true), code .. ": the guild master's line as shown: " .. pending)
+		-- (The review of 1.6.0) Handed over by guildmates on 1.6.0 alone (Verify.lua's hand-over is new code: a
+		-- 1.5.9 guildmate holding the approval says nothing over GUILD), as the README says.
+		assert(watch[2]:find("1.6.0", 1, true), code .. ": the guildmates who hand it over, on 1.6.0")
+		-- (Changed on purpose with the Forever chat moderation fixes merged: a fourth {watch}, on WoW: Forever.)
+		assert(watch[4]:find("WoW: Forever", 1, true), code .. ": the chat moderation's bullet, on WoW: Forever")
+		eq(#watch, 4, code .. ": the name rule, the two verification fixes and the chat moderation")
+	end
+	local english = Client("enUS").L.LETTER_1_6_0
+	for _, words in ipairs({
+		"On WoW: Forever, an alt on another sub-realm is added by its plain name; once your alts have confirmed, log in your main again.",
+		"Handoffs: a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window.",
+		"The member who passed the player answers your claim even in combat, busy members are skipped, and a claim that gets no name says so.",
+		"The Join Olympus page asks members who are recruiting first, passes over members who can't invite, and tells you when every guild found is full or nobody is left to ask.",
+		"Only the offline notices caused by Olympus's own whispers are hidden: if you whisper an offline player yourself, you still see the game's notice.",
+		"In the Olympus chat under All, a line whose writer's ruleset is not known (versions before 1.5.9) is marked [?]",
+		"Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and in the Chat tab.",
+		"Guilds whose name only compares them with Olympus or says they are not Olympus no longer count as Olympus guilds.",
+		"a guild master whose guild is already verified now gets that verification from guildmates on 1.6.0 who have it, so a new install or a missed approval no longer shows GM verification pending, even with no verifier online.",
+		"any verifier can revoke an approval their own client never received, players back after a few days away get the revocation, and a guild taken off the network shows no verified check.",
+		"On WoW: Forever, a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines instead of minutes behind them at busy hours.",
+	}) do
+		assert(english:find(words, 1, true), "1.6.0's letter: " .. words)
+	end
+	-- (The review of 1.6.0) The ROADMAP's line, which the store page shows, says it as the letter does.
+	local roadmap = RoadmapLine("1.6.0")
+	assert(roadmap:find("a claimed player's invite command opens at once, even over an ad window or a scanned player's whisper window;", 1, true),
+		"ROADMAP.md's v1.6.0: the windows a claimed player's command opens over")
+	-- (The review of 1.6.0) The guild's hand-over runs where the relay runs (Verify.lua's OwnGuild: Relay.On, on
+	-- Forever alone), as the letter and the README say; the ROADMAP's line said it of every realm.
+	assert(roadmap:find(". On Forever a guild master whose guild is already verified now receives that verification", 1, true),
+		"ROADMAP.md's v1.6.0: the guild's hand-over, on Forever")
+	assert(roadmap:find("receives that verification from guildmates on 1.6.0 who have it", 1, true), "ROADMAP.md's v1.6.0: from guildmates on 1.6.0")
+	assert(roadmap:find("Profession links and links to crafted items sent in the Olympus chat now reach players on 1.6.0 whole, clickable in the game's chat and the Chat tab (#110).", 1, true),
+		"ROADMAP.md's v1.6.0: the profession and crafted item links")
+	assert(roadmap:find("On Forever a chat moderator's timeout, its lift or a deleted line now applies to the player under every sub-realm name of his realm group, and the relays carry it ahead of the chat lines", 1, true),
+		"ROADMAP.md's v1.6.0: the chat moderation on Forever")
+end)
+
+-- 1.6.0.1 (the dev, 2026-11-16: "Bota aí mais 2 semanas"): its letter in every shipped language tells
+-- that guild verification on the PvP and RP realms waits until 30 November (Verify.lua), then (the review
+-- of PR #114) that a short line sent again in the Olympus chat no longer goes missing (Channels.Send), in
+-- the frame of 1.6.0's letter in that language; a player who never read 1.6.0's letter gets it first
+-- (Letters.CATCH_UP).
+test("1.6.0.1 letter content: each locale tells that guild verification on the PvP and RP realms waits until 30 November and that a short line sent again in the Olympus chat no longer goes missing, first in the list, 1.6.0's letter carried before it for a player who never read it", function()
+	local function Client(locale)
+		local saved = GetLocale
+		local cns = setmetatable({ On = function() end, RegisterEvent = function() end }, { __index = ns })
+		GetLocale = function() return locale end
+		local ok, why = pcall(function()
+			for line in io.lines(ROOT .. "Olympus/Olympus.toc") do
+				local f = line:match("^%s*(Locales%.lua)%s*$") or line:match("^%s*(Locales[\\/].-%.lua)%s*$")
+				if f then assert(loadfile(ROOT .. "Olympus/" .. f:gsub("\\", "/")))("Olympus", cns) end
+			end
+			assert(loadfile(ROOT .. "Olympus/Letters.lua"))("Olympus", cns)
+		end)
+		GetLocale = saved
+		if not ok then error(why, 0) end
+		return cns
+	end
+	local english = Client("enUS").L.LETTER_1_6_0_1
+	local savedRead = ns.db.lettersRead
+	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
+		local cns = Client(code)
+		local L = cns.L
+		local raw = assert(rawget(L, "LETTER_1_6_0_1"), code)
+		local title, body = cns.Letters.Text("1.6.0.1")
+		eq(cns.Letters.Versions()[1], "1.6.0.1", code .. ": the release's letter first")
+		eq(cns.Letters.Versions()[2], "1.6.0", code .. ": 1.6.0's after it")
+		eq(title, rawget(L, "LETTER_1_6_0_1_HEAD"), code .. ": its window names it by its title")
+		assert(title ~= rawget(L, "LETTER_1_6_0_HEAD"), code .. ": distinct release title")
+		eq(rawget(L, "LETTER_1_6_0_1_SIGNED"), rawget(L, "LETTER_1_6_0_SIGNED"), code .. ": the dev's signature in this language, as 1.6.0's")
+		eq(rawget(L, "LETTER_1_6_0_1_LINK"), rawget(L, "LETTER_1_6_0_LINK"), code .. ": the site's link, as 1.6.0's")
+		assert(type(body) == "string" and not body:find("{[%a]+}"), code .. ": every mark renders or has its words")
+		if code ~= "enUS" and code ~= "esMX" then assert(raw ~= english, code .. ": translation loaded") end
+		local marks = {}
+		for mark in raw:gmatch("\n- {([%a]+)}") do marks[#marks + 1] = mark end
+		eq(table.concat(marks, ","), "watch,news", code .. ": the verification's wait, then the chat's repeated line")
+		local old = rawget(L, "LETTER_1_6_0")
+		eq(raw:match("^[^\n]+"), old:match("^[^\n]+"), code .. ": 1.6.0's greeting")
+		eq(raw:match("\n\n([^\n]+\n\n[^\n]+)$"), old:match("\n\n([^\n]+\n\n[^\n]+)$"), code .. ": 1.6.0's closing lines")
+		for _, word in ipairs({ "PvP", "RP", "30", "Olympus", "\"gz\"", "/oly bug" }) do assert(raw:find(word, 1, true), code .. ": " .. word) end
+		for _, text in ipairs({ raw, title }) do
+			for _, dash in ipairs({ "\226\128\148", "\226\128\147", " -- " }) do
+				eq(text:find(dash, 1, true), nil, code .. ": no typeset dash")
+			end
+			assert(not text:find("|", 1, true) and not text:find("%", 1, true), code .. ": plain text, no escape or format code")
+		end
+		-- 1.6.0's letter unread: carried first; read: not again.
+		ns.db.lettersRead = {}
+		local _, carriedBody, previous = cns.Letters.Text("1.6.0.1", true)
+		eq(previous, "1.6.0", code .. ": 1.6.0's letter carried")
+		assert(carriedBody:find(cns.Letters.DrawMarks(old), 1, true) and carriedBody:find(cns.Letters.DrawMarks(raw), 1, true), code .. ": both letters")
+		ns.db.lettersRead = { ["1.6.0"] = true }
+		eq(select(3, cns.Letters.Text("1.6.0.1", true)), nil, code .. ": 1.6.0's letter read, 1.6.0.1's alone")
+	end
+	ns.db.lettersRead = savedRead
 end)
