@@ -400,6 +400,7 @@ end)
 
 ns.On("CHAT_LINE", function(tier, sender, text)
 	if type(tier) ~= "string" or type(sender) ~= "string" or type(text) ~= "string" then return end
+	if not ns.SharedToolsHere() then return end
 	for i = 1, #observers do pcall(observers[i], tier, sender, text) end
 	if OlympusBridge.CompanionAccepted() then
 		for i = 1, #recorders do pcall(recorders[i], tier, sender, text, false) end
@@ -446,6 +447,7 @@ end
 -- WarSquads.lua, CraftRequests.lua, ArenaChat.lua). Plain strings only; nothing ever thrown back.
 function ns.RecordChat(tier, sender, text, isSelf)
 	if #recorders == 0 or type(tier) ~= "string" or type(sender) ~= "string" or type(text) ~= "string" then return end
+	if not ns.SharedToolsHere() then return end
 	-- (Only once the Olympus Accord that says so is accepted, as the bridge's "self" section: the
 	-- game's own guild chat reaches the Guild room without Olympus's channel. An error there: no.)
 	if type(ns.AccordAccepted) ~= "function" then return end

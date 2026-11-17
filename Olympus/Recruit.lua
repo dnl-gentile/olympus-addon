@@ -2811,9 +2811,17 @@ local function InviteDraftText(name, req, item, automatic)
 	return text
 end
 
+function Recruit.FederationInviteAllowed(name, guild, tell)
+	local fugitives = ns.FederationFugitives
+	if not fugitives or not fugitives.IsListed(name, guild) then return true end
+	if tell then ns.Print(L.FEDERATION_INVITE_REFUSED) end
+	return false
+end
+
 local function AcceptRequest(req, confirmed, automatic)
 	if not CurrentRequest(req) then return false end
 	if confirmed and (confirmed.name ~= req.name or confirmed.guild ~= req.guild) then return false end
+	if not Recruit.FederationInviteAllowed(req.name, req.guild, not automatic) then return false end
 	local prepare = req.viaWhisper or ns.OnForever()
 	local invite
 	if not prepare then
@@ -2875,6 +2883,7 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NETOFF"] = {
 
 function Recruit.CopyCandidateInvite(candidate, automatic)
 	if not Recruit.Candidates.Check(candidate) or not ns.Dialog or ns.Dialog.missing then return false end
+	if not Recruit.FederationInviteAllowed(candidate.full, GetGuildInfo("player"), not automatic) then return false end
 	if Recruit.Handoff and Recruit.Handoff.State(candidate) then return false end
 	if ns.Dialog.Find("OLYMPUS_RECRUIT_INVITE_DRAFT") then return false end
 	local shown = ns.Dialog.Show("OLYMPUS_RECRUIT_INVITE_DRAFT", InviteDraftText(candidate.name, nil, candidate, automatic), nil,
@@ -2902,6 +2911,8 @@ end
 local PASTE_STEP, PASTE_WINDOW, PASTE_OPEN = 0.01, 30, 120
 local function InviteCommand(data)
 	if type(data) ~= "table" then return nil end
+	local target = data.candidate and data.candidate.full or data.req and data.req.name
+	if not Recruit.FederationInviteAllowed(target, GetGuildInfo("player"), false) then return nil end
 	local name = data.candidate and data.candidate.name or data.req and NameForCommand(data.req.name)
 	return name and ("/ginvite " .. name) or nil
 end
@@ -2945,6 +2956,7 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	if data.candidate then
 		if not Recruit.Candidates.Check(data.candidate) then return end
 	elseif not CurrentRequest(req) then return end
+	if not InviteCommand(data) then return end
 	local util = ChatFrameUtil
 	local open = type(util) == "table" and type(util.OpenChat) == "function" and util.OpenChat or ChatFrame_OpenChat
 	if type(open) ~= "function" then return end

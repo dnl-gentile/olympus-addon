@@ -53022,7 +53022,7 @@ end -- (the pinned line's review)
 		local Cr = ns.Crafters
 		local saved = { send = ns.Comm.Send, whisper = ns.Comm.Whisper, print = ns.Print, dialog = ns.ShowDialog, now = ns.Now,
 			after = Cr.after, random = Cr.random, choice = ns.db.crafterChoice, data = ns.db.crafterData, me = ns.me, guild = GetGuildInfo,
-			queue = ns.Comm.QueueSize, show = ns.Views.ShowPage, ui = ns.UI }
+			queue = ns.Comm.QueueSize, show = ns.Views.ShowPage, ui = ns.UI, program = ns.FederationProgram }
 		local w = { sent = {}, whispers = {}, printed = {}, later = {}, clock = 5000000 }
 		local ok, err = pcall(function()
 			Cr.Reset()
@@ -53047,9 +53047,41 @@ end -- (the pinned line's review)
 		ns.Comm.Send, ns.Comm.Whisper, ns.Print, ns.ShowDialog, ns.Now = saved.send, saved.whisper, saved.print, saved.dialog, saved.now
 		Cr.after, Cr.random, ns.db.crafterChoice, ns.db.crafterData, ns.me = saved.after, saved.random, saved.choice, saved.data, saved.me
 		GetGuildInfo, ns.Comm.QueueSize, ns.Views.ShowPage, ns.UI = saved.guild, saved.queue, saved.show, saved.ui
+		ns.FederationProgram = saved.program
 		Cr.Reset()
 		if not ok then error(err, 0) end
 	end
+
+	test("1.6.1 federation shared tools: a guild outside the active program cannot send, receive or read shared chat and crafting data", function()
+		WithCrafters(function(w, Cr)
+			local active, enrolled = false, false
+			ns.FederationProgram = {
+				Active = function() return active end,
+				LocalEnrollment = function() return enrolled and {} or nil end,
+				IsEnrolled = function(guild) return enrolled and guild == "Olympus II" end,
+			}
+			local smith = "Sample Smith-Realm"
+			local listing = "W1~Olympus II~164:Blacksmithing:100:150:4"
+			Cr.HandleListing("CHANNEL", smith, listing)
+			eq(#Cr.Board(), 1, "the existing directory is still available before activation")
+			active = true
+			eq(#Cr.Board(), 0, "cached shared listings are invisible while the local guild is outside")
+			eq(Cr.AskList(smith, "164"), false)
+			Cr.Ask("item:100")
+			eq(#w.sent, 0)
+			eq(#w.whispers, 0)
+			eq(select(2, ns.Channels.Send("A", "hello")), "federation")
+			eq(select(2, ns.Channels.Receive("CHANNEL", smith, "unused")), "federation")
+			eq(#ns.Channels.History("A"), 0)
+			enrolled = true
+			eq(#Cr.Board(), 1, "the directory returns when the local guild enrolls")
+			local ask = Cr.Ask("item:100")
+			eq(ask.item, 100)
+			eq(#w.sent, 1)
+			Cr.HandleListing("CHANNEL", "Outside Smith-Realm", "W1~Olympus Outside~164:Blacksmithing:100:150:4")
+			eq(#Cr.Board(), 1, "the outside guild's listing is refused")
+		end)
+	end)
 
 	test("1.1 Konig's review (item 5): the crafters: a crafter the moderators took off (or his guild) is not listed, his answers and recipe lists are not taken, and his own client sends none", function()
 		WithCrafters(function(w, Cr)

@@ -2298,6 +2298,44 @@ end
 function ns.IsMember()
 	return ns.AccordAccepted() and ns.InOlympusGuild()
 end
+
+-- Participation in the shared tools has its own signed policy. Membership and
+-- personal privacy consent still apply to their existing flows.
+function ns.SharedToolsActive()
+	local program = ns.FederationProgram
+	return program ~= nil and program.Active() == true
+end
+
+function ns.SharedToolsHere()
+	if not ns.SharedToolsActive() then return true end
+	return ns.FederationProgram.LocalEnrollment() and true or false
+end
+
+function ns.SharedGuildAllowed(guild)
+	if not ns.SharedToolsActive() then return true end
+	return ns.FederationProgram.IsEnrolled(guild) == true
+end
+
+-- A chat/listing claim alone does not establish a sender's membership in an
+-- enrolled guild. Confirm it in our native roster or the authenticated guild
+-- leadership evidence already used by recruiting handoffs.
+function ns.SharedPeerAllowed(sender, guild)
+	if not ns.SharedToolsActive() then return true end
+	if not ns.SharedToolsHere() or ns.IsSecret(sender, guild) or type(sender) ~= "string" or sender == "" then return false end
+	local who, own = ns.FullName(sender), GetGuildInfo("player")
+	if ns.IsSecret(own) then return false end
+	local realm = ns.RealmOf(who)
+	local region = (ns.realm or ""):match("^CAMWOW(%u%u)")
+	if not ns.InGroup(realm) or (region and realm:match("^CAMWOW(%u%u)") ~= region) then return false end
+	if guild == nil or guild == own then
+		if ns.Roster.Fresh() and ns.Roster.RankOf(who) ~= nil then return true end
+		if guild == own then return false end
+	end
+	guild = guild or ns.Data.ClaimedGuild(who)
+	if type(guild) ~= "string" or not ns.SharedGuildAllowed(guild) or not ns.Data.CanRank(guild) then return false end
+	local rank, source, support = ns.Data.AuthorizedRank(who, guild)
+	return rank ~= nil and (source == "signed" or (source == "census" and (support or 0) >= 2))
+end
 -- What a "members only" refusal says: in an Olympus guild before the Olympus Accord, that it waits
 -- for the Accord (and where it is), never that he is no member; elsewhere the usual line.
 function ns.MembersOnlyText()

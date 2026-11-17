@@ -73,6 +73,7 @@ end
 -- census reports, never the packet's own claim.
 local function Member(name, guild)
 	if not InScope(name) or not Field(guild, MAX_GUILD) or not ns.IsFederation(guild) then return false end
+	if not ns.SharedGuildAllowed(guild) then return false end
 	if ns.db and ns.db.blocked and ns.db.blocked[name:lower()] then return false end
 	if ns.Moderation and ns.Moderation.Hides and ns.Moderation.Hides(name, guild, true) then return false end
 	local rank, source, support
@@ -89,7 +90,7 @@ end
 
 local function LocalGuild()
 	local guild = ns.group and ns.faction and ns.IsMember() and GetGuildInfo("player") or nil
-	if guild and R.CanInvite() and Member(ns.me, guild) then return guild end
+	if guild and ns.SharedToolsHere() and R.CanInvite() and Member(ns.me, guild) then return guild end
 end
 
 local function Accepting()
@@ -204,6 +205,7 @@ end
 -- probes and offers still wait for the end of a fight; a chat lockdown and quiet presence hold all of it.
 local function SourceReady(ref, claimed)
 	if not Source(ref.request, nil, claimed) then return false end
+	if not R.FederationInviteAllowed(NameOf(ref.request), ref.to) then return false end
 	if not ref.automatic then return true end
 	local own, allowed = ref.from, nil
 	if claimed then
@@ -233,6 +235,7 @@ function H.Offer(req, peer, guild, automatic)
 	if not own or not Source(req) or H.State(req) or not Room(outgoing) or Duplicate(req)
 		or not Member(peer, guild) or SamePlayer(peer, ns.me)
 		or (req.handoffIntent ~= "federation" and not Same(own, guild)) then return false end
+	if not R.FederationInviteAllowed(NameOf(req), guild) then return false end
 	if automatic and (not AutoAllowed(own) or not Same(own, guild)
 		or PromptOpen(req) or not Room(outgoing, LIMIT - 1)) then return false end
 	local ref = {
@@ -611,6 +614,7 @@ function H.Receive(dist, sender, word)
 			if not ref or ref.state ~= "claiming" or ref.expires ~= expires or not SamePlayer(ref.peer, sender)
 				or ref.from ~= from or ref.to ~= to or not InScope(applicant) or SamePlayer(applicant, ns.me) then return false end
 			ref.named = true -- (a name came: whatever this client does with it, no "no name" line, Prune)
+			if not R.FederationInviteAllowed(applicant, own) then return false end
 			for _, req in ipairs(R.requests) do
 				if SamePlayer(applicant, req.name) then return false end
 			end
