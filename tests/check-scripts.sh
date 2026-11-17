@@ -16,6 +16,7 @@ fixture() {
 	printf '## Interface: 16001\r\n\r\nMain.lua\r\nnested folder\\Extra.lua\r\n' > "$case_root/Olympus/Olympus.toc"
 	printf 'print("fixture suite ran")\n' > "$case_root/tests/run.lua"
 	printf 'printf "fixture round trip ran\\n"\n' > "$case_root/tests/sign-roundtrip.sh"
+	printf 'printf "fixture fugitive round trip ran\\n"\n' > "$case_root/tests/federation-fugitives-sign.sh"
 	printf 'printf "fixture records seal round trip ran\\n"\n' > "$case_root/tests/records-seal-roundtrip.sh"
 }
 
@@ -37,6 +38,7 @@ printf 'print("python must not run")\n' > "$case_root/scripts/tool.py"
 "$bash_bin" "$case_root/scripts/check.sh" > "$case_root/result.txt" 2>&1
 grep -Fq 'fixture suite ran' "$case_root/result.txt"
 grep -Fq 'fixture round trip ran' "$case_root/result.txt"
+grep -Fq 'fixture fugitive round trip ran' "$case_root/result.txt"
 grep -Fq 'All repository checks passed.' "$case_root/result.txt"
 if grep -Fq 'python must not run' "$case_root/result.txt" || [ -e "$case_root/scripts/__pycache__" ]; then
 	printf 'FAIL: the Python check ran a script or left bytecode in the project\n' >&2
