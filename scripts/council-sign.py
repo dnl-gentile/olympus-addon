@@ -696,7 +696,7 @@ def group_conflicts(data, realm):
 
 def read_council(data):
     fields(data, "the council", ("realm", "public", "departments", "members", "stewards", "guilds", "arbiters", "apostles", "leadership",
-        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program"))
+        "king", "queen", "treasurer", "author", "realms", "speedrunner", "quaestor", "program", "contributions"))
     realm = data.get("realm", REALM)
     if not isinstance(realm, str): sys.exit("not a realm group the addon takes: %r" % (realm,))
     group_conflicts(data, realm)
@@ -770,6 +770,27 @@ def program_entries(v, realm):
         entries.append("^program^%s^%s^%s^%d^%d^%s" % (faction, region, mode, issued, expires, "!".join(sorted(rows)) or "-"))
     return sorted(entries)
 
+# A separate decision switches the enrolled guilds to voluntary contributions.
+def contribution_entries(v, realm):
+    if v is None: return []
+    if not isinstance(v, list): sys.exit("contributions is a list of faction and region policies")
+    entries, scopes = [], set()
+    for policy in v:
+        fields(policy, "a contributions policy", ("faction", "region", "mode", "issued", "expires"))
+        faction = faction_of(policy.get("faction"), "a contributions policy")
+        region = policy.get("region")
+        if not realm or not realm.startswith("Forever") or not isinstance(region, str) or not re.fullmatch(r"[A-Z]{2}", region):
+            sys.exit("contributions needs an explicit Forever realm group and region")
+        if (faction, region) in scopes: sys.exit("a contributions scope twice")
+        scopes.add((faction, region))
+        mode = policy.get("mode")
+        issued, expires = policy.get("issued"), policy.get("expires")
+        if mode not in ("enforce", "off"): sys.exit("contributions mode is enforce or off")
+        if type(issued) is not int or type(expires) is not int or issued < 1577836800 or not 0 < expires - issued <= MAX_PROGRAM_LIFETIME:
+            sys.exit("contributions needs valid issued and expires Unix times no more than 31 days apart")
+        entries.append("^contributions^%s^%s^%s^%d^%d^-" % (faction, region, mode, issued, expires))
+    return sorted(entries)
+
 # Both lists from the council file: the names (HS1) and, one second newer, the titles (HT1).
 def sign_council(path):
     return sign_council_data(load_council(path))
@@ -836,6 +857,7 @@ def sign_council_data(data):
     entries += ["^quaestor^%s^%s" % (faction, ",".join(pins["quaestor"][faction])) for faction in FACTIONS if pins.get("quaestor", {}).get(faction)]
     entries += ["^realms^%s^%s" % (region, ",".join("%s=%s" % r for r in pins["realms"][region])) for region in REGIONS if pins["realms"].get(region)]
     entries += program
+    entries += contribution_entries(data.get("contributions"), realm)
     titles_text = "HT1~%d~%s~%d~%s" % (at + 1, realm, 1 if public else 0, ";".join(entries))
     fits(names_text, MAX_BLOB, "the name list")
     fits(titles_text, MAX_TITLES_BLOB, "the titles list")

@@ -9,7 +9,8 @@ ns.FederationProgram = Program
 
 local MAX_BLOB, MAX_GUILDS = 3000, 20
 local MIN_TIME, MAX_LIFETIME = 1577836800, 31 * 86400
-local current, retained = {}, {}
+local enrollment = { field = "federationProgramPolicies", key = "program", current = {}, retained = {} }
+local contributions = { field = "federationContributionPolicies", key = "contributions", current = {}, retained = {} }
 
 local function Region(realm)
 	return type(realm) == "string" and realm:match("^CAMWOW(%u%u)%d+Realm%d+%a+$") or "-"
@@ -48,28 +49,28 @@ local function Entries(body, group, region)
 	return out
 end
 
-local function Read(blob, group, faction, region)
-	if type(blob) ~= "string" or #blob > MAX_BLOB then return nil end
+local function Read(blob, group, faction, region, kind)
+	if type(blob) ~= "string" or #blob > MAX_BLOB or (kind == contributions and region == "-") then return nil end
 	local text, revision, signedGroup, body, sig = blob:match("^(HT1~(%d+)~([^~]+)~[01]~([^~]*))~(%x+)$")
 	revision = tonumber(revision)
 	if signedGroup ~= group or not revision or revision < MIN_TIME or revision > 9999999999 then return nil end
 	local policy
 	for entry in body:gmatch("[^;]+") do
-		local side, place, mode, start, finish, rows = entry:match("^%^program%^([^%^]+)%^([^%^]+)%^([^%^]+)%^(%d+)%^(%d+)%^([^%^]*)$")
+		local side, place, mode, start, finish, rows = entry:match("^%^" .. kind.key .. "%^([^%^]+)%^([^%^]+)%^([^%^]+)%^(%d+)%^(%d+)%^([^%^]*)$")
 		if side == faction and place == region then
 			start, finish = tonumber(start), tonumber(finish)
-			if policy or (mode ~= "enforce" and mode ~= "off") or (mode == "off" and rows ~= "-")
-				or start < MIN_TIME or finish <= start or finish - start > MAX_LIFETIME then return nil end
+			if policy or (mode ~= "enforce" and mode ~= "off") or ((mode == "off" or kind == contributions) and rows ~= "-")
+				or not start or not finish or start < MIN_TIME or finish <= start or finish - start > MAX_LIFETIME then return nil end
 			policy = { revision = revision, mode = mode, start = start, finish = finish, guilds = Entries(rows, group, region) }
 		end
 	end
 	if policy and ns.Sign and ns.Sign.Verify(text, sig) then return policy end
 end
 
-local function Cached(slot, blob, group, faction, region, scope)
+local function Cached(slot, blob, group, faction, region, scope, kind)
 	if slot.blob ~= blob or slot.scope ~= scope then
 		slot.blob, slot.scope = blob, scope
-		slot.policy = Read(blob, group, faction, region)
+		slot.policy = Read(blob, group, faction, region, kind)
 	end
 	return slot.policy
 end
@@ -79,19 +80,19 @@ local function Clock()
 	return view or ns.Now()
 end
 
-local function State(at)
+local function State(kind, at)
 	local group, faction, region, scope = Scope()
 	local db = ns.rdb
 	if not scope or type(db) ~= "table" then return nil end
 	local titles = db.councilTitles
 	local blob = type(titles) == "table" and titles.blob or nil
-	local policies = db.federationProgramPolicies
-	local last = Cached(retained, type(policies) == "table" and policies[scope], group, faction, region, scope)
-	local policy = Cached(current, blob, group, faction, region, scope)
+	local current, retained, policies = kind.current, kind.retained, db[kind.field]
+	local last = Cached(retained, type(policies) == "table" and policies[scope], group, faction, region, scope, kind)
+	local policy = Cached(current, blob, group, faction, region, scope, kind)
 	local now = Clock()
 	-- Use the actual clock for saved activation. An optional time filters a grant, never promotes one.
 	if policy and policy.start <= now and (not last or last.revision < policy.revision) then
-		if type(policies) ~= "table" then policies = {}; db.federationProgramPolicies = policies end
+		if type(policies) ~= "table" then policies = {}; db[kind.field] = policies end
 		policies[scope] = blob
 		retained.blob, retained.scope, retained.policy, last = blob, scope, policy, policy
 	end
@@ -104,16 +105,24 @@ end
 
 -- Workshop calls this on each side of replacing a signed titles list, including on first receipt.
 function Program.RememberPolicy()
-	State()
+	State(enrollment)
+	State(contributions)
 end
 
 function Program.Active()
-	return State() == true
+	return State(enrollment) == true
+end
+
+-- Returns rollout-active, followed by whether the current signed policy enables new contributions.
+-- Expiry or omission suspends the CTA but cannot silently restore mandatory dues outside Prime.
+function Program.ContributionsPolicy()
+	local active, grant = State(contributions)
+	return active == true, grant ~= nil
 end
 
 local function Enrollment(guild, at)
 	if type(guild) ~= "string" or ns.Secret(nil, guild) or guild == "" then return nil end
-	local _, guilds = State(at)
+	local _, guilds = State(enrollment, at)
 	if not guilds then return nil end
 	if ns.IsRemovedGuild(guild) then return nil end
 	return guilds[ns.Fold(guild)]

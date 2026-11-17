@@ -380,6 +380,9 @@ with open(sys.argv[1], "w") as f:
         "issued": now - 60, "expires": now + 3600,
         "guilds": [{"guild": "Olympus Azure", "caretaker": "Silver Rock-CAMWOWUS2Realm5PvE",
                     "official": "Amber Vale-CAMWOWUS1Realm2PvE"}]
+    }], "contributions": [{
+        "faction": "Alliance", "region": "US", "mode": "enforce",
+        "issued": now - 60, "expires": now + 3600,
     }]}, f)
 PY
 OLYMPUS_COUNCIL_OUT="$scratch/council13.lua" python3 "$signer" council "$scratch/program.json" > /dev/null

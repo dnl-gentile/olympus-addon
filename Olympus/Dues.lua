@@ -218,12 +218,56 @@ end
 -- Who
 ---------------------------------------------------------------------------
 
--- The treasury is <Olympus>'s, on the Treasurer's realm group (WoW: Forever's, whose names have
--- a surname: ns.splitNames, as the King's view of the treasury, Treasury.Visible), on the Alliance.
+local function ContributionPolicy()
+	local P = ns.FederationProgram
+	if P and P.ContributionsPolicy then return P.ContributionsPolicy() end
+	return false, false
+end
+
+local function PrimeGuild(guild)
+	return ns.OnForever() and ns.faction == "Alliance" and type(guild) == "string"
+		and not ns.Secret(nil, guild) and ns.Fold(guild) == ns.KING_GUILD_FOREVER.Alliance
+end
+
+function Dues.MandatoryGuild(guild)
+	return not ContributionPolicy() or PrimeGuild(guild)
+end
+
+function Dues.ContributionGuild()
+	local _, enabled = ContributionPolicy()
+	if not enabled or not ns.IsMember() then return nil end
+	local guild = GetGuildInfo("player")
+	if not PrimeGuild(guild) and ns.FederationProgram.IsEnrolled(guild) then return guild end
+end
+
+local function ContributionLines()
+	local lines = { { text = Gold("< " .. L.TAB_REALM), onClick = function() ns.Views.ShowPage(nil) end, gapAfter = true } }
+	local guild = Dues.ContributionGuild()
+	if guild then
+		lines[#lines + 1] = { header = true, text = L.CONTRIBUTIONS_TITLE, right = guild, gapAfter = true }
+		Para(lines, L.CONTRIBUTIONS_DETAIL)
+		Para(lines, L.CONTRIBUTIONS_HOW)
+	end
+	return lines
+end
+
+local function ContributionLink()
+	if not Dues.ContributionGuild() then return nil end
+	return { key = "charitable-contributions", text = Gold("> " .. L.CONTRIBUTIONS_TITLE),
+		onClick = function()
+			if Dues.ContributionGuild() then ns.Views.ShowPage("contributions") end
+		end }
+end
+
+ns.RealmPages = ns.RealmPages or {}
+table.insert(ns.RealmPages, { key = "contributions", Link = ContributionLink, Lines = ContributionLines, beforeBoard = true })
+
+-- Prime keeps the Treasurer's established Alliance roster and realm-group requirements.
 function Dues.Available()
 	if ns.faction == "Horde" or not ns.splitNames or not ns.IsMember() then return false end
 	local realm = ns.TreasurerRealm() -- (1.3.4: the signed list's Treasurer where it names one)
-	return realm ~= nil and ns.GroupOf(ns.realm or "") == ns.GroupOf(realm)
+	if realm == nil or ns.GroupOf(ns.realm or "") ~= ns.GroupOf(realm) then return false end
+	return Dues.MandatoryGuild(GetGuildInfo("player"))
 end
 -- The King, his Steward, the author's Asmon's view: the amount is theirs to set.
 local function KingView() return ns.King.IsKing() or ns.King.IsSteward() or ns.King.Preview() end
@@ -236,7 +280,7 @@ function Dues.Sees()
 	return KingView() or Dues.IsTreasurer() or ns.Roster.IsOfficer() or false
 end
 -- Every guild's, or only our own.
-local function SeesAll() return KingView() or Dues.IsTreasurer() end
+local function SeesAll() return not ContributionPolicy() and (KingView() or Dues.IsTreasurer()) end
 
 -- A sender the King's word comes from (by name: the server sets it), or his Steward.
 local function KingOrSteward(name) return ns.IsKingCharacter(name) or ns.King.IsStewardName(name) end
@@ -642,6 +686,7 @@ function Dues.Ledger(week)
 	week = week or Dues.Week()
 	local amount = Dues.AmountOf(week) -- (that week's own: Fern's one fixed amount)
 	local players, since = {}, nil
+	local restricted = ContributionPolicy()
 	for _, b in ipairs(LedgerBooks()) do
 		local opened = tonumber(b.openedAt or b.opened)
 		if opened and (not since or opened < since) then since = opened end
@@ -649,15 +694,17 @@ function Dues.Ledger(week)
 		for wk, list in pairs(type(s.weeks) == "table" and s.weeks or {}) do
 			if type(wk) == "number" and wk <= week and wk > week - Dues.WEEKS_KEPT and type(list) == "table" then
 				for key, p in pairs(list) do
-					local x = players[key]
-					if not x then
-						x = { n = p.n, c = 0, last = 0 }
-						players[key] = x
+					if not restricted or not p.g or PrimeGuild(p.g) then
+						local x = players[key]
+						if not x then
+							x = { n = p.n, c = 0, last = 0 }
+							players[key] = x
+						end
+						if wk == week then x.c = math.min(x.c + (tonumber(p.c) or 0), MAX_COPPER) end
+						if (tonumber(p.t) or 0) > x.last then x.last, x.n = tonumber(p.t), p.n or x.n end
+						if Better(p, wk, x) then x.g, x.gv, x.gw = p.g, p.gv, wk end
+						if wk == week and BetterNow(p, x) then x.wg, x.wgv, x.wt = p.g, p.gv, tonumber(p.t) or 0 end
 					end
-					if wk == week then x.c = math.min(x.c + (tonumber(p.c) or 0), MAX_COPPER) end
-					if (tonumber(p.t) or 0) > x.last then x.last, x.n = tonumber(p.t), p.n or x.n end
-					if Better(p, wk, x) then x.g, x.gv, x.gw = p.g, p.gv, wk end
-					if wk == week and BetterNow(p, x) then x.wg, x.wgv, x.wt = p.g, p.gv, tonumber(p.t) or 0 end
 				end
 			end
 		end
@@ -721,7 +768,8 @@ end
 -- His client answers: the Treasurer himself, sharing his book (his yes), on the Alliance.
 function Dues.Answers()
 	if ns.faction == "Horde" or not ns.IsMember() then return false end
-	return ns.IsTreasurer(ns.me, GetGuildInfo("player")) and ns.Treasury.CanSend() == true
+	local guild = GetGuildInfo("player")
+	return Dues.MandatoryGuild(guild) and ns.IsTreasurer(ns.me, guild) and ns.Treasury.CanSend() == true
 end
 
 -- When the Treasurer's mail character last played, as this account keeps its book, or nil. Its
@@ -852,8 +900,18 @@ end
 
 -- Who may ask for `what`: the King or his Steward, any guild or every guild (all);
 -- a guild's Captain or Lord, his own guild alone. Rechecked at the actual send as well.
+local function DuesScope(guild)
+	if guild == "*" then return not ContributionPolicy() end
+	return Dues.MandatoryGuild(guild)
+end
 local function May(sender, what, all)
-	return KingOrSteward(sender) or (not all and CaptainOf(sender, what)) or false
+	return DuesScope(what) and (KingOrSteward(sender) or (not all and CaptainOf(sender, what))) or false
+end
+local function AskGuard(what)
+	local me, guild = ns.me, GetGuildInfo("player")
+	return function()
+		return ns.me == me and GetGuildInfo("player") == guild and Dues.Available() and DuesScope(what)
+	end
 end
 local function AnswerGuard(to, what, all)
 	local me, guild = ns.me, GetGuildInfo("player")
@@ -1018,7 +1076,7 @@ ns.Comm.Handle("FC", function(...) Dues.HandleCodeAsk(...) end)
 -- This client asks for a list (on its page, once every ASK_EVERY), while the Treasurer's addon is
 -- online, with the id of the one it holds whole. The Treasurer's own client works it out itself.
 function Dues.Ask(what, force)
-	if Dues.IsTreasurer() or type(what) ~= "string" or not Dues.Available() then return false end
+	if Dues.IsTreasurer() or type(what) ~= "string" or not Dues.Available() or not DuesScope(what) then return false end
 	local online, name = Dues.TreasurerOnline()
 	if not online then return false end
 	local now, week = ns.Now(), Dues.Week()
@@ -1026,7 +1084,7 @@ function Dues.Ask(what, force)
 	asked[what:lower()] = now
 	local held = what == "*" and summary or answers[what:lower()]
 	local id = held and held.week == week and held.count >= held.n and held.id or 0
-	ns.Comm.Whisper(name, ("FQ~%d~%s~%d"):format(week, what, id), "duesask " .. what:lower())
+	ns.Comm.Whisper(name, ("FQ~%d~%s~%d"):format(week, what, id), "duesask " .. what:lower(), nil, nil, nil, { guard = AskGuard(what) })
 	return true
 end
 
@@ -1035,6 +1093,7 @@ end
 -- list's digest) or his roster did, once every CODE_GAP at most; again after ASK_EVERY while
 -- unanswered. Until the answer comes, those members show as not known, never below.
 function Dues.AskCodes(guild)
+	if ContributionPolicy() and (not Dues.Available() or not DuesScope(guild)) then return false end
 	local a = type(guild) == "string" and answers[guild:lower()]
 	if not a or a.week ~= Dues.Week() or a.count < a.n or a.u == "0" then return false end
 	local online, name = Dues.TreasurerOnline()
@@ -1059,19 +1118,25 @@ function Dues.AskCodes(guild)
 	local pieces, leftOut = Pieces(Head, codes, ",", Dues.MAX_CODE_PIECES)
 	-- (Codes that did not fit are not asked: their members stay not known, never below.)
 	for j = leftOut or #codes + 1, #codes do set[codes[j]] = nil end
-	for i, p in ipairs(pieces) do ns.Comm.Whisper(name, Head(i, #pieces) .. p, ("duesc %s %d"):format(guild:lower(), i)) end
+	local guard = AskGuard(guild)
+	for i, p in ipairs(pieces) do
+		ns.Comm.Whisper(name, Head(i, #pieces) .. p, ("duesc %s %d"):format(guild:lower(), i), nil, nil, nil, { guard = guard })
+	end
 	return true
 end
 
 -- Pieces of an answer, from the Treasurer himself (his pinned name: the server sets it).
-local function FromTreasurer(dist, sender) return dist == "WHISPER" and ns.Treasury.TreasurerPin(sender) == 1 end
+local function FromTreasurer(dist, sender)
+	return dist == "WHISPER" and ns.Treasury.TreasurerPin(sender) == 1
+		and (not ContributionPolicy() or Dues.Available())
+end
 local function MailAt(mail)
 	local h = mail ~= "-" and N36(mail)
 	return h and ns.Now() - h * 3600 or nil
 end
 
 function Dues.HandleSummary(dist, sender, text)
-	if type(text) ~= "string" or not FromTreasurer(dist, sender) or not KingView() then return end
+	if type(text) ~= "string" or not FromTreasurer(dist, sender) or not KingView() or not DuesScope("*") then return end
 	local id, week, amount, i, n, body = text:match("^FS~(%d+)~(%d+)~([0-9a-z]+)~(%d+)~(%d+)~(.*)$")
 	id, week, amount, i, n = tonumber(id), tonumber(week), N36(amount), tonumber(i), tonumber(n)
 	if not (id and week and amount and i and n) or i < 1 or i > n or n > 99 then return end
@@ -1103,7 +1168,7 @@ function Dues.HandleGuild(dist, sender, text)
 		text:match("^FA~(%d+)~(%d+)~([0-9a-z]+)~([0-9a-z]+)~([0-9a-z%-]+)~([01])~([0-9a-z]+)~([^~]+)~(%d+)~(%d+)~(.*)$")
 	id, week, amount, since, i, n = tonumber(id), tonumber(week), N36(amount), N36(since), tonumber(i), tonumber(n)
 	guild = guild and ns.King.CleanGuild(guild)
-	if not (id and week and amount and since and guild and i and n) or i < 1 or i > n or n > Dues.MAX_PIECES or #u > 8 then return end
+	if not (id and week and amount and since and guild and i and n) or i < 1 or i > n or n > Dues.MAX_PIECES or #u > 8 or not DuesScope(guild) then return end
 	-- Only our own guild's, unless ours is the King's view.
 	local own = ns.IsMember() and GetGuildInfo("player")
 	if not (KingView() or (own and own:lower() == guild:lower())) then return end
@@ -1137,7 +1202,7 @@ function Dues.HandleSame(dist, sender, text)
 	if type(text) ~= "string" or not FromTreasurer(dist, sender) then return end
 	local id, week, what, u, mail = text:match("^FU~(%d+)~(%d+)~([^~]+)~([0-9a-z]+)~([0-9a-z%-]+)$")
 	id, week = tonumber(id), tonumber(week)
-	if not (id and week) or #u > 8 then return end
+	if not (id and week) or #u > 8 or not DuesScope(what) then return end
 	Heard(sender)
 	local held
 	if what == "*" then held = summary else held = answers[(ns.King.CleanGuild(what) or ""):lower()] end
@@ -1153,7 +1218,7 @@ ns.Comm.Handle("FU", function(...) Dues.HandleSame(...) end)
 function Dues.HandleBusy(dist, sender, text)
 	if type(text) ~= "string" or not FromTreasurer(dist, sender) then return end
 	local what = text:match("^FB~%d+~([^~]+)$")
-	if not what then return end
+	if not what or not DuesScope(what) then return end
 	Heard(sender)
 	busy[what:lower()] = ns.Now()
 	ns.Fire("TREASURY_CHANGED")
@@ -1167,7 +1232,7 @@ function Dues.HandleCodes(dist, sender, text)
 	local week, guild, ask, i, n, body = text:match("^FD~(%d+)~([^~]+)~(%d+)~(%d+)~(%d+)~(.*)$")
 	week, ask, i, n = tonumber(week), tonumber(ask), tonumber(i), tonumber(n)
 	guild = guild and ns.King.CleanGuild(guild)
-	if not (week and ask and i and n and guild) or i < 1 or i > n or n > 99 then return end
+	if not (week and ask and i and n and guild) or i < 1 or i > n or n > 99 or not DuesScope(guild) then return end
 	local a = answers[guild:lower()]
 	local cs = a and a.cs
 	if not cs or cs.ask ~= ask or a.week ~= week or cs.done then return end
@@ -1201,6 +1266,7 @@ ns.Comm.Handle("FD", function(...) Dues.HandleCodes(...) end)
 -- Treasurer's list came with (listAmount): his client, which receives the dues, sets none of it,
 -- stale or modified (the review of Konig's fixes, 1.1).
 local function GuildData(guild)
+	if not DuesScope(guild) then return nil end
 	if Dues.IsTreasurer() then
 		local led = Dues.Ledger()
 		-- (His own guild's roster finds every player, whatever guild his gift carries.)
@@ -1390,7 +1456,7 @@ Dues.picked = nil            -- the member picked on our roster (his key), for t
 
 -- The player's rank may remove members: the game says so (a client that can't say: no).
 function Dues.CanRemove()
-	if not IsInGuild() or type(CanGuildRemove) ~= "function" then return false end
+	if not Dues.MandatoryGuild(GetGuildInfo("player")) or not IsInGuild() or type(CanGuildRemove) ~= "function" then return false end
 	local ok, can = pcall(CanGuildRemove)
 	return ok and can and true or false
 end
@@ -1643,6 +1709,8 @@ end
 
 -- The dues page (Treasury.Build, mode "dues"): lines, title, detail. `q`, the tab's search.
 function Dues.Build(q)
+	if ContributionPolicy() and not Dues.Sees() then return {}, L.TAB_TREASURY, L.DUES_DETAIL end
+	if Dues.shown and not DuesScope(Dues.shown) then Dues.shown = nil end
 	if ns.DuesHistory and ns.DuesHistory.shown then return ns.DuesHistory.Build(q) end
 	local lines = { { text = Gold("< " .. (Dues.shown and SeesAll() and L.DUES_ALL_GUILDS or L.TREASURY_TITLE)), onClick = function() Dues.Back() end, gapAfter = true } }
 	local amount = Dues.Amount()
@@ -1853,12 +1921,13 @@ function Dues.NativePayerCoverage(book, week)
 	return true
 end
 local function QueuePayerReceipt(pin, to, proof, week)
+	if not Dues.MandatoryGuild(proof.guild) then return false end
 	local key = pin .. "~" .. to:lower() .. "~" .. week
 	if not payerReceipts[key] then
 		if #payerReceiptOrder >= Dues.PAYER_RECEIPTS_MAX then return false end
 		payerReceiptOrder[#payerReceiptOrder + 1] = key
 	end
-	payerReceipts[key] = { to = to, from = ns.me, pin = pin,
+	payerReceipts[key] = { to = to, from = ns.me, pin = pin, guild = proof.guild,
 		msg = ("FR~1~%d~%d~%d~%d~%d~%d~%s"):format(pin, proof.seq, week, proof.amount, proof.copper, proof.at, proof.guild) }
 	return true
 end
@@ -1878,7 +1947,7 @@ function Dues.PayerBooked(book, e, payer, observed)
 	local pin = ReceiptSender()
 	if not observed or not pin or type(book) ~= "table" or ns.Treasury.TreasurerPin(book.name) ~= pin
 		or type(e) ~= "table" or e.out or e.item or e.excluded or e.kind or not e.guild
-		or e.duesPayerReceipt or not ns.IsFederation(e.guild) or not Whole(e.money, MAX_COPPER) then return false end
+		or e.duesPayerReceipt or not ns.IsFederation(e.guild) or not Dues.MandatoryGuild(e.guild) or not Whole(e.money, MAX_COPPER) then return false end
 	local week = tonumber(e.wk)
 	if not week or week < Dues.Week() - Dues.WEEKS_KEPT + 1 or week > Dues.Week() then return false end
 	local to = ns.FullName(ns.Normal(payer))
@@ -1913,7 +1982,7 @@ function Dues.PumpPayerReceipts()
 	local key = table.remove(payerReceiptOrder, 1)
 	local item = payerReceipts[key]; payerReceipts[key] = nil
 	if not item then return end
-	local function Guard() return ReceiptSender() == item.pin and ns.me == item.from end
+	local function Guard() return ReceiptSender() == item.pin and ns.me == item.from and Dues.MandatoryGuild(item.guild) end
 	if not Guard() then return end
 	return ns.Comm.Whisper(item.to, item.msg, "dues receipt " .. key, nil, nil, nil, { owner = Dues, guard = Guard })
 end
@@ -1962,7 +2031,7 @@ function Dues.HandlePayerAsk(dist, sender, text)
 	local proof = book and book.duesPayerProofs and book.duesPayerProofs[week] and book.duesPayerProofs[week][key]
 	if type(proof) ~= "table" or not Whole(proof.seq, MAX_COPPER) or not Whole(proof.copper, MAX_COPPER)
 		or not Whole(proof.amount, Dues.MAX_AMOUNT) or not Whole(proof.at, 9007199254740991)
-		or type(proof.guild) ~= "string" or #proof.guild > 100 or not ns.IsFederation(proof.guild) then return false end
+		or type(proof.guild) ~= "string" or #proof.guild > 100 or not ns.IsFederation(proof.guild) or not Dues.MandatoryGuild(proof.guild) then return false end
 	payerReceiptAnswered[key] = now
 	return QueuePayerReceipt(pin, ns.FullName(ns.Normal(sender)), proof, week)
 end
@@ -2152,6 +2221,7 @@ end
 
 -- The page (a guild's players: that guild).
 function Dues.Open(guild)
+	if ContributionPolicy() and (not Dues.Sees() or (guild and not DuesScope(guild))) then return false end
 	if ns.DuesHistory then ns.DuesHistory.shown = nil end
 	Dues.shown = guild
 	shownRows = Dues.PAGE

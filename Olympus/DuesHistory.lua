@@ -109,7 +109,7 @@ local function Members()
 	end
 	for _, e in ipairs(ns.Data.Summary().guilds) do
 		local g, name = e.g, e.name
-		if name ~= own and Guild(name) and not g.mine and Integer(g.total, ns.Codec.GUILD_CAP) and g.total > 0
+		if name ~= own and Guild(name) and D.MandatoryGuild(name) and not g.mine and Integer(g.total, ns.Codec.GUILD_CAP) and g.total > 0
 			and ns.Now() - (g.t or 0) >= 0 and ns.Now() - (g.t or 0) <= History.BOUNDARY and not ns.Data.Dispute(g) then
 			local leader = ns.FullName(g.leader, g.realm)
 			local rank = ns.Data.AuthorizedRank(leader, name)
@@ -165,15 +165,17 @@ function History.Data()
 		local names = {}; for key, r in pairs(rows) do names[key] = r.name or "" end
 		for key, r in pairs(saved and saved.members or {}) do names[key] = r.name end
 		for key, name in pairs(names) do
-			local r = rows[key] or { copper = 0, payers = 0 }
-			local g = guilds[key] or { name = name, weeks = {} }; guilds[key] = g
-			local captured = closed and closed.rows[key]
-			local known = offset == 0 or (closed and closed.complete and closed.digest == raw.digest
-				and (not captured or (captured.copper == r.copper and captured.payers <= r.payers)))
-			local member = saved and saved.members and saved.members[key]
-			g.weeks[offset + 1] = { members = member and member.n, paid = raw.complete and known and (offset == 0 and r.paid or (captured and captured.paid or 0)) or nil,
-				copper = r.copper, payers = r.payers, amount = offset == 0 and current.amount or (closed and closed.amount),
-				state = raw.complete and known and (offset == 0 and "l" or "s") or "p" }
+			if D.MandatoryGuild(name) then
+				local r = rows[key] or { copper = 0, payers = 0 }
+				local g = guilds[key] or { name = name, weeks = {} }; guilds[key] = g
+				local captured = closed and closed.rows[key]
+				local known = offset == 0 or (closed and closed.complete and closed.digest == raw.digest
+					and (not captured or (captured.copper == r.copper and captured.payers <= r.payers)))
+				local member = saved and saved.members and saved.members[key]
+				g.weeks[offset + 1] = { members = member and member.n, paid = raw.complete and known and (offset == 0 and r.paid or (captured and captured.paid or 0)) or nil,
+					copper = r.copper, payers = r.payers, amount = offset == 0 and current.amount or (closed and closed.amount),
+					state = raw.complete and known and (offset == 0 and "l" or "s") or "p" }
+			end
 		end
 	end
 	local keys = {}; for key in pairs(guilds) do keys[#keys + 1] = key end
@@ -208,7 +210,7 @@ local function Parse(text)
 	local count = 0
 	for _, word in ipairs(body == "" and {} or ns.Codec.Split(body, ";")) do
 		local name, cells = word:match("^([^=]*)=([^=]+)$")
-		if not Guild(name) or data.guilds[name:lower()] then return nil end
+		if not Guild(name) or not D.MandatoryGuild(name) or data.guilds[name:lower()] then return nil end
 		count = count + 1; if count > History.WIRE_GUILDS then return nil end
 		local g, pieces = { name = name, weeks = {} }, ns.Codec.Split(cells, ",")
 		if #pieces ~= 5 then return nil end
@@ -264,6 +266,9 @@ end
 function History.Held()
 	if not History.IsKing() or not received or not SameIdentity(received.identity) or received.week ~= D.Week() or Clock() - received.heard < 0
 		or Clock() - received.heard > History.FRESH then received = nil; return nil end
+	for _, guild in pairs(received.guilds) do
+		if not D.MandatoryGuild(guild.name) then received = nil; return nil end
+	end
 	return received
 end
 function History.Open()

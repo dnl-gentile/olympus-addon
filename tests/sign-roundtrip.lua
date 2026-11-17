@@ -294,12 +294,17 @@ Sign.WithKey(n, mu, k, function()
 	ns.realm, ns.group, ns.me, ns.rdb = "CAMWOWUS1Realm2PvE", "ForeverPvE", "Tester-CAMWOWUS1Realm2PvE", {}
 	local c13, program = councils[13], ns.FederationProgram
 	check(not program.Active(), "the guild program starts inactive")
+	check(not program.ContributionsPolicy(), "contributions starts independently inactive")
 	check(W.TakeTitles(c13.titles) and program.Active(), "the signed guild program is accepted through Workshop")
+	local active, enabled = program.ContributionsPolicy()
+	check(active and enabled, "the separate signed contributions policy is accepted through Workshop")
 	check(program.IsEnrolled("Olympus Azure") and program.Role("Amber Vale-CAMWOWUS1Realm2PvE", "Olympus Azure") == "official"
 		and program.Role("Silver Rock-CAMWOWUS2Realm5PvE", "Olympus Azure") == "caretaker",
 		"the signed program preserves both exact roleholders across the local region's realms")
 	ns.rdb.councilTitles = nil
 	check(program.Active() and not program.IsEnrolled("Olympus Azure"), "an absent group list clears grants but does not disable policy")
+	active, enabled = program.ContributionsPolicy()
+	check(active and not enabled, "the contribution restriction persists without granting access")
 end)
 -- Back to the author's key: the test key's lists are nobody's.
 local text1, _, _, _, sig1 = Parts(lists[1])
