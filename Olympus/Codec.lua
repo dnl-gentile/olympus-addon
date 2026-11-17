@@ -477,16 +477,91 @@ local function LinkData(kind, data)
 	return true
 end
 
--- The same whitelist and semantic boundary for the Chat tab's native hover/click delegation.
+local RECRUIT_LINK_DATA = "Olympus:recruit:"
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+local B64_VALUE = {}
+for i = 1, 64 do B64_VALUE[B64:byte(i)] = i - 1 end
+
+-- Base64url without padding, using the same canonical spelling as Ed25519.lua. Codec loads before
+-- that module, and chat decoding must not depend on optional arena/cryptography state.
+local function ToB64(s)
+	local out = {}
+	for i = 1, #s, 3 do
+		local a, b, c = s:byte(i, i + 2)
+		local n = a * 65536 + (b or 0) * 256 + (c or 0)
+		local k = c and 4 or (b and 3 or 2)
+		for j = 1, k do
+			local v = math.floor(n / 2 ^ (18 - 6 * (j - 1))) % 64
+			out[#out + 1] = B64:sub(v + 1, v + 1)
+		end
+	end
+	return table.concat(out)
+end
+
+local function FromB64(s)
+	if type(s) ~= "string" or #s % 4 == 1 then return nil end
+	local out, n, bits = {}, 0, 0
+	for i = 1, #s do
+		local v = B64_VALUE[s:byte(i)]
+		if not v then return nil end
+		n, bits = n * 64 + v, bits + 6
+		if bits >= 8 then
+			bits = bits - 8
+			local d = 2 ^ bits
+			out[#out + 1] = string.char(math.floor(n / d))
+			n = n % d
+		end
+	end
+	if n ~= 0 then return nil end
+	return table.concat(out)
+end
+
+-- The command name carried by the one addon link admitted to chat. This is intentionally the
+-- same narrow character/byte boundary as Recruit.NameForCommand; the click asks that function
+-- again after decoding. A label is never authoritative.
+local function RecruitCommandName(name)
+	local to = type(ns.TellName) == "function" and ns.TellName(name) or name
+	if type(to) ~= "string" or to == "" or #to > 120 or not to:find("[%a\128-\255]")
+		or to:find("[^%a%d\128-\255 %-]") then return nil end
+	return to
+end
+
+local function RecruitDataName(data)
+	if type(data) ~= "string" then return nil end
+	local payload = data:match("^Olympus:recruit:([A-Za-z0-9_-]+)$")
+	if not payload or #payload > 160 then return nil end
+	local name = FromB64(payload)
+	-- A recipient reconstructs only the exact spelling its game accepts, never a link it would rewrite.
+	if RecruitCommandName(name) ~= name or ToB64(name) ~= payload then return nil end
+	return name
+end
+
+function Codec.RecruitLinkName(link)
+	if type(link) ~= "string" then return nil end
+	local data = link:match("^addon:(.+)$")
+	return data and RecruitDataName(data) or nil
+end
+
+function Codec.RecruitLink(name)
+	name = RecruitCommandName(name)
+	if not name then return nil end
+	return "|Haddon:" .. RECRUIT_LINK_DATA .. ToB64(name) .. "|h[" .. name .. "]|h"
+end
+
+-- The same semantic boundary for the Chat tab's native hover/click delegation, plus Olympus's
+-- one exact recruit action. No other addon link (and no player link) is admitted.
 function Codec.ValidLinkData(kind, data)
-	return type(kind) == "string" and LINK_TYPES[kind] == true and type(data) == "string" and LinkData(kind, data)
+	if type(kind) ~= "string" or type(data) ~= "string" then return false end
+	if kind == "addon" then return RecruitDataName(data) ~= nil end
+	return LINK_TYPES[kind] == true and LinkData(kind, data)
 end
 
 -- Length of a link we let through that starts at i, or nil: an optional colour (Classic
 -- |cAARRGGBB or Mainline |cnNAME:), |Htype:data|h[text]|h with a whitelisted type and data
 -- (LinkData), and |r when it was coloured. Shift-clicked items and spells look exactly like
 -- this. A control byte in the text (a newline that fakes a second chat line) means it is not
--- a link we keep, and so does an empty name, a bracket in it, or one past 100 bytes.
+-- a link we keep, and so does an empty name, a bracket in it, or one past its bound. The recruit
+-- link's label must be the payload's exact decoded name, so visible and actionable identities agree.
 local function LinkAt(s, i)
 	local j = i
 	local color = s:match("^|c%x%x%x%x%x%x%x%x", j) or s:match("^|cn[%w_]+:", j)
@@ -495,7 +570,9 @@ local function LinkAt(s, i)
 		j = j + #color
 	end
 	local kind, data, text = s:match("^|H(%a+):([^|]*)|h%[([^|%[%]%c]*)%]|h", j)
-	if not kind or not Codec.ValidLinkData(kind, data) or text == "" or #text > 100 then return nil end
+	local maxText = kind == "addon" and 120 or 100
+	if not kind or not Codec.ValidLinkData(kind, data) or text == "" or #text > maxText then return nil end
+	if kind == "addon" and RecruitDataName(data) ~= text then return nil end
 	j = j + #kind + #data + #text + 9 -- "|H" ":" "|h[" "]|h"
 	if color then
 		if s:sub(j, j + 1) ~= "|r" then return nil end
@@ -677,7 +754,9 @@ function Codec.PackLinks(s)
 end
 
 local function Untoken(name, kind, data, colour)
-	if not Codec.ValidLinkData(kind, data) or name == "" or #name > 100 then return nil end
+	local maxName = kind == "addon" and 120 or 100
+	if not Codec.ValidLinkData(kind, data) or name == "" or #name > maxName then return nil end
+	if kind == "addon" and RecruitDataName(data) ~= name then return nil end
 	if colour ~= "" and not (colour:find("^%x%x%x%x%x%x%x%x$") or (#colour <= 38 and colour:find("^n[%w_]+:$"))) then return nil end
 	local link = "|H" .. kind .. ":" .. data .. "|h[" .. name .. "]|h"
 	if colour ~= "" then link = "|c" .. colour .. link .. "|r" end
@@ -689,10 +768,10 @@ end
 function Codec.UnpackLinks(s)
 	s = tostring(s or "")
 	if not s:find("](", 1, true) then return s end
-	-- The capture admits only the old numeric punctuation plus the letters a canonical Player
-	-- GUID needs. DecodeChat bounds the whole input at 255 bytes; LinkData then applies its exact
-	-- kind, 120-byte, field-count and kind-specific Player-GUID validation before Untoken reconstructs anything.
-	return (s:gsub("%[([^%[%]|%c]+)%]%((%a+):([0-9A-FPalyer:%-]*)/([^%)]*)%)", Untoken))
+	-- The capture admits only word bytes and the punctuation used by native IDs or the canonical
+	-- recruit base64url. DecodeChat bounds the whole input; ValidLinkData and Untoken then apply
+	-- exact kind, data, length and label validation before reconstructing anything.
+	return (s:gsub("%[([^%[%]|%c]+)%]%((%a+):([%w_:%-]*)/([^%)]*)%)", Untoken))
 end
 
 ---------------------------------------------------------------------------

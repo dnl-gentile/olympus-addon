@@ -1,5 +1,6 @@
 local ns, test, eq, extra = ...
 local ROOT = debug.getinfo(1, "S").source:sub(2):match("^(.*)tests[/\\]chat%-channel%-links%.lua$") or "./"
+local Secret = assert(loadfile(ROOT .. "tests/arena/lib/secret.lua"))()
 local WithGamepadUI = assert(extra and extra.WithGamepadUI, "WithGamepadUI")
 
 -- 1.2.1: [Olympus], [Captains] and [Lords] before a line in the game's chat are links, as the game's
@@ -17,7 +18,8 @@ local SPEAKER, CAPTAIN, LORD = "Test Speaker-Realm", "Test Captain-Realm", "Test
 
 local function WithLinks(fn)
 	local GLOBALS = { "hooksecurefunc", "SetItemRef", "ChatFrameUtil", "ChatFrame_OpenChat", "IsShiftKeyDown", "DEFAULT_CHAT_FRAME", "GetGuildInfo",
-		"C_ChatInfo", "IsInGuild", "SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
+		"C_ChatInfo", "IsInGuild", "CanGuildInvite", "issecretvalue", "SendChatMessage", "GuildInvite", "C_GuildInfo",
+		"SLASH_OLYMPUSALL1", "SLASH_OLYMPUSCAPTAINS1", "SLASH_OLYMPUSLORDS1" }
 	local SLASH = { "OLYMPUSALL", "OLYMPUSCAPTAINS", "OLYMPUSLORDS" }
 	local DIALOGS = { "OLYMPUS_CHAT_PRIVACY", "OLYMPUS_PIN", "OLYMPUS_PIN_DOWN", "OLYMPUS_GAMEPAD_RELOAD" }
 	local saved = { g = {}, slash = {}, dialogs = {}, events = #EVENT_SCRIPTS, channels = rawget(ns, "Channels") }
@@ -79,9 +81,9 @@ local function WithLinks(fn)
 			return (w.C.Receive("CHANNEL", sender, ns.Codec.EncodeChat(tier, GUILD, id, "PA", text), at))
 		end
 		-- A click in the game's chat, the game's way: SetItemRef, then the hooks.
-		function w.Click(link, button, frame)
+		function w.Click(link, button, frame, shown)
 			w.opened, w.printed = {}, {}
-			SetItemRef(link, "[x]", button or "LeftButton", frame == nil and w.frame or frame or nil)
+			SetItemRef(link, shown or "[x]", button or "LeftButton", frame == nil and w.frame or frame or nil)
 			return w.opened[1]
 		end
 		fn(w)
@@ -275,5 +277,99 @@ test("1.2.1 chat channel links: every other link is the game's alone (an item, a
 		w.ns.Gate.Install("chat-links")
 		eq(#w.hooks, 1, "once a session")
 		eq(w.C.Tag("A"), Link("A", ns.L.CHAN_ALL))
+	end)
+end)
+
+
+test("recruit call-out links share the exact native-chat hook without enabling player or addon links", function()
+	WithLinks(function(w)
+		w.Login()
+		w.rank = 3
+		local shown = assert(ns.Codec.RecruitLink("New Recruit"))
+		local link = assert(shown:match("|H([^|]+)|h"))
+		local called = 0
+		w.ns.Recruit = {
+			InviteLinkClick = function(got, text, button, frame)
+				called = called + 1
+				if got ~= link or text ~= shown or button ~= "LeftButton" then return false end
+				return w.C.OpenLinkChat("/ginvite New Recruit", frame)
+			end,
+		}
+		local box = w.Click(link, "LeftButton", w.frame, shown)
+		eq(called, 1, "the one installed SetItemRef post-hook delegates the exact recruit shape")
+		eq(box and box.text, "/ginvite New Recruit")
+		eq(box.frame, w.frame, "the clicked game's chat window chooses its edit box")
+		for _, foreign in ipairs({ "player:New Recruit", "addon:Other:recruit:value", "addon:Olympus:other:value" }) do
+			eq(w.Click(foreign, "LeftButton", w.frame, "[New Recruit]"), nil, "foreign link stays the game's: " .. foreign)
+		end
+		eq(called, 1, "no broad player/addon delegation")
+		WithGamepadUI(true, function()
+			eq(w.Click(link, "LeftButton", w.frame, shown), nil)
+		end)
+		eq(called, 1, "the retained hook is inert with the gamepad UI")
+		ChatFrameUtil, ChatFrame_OpenChat = nil, nil
+		eq(w.C.OpenLinkChat("/ginvite New Recruit", w.frame), false, "no supported game chat opener")
+	end)
+end)
+
+test("recruit call-out link: native callback accepts complete rendered hyperlink text", function()
+	WithLinks(function(w)
+		w.Login()
+		w.rank = 3
+		local shown = assert(ns.Codec.RecruitLink("New Recruit"))
+		local link = assert(shown:match("|H([^|]+)|h"))
+		local savedMember = ns.IsMember
+		ns.IsMember = function() return true end
+		CanGuildInvite = function() return true end
+		ns.Channels = w.C
+		w.ns.Recruit = ns.Recruit
+		local box = w.Click(link, "LeftButton", w.frame, shown)
+		ns.IsMember = savedMember
+		eq(box and box.text, "/ginvite New Recruit",
+			"the production click accepts ChatFrameMixin's complete rendered text")
+		eq(box and box.frame, w.frame, "the clicked native frame still chooses its edit box")
+	end)
+end)
+
+test("recruit call-out link: native callback rejects secret arguments before decode", function()
+	WithLinks(function(w)
+		w.Login()
+		local shown = assert(ns.Codec.RecruitLink("New Recruit"))
+		local link = assert(shown:match("|H([^|]+)|h"))
+		local original = w.ns.Codec.RecruitLinkName
+		local decoded, delegated, sent, invited = 0, 0, 0, 0
+		issecretvalue = Secret.Is
+		SendChatMessage = function() sent = sent + 1 end
+		GuildInvite = function() invited = invited + 1 end
+		C_GuildInfo = { Invite = function() invited = invited + 1 end }
+		w.ns.Codec.RecruitLinkName = function(value)
+			decoded = decoded + 1
+			if Secret.Is(value) then error("secret link reached recruit decoder") end
+			return original(value)
+		end
+		w.ns.Recruit = { InviteLinkClick = function()
+			delegated = delegated + 1
+			return false
+		end }
+		local results = {}
+		for i, field in ipairs({ "link", "text", "button" }) do
+			local args = { link, shown, "LeftButton" }
+			args[i] = Secret.New()
+			decoded, delegated = 0, 0
+			local ok, err = pcall(w.Click, args[1], args[3], w.frame, args[2])
+			results[i] = {
+				field = field, ok = ok, err = err, decoded = decoded, delegated = delegated,
+				opened = #w.opened, sent = sent, invited = invited,
+			}
+		end
+		w.ns.Codec.RecruitLinkName = original
+		for _, result in ipairs(results) do
+			eq(result.ok, true, "secret " .. result.field .. " raises no callback fault: " .. tostring(result.err))
+			eq(result.decoded, 0, "secret " .. result.field .. " is rejected before recruit decode")
+			eq(result.delegated, 0, "secret " .. result.field .. " reaches no recruit action")
+			eq(result.opened, 0, "secret " .. result.field .. " opens no chat box")
+			eq(result.sent, 0, "secret " .. result.field .. " sends no chat")
+			eq(result.invited, 0, "secret " .. result.field .. " invokes no invite API")
+		end
 	end)
 end)

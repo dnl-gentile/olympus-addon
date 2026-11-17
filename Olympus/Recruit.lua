@@ -2674,6 +2674,27 @@ local function CurrentRequest(req, allowHandoff)
 	return false
 end
 
+-- A public recruit call-out carries only the exact validated command name. Decode it again at
+-- the native click boundary and require its reconstructed label; no local request, claim or
+-- reservation exists on a recipient. This only prepares text and never sends or invokes an invite.
+function Recruit.InviteLinkClick(link, text, button, frame) -- gp:chat-links
+	if not ns.Gate.Allowed("chat-links") then return false end
+	if ns.Secret("recruit player link", link, text, button) then return false end
+	if type(link) ~= "string" or type(text) ~= "string" then return false end
+	local Codec = ns.Codec
+	local name = type(Codec) == "table" and type(Codec.RecruitLinkName) == "function"
+		and Codec.RecruitLinkName(link) or nil
+	local canonical = name and type(Codec.RecruitLink) == "function"
+		and Codec.RecruitLink(name) or nil
+	if not canonical or text ~= canonical or button ~= "LeftButton"
+		or (IsShiftKeyDown and IsShiftKeyDown()) then return false end
+	if NameForCommand(name) ~= name or not CanInvite() or not ns.IsMember() then return false end
+	if ns.ChatLocked() or (InCombatLockdown and InCombatLockdown()) then return false end
+	local C = ns.Channels
+	if type(C) ~= "table" or type(C.OpenLinkChat) ~= "function" then return false end
+	return C.OpenLinkChat("/ginvite " .. name, frame) == true
+end
+
 -- `blocked`: the officer said the game refused the invite he pasted, so a prepared one counts.
 function Recruit.HandoffSource(req, blocked)
 	return type(req) == "table" and req.viaWhisper and req.handoffIntent ~= nil and (blocked or not req.invitePrepared)
@@ -2971,6 +2992,33 @@ local function OpenInviteChat(draft, data) -- gp:chat-box
 	end
 end
 
+-- The call-out button is distinct from handoff/pass. It publishes no state: its only source is
+-- the same current JOIN or revalidated scan row already behind this invite draft.
+local function RecruitCalloutName(data)
+	if type(data) ~= "table" then return nil end
+	if data.candidate then
+		if not Recruit.Candidates.Check(data.candidate) then return nil end
+		return NameForCommand(data.candidate.name)
+	end
+	if data.req and CurrentRequest(data.req, true) then return NameForCommand(data.req.name) end
+end
+
+local function PostRecruitCallout(_, data)
+	local name = RecruitCalloutName(data)
+	local Codec, C = ns.Codec, ns.Channels
+	local link = name and type(Codec) == "table" and type(Codec.RecruitLink) == "function"
+		and Codec.RecruitLink(name) or nil
+	if not link or type(C) ~= "table" or type(C.Send) ~= "function" then return false end
+	return C.Send("A", L.RECRUIT_CALLOUT_TEXT:format(link)) == true
+end
+
+local function InviteDraftMore(_, data)
+	if type(data) ~= "table" then return nil end
+	local rows = data.automatic and Recruit.StopRow(InviteKind(data)) or {}
+	rows[#rows + 1] = { label = L.RECRUIT_CALLOUT_BUTTON, onClick = PostRecruitCallout }
+	return rows
+end
+
 StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 	text = "%s",
 	button1 = L.RECRUIT_WHISPER_CLOSE,
@@ -3000,10 +3048,8 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_INVITE_DRAFT"] = {
 		else candidate.inviteAfterWhisper = nil end
 	end,
 	extra = { label = L.RECRUIT_WHISPER_INVITE_CHAT, onClick = OpenInviteChat },
-	-- (1.6.0) Opened by itself (a JOIN's, a claimed player's, the scan's): Pause and Turn off under it.
-	more = function(_, data)
-		if type(data) == "table" and data.automatic then return Recruit.StopRow(InviteKind(data)) end
-	end,
+	-- A deliberate public call-out; automatic drafts retain Pause and Turn off before it.
+	more = InviteDraftMore,
 	hasEditBox = true,
 	editBoxWidth = 360,
 	OnShow = function(f, data)
