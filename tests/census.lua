@@ -891,7 +891,7 @@ test("realm guild leadership: recent roster details survive a newer count-only s
 	mode.options[2].onClick()
 	lines = Lines()
 	assert(lines["Dawn Keeper"].right:find(L.ONLINE_DAYS_AGO:format(2), 1, true))
-	assert(lines["Dawn Officer"].right:find(L.OFFLINE_DAYS:format(4), 1, true))
+	assert(lines["Dawn Officer"].right:find(L.REALM_LEADERSHIP_LAST_SEEN:format(w.ns.Ago(w.clock - 6 * day)), 1, true))
 	assert(lines["Dusk Keeper"].right:find("|cff40ff40" .. L.ONLINE_NOW, 1, true))
 	assert(lines["Dusk Officer"], "fresh officer is listed even when offline")
 	assert(not lines["Foreign Keeper"] and not lines["Foreign Officer"])

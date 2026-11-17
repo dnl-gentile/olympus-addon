@@ -2602,13 +2602,23 @@ local function RealmLines(s, q)
 		local leaderSource = Leadership(e)
 		local roster = leaderSource.g
 		local lordOn, lordDays, lordDim, lordAt = Views.PresenceNow(leaderSource, roster.leader, roster.leaderOnline, roster.leaderDays)
+		local function Status(on, days, dim, at)
+			if leadershipOnly then
+				if on == nil and not at then return Grey(L.REALM_LEADERSHIP_PRESENCE_UNKNOWN) end
+				if dim and on == false and type(days) == "number" and leaderSource.observed then
+					local lastSeen = math.floor(math.min(ns.Now(), leaderSource.observed) - math.max(0, days) * 86400)
+					return Grey(L.REALM_LEADERSHIP_LAST_SEEN:format(ns.Ago(lastSeen)))
+				end
+			end
+			return Presence(on, days, dim, at)
+		end
 		local prefix = leadershipOnly and "" or (open and "[-] " or "[+] ")
 		lines[#lines + 1] = {
 			id = Views.GuildId(e.name),
 			text = prefix .. Views.DisputeMark(g) .. Green("<" .. Plain(e.name) .. ">") .. " " .. Plain(roster.leader or "?"),
 			-- (1.2.4, the author's ask: its average level too, in parentheses after its Lord's online
 			-- or offline, both kept whole up to half the row.)
-			right = (roster.leader and Presence(lordOn, lordDays, lordDim, lordAt) or Grey(L.REALM_LEADERSHIP_UNKNOWN)) .. AvgTag(g, not e.fresh),
+			right = (roster.leader and Status(lordOn, lordDays, lordDim, lordAt) or Grey(L.REALM_LEADERSHIP_UNKNOWN)) .. AvgTag(g, not e.fresh),
 			rightWide = true,
 			onClick = not leadershipOnly and function()
 				if folds then
@@ -2637,7 +2647,7 @@ local function RealmLines(s, q)
 				key = roster.leader, player = roster.leader, offline = not lordOn,
 				indent = 1, text = Mark(roster.leader, roster.realm, lordOn) .. CROWN .. Gold(L.LORD) .. "  " .. ClassColored(roster.leader, lord.class and ns.CLASS_FILES[lord.class])
 					.. Tag(roster.leader, roster.realm),
-				right = Presence(lordOn, lordDays, lordDim, lordAt),
+				right = Status(lordOn, lordDays, lordDim, lordAt),
 				tooltip = lordDim and RosterAge or nil,
 				onClick = function() ns.UI.ShowPerson(lord) end,
 			}
@@ -2662,7 +2672,7 @@ local function RealmLines(s, q)
 				key = o.name, player = o.name, offline = not on,
 				indent = 2, text = Mark(o.name, roster.realm, on) .. ASSIST .. ClassColored(o.name, o.class and ns.CLASS_FILES[o.class])
 					.. Tag(o.name, roster.realm) .. (ns.IsTreasurer(o.name, e.name) and ("  " .. ns.COIN .. Grey(L.TREASURER)) or ""),
-				right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Presence(on, days, dim, at),
+				right = (o.level and Grey(L.LEVEL_N:format(o.level)) .. "  " or "") .. Status(on, days, dim, at),
 				tooltip = dim and RosterAge or nil,
 				onClick = function() ns.UI.ShowPerson(person) end,
 			}
