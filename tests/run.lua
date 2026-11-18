@@ -8050,6 +8050,37 @@ test("1.4.6 Forever's realm family is the group: every CAMWOW sub-realm of one r
 	if not ok then error(err, 0) end
 end)
 
+-- (a Forever character's log, 2026-11-15: "realms linked: CAMWOWUS2Realm7PvE" after every roster
+-- scan, once a minute) Roster.TryScan links our realm to our guild's home realm on every scan. A
+-- Forever realm's group is its family whatever was learned (ns.GroupOf), so LinkRealms took its own
+-- link for news each time: the line logged and the link written again, and true with nothing new.
+-- Fails before: scan 2 returns true and logs the line again.
+test("realm groups: on Forever, linking our guild's home realm is news on the first roster scan only", function()
+	local savedRealm, savedGroup, savedDb, savedRdb = ns.realm, ns.group, ns.db, ns.rdb
+	local ok, err = pcall(function()
+		local home = "CAMWOWUS1Realm3PvE"
+		local function Links()
+			local out = {}
+			for realm, group in pairs(ns.db.links or {}) do out[#out + 1] = realm .. "=" .. group end
+			table.sort(out)
+			return table.concat(out, ",")
+		end
+		ns.db = { log = {} }
+		ns.realm, ns.group = "CAMWOWUS2Realm7PvE", "ForeverPvE"
+		eq(ns.LinkRealms(ns.realm, home), true, "scan 1 is news")
+		eq(#ns.db.log, 1, "scan 1 logs one line")
+		local learned = Links()
+		for scan = 2, 4 do
+			eq(ns.LinkRealms(ns.realm, home), false, "nothing new on scan " .. scan)
+		end
+		eq(#ns.db.log, 1, "no line logged after scan 1")
+		eq(Links(), learned, "the links stay as learned")
+		eq(ns.group, "ForeverPvE", "the census stays the family's")
+	end)
+	ns.realm, ns.group, ns.db, ns.rdb = savedRealm, savedGroup, savedDb, savedRdb
+	if not ok then error(err, 0) end
+end)
+
 -- 1.5.1 (the dev on his PvP character, 2026-11-05: the census page summed PvE and PvP but told
 -- neither apart, "by ruleset" waiting on every server): a Forever family's ruleset is its name.
 -- Fails before: Data.GroupInfo("ForeverPvE") was nil, nil (no realm of the signed table is named so).
