@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the addon's border textures from Max's and Kaise's frames, and the member's star.
+"""Builds the addon's border textures from Max's, Kaise's and Fox's supplied frames, and the member's star.
 
 Max drew the bronze frames over the game's own gold ones (Forever 1.60.1, uiunitframebossc602x,
 at twice their size on screen): media/borders/src/bronze-plain.png (200 x 200, over the plain
@@ -9,6 +9,8 @@ that Forever and the Classic clients load with SetTexture:
 
 Kaise drew the Queen's red, gold and white-winged dragon frame. It is kept whole, including
 the downward foot from her original, and fitted proportionally like the Treasurer's dragon.
+Fox supplied the silver dragon with purple lightning for Akafoxslayer Thunderfury; that original
+PNG is likewise fitted proportionally and kept whole, with no tint, crop or redraw.
 
 - a power-of-two canvas, 256 x 256, the PNG's art at its top left and transparent elsewhere
   (Borders.lua's texture coordinates are the art's area: 200/256, 220/256 and 180/256);
@@ -48,6 +50,7 @@ FRAMES = {
     "bronze-winged": (220, 180),
     "queen-dragon": (200, 190),
     "treasurer-dragon": (200, 190),
+    "fox-dragon": (200, 200),
 }
 
 
@@ -114,7 +117,7 @@ def build(name):
         return build_star()
     path = os.path.join(SOURCES, name + ".png")
     with Image.open(path) as source:
-        if name in ("queen-dragon", "treasurer-dragon"):
+        if name in ("queen-dragon", "treasurer-dragon", "fox-dragon"):
             # Supplied transparent artwork, proportionally fitted without cropping/redrawing.
             art = source.convert("RGBA")
             art.thumbnail(FRAMES[name], Image.Resampling.LANCZOS)

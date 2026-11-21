@@ -1116,6 +1116,7 @@ ns.Locale("ruRU", {
 	BORDERS_WHO_BRONZE_ELITE = "бронзовые крылья: главы гильдий",
 	BORDERS_WHO_GOLD_ELITE = "золотые крылья: Король",
 	BORDERS_WHO_QUEEN_DRAGON = "багровый дракон: Королева",
+	BORDERS_WHO_FOX_DRAGON = "серебряный дракон молний: Akafoxslayer Thunderfury (только внешний вид)",
 	BORDERS_WHO_MEMBER = "звезда: любой другой участник (метка на индикаторе здоровья, без рамки)",
 	BORDERS_WHO_SILVER = "серебро без крыльев: собственный персонаж разработчика (без метки)",
 	BORDERS_WHO_SILVER_ELITE = "серебряные крылья: Высший совет",

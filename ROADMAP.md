@@ -82,9 +82,9 @@
   languages; the army's key in a form only 1.4.0 reads; the send queue holds through throttles and lockdowns.
 
 ## Next (after the base is proven in game)
-- **Compact reply cards after sending** - keep the existing reply composer, but render a sent reply in
-  Olympus Chat with a short, visually separate quote card above the new message (WhatsApp-style)
-  instead of exposing the full textual reply prefix inline. Deferred beyond v1.2.5.
+- ~~**Compact reply cards after sending**~~ — implemented: Olympus Chat renders a separate quote
+  above the answer when the quoted original is held locally; otherwise it keeps the readable wire
+  prefix. The existing reply composer remains unchanged.
 - ~~Guild leader offline for X days~~ (v0.3)
 - ~~**Guild leader offline for X days (alerts)** - `GetGuildRosterLastOnline(i)` gives years/months/days/hours for
   our own guild; add `leaderLastSeen` to the report so every guild's leader age shows up. Alert above N days.~~

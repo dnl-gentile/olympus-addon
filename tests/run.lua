@@ -6755,6 +6755,19 @@ do
 		end)
 	end)
 
+	test("realm identity recovery: the observed Australian native realm keeps its own identity when the realm API is empty", function()
+		WithRealmIdentity(function()
+			UnitGUID = function() return "Player-6797-00000001" end
+			eq(ns.CurrentRealm(), "CAMWOWAU1Realm1PvE", "the native AU observation never becomes a US realm")
+			ns.realm, ns.group = ns.CurrentRealm(), ns.GroupOf(ns.CurrentRealm())
+			ns.splitNames = nil
+			eq(ns.PlayerName(), "Test Councillor-CAMWOWAU1Realm1PvE")
+			eq(ns.group, "ForeverPvE")
+			eq(ns.db.nativeRealmNames and ns.db.nativeRealmNames[6797], nil,
+				"the shipped observation is not a new local native observation")
+		end)
+	end)
+
 	test("realm identity recovery: only native observations extend the cache, native conflicts and foreign clients fail closed", function()
 		WithRealmIdentity(function()
 			GetRealmName = function() return "CAMWOW US2 Realm 9 RP" end
@@ -8148,6 +8161,37 @@ test("1.4.6 Forever's realm family is the group: every CAMWOW sub-realm of one r
 	end)
 	ns.realm, ns.group, ns.db = savedRealm, savedGroup, savedDb
 	C_ChatInfo = nil
+	if not ok then error(err, 0) end
+end)
+
+-- (a Forever character's log, 2026-11-15: "realms linked: CAMWOWUS2Realm7PvE" after every roster
+-- scan, once a minute) Roster.TryScan links our realm to our guild's home realm on every scan. A
+-- Forever realm's group is its family whatever was learned (ns.GroupOf), so LinkRealms took its own
+-- link for news each time: the line logged and the link written again, and true with nothing new.
+-- Fails before: scan 2 returns true and logs the line again.
+test("realm groups: on Forever, linking our guild's home realm is news on the first roster scan only", function()
+	local savedRealm, savedGroup, savedDb, savedRdb = ns.realm, ns.group, ns.db, ns.rdb
+	local ok, err = pcall(function()
+		local home = "CAMWOWUS1Realm3PvE"
+		local function Links()
+			local out = {}
+			for realm, group in pairs(ns.db.links or {}) do out[#out + 1] = realm .. "=" .. group end
+			table.sort(out)
+			return table.concat(out, ",")
+		end
+		ns.db = { log = {} }
+		ns.realm, ns.group = "CAMWOWUS2Realm7PvE", "ForeverPvE"
+		eq(ns.LinkRealms(ns.realm, home), true, "scan 1 is news")
+		eq(#ns.db.log, 1, "scan 1 logs one line")
+		local learned = Links()
+		for scan = 2, 4 do
+			eq(ns.LinkRealms(ns.realm, home), false, "nothing new on scan " .. scan)
+		end
+		eq(#ns.db.log, 1, "no line logged after scan 1")
+		eq(Links(), learned, "the links stay as learned")
+		eq(ns.group, "ForeverPvE", "the census stays the family's")
+	end)
+	ns.realm, ns.group, ns.db, ns.rdb = savedRealm, savedGroup, savedDb, savedRdb
 	if not ok then error(err, 0) end
 end)
 
@@ -25248,6 +25292,7 @@ local function WithBorders(fn, setup)
 end
 
 assert(loadfile(ROOT .. "tests/treasurer-dragon.lua"))(ns, test, eq, WithBorders, BorderUnit, BORDER_KING)
+assert(loadfile(ROOT .. "tests/fox-dragon.lua"))(ns, test, eq, WithBorders, BorderUnit)
 -- 1.5.5: the Quaestor, the Treasurer and the King's main guild on Forever, the verification hold where nobody verifies.
 assert(loadfile(ROOT .. "tests/roles-155.lua"))(ns, test, eq,
 	{ ADDON_DIR = ADDON_DIR, WithBorders = WithBorders, BorderUnit = BorderUnit, BORDER_KING = BORDER_KING, Vouched = Vouched })
@@ -25452,7 +25497,7 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 		-- Then the plain silver (the dev's) and Max's plain bronze (the people a guild master names)
 		-- came back as tiers: five borders; the plain gold alone is kept for later. 1.2: and one
 		-- plain metal underlay per frame.)
-		eq(#w.textures, 24, "seven borders (the Queen's and Treasurer's dragons) and one underlay on three frames")
+		eq(#w.textures, 27, "eight borders (including the supplied personal Fox dragon) and one underlay on three frames")
 		for _, t in ipairs(w.B.RESERVED) do
 			for _, tex in ipairs(w.textures) do
 				-- (The underlay's plain metal is the plain gold's atlas: no border of its own.)
@@ -25501,6 +25546,7 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			-- tier, art, size (nil: the atlas's own), target: coords, x y; your own: coords, x y
 			{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, nil, "11 -4", "1 0 0 1", "-13 -4" },
 			{ "queen-dragon", "file " .. MEDIA .. "queen-dragon", "175 166.25", "0 0.78125 0 0.7421875", "38 34", "0.78125 0 0 0.7421875", "-40 34" },
+			{ "fox-dragon", "file " .. MEDIA .. "fox-dragon", "108 108", "0 0.78125 0 0.78125", "10 2", "0.78125 0 0 0.78125", "-12 2" },
 			{ "treasurer-dragon", "file " .. MEDIA .. "treasurer-dragon", "100 95", "0 0.78125 0 0.7421875", "0 1", "0.78125 0 0 0.7421875", "-2 1" },
 			{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, nil, "8 -7", "1 0 0 1", "-10 -7" },
 			{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0 0.859375 0 0.703125", "11 -4", "0.859375 0 0 0.703125", "-13 -4" },
@@ -25667,7 +25713,7 @@ test("1.2 borders: an Olympus portrait (the Arena's) is your own frame's portrai
 			end
 			local n = 0
 			for _ in pairs(own) do n = n + 1 end
-			eq(n, 8, "the underlay and the seven tiers, as on your frame")
+			eq(n, 9, "the underlay and the eight tiers, as on your frame")
 			eq(own["gold-elite"].point, "TOPLEFT " .. container.label .. " TOPLEFT -13 -4", "the gold wings 37 left and 15 above the portrait")
 			-- A tier shown: its art alone, over its metal turned round, as round your own portrait (1.1.5:
 			-- a Captain has no border of his rank any more; a High Councillor's silver wings, yours here).
@@ -25817,7 +25863,7 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 		eq(#w.log, 0, "still in combat")
 		w.combat = false
 		w.fire("PLAYER_REGEN_ENABLED")
-		eq(#w.textures, 24); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
+		eq(#w.textures, 27); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
 	end)
 end)
 
@@ -25886,7 +25932,7 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(#w.textures, 24); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
+		eq(#w.textures, 27); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
 		-- Back to the gamepad UI: hidden at once; the hook and the events may repeat Hide on the
 		-- existing underlay, but never touch tier art or style/show anything.
 		w.style = 1
@@ -25936,7 +25982,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 	WithBorders(function(w)
 		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"] = true
 		w.internal("LOGIN")
-		eq(#w.textures, 21, "six available borders and one underlay on three frames (the missing silver wings are left out)")
+		eq(#w.textures, 24, "seven available borders and one underlay on three frames (the missing silver wings are left out)")
 		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
 		eq(w.shown("target"), nil, "no silver wings for a High Councillor")
 		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
@@ -25952,7 +25998,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 		WithBorders(function(w)
 			w.noFile[MEDIA .. "bronze-winged"] = how
 			w.internal("LOGIN")
-			eq(#w.textures, 24)
+			eq(#w.textures, 27)
 			w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 			eq(w.shown("target"), "bronze-elite", "a guild master keeps a border")
 			local tex = w.shownTexture("target")
@@ -26100,7 +26146,7 @@ do
 	local AUTHOR_UNIT = BorderUnit("Faladoriel Skylance", "Olympus II", "Member", 3, { realm = "ClassicBetaPvP" })
 	local function AsAuthor(w) w.units.player = AUTHOR_UNIT; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end
 	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
-	local TIER_LIST = "gold-elite, queen-dragon, treasurer-dragon, silver-elite, silver, bronze-elite, bronze"
+	local TIER_LIST = "gold-elite, queen-dragon, fox-dragon, treasurer-dragon, silver-elite, silver, bronze-elite, bronze"
 
 	-- Everything the addon could send while fn runs (an addon message by either API, a chat line,
 	-- Comm's own queues), recorded in `sent`.
@@ -26182,7 +26228,7 @@ do
 			eq(w.shown("target"), "silver", "targeting himself: his own again")
 			assert(not ns.StatusText():find("preview", 1, true), "gone from /oly status")
 			-- The borders' own machinery unchanged: the same textures, the same hooks.
-			eq(#w.textures, 24); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 27); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 		-- An author who does hold a rank: the preview in its place while on, his own again after.
@@ -26268,9 +26314,10 @@ do
 			-- one row per border tier. 1.1.5: five tiers. 1.2: honours add five representative Workshop
 			-- previews between the rank borders and the member star. 1.2.4: four more, the crook, the
 			-- cross, the charm and the slayers' horse, worn now.)
-			eq(#rows, 17, "rank and honour previews, then the member star at the foot of the tab")
+			eq(#rows, 18, "rank, personal and honour previews, then the member star at the foot of the tab")
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NONE, 1, true), "off")
 			local bronzeEliteRow
+			local memberRow = #rows
 			for i, t in ipairs(w.B.TIERS) do
 				assert(rows[i].text:find(t.name, 1, true), t.name)
 				assert(rows[i].text:find(ns.L["BORDERS_WHO_" .. t.name:upper():gsub("%-", "_")], 1, true), t.name .. ": who holds it")
@@ -26278,18 +26325,18 @@ do
 				if t.name == "bronze-elite" then bronzeEliteRow = i end
 			end
 			assert(bronzeEliteRow, "the guild master's tier")
-			assert(rows[17].text:find("member", 1, true) and rows[17].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[17].text)
+			assert(rows[memberRow].text:find("member", 1, true) and rows[memberRow].text:find(ns.L.BORDERS_WHO_MEMBER, 1, true), rows[memberRow].text)
 			local tip = {}
-			rows[17].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
+			rows[memberRow].tooltip({ AddLine = function(_, text) tip[#tip + 1] = text end })
 			eq(tip[2], ns.L.BORDERS_PREVIEW_TIP_MEMBER, "the star's own tooltip")
-			rows[17].onClick()
+			rows[memberRow].onClick()
 			eq(w.B.Preview(), "member"); eq(w.shown("player"), nil, "the star: no border round his portrait")
 			eq(w.printed[#w.printed], ns.L.BORDERS_PREVIEW_ON_MEMBER)
-			rows[17].onClick()
+			rows[memberRow].onClick()
 			eq(w.B.Preview(), "member", "the lines were built before the click: a fresh click shows it again")
 			head, rows = Section()
-			assert(rows[17].right and rows[17].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
-			rows[17].onClick()
+			assert(rows[memberRow].right and rows[memberRow].right:find(ns.L.BORDERS_PREVIEW_SHOWN, 1, true), "marked shown")
+			rows[memberRow].onClick()
 			eq(w.B.Preview(), nil, "clicked again: off")
 			head, rows = Section()
 			rows[bronzeEliteRow].onClick()
@@ -26456,7 +26503,7 @@ do
 			-- To mouse and keyboard: made, and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 24); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
+			eq(#w.textures, 27); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
 			-- Back to the gamepad UI: hidden at once; a new tier, the hook and the events may
 			-- repeat Hide on the underlay, but never touch tier art or style/show anything.
 			w.style = 1
@@ -26505,7 +26552,7 @@ do
 			eq(#w.textures, 0, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 24); eq(#w.hooks, 2)
+			eq(#w.textures, 27); eq(#w.hooks, 2)
 			eq(w.shown("player"), "bronze-elite", "made once combat ended, and shown"); eq(w.shown("target"), "bronze-elite")
 			-- In combat again: tier after tier, tier art only switches visibility; the existing
 			-- underlay may be restyled, but nothing is made, sized or re-anchored.
@@ -26520,7 +26567,7 @@ do
 			SlashCmdList.OLYMPUS("borders test off")
 			eq(w.shown("player"), "silver"); eq(w.shown("target"), "silver") -- (1.1.5: his own, the dev's silver)
 			w.assertCombatCalls(12) -- (1.1.5: three tiers, 20 of six; then five)
-			eq(#w.textures, 24, "nothing more made")
+			eq(#w.textures, 27, "nothing more made")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 	end)
@@ -26565,7 +26612,7 @@ do
 			"BORDERS_PREVIEW_NOT_MEMBER", "BORDERS_PREVIEW_COMBAT", "BORDERS_PREVIEW_MISSING", "BORDERS_PREVIEW_TITLE",
 			"BORDERS_PREVIEW_NONE", "BORDERS_PREVIEW_NOW", "BORDERS_PREVIEW_SHOWN", "BORDERS_PREVIEW_TIP" }
 		for name in TIER_LIST:gmatch("[^, ]+") do keys[#keys + 1] = "BORDERS_WHO_" .. name:upper():gsub("%-", "_") end
-		eq(#keys, 19, "the seven portrait tiers too")
+		eq(#keys, 20, "the eight portrait tiers too")
 		for _, key in ipairs(keys) do
 			assert(type(ns.L[key]) == "string" and ns.L[key] ~= key, "English " .. key)
 			assert(type(pt.L[key]) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
@@ -26638,7 +26685,7 @@ do
 			eq(w.shown("target"), "bronze-elite"); eq(w.shown("player"), nil)
 			-- Five textures on each member frame itself (it has no container), as on the target's (1.1.5:
 			-- three, then the two without wings).
-			eq(#w.textures, 52, "seven borders on the target, the focus, your own and the four party frames, and the metal underlay on the first three")
+			eq(#w.textures, 59, "eight borders on the target, the focus, your own and the four party frames, and the metal underlay on the first three")
 			local seen = {}
 			local regions = w.partyRegions -- (the template: the sizes and places below)
 			-- (1.4.4, the dev's ask: the dragons over the game's ring on the party portraits too.) Each
@@ -26837,7 +26884,7 @@ do
 			local n = w.computed()
 			w.fire("GROUP_ROSTER_UPDATE")
 			eq(w.computed(), n, "empty places again: nothing worked out")
-			eq(#w.textures, 52, "nothing made after the first: seven on each frame")
+			eq(#w.textures, 59, "nothing made after the first: eight on each frame")
 			-- Only the guilds of the members looked at were ever looked up.
 			local theirs = { ["Olympus Zeus"] = true, ["OLYMPUS"] = true, ["Olympus II"] = true }
 			for _, k in ipairs(looked) do assert(theirs[k], "looked up " .. tostring(k)) end
@@ -26866,7 +26913,7 @@ do
 			eq(w.shownOn("PartyMember#2"), nil, "now the plain member's")
 			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			eq(w.computed(), n, "nobody worked out again: the same members in the same places")
-			eq(#w.textures, 52, "no texture more")
+			eq(#w.textures, 59, "no texture more")
 			-- Another order, then the first again.
 			w.partyOrder = { 2, 4, 1, 3 }
 			PartyFrame:InitializePartyMemberFrames()
@@ -26932,7 +26979,7 @@ do
 			eq(w.shownOn("PartyMember#1"), nil, "not the one he showed on before")
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
 			eq(PartyLine(w), "gold-elite - - -")
-			eq(#w.textures, 52, "nothing made again")
+			eq(#w.textures, 59, "nothing made again")
 		end)
 	end)
 
@@ -27006,7 +27053,7 @@ do
 				end
 			end
 			assert(calls >= 10, "shown and hidden in combat: " .. calls)
-			eq(#w.textures, 52, "nothing made in combat")
+			eq(#w.textures, 59, "nothing made in combat")
 			OnlyCreateTexture(w)
 		end)
 		-- Logged in (or reloaded) in combat, in a party: nothing made, no hook, until it ends.
@@ -27020,25 +27067,25 @@ do
 			eq(#w.log, 0, "nothing made in combat"); eq(#w.hooks, 0); eq(#w.textures, 0)
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 52); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
+			eq(#w.textures, 59); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
 		end)
 		-- PartyFrame not shown yet at login (no member frame handed out), then first shown in combat.
 		WithBorders(function(w)
 			w.party(false)
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
-			eq(#w.textures, 24, "the target's, the focus's and yours (each with its underlay): no member frame yet")
+			eq(#w.textures, 27, "the target's, the focus's and yours (each with its underlay): no member frame yet")
 			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames",
 				"PartyFrame's hook, to see them come")
 			w.combat = true
 			PartyFrame:InitializePartyMemberFrames()
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 24, "none made in combat"); eq(w.shown("party1"), nil)
+			eq(#w.textures, 27, "none made in combat"); eq(w.shown("party1"), nil)
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 24, "still in combat")
+			eq(#w.textures, 27, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 52); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
+			eq(#w.textures, 59); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
 			-- Nothing waits any more: the next fight's end works nothing out again.
 			local n = w.computed()
 			w.combat = true; w.combat = false
@@ -27060,7 +27107,7 @@ do
 			-- To mouse and keyboard: made and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 52); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			eq(#w.textures, 59); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			-- Back to the gamepad UI: hidden at once; the roster, PartyFrame's hook, names and the census
 			-- call nothing on them and work nothing out.
 			w.style = 1
@@ -27193,7 +27240,7 @@ do
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 24); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 27); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			eq(w.shown("party1"), nil)
 			assert(w.B.StatusLine():find("target -, focus -, player -  |", 1, true), w.B.StatusLine())
 			OnlyCreateTexture(w)
@@ -28297,7 +28344,10 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				local left, right, top, bottom = unpack(t.coords)
 				eq(left, 0, path); eq(top, 0, path .. ": the art at the top left")
 				local artW, artH = right * 256, bottom * 256
-				if t.name == "queen-dragon" then
+				if t.name == "fox-dragon" then
+					eq(artW, 200, path .. ": the complete supplied square artwork")
+					eq(artH, 200, path .. ": the complete supplied square artwork")
+				elseif t.name == "queen-dragon" then
 					-- The unchanged authored pixels have transparent padding; runtime fits the
 					-- actual alpha opening, tested against the portrait in treasurer-dragon.lua.
 					eq(artW, 200, path .. ": the original complete authored texture area")
@@ -28322,7 +28372,7 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				local visible = opaque + partial
 				assert(visible > 5000, path .. ": the art is there (" .. visible .. " visible pixels)")
 				assert(alpha > 5000 * 255, path .. ": substantial visible art (" .. alpha .. " total alpha)")
-				if t.name == "queen-dragon" then
+				if t.name == "queen-dragon" or t.name == "fox-dragon" then
 					assert(partial > 5000 and partial > opaque,
 						path .. ": the supplied dragon's semi-transparent detail is kept (" .. partial .. " partial-alpha pixels)")
 				else
@@ -28331,7 +28381,7 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				assert(clear > 256 * 256 - artW * artH, path .. ": transparent round the frame")
 			end
 		end
-		eq(files, 4, "Max's two frames, the Queen's dragon and the primary Treasurer's dragon")
+		eq(files, 5, "Max's two frames, the Queen's, Treasurer's and personal Fox dragons")
 	end)
 	-- His PNGs, in the repository (not in the addon), at the size of the game's frames he drew over.
 	for name, size in pairs({ ["bronze-plain"] = { 200, 200 }, ["bronze-winged"] = { 220, 180 } }) do

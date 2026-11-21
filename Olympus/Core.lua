@@ -665,7 +665,9 @@ function ns.LinkRealms(a, b)
 	local group = table.concat(list, "+")
 	local learned = false
 	for _, m in ipairs(list) do
-		if ns.GroupOf(m) ~= group then
+		-- (elliottchambers, PR #119) Forever keeps its family group even after a link is learned.
+		-- Check the saved link too, so each roster scan does not learn and log it again.
+		if ns.GroupOf(m) ~= group and Learned(db, m) ~= group then
 			if type(db.links) ~= "table" then db.links = {} end
 			db.links[m] = group
 			learned = true
