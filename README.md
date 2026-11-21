@@ -109,7 +109,7 @@ from the members and nobody is removed. The King's guild needs none. Verified gu
 in the Census (an overdue one, for the verifiers); the King's guild carries the verified mark too
 (1.5.9), whoever its guild master is. Being verified grants no role or council
 status. Switches in `Core.lua`: `ns.VERIFY_HOLD` (the guild master's hold, on) and
-`ns.VERIFY_GATE` (whole-guild features through `ns.GuildSanctioned`, off: no feature is gated); the
+`ns.VERIFY_GATE` (the older overdue-guild gate through `ns.GuildSanctioned`, off). Forever shared-tools participation uses existing approvals through [FederationProgram](docs/FEDERATION-PROGRAM.md), independently of that older switch; the
 exemptions are one predicate, `Verify.Exempt`.
 
 Verification catch-up crosses signed relays to an available verifier without sending requests to
