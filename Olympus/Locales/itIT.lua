@@ -10,11 +10,11 @@ local code = GetLocale and GetLocale()
 if code ~= "itIT" then return end
 ns.Locale("itIT", {
 	LETTER_1_6_2_TITLE = "Ruoli ripristinati",
-	LETTER_1_6_2 = [==[Ripristina il riconoscimento del reame di Forever quando il nome è vuoto, per caricare nuovamente il censimento e gli elenchi firmati dei ruoli del reame corretto.
+	LETTER_1_6_2 = [==[- Ripristina il riconoscimento del reame di Forever quando il nome è vuoto, per caricare nuovamente il censimento e gli elenchi firmati dei ruoli del reame corretto.
 
-Le gilde già verificate dall'Alto Consiglio usano tale approvazione per gli strumenti condivisi e le conversioni della Chiesa. Le gilde idonee al di fuori di Olympus Prime hanno contributi volontari.
+- Le gilde già verificate dall'Alto Consiglio usano tale approvazione per gli strumenti condivisi e le conversioni della Chiesa. Le gilde idonee al di fuori di Olympus Prime hanno contributi volontari.
 
-I promemoria automatici di verifica della gilda sono temporaneamente sospesi. Consulta lo stato in The Watch o con /oly verify.
+- I promemoria automatici di verifica della gilda sono temporaneamente sospesi. Consulta lo stato in The Watch o con /oly verify.
 
 Chiudi e riapri WoW dopo aver aggiornato. Se manca ancora un ruolo o una scheda, invia /oly bug.]==],
 	LETTER_1_4_1_TITLE = "Ripristinare la chat di gilda",

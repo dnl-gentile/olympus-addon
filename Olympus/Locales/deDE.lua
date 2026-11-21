@@ -10,11 +10,11 @@ local code = GetLocale and GetLocale()
 if code ~= "deDE" then return end
 ns.Locale("deDE", {
 	LETTER_1_6_2_TITLE = "Rollen wiederhergestellt",
-	LETTER_1_6_2 = [==[Stellt die Erkennung des Forever-Realms bei leerem Realmnamen wieder her, damit die richtige Zählung und die signierten Rollenlisten wieder geladen werden.
+	LETTER_1_6_2 = [==[- Stellt die Erkennung des Forever-Realms bei leerem Realmnamen wieder her, damit die richtige Zählung und die signierten Rollenlisten wieder geladen werden.
 
-Bereits vom Hohen Rat verifizierte Gilden nutzen diese Bestätigung für gemeinsame Werkzeuge und die Anwerbestatistik der Kirche. Berechtigte Gilden außerhalb von Olympus Prime nutzen freiwillige Beiträge.
+- Bereits vom Hohen Rat verifizierte Gilden nutzen diese Bestätigung für gemeinsame Werkzeuge und die Anwerbestatistik der Kirche. Berechtigte Gilden außerhalb von Olympus Prime nutzen freiwillige Beiträge.
 
-Automatische Erinnerungen zur Gildenverifizierung sind vorübergehend ausgesetzt. Prüfe den Status in The Watch oder mit /oly verify.
+- Automatische Erinnerungen zur Gildenverifizierung sind vorübergehend ausgesetzt. Prüfe den Status in The Watch oder mit /oly verify.
 
 Schließe WoW nach dem Update und starte es erneut. Falls eine Rolle oder ein Reiter weiterhin fehlt, sende /oly bug.]==],
 	LETTER_1_4_1_TITLE = "Gildenchat wiederherstellen",
