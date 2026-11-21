@@ -1,6 +1,7 @@
 # Roadmap
 
 ## Done
+- v1.6.3 Local review candidate: personal Discord verification at the top of The Realm with a direct code popup and fresh native GUIDs; broader shared-tool participation checks; scoped signed federation decisions, appeals and revocation; charity mail/history review and Treasurer milestone publication. AU realm identity and repeated realm-link recovery fixes, plus the exact Akafoxslayer artwork. Not published; real signing-key setup, review of temporary sanction periods and 24-hour harboring grace, installed-client acceptance and private Link/feed/QR activation remain separate.
 - v0.1 Army census: members, online, leaders, zones, world map markers, Discord export, bug capture
 - v0.2 Tabard Inspection: patrol auto-inspect, manual marks (player and guild), Discord export
 - v0.3 The Realm: King -> Lords -> Captains -> ranks tree, leader/officer offline days, inactive 7/30d,
