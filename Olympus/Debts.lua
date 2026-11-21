@@ -251,6 +251,27 @@ local function Claim()
 end
 Debts.ClaimParts = Claim
 
+-- A prior claim made by this exact native character can recover the realm when
+-- Forever's realm APIs are empty. This reads the existing claim without making
+-- an account key or changing a claim under the incomplete current identity.
+local ownClaimMemo
+function Debts.OwnClaimName()
+	local guid = MyGuid()
+	local key = type(ns.db) == "table" and ns.db.arenaKey
+	local claims = type(key) == "table" and key.claims
+	local claim = guid and type(claims) == "table" and claims[guid]
+	local name = type(claim) == "table" and claim.name
+	if type(name) ~= "string" or #name > 100 then return nil end
+	local memo = ownClaimMemo
+	if memo and memo.guid == guid and memo.name == name and memo.pk == key.pk and memo.sig == claim.sig then
+		return memo.valid and name or nil
+	end
+	local pk, signature = Raw(key.pk, 32), Raw(claim.sig, 64)
+	local valid = pk ~= nil and signature ~= nil and ns.Ed25519.Verify(pk, "OLYA1|" .. guid .. "|" .. name, signature) == true
+	ownClaimMemo = { guid = guid, name = name, pk = key.pk, sig = claim.sig, valid = valid }
+	return valid and name or nil
+end
+
 local claimSent = {} -- [target lower] = true: once per peer and session
 function Debts.SendClaim(to, mode)
 	local key = Lower(to)

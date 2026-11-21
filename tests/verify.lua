@@ -759,9 +759,46 @@ end)
 -- The notices
 ---------------------------------------------------------------------------
 
+test("verify: 1.6.2 automatic pending and overdue warnings stay paused while manual checks and approvals work", function()
+	for _, elapsed in ipairs({ 0, GRACE + 1 }) do
+		World(function(w)
+			local gm = w.Client(GM, GUILD, 0)
+			local hc = w.Client(HC, HEARTH, 3)
+			w.Census(GUILD, "Bram Hollow", 930)
+			w.As(gm, gm.Verify.Observe)
+			w.As(hc, hc.Verify.Observe)
+			w.now = T0 + elapsed
+			w.As(gm, gm.Verify.Login)
+			w.now = w.now + gm.Verify.NOTICE_AFTER
+			local status, info = w.Status(gm, GUILD)
+			eq(status, elapsed == 0 and "pending" or "overdue")
+			local deadline = info.deadline
+			local start = gm.rdb.verify.start[ns.Fold(GUILD)]
+			eq(w.As(gm, gm.Verify.Tick), false, "no automatic reminder for a nearly full guild")
+			eq(#gm.copies, 0, "the session creates no warning popup")
+			assert(not Find(gm.printed, "GM verification pending") and not Find(gm.printed, "GM verification overdue"), "the session prints no verification warning")
+			eq(#w.As(gm, gm.Verify.Lines), 0, "no warning at the top of the Census")
+			eq(w.As(gm, gm.Verify.ShowNotice, true), false, "an automatic caller also honors the pause")
+			eq(#gm.copies, 0)
+			w.As(gm, gm.Verify.Slash, "")
+			eq(#gm.copies, 1, "the GM can deliberately open the verification detail")
+			eq(gm.copies[1].opts.auto, nil)
+			local afterStatus, afterInfo = w.Status(gm, GUILD)
+			eq(afterStatus, status)
+			eq(afterInfo.deadline, deadline, "the pause never restarts the seven-day clock")
+			eq(gm.rdb.verify.start[ns.Fold(GUILD)], start, "the existing start is kept")
+			eq(w.As(hc, hc.Verify.Approve, GUILD), true)
+			eq(w.Status(gm, GUILD), "verified", "approvals still reach the GM")
+			local line = w.As(gm, gm.Verify.Lines)[1]
+			assert(line and line.text:find(gm.L.VERIFY_LINE_VERIFIED, 1, true), "the accepted verification is still visible")
+		end)
+	end
+end)
+
 test("verify: paused member notices leave overdue state and GM follow-up intact", function()
 	World(function(w)
 		local gm = w.Client(GM, GUILD, 0)
+		gm.Verify.REMINDERS_PAUSED = false -- retain coverage of the reminder path when the temporary pause ends
 		local member = w.Client(MEMBER, GUILD, 3)
 		w.Census(GUILD, "Bram Hollow", 120)
 		w.As(gm, gm.Verify.Observe)
@@ -836,6 +873,7 @@ end)
 test("verify: within the grace only the guild master sees \"GM verification pending\", once a session; overdue notices stay with the guild master", function()
 	World(function(w)
 		local gm = w.Client(GM, GUILD, 0)
+		gm.Verify.REMINDERS_PAUSED = false -- exercise the retained session reminder and its manual actions
 		local member = w.Client(MEMBER, GUILD, 3)
 		w.Census(GUILD, "Bram Hollow", 120)
 		for _, c in ipairs({ gm, member }) do w.As(c, c.Verify.Login) end

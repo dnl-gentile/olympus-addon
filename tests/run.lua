@@ -175,7 +175,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Contributions", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "RealmIdentityData", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Contributions", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -6712,6 +6712,107 @@ local function LoadAs(realmName, saved)
 	ns.db, ns.rdb, ns.realm, ns.group, GetRealmName, ns.CaptureError = keep.db, keep.rdb, keep.realm, keep.group, keep.name, keep.capture
 	eq(captured, nil, "error caught")
 	return OlympusDB, rdb, group
+end
+
+do
+	local function WithRealmIdentity(fn)
+		local saved = { normalized = GetNormalizedRealmName, realmName = GetRealmName, guid = UnitGUID, build = GetBuildInfo,
+			project = WOW_PROJECT_ID, fullName = UnitFullName, db = ns.db, rdb = ns.rdb, realm = ns.realm, group = ns.group,
+			me = ns.me, faction = ns.faction, split = ns.splitNames, map = ns.FOREVER_REALMS_BY_ID, fire = ns.Fire,
+			globalDB = OlympusDB, secret = issecretvalue }
+		local ok, err = pcall(function()
+			WOW_PROJECT_ID = 18
+			GetBuildInfo = function() return "1.60.1", "71037", "", 16001 end
+			GetNormalizedRealmName, GetRealmName = function() return "" end, function() return "" end
+			UnitGUID = function() return "Player-6933-00000001" end
+			UnitFullName = function() return "Test", "Councillor" end
+			assert(loadfile(ADDON_DIR .. "RealmIdentityData.lua"))("Olympus", ns)
+			ns.db = {}
+			issecretvalue = nil
+			fn()
+		end)
+		GetNormalizedRealmName, GetRealmName, UnitGUID, GetBuildInfo = saved.normalized, saved.realmName, saved.guid, saved.build
+		WOW_PROJECT_ID, UnitFullName, OlympusDB, issecretvalue = saved.project, saved.fullName, saved.globalDB, saved.secret
+		ns.db, ns.rdb, ns.realm, ns.group = saved.db, saved.rdb, saved.realm, saved.group
+		ns.me, ns.faction, ns.splitNames, ns.FOREVER_REALMS_BY_ID, ns.Fire = saved.me, saved.faction, saved.split, saved.map, saved.fire
+		if not ok then error(err, 0) end
+	end
+
+	test("realm identity recovery: Forever's empty realm API keeps signed roles in the native GUID's family", function()
+		WithRealmIdentity(function()
+			eq(ns.CurrentRealm(), "CAMWOWUS2Realm7PvE")
+			ns.realm = ns.CurrentRealm()
+			ns.group = ns.GroupOf(ns.realm)
+			ns.splitNames = nil
+			ns.me = ns.PlayerName()
+			eq(ns.me, "Test Councillor-CAMWOWUS2Realm7PvE")
+			eq(ns.group, "ForeverPvE")
+			ns.rdb = { council = { realm = "ForeverPvE", names = { ["test councillor"] = "Test Councillor" } },
+				councilTitles = { realm = "ForeverPvE", depts = {} } }
+			eq(ns.IsHighCouncillor(ns.me), true, "the already approved role remains usable")
+			assert(ns.CouncilTitles(), "the existing signed titles remain in their family")
+			eq(ns.IsHighCouncillor("Test Councillor-CAMWOWUS2Realm8PvP"), false, "a namesake on PvP gains nothing")
+		end)
+	end)
+
+	test("realm identity recovery: only native observations extend the cache, native conflicts and foreign clients fail closed", function()
+		WithRealmIdentity(function()
+			GetRealmName = function() return "CAMWOW US2 Realm 9 RP" end
+			UnitGUID = function() return "Player-8001-00000001" end
+			eq(ns.CurrentRealm(), "CAMWOWUS2Realm9RP")
+			eq(ns.db.nativeRealmNames[8001], "CAMWOWUS2Realm9RP")
+			GetRealmName = function() return "" end
+			eq(ns.CurrentRealm(), "CAMWOWUS2Realm9RP", "a later empty native API uses its own observation")
+			UnitGUID = function() return "Player-8999-00000001" end
+			eq(ns.CurrentRealm(), "?", "an unknown id does not inherit the last character's realm")
+			UnitGUID = function() return "Player-6933-00000001" end
+			eq(ns.CurrentRealm(), "CAMWOWUS2Realm7PvE")
+			eq(ns.db.nativeRealmNames[6933], nil, "a shipped mapping never poses as a new native observation")
+			WOW_PROJECT_ID = 1
+			eq(ns.CurrentRealm(), "?", "another WoW project never takes a Forever server map")
+			WOW_PROJECT_ID = 18
+			GetRealmName = function() return "CAMWOW US2 Realm 8 PvP" end
+			eq(ns.CurrentRealm(), "CAMWOWUS2Realm8PvP", "a real nonempty native name always wins")
+			GetRealmName = function() return "" end
+			eq(ns.CurrentRealm(), "?", "two native realm identities for one id cannot silently mix scopes")
+			UnitGUID = function() return "Player-06933-00000001" end
+			eq(ns.CurrentRealm(), "?", "noncanonical player ids never select a mapping")
+			UnitGUID = function() return "Creature-6933-00000001" end
+			eq(ns.CurrentRealm(), "?", "only a native player GUID identifies the realm")
+		end)
+	end)
+
+	test("realm identity recovery: a late player GUID opens the existing family store before one INIT and preserves unknown data", function()
+		WithRealmIdentity(function()
+			local pve = { guilds = {}, council = { realm = "ForeverPvE", names = { ["test councillor"] = "Test Councillor" } },
+				councilTitles = { realm = "ForeverPvE", depts = {} } }
+			local pvp, unknown = { guilds = {} }, { guilds = {}, untouched = true }
+			local inspect = { players = {} }
+			local events = {}
+			ns.Fire = function(event) events[#events + 1] = event end
+			OlympusDB = { configVersion = 3, blocked = { troll = true }, inspect = inspect,
+				realms = { ForeverPvE = pve, ForeverPvP = pvp, ["?"] = unknown } }
+			local nativeGUID = UnitGUID
+			UnitGUID = function() return nil end
+			for _, fn in ipairs(EVENT_SCRIPTS) do fn(nil, "ADDON_LOADED", "Olympus") end
+			eq(ns.group, "?")
+			eq(#events, 0, "the realm-dependent init waits for the native player identity")
+			eq(ns.db.inspect, inspect, "legacy scope migrations wait for the native realm")
+			UnitGUID = nativeGUID
+			eq(ns.RecoverRealmIdentity(), true)
+			eq(ns.group, "ForeverPvE")
+			eq(ns.rdb, pve, "the existing family store is reused with its verified roles")
+			eq(ns.IsHighCouncillor(ns.me), true)
+			eq(ns.rdb.inspect, inspect)
+			eq(ns.db.blocked["troll-camwowus2realm7pve"], true)
+			eq(ns.db.blocked.troll, nil)
+			eq(ns.db.realms.ForeverPvP, pvp)
+			eq(ns.db.realms["?"], unknown, "unknown-origin records never merge into the recovered family")
+			eq(events[1], "INIT"); eq(#events, 1)
+			eq(ns.RecoverRealmIdentity(), false, "a second check cannot duplicate lifecycle work")
+			eq(#events, 1)
+		end)
+	end)
 end
 
 test("census saved variables: a damaged census container leaves verification and other realm stores intact", function()
@@ -64834,9 +64935,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.6.1") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.2") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.6.1", 1, true))
+		assert(toc:find("## Version: 1.6.2", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -65288,7 +65389,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.6.1")
+		eq(ns.VERSION, "1.6.2")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)

@@ -9,6 +9,12 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "frFR" then return end
 ns.Locale("frFR", {
+	LETTER_1_6_2_TITLE = "Rôles rétablis",
+	LETTER_1_6_2 = [==[Rétablit la reconnaissance du royaume de Forever lorsque son nom est vide, afin de charger à nouveau le recensement et les listes de rôles signées du bon royaume.
+
+Les rappels automatiques de vérification de guilde sont temporairement suspendus. Consultez le statut dans The Watch ou avec /oly verify.
+
+Fermez et relancez WoW après la mise à jour. Si un rôle ou un onglet manque encore, envoyez /oly bug.]==],
 	LETTER_1_4_1_TITLE = "Rétablir le chat de guilde",
 	LETTER_1_4_1_HEAD = "Rétablir le chat de guilde",
 	LETTER_1_4_1_SIGNED = "Votre humble artisan, le dev d'Olympus",

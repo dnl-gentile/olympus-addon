@@ -300,6 +300,12 @@ Long live the King. Long live Olympus.]==]
 -- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
 -- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
 L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_2_TITLE = "Roles Restored"
+L.LETTER_1_6_2 = [==[Restores realm identification on Forever when the game returns an empty realm name, so the correct census and signed role lists can load again.
+
+Automatic guild verification reminders are temporarily paused. Check the status in The Watch or with /oly verify.
+
+Close and reopen WoW after updating. If a role or tab is still missing, send /oly bug.]==]
 L.LETTER_1_6_1_TITLE = "Guild Leadership in The Realm"
 L.LETTER_1_6_1 = [==[- The Realm can show guild masters and officers together again. Use the Show filter above the guild list. Older roster sightings are dated, and guilds without roster detail show that leadership is still unknown.
 
@@ -586,6 +592,12 @@ Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_2_TITLE = "Cargos recuperados"
+	L.LETTER_1_6_2 = [==[Recupera a identificação do reino no Forever quando o jogo retorna o nome vazio, para voltar a carregar o censo e as listas assinadas de cargos do reino correto.
+
+Os lembretes automáticos de verificação de guilda estão temporariamente pausados. Consulte o status no The Watch ou com /oly verify.
+
+Feche e abra o WoW depois de atualizar. Se algum cargo ou aba ainda faltar, envie /oly bug.]==]
 	L.LETTER_1_6_1_TITLE = "Líderes e oficiais em The Realm"
 	L.LETTER_1_6_1 = [==[- Agora é possível ver os líderes e oficiais das guildas juntos em The Realm. Use o filtro Mostrar acima da lista. A presença de um registro antigo vem com o tempo da observação. Se ainda não chegou uma lista de membros, a liderança aparece como desconhecida.
 

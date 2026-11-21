@@ -4,6 +4,12 @@ An automated pass and an in-game pass are different evidence. Record both. A gre
 repository check means the Lua, fixtures and package invariants passed offline; it does not mean
 that a World of Warcraft client, gamepad flow or exchange between real players was observed.
 
+## Olympus 1.6.2 live check
+
+Close and reopen Forever on a character whose role tabs disappeared on build 71037. Use `/oly bug` and check that realm is a named Forever realm and census is its existing ruleset group, with the prior signed lists held. Open the Church or High Council tab belonging to that character and confirm the prior assignments. Keep a character on another ruleset separate. A prior signed claim for this exact character can recover IDs outside the shipped native map. Unknown IDs with neither a native observation nor a valid prior own claim remain unknown.
+
+No automatic guild-verification warning should open on login. `/oly verify` and The Watch should still show the verification state, original date, approval and resend actions.
+
 ## Olympus 1.6.1 live checks
 
 On one Forever client, use **The Realm → Show → Guild Masters & Officers**, open a guild and then

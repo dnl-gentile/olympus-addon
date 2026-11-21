@@ -9,6 +9,12 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "esES" and code ~= "esMX" then return end
 ns.Locale({ "esES", "esMX" }, {
+	LETTER_1_6_2_TITLE = "Cargos recuperados",
+	LETTER_1_6_2 = [==[Restaura la identificación del reino de Forever cuando el nombre está vacío, para cargar de nuevo el censo y las listas firmadas de cargos del reino correcto.
+
+Los recordatorios automáticos de verificación de hermandad están pausados temporalmente. Consulta el estado en The Watch o con /oly verify.
+
+Cierra y vuelve a abrir WoW tras actualizar. Si sigue faltando un cargo o una pestaña, envía /oly bug.]==],
 	LETTER_1_4_1_TITLE = "Restaurar el chat de hermandad",
 	LETTER_1_4_1_HEAD = "Restaurar el chat de hermandad",
 	LETTER_1_4_1_SIGNED = "Vuestro humilde artífice, el desarrollador de Olympus",
