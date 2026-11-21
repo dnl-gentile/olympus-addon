@@ -25,10 +25,10 @@ local L = ns.L
 -- it finds nothing overdue. Only the deadline moves (Verify.Status): the starts are kept and relayed
 -- as they were, so the GV rows stay what a 1.5.3 client reads and the earliest still wins (a 1.5.3
 -- client counts its 48 hours from them until it updates).
--- Within GRACE the guild is pending: only its guild master sees "GM verification pending" (once a
--- session, reopened with /oly verify or the line on top of the Census). Past it the guild is
--- overdue: member-facing notices are temporarily paused; the guild master still sees the
--- reminder and the verifiers keep the guild on their list, marked overdue,
+-- Within GRACE the guild is pending; past it the guild is overdue. Automatic pending and overdue
+-- warnings are temporarily paused (1.6.2, Foozie's report), including the guild master's popup,
+-- chat reminder and Census warning line. /oly verify still opens the status deliberately, and
+-- the verifiers keep the guild on their list, marked overdue,
 -- for follow-up; and while ns.VERIFY_HOLD is on (Core.lua, as it ships) its guild master's own
 -- powers wait for his verification (ns.MasterHeld: Data.AuthorizedRank gives him an officer's
 -- standing; his public card, his Legates and correspondents, his guild decrees and his guild bank
@@ -142,6 +142,7 @@ Verify.RESET_AT = 1794193200     -- (1.5.4) no deadline counts from before: 2026
 Verify.OTHER_GROUPS_WAIT_UNTIL = 1795996800 -- (1.6.0.1) Forever's groups but PvE wait until 2026-11-30 00:00 UTC (see the top)
 Verify.REMIND_LEFT = 12 * 3600   -- the verifiers are reminded of a pending guild this long before its deadline
 Verify.NOTICE_AFTER = 90         -- the session's notices wait this long after login (roster and census in)
+Verify.REMINDERS_PAUSED = true    -- pause automatic guild-master warnings while the verification process is changing
 Verify.TICK = 60                 -- the guilds seen and the notices, every minute
 Verify.ASK_AFTER, Verify.ASK_SPREAD = 25, 35 -- the login's ask, 25 to 60 s after it
 Verify.STARTUP_RETRY, Verify.STARTUP_SPREAD = 315, 45 -- past the relay's identical-word window
@@ -1334,8 +1335,8 @@ function Verify.Duration(seconds)
 	return L.VERIFY_HOURS:format(h, math.floor((s % 3600) / 60))
 end
 
--- Member-facing notices are paused, including overdue guilds. The master still has the original
--- deadline and reminder. Approval state and the verifiers' follow-up are independent of notices.
+-- Member-facing notices are paused, including overdue guilds. The master can still inspect the
+-- original deadline manually. Approval state and the verifiers' follow-up are independent of notices.
 local function MasterStatus(now)
 	if not ns.IsMember() then return nil end
 	local guild, _, rank = GetGuildInfo("player")
@@ -1458,6 +1459,7 @@ end
 
 -- The notice, in a window it can be copied from; auto: opened by itself (no keyboard taken).
 function Verify.ShowNotice(auto)
+	if auto and Verify.REMINDERS_PAUSED then return false end
 	local guild, status, info = MasterStatus()
 	local UI = ns.UI
 	if not guild or not (type(UI) == "table" and type(UI.ShowCopy) == "function") then return false end
@@ -1477,6 +1479,7 @@ end
 function Verify.Lines(now)
 	local guild, status, info = MasterStatus(now)
 	if not guild or status == "exempt" then return {} end
+	if Verify.REMINDERS_PAUSED and status ~= "verified" and not info.waiting then return {} end
 	local text, tip
 	if status == "verified" then
 		text, tip = (OffNetwork(guild) and "" or Verify.MARK_OK) .. L.VERIFY_LINE_VERIFIED, StatusText(guild, status, info)
@@ -2171,7 +2174,8 @@ end
 -- The session: the guilds seen, the notices, the asks
 ---------------------------------------------------------------------------
 
--- Once a session, while our guild asks something of this player: a chat line and the notice,
+-- When automatic reminders are enabled, once a session while our guild asks something of this
+-- player: a chat line and the notice,
 -- NOTICE_AFTER after login, never in an instance, on Busy or in a fight (it waits for the next
 -- tick). The verifiers' own notices at each tick from then on.
 local loginAt, told, ticking = nil, false, false
@@ -2183,7 +2187,7 @@ function Verify.Tick(now)
 	Verify.GuildAskTick(now) -- (the review of the hand-over: a guild master's ask again, a guildmate come online)
 	if not loginAt or now - loginAt < Verify.NOTICE_AFTER then return false end
 	Verify.CouncilNotices(now)
-	if told then return false end
+	if told or Verify.REMINDERS_PAUSED then return false end
 	local who, guild, status, info = Verify.Mine(now)
 	if not who then return false end
 	if (ns.Quiet and ns.Quiet()) or (InCombatLockdown and InCombatLockdown()) then return false end

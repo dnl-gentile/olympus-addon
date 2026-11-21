@@ -132,7 +132,8 @@ local function Member(world, short, faction, version, rank, scan, guild)
 			return true
 		end,
 	}, { __index = ns.Comm })
-	cns.On, cns.RegisterEvent = function() end, function() end
+	cns.On = function(event, callback) if event == "VERIFY_CHANGED" then c.verificationChanged = callback end end
+	cns.RegisterEvent = function() end
 	cns.Print = function(msg) c.printed[#c.printed + 1] = tostring(msg) end
 	cns.After = function(delay, _, f) c.later[#c.later + 1] = { due = world.now + (tonumber(delay) or 0), fn = f } end
 	cns.Every = function(every, label, f)
@@ -1282,6 +1283,40 @@ test("verified overflow: capacity or enrollment changes drop a queued name befor
 		eq(first.H.State(req), nil, "a provably unsent name clears the local lock")
 		enrolled[side.guild] = nil
 		eq(As(w, first, first.H.Offer, req, side.name, side.guild), false, "a revoked side guild cannot receive an offer")
+	end)
+end)
+
+test("verified overflow: guild verification changes discard remote capacity evidence", function()
+	WithWorld(function(w)
+		local first, _, side = OverflowMembers(w)
+		local O = first.R.VerifiedOverflow
+		eq(As(w, first, O.Allowed, first.guild, side.guild, true), false)
+		Deliver(w)
+		eq(As(w, first, O.Allowed, first.guild, side.guild, true), false)
+		Deliver(w)
+		eq(As(w, first, O.Allowed, first.guild, side.guild, false), true)
+		first.verificationChanged()
+		eq(As(w, first, O.Allowed, first.guild, side.guild, false), false,
+			"a stable protocol revision cannot preserve capacity evidence across an approval change")
+	end)
+end)
+
+test("verified overflow: an approved caretaker can answer capacity when no exact official is available", function()
+	WithWorld(function(w)
+		local first, second, side = OverflowMembers(w)
+		for _, c in ipairs({ first, second, side }) do
+			local p = c.ns.FederationProgram
+			local holders, role = p.Roleholders, p.Role
+			p.Roleholders = function(guild) local _, known = holders(guild); return known, nil end
+			p.Role = function(name, guild) return role(name, guild) == "official" and "caretaker" or nil end
+		end
+		local O = first.R.VerifiedOverflow
+		eq(As(w, first, O.Allowed, first.guild, side.guild, true), false)
+		Deliver(w)
+		eq(As(w, first, O.Allowed, first.guild, side.guild, true), false)
+		Deliver(w)
+		eq(As(w, first, O.Allowed, first.guild, side.guild, false), true,
+			"a verified guild need not invent a remote official to confirm native capacity")
 	end)
 end)
 

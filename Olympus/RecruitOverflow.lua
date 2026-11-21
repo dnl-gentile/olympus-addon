@@ -55,8 +55,9 @@ local function Ask(program, now, revision, guild, key)
 	local recent = pending[key]
 	if recent and now - recent.asked < QUERY_GAP then return end
 	local caretaker, official = program.Roleholders(guild)
-	if not official then return end
-	local peer = recent and recent.nonce and recent.peer == official and caretaker or official
+	if not official and not caretaker then return end
+	local peer = official or caretaker
+	if recent and recent.nonce and recent.peer == peer and caretaker then peer = caretaker end
 	local nonce = ("%x-%x"):format(now, math.random(1, 1073741823))
 	local request = { asked = now, peer = peer, own = own, nonce = nonce }
 	pending[key] = request
@@ -149,3 +150,7 @@ function Overflow.Receive(dist, sender, text)
 end
 
 ns.Comm.Handle("J7", Overflow.Receive)
+
+ns.On("VERIFY_CHANGED", function()
+	identity, pending, observations, replied = nil, {}, {}, {}
+end)

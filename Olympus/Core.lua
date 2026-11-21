@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.6.1"
+ns.VERSION = "1.6.2"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -102,11 +102,60 @@ function ns.ShortName(name)
 	return (name:gsub("%-.*$", ""))
 end
 
+-- The Forever client build 71037 gives an empty realm name and realm id 0, while the
+-- player's native GUID still names its server. Only this client's own native observations
+-- and the shipped native-id map can recover it. Peer claims never enter this cache.
+local function ForeverClient()
+	local project = rawget(_G, "WOW_PROJECT_ID")
+	if project ~= nil then return project == 18 end
+	local _, _, _, interface = GetBuildInfo()
+	return type(interface) == "number" and interface >= 16000 and interface < 16200
+end
+
+local function NativeServerId()
+	local guid = UnitGUID and UnitGUID("player")
+	if issecretvalue and issecretvalue(guid) then return nil end
+	local id = type(guid) == "string" and guid:match("^Player%-([1-9]%d*)%-%x+$") or nil
+	return id and tonumber(id) or nil
+end
+
+local function ForeverRealmName(realm)
+	return type(realm) == "string" and realm:match("^CAMWOW%u%u%d+Realm%d+%a+$") ~= nil
+end
+
 -- This realm's key, the same form the server uses in "Name-Realm" (no spaces or dashes).
 function ns.CurrentRealm()
 	local realm = GetNormalizedRealmName and GetNormalizedRealmName()
 	if not realm or realm == "" then realm = ((GetRealmName and GetRealmName()) or ""):gsub("[%s%-]", "") end
-	return realm ~= "" and realm or "?"
+	if not ForeverClient() then return realm ~= "" and realm or "?" end
+	local id, db = NativeServerId(), ns.db
+	if realm ~= "" and realm ~= "?" then
+		if id and ForeverRealmName(realm) and type(db) == "table" then
+			if type(db.nativeRealmNames) ~= "table" then db.nativeRealmNames = {} end
+			local previous = db.nativeRealmNames[id]
+			-- Conflicting native observations do not silently remap an existing server.
+			if previous == nil then db.nativeRealmNames[id] = realm
+			elseif previous ~= realm then db.nativeRealmNames[id] = false end
+		end
+		return realm
+	end
+	local native
+	if type(db) == "table" and type(db.nativeRealmNames) == "table" then native = db.nativeRealmNames[id] end
+	local shipped = type(ns.FOREVER_REALMS_BY_ID) == "table" and ns.FOREVER_REALMS_BY_ID[id] or nil
+	if native == false or (native and shipped and native ~= shipped) then return "?" end
+	local known = native or shipped
+	if ForeverRealmName(known) then return known end
+	if not id then return "?" end
+	local debts = ns.Debts
+	local claim = type(debts) == "table" and type(debts.OwnClaimName) == "function" and debts.OwnClaimName()
+	local previous = type(claim) == "string" and ns.RealmOf(claim)
+	if not ForeverRealmName(previous) then return "?" end
+	local first, surname = UnitFullName("player")
+	if issecretvalue and (issecretvalue(first) or issecretvalue(surname)) then return "?" end
+	if type(first) ~= "string" then return "?" end
+	local short = ns.ShortName(claim):lower()
+	if first:lower() == short or (type(surname) == "string" and (first .. " " .. surname):lower() == short) then return previous end
+	return "?"
 end
 
 -- Identity is always "Name-Realm". Names without a realm belong to `realm` (default: ours).
@@ -2651,6 +2700,42 @@ end
 -- Startup
 ---------------------------------------------------------------------------
 
+local awaitingRealmIdentity = false
+
+local function MigrateCharacterScope(db, store)
+	if ns.realm == "?" then return end
+	-- The old account inspection and bare block names wait until this character's
+	-- native realm is known. Unknown-scope records cannot supply a realm for them.
+	if db.inspect and ns.faction ~= "Horde" then
+		if store.inspect == nil then store.inspect = db.inspect end
+		db.inspect = nil
+	end
+	local short = {}
+	for key in pairs(db.blocked) do
+		if not key:find("-", 1, true) then short[#short + 1] = key end
+	end
+	for _, key in ipairs(short) do
+		db.blocked[key] = nil
+		db.blocked[(key .. "-" .. ns.realm):lower()] = true
+	end
+end
+
+-- UnitGUID can become available after ADDON_LOADED. Resolve it before any LOGIN
+-- listeners start their transport or timers. The unknown store is left untouched.
+function ns.RecoverRealmIdentity()
+	if not awaitingRealmIdentity then return false end
+	local realm = ns.CurrentRealm()
+	if realm == "?" then return false end
+	ns.realm, ns.group = realm, ns.GroupOf(realm, ns.db)
+	ns.rdb = OpenStore(Stores(ns.db), ns.group)
+	MigrateCharacterScope(ns.db, ns.rdb)
+	ns.me = ns.PlayerName()
+	awaitingRealmIdentity = false
+	ns.Log("native realm identity recovered: %s, census %s", ns.realm, ns.group)
+	ns.Fire("INIT")
+	return true
+end
+
 ns.RegisterEvent("ADDON_LOADED", function(name)
 	if name ~= ADDON then return end
 	OlympusDB = OlympusDB or {}
@@ -2686,26 +2771,10 @@ ns.RegisterEvent("ADDON_LOADED", function(name)
 	-- drop them. The census refills from the channel within minutes and officers hand the
 	-- key out again over guild chat (K0/K1) at login.
 	db.guilds, db.realmKey, db.officerRank = nil, nil, nil
-	-- Tabard inspections are about the players of one realm group too. The old account-wide
-	-- ones can only be the Alliance's: they wait at the account level for an Alliance login.
-	if db.inspect and ns.faction ~= "Horde" then
-		if R.inspect == nil then R.inspect = db.inspect end
-		db.inspect = nil
-	end
-	-- Block list keys become "name-realm" (old keys were short names from this realm).
-	-- Collect first: adding keys while pairs() walks the table is an error in Lua 5.1.
-	if ns.realm ~= "?" then
-		local short = {}
-		for k in pairs(db.blocked) do
-			if not k:find("-", 1, true) then short[#short + 1] = k end
-		end
-		for _, k in ipairs(short) do
-			db.blocked[k] = nil
-			db.blocked[(k .. "-" .. ns.realm):lower()] = true
-		end
-	end
+	MigrateCharacterScope(db, R)
 	ns.rdb = R
-	ns.Fire("INIT")
+	awaitingRealmIdentity = ns.realm == "?" and ForeverClient()
+	if not awaitingRealmIdentity then ns.Fire("INIT") end
 end)
 
 -- Files added by an update only load once the game restarts: it reads the file list at
@@ -2984,6 +3053,13 @@ end
 
 ns.RegisterEvent("PLAYER_LOGIN", function()
 	ns.CheckFaction()
+	if awaitingRealmIdentity then
+		ns.RecoverRealmIdentity()
+		if awaitingRealmIdentity then
+			awaitingRealmIdentity = false
+			ns.Fire("INIT")
+		end
+	end
 	local missing = {}
 	-- (1.2: the file of a key named otherwise: the Blood Arena's core is ArenaNet.lua.)
 	local FILES = { Arena = "ArenaNet.lua" }

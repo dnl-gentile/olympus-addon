@@ -633,7 +633,8 @@ test("verify guild hand-over: a guild master who logs in before his guildmates a
 		As(master, master.c.Verify.Login)
 		Play(Advance, As, { master }, 360)
 		eq(master.c.Verify.Stats().guildAsked, 2, "his login's ask and its retry, with nobody there to answer")
-		eq(#master.copies, 1, "told once at his login: nobody held the approval then")
+		-- 1.6.2 pauses automatic GM warnings while this unchanged recovery flow keeps asking.
+		eq(#master.copies, 0, "the pending approval creates no automatic warning")
 		-- A 1.5.9 guildmate comes online: one that never answers is no reason to ask.
 		local old = Ready(Node("Old Mate-Realm", GUILD, { old = true }))
 		As(old, old.c.Comm.Hello, true); Flush()
@@ -652,7 +653,7 @@ test("verify guild hand-over: a guild master who logs in before his guildmates a
 		eq(status, "verified", "his guildmate handed him the approval")
 		eq(info.entry.at, T0); eq(info.entry.by, HC)
 		eq(HandOvers(holder), 1); assert(Find(holder.logs, "handed to the guild (asked)"), "an answer to his ask")
-		eq(#master.copies, 1, "no second pop-up")
+		eq(#master.copies, 0, "recovering the approval creates no warning popup")
 		-- Verified, he asks nothing more, whoever comes online.
 		local late = Ready(Node("Late Mate-Realm", GUILD))
 		As(late, late.c.Comm.Hello, true); Flush()
@@ -710,7 +711,8 @@ test("verify guild hand-over: a guild master whose guildmates are all on 1.5.9 f
 		eq(#master.sentOf("GV~1~G~"), 1, "he asked his guild")
 		eq(HandOvers(one) + HandOvers(two), 0, "a 1.5.9 guildmate never answers it")
 		assert(As(master, master.c.Verify.Status, GUILD) ~= "verified", "no verifier online: still pending, as before")
-		eq(#master.copies, 1, "and told so at login, as before")
+		-- 1.6.2 keeps the status pending and retries, with automatic GM warnings paused.
+		eq(#master.copies, 0, "waiting for a verifier creates no automatic warning")
 		-- A verifier comes online: the guild master's next ask (the login's retry) is answered, as before.
 		local verifier = Ready(Node(HC, "Olympus Crown"))
 		verifier.c.rdb.guilds[GUILD] = { leader = MASTER, realm = "Realm" }
@@ -720,6 +722,7 @@ test("verify guild hand-over: a guild master whose guildmates are all on 1.5.9 f
 		eq(As(master, master.c.Verify.Status, GUILD), "verified", "a verifier's answer, today's path")
 		eq(master.c.rdb.verify.list[ns.Fold(GUILD)].by, HC)
 		eq(HandOvers(one) + HandOvers(two), 0)
+		eq(#master.copies, 0, "the eventual approval also creates no automatic warning")
 	end)
 end)
 

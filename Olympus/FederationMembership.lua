@@ -199,6 +199,7 @@ local function Forget()
 	scope, pending, proofs, budget = nil, {}, {}, {}
 end
 
+ns.On("VERIFY_CHANGED", Forget)
 ns.On("QUIET_PRESENCE_CHANGED", function(on) if on then Forget() end end)
 ns.On("ACCORD_CHANGED", function(accepted) if not accepted then Forget() end end)
 ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit) if not unit or unit == "player" then Forget() end end)

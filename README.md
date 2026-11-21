@@ -99,7 +99,7 @@ approval (the one who approved it, for one) or still lists it in The Watch can r
 of each new guild master to check) and reminded 12 hours before its deadline. A verification belongs to the guild **and** its guild
 master: while the census names someone else as guild master, it lapses until the new one is
 verified, on the guild's same clock. Past its 7 days an unverified guild is overdue. Member-facing popups, chat warnings and Census
-notices are temporarily paused; the guild master still receives the verification reminder. (1.6.0.1) On WoW: Forever's PvP, RP
+notices are temporarily paused; 1.6.2 also pauses the automatic guild-master reminders and attention banners. Manual verification and resending remain available. (1.6.0.1) On WoW: Forever's PvP, RP
 and RP-PvP realms every guild waits, pending, until 30 November 2026 (`Verify.OTHER_GROUPS_WAIT_UNTIL`), with nothing asked
 of its guild master and nothing overdue; an approval still verifies, and from then each unverified guild there has its 7 days.
 The guild stays on the verifiers' list, marked overdue; and its guild master's own
@@ -109,7 +109,7 @@ from the members and nobody is removed. The King's guild needs none. Verified gu
 in the Census (an overdue one, for the verifiers); the King's guild carries the verified mark too
 (1.5.9), whoever its guild master is. Being verified grants no role or council
 status. Switches in `Core.lua`: `ns.VERIFY_HOLD` (the guild master's hold, on) and
-`ns.VERIFY_GATE` (whole-guild features through `ns.GuildSanctioned`, off: no feature is gated); the
+`ns.VERIFY_GATE` (the older overdue-guild gate through `ns.GuildSanctioned`, off). Forever shared-tools participation uses existing approvals through [FederationProgram](docs/FEDERATION-PROGRAM.md), independently of that older switch; the
 exemptions are one predicate, `Verify.Exempt`.
 
 Verification catch-up crosses signed relays to an available verifier without sending requests to

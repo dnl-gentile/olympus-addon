@@ -23,6 +23,9 @@ local ourGuild
 IsInGuild = function() return ourGuild ~= nil end
 GetGuildInfo = function() return ourGuild end
 GetLocale = function() return "enUS" end
+-- Native build tuple from Forever 71037 (interface 16001). Core reads it to scope realm
+-- recovery; this signing-only model has no logged-in native unit and supplies identities below.
+GetBuildInfo = function() return "1.60.1", "71037", "Nov 20 2026", 16001 end
 time, date = os.time, os.date
 local ns = {}
 for _, file in ipairs({ "Locales", "Core", "Codec", "Sign", "Authority", "FederationProgram", "Workshop" }) do

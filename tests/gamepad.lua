@@ -3438,6 +3438,27 @@ test("gamepad pass: item and exact trade links in the Chat tab: a left click ope
 	GP.Covers("item-ref")
 end)
 
+-- The channel-text route is retained for an explicit author-signed off policy. The default
+-- Forever approval program deliberately uses addon transport alone (ChatHall.On/OnChannel).
+-- This is a throwaway RSA-2048/e=3 public key and valid signature; its private half was discarded.
+-- Keep the actual policy parser and signature check, rather than bypassing Program.Active or Gate.
+local function LegacyPublicChat(ns)
+	local function Limbs(hex)
+		local out = {}
+		for i = #hex, 1, -6 do out[#out + 1] = tonumber(hex:sub(math.max(1, i - 5), i), 16) end
+		return out
+	end
+	ns.Sign.N = Limbs("bab0972e5394e3570782e1b73e9ab68602c3da01181165be0ad06798ad62f5ef00d590f056f0136b0fcbc15c2cc9f6771bfb62b1fdb38ce4f003c904c229670712d28edb1e70de21228030da60734c80c34f0d94ea92e376c9f3b9bc39d8dbe3496f1f625398c089d4ae68b66853ba05b5315c9bf2dcca6ecdde0c8f2e0b5daca702143bab52f29fcc21b9c236ffe3490d5822a49bee0fa2e0b901b1162a6007a11d881e53c59d75077523566d56560e6586aa315cefbaf52e00598272a19ea114e8f9403455f7180f97a9df76a5ee46f6d30f726c7516baf6f2b8182ad1dbde7bd0dee7e8ca429465de120bec8d3c1a139665e9c80f2b3b938b1689a9e594af")
+	ns.Sign.MU = Limbs("15f0acd70abc76164f577645c54ff4d6b7eb65cd1a26c2eb65c16c64eb62c276f07abf2ee3480b433faf8d09e8976e6126d2162a015d896d1112fdb5f2a7b07905668d199a3e57db192f75e847c2aab8c115a426840719cf57fef3aa3dd3c3c44eb990efc17eb5dac2d758ac6552850717c00c16d478e2951691818f307f47b872a75857c6bd52c21a21263202ffbfb913edb36ad276e495e5f219454687e291266324e2db3e3a9308da9e22b351c0b140e02430a0a87e34c3f053cfe111bd63d4e21624827663f77bc6701c1a4bd013dbae9402ca39e419c913b61f782b8467ae04408de5e1faf297f5d0703201b895b90cab63c813d157edd63adc90c1a4dfeb1b6770c")
+	ns.Sign.K = 86
+	local text = "HT1~1760000000~ForeverRPPvP~0~^program^Alliance^US^off^1759999900^1760001000^-"
+	local signature = "1e2b8b66811693f77d6ce9c510e474424133e702b07a326a6672e4f42f8b9f3b903eb7eef57cbd634915273eb3bc65481a1afdf7af3bb716ee5565a0d9dbd8ff3bfca66c5ff7cdc4cbde5f92c697f6921978063a9106c3b626d2cb434903d6f8612f661e58fc2be9ae4f97278a53b7879107e3bac88dd37448d4e44f98cda6f66ac5512246ff19cd0f7d220ff25c2341a18389eb287c6465141c96446b2a5604f2f48135081a8b1491949206fc60a8d261962f77984cbcfa83704d3d7f7d09cb8b00c914c20891522504ab6145ecc1397103c86bd5ba597bde81077b4f78b02c6bd1fd6627ffb924dea6a2ba706b9a1e6e59bda277c4ce29f78b8ff7099e7b85"
+	eq(ns.Sign.Verify(text, signature), true, "the legacy route requires an actual signed off policy")
+	ns.rdb.councilTitles = { blob = text .. "~" .. signature }
+	ns.FederationProgram.RememberPolicy()
+	eq(ns.FederationProgram.Active(), false, "only the explicit signed off policy selects the legacy route")
+end
+
 -- 1.5.9 (the dev on RP-PvP, 2026-11-12: a PvE line under RP-PvP, and "não tá mandando uma mensagem só
 -- lá"): the [Olympus] picker on Forever. A line of the channel's text is filed by its sender's GUID,
 -- CHAT_MSG_CHANNEL's twelfth value (read: nothing of the game's touched); a line written in the Chat tab
@@ -3446,9 +3467,10 @@ end)
 -- went the hidden way alone, which keeps to its own family, and reached no PvE player); with mouse and
 -- keyboard as the player's own text in the channel too (SendChatMessage from his Enter, the gate's
 -- chat-box), with the gamepad UI the hidden way alone, the same line. Both logins, and a switch each way.
-test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed by their GUID's server, a line written under our own ruleset sent as its alone and under another for everyone, as text in the channel with mouse and keyboard alone; both logins and both switches", function()
+test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed by their GUID's server, a line written under our own ruleset sent as its alone and under another for everyone, as text in the channel with mouse and keyboard alone; both logins and both switches with an explicit signed off policy", function()
 	for _, initialPad in ipairs({ false, true }) do
 		local C, ns = Session(initialPad, { realmFrom = function() return "CAMWOWUS2Realm1RPPvP" end, surname = "Thornwood" })
+		LegacyPublicChat(ns)
 		local Chan = ns.Channels
 		assert(ns.splitNames == true, "names split: Forever")
 		eq(Chan.MyKind(), "rppvp")
@@ -3533,6 +3555,85 @@ test("gamepad pass: the [Olympus] rulesets on Forever: the channel's lines filed
 		NoErrors(C, "the rulesets' session")
 	end
 	GP.Covers("chat-box")
+end)
+
+test("gamepad pass: the [Olympus] rulesets with approved Forever guilds use addon transport alone at either login and across both switches", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local realm = "CAMWOWUS2Realm1RPPvP"
+		local C, ns = Session(initialPad, { realmFrom = function() return realm end, surname = "Thornwood",
+			setup = function(c)
+				c.now = 1795000000
+				-- Forever's native roster uses the complete character name, with no realm suffix.
+				c.roster = {
+					{ "Tester Thornwood", "Hero", 2, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+					{ "Zeusmaster Moss", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+					{ "Titanbold Stone", "Titan", 1, 58, "Priest", "Westfall", "", "", false, 0, "PRIEST" },
+				}
+			end })
+		local Chan, P = ns.Channels, ns.FederationProgram
+		local guild, caretaker = C.units.player.guild, "Zeusmaster Moss-" .. realm
+		eq(P.Active(), true, "the real verification subsystem selects the default program")
+		eq(ns.SharedToolsHere(), false, "a pending guild cannot borrow shared-tool access")
+		-- A retained approval already admitted by Verify; no replacement program policy is needed.
+		local approval = { k = "A", at = C.now - 5, guild = guild, gm = caretaker, by = "Council Witness-" .. realm }
+		ns.rdb.verify = { list = { [ns.Fold(guild)] = approval } }
+		eq(ns.Verify.Status(guild), "verified")
+		assert(ns.Roster.Fresh(), "the actual native roster completed")
+		eq(P.LocalEnrollment(), guild)
+		eq(ns.SharedToolsHere(), true)
+		local chan, index = ns.Comm.ChannelName(), ns.Comm.ChannelIndex()
+		local function Kept(text)
+			for _, e in ipairs(Chan.RawHistory("A")) do if e.text == text then return e end end
+		end
+		local function NativeLine(event, text, id)
+			local msg = assert(ns.Codec.EncodeChat("A", guild, id, "MA", text, nil, "rppvp"))
+			if event == "CHAT_MSG_CHANNEL" then
+				C.Fire(event, msg, caretaker, "", index .. ". " .. chan, "", "", 0, index, chan, 0, id, "Player-1-000000AA")
+			else
+				C.Fire(event, ns.PREFIX, msg, "CHANNEL", caretaker, nil, nil, index, chan)
+			end
+		end
+		eq(Chan.SetGroupView("rppvp"), true)
+		NativeLine("CHAT_MSG_CHANNEL", "public text cannot prove approved membership", 11)
+		eq(Kept("public text cannot prove approved membership"), nil, "the program does not enable the public text fallback")
+		NativeLine("CHAT_MSG_ADDON_LOGGED", "approved addon line", 12)
+		eq(assert(Kept("approved addon line")).kind, "rppvp", "the logged addon event still files the writer's ruleset")
+		local f = assert(ns.ChatWindow.Open("A"))
+		C.Advance(1)
+		local handed, lane = {}, ns.Comm.SendChat
+		ns.Comm.SendChat = function(msg, ...) handed[#handed + 1] = msg; return lane(msg, ...) end
+		local function Write(text, view, pad)
+			eq(Chan.SetGroupView(view), true)
+			ns.ChatWindow.Render(); C.Advance(1)
+			eq(ns.GamepadUI(), pad)
+			eq(ns.ChatHall.On(), false, "approved participation uses addon transport in both input styles")
+			local hint = f.input.hint:GetText() or ""
+			eq(hint:find(ns.L.CHATWIN_PLACEHOLDER_TO:format(ns.L.CHATWIN_GROUP_RPPVP), 1, true), 1,
+				"the UI accurately names the writer's family when public cross-family text is unavailable")
+			local said, before, mark = #(C.said or {}), #handed, C.Mark()
+			f.input:SetText(text)
+			InClick(C, function() C.RunScript(f.input, "OnEnterPressed") end)
+			C.Advance(2)
+			eq(#handed, before + 1, "one approved line reaches the actual addon lane")
+			local digit = view == "rppvp" and "4" or "8"
+			assert(handed[#handed]:find("^M1~A~Olympus II~0" .. digit .. "%d%d~WA~" .. text .. "$"), handed[#handed])
+			eq(#(C.said or {}), said, "no public text is sent, including with mouse and keyboard")
+			eq(Ids(C.Since(mark))["chat-box"], nil, "no protected native chat-box reach")
+			Check(C.Since(mark), text)
+		end
+		Write("approved first", "rppvp", initialPad)
+		C.Switch(not initialPad); C.Advance(1)
+		Write("approved second", "pve", not initialPad)
+		C.Switch(initialPad); C.Advance(1)
+		Write("approved third", "rppvp", initialPad)
+		approval.k = "R"
+		eq(ns.SharedToolsHere(), false, "a retained revocation removes participation immediately")
+		local before = #handed
+		local ok, why = Chan.Send("A", "revoked line")
+		eq(ok, false); eq(why, "federation"); eq(#handed, before)
+		Check(C.ledger, "approved rulesets across both input styles")
+		NoErrors(C, "approved rulesets across both input styles")
+	end
 end)
 
 test("gamepad pass: named item colours in the Chat tab use the client's RGB without changing its table, at either login and across both switches", function()
