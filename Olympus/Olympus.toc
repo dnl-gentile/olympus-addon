@@ -10,6 +10,7 @@
 ## X-Website: https://github.com/dnl-gentile/olympus-addon
 
 Bootstrap.lua
+RealmIdentityData.lua
 libs\LibStub\LibStub.lua
 libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 libs\HereBeDragons\HereBeDragons-2.0.lua
@@ -61,7 +62,6 @@ Locales\frFR.lua
 Locales\itIT.lua
 Locales\ruRU.lua
 Core.lua
-RealmIdentityData.lua
 GamepadRegistry.lua
 Gamepad.lua
 Diagnostics.lua

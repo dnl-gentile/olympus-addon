@@ -12,6 +12,8 @@ ns.Locale({ "esES", "esMX" }, {
 	LETTER_1_6_2_TITLE = "Cargos recuperados",
 	LETTER_1_6_2 = [==[Restaura la identificación del reino de Forever cuando el nombre está vacío, para cargar de nuevo el censo y las listas firmadas de cargos del reino correcto.
 
+Las hermandades ya verificadas por el Alto Consejo usan esa aprobación para las herramientas compartidas y las conversiones de la Iglesia. Las hermandades elegibles fuera de Olympus Prime tienen contribuciones voluntarias.
+
 Los recordatorios automáticos de verificación de hermandad están pausados temporalmente. Consulta el estado en The Watch o con /oly verify.
 
 Cierra y vuelve a abrir WoW tras actualizar. Si sigue faltando un cargo o una pestaña, envía /oly bug.]==],

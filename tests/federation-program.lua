@@ -48,6 +48,117 @@ test("federation program: absent, forged and other realm, faction or region poli
 	end)
 end)
 
+local function WithVerifiedGuild(run)
+	World(function(Blob, Install, Move)
+		local savedVerify, savedGuild = ns.Verify, GetGuildInfo
+		local savedRank, savedAuthority, savedDataGuild = ns.Data.CanRank, ns.Data.AuthorizedRank, ns.Data.Guild
+		local root = debug.getinfo(1, "S").source:sub(2):match("^(.*)tests[/\\]federation%-program%.lua$") or "./"
+		local verified = setmetatable({ Comm = { Handle = function() end }, On = function() end,
+			RegisterEvent = function() end }, { __index = ns })
+		assert(loadfile(root .. "Olympus/Verify.lua"))("Olympus", verified)
+		ns.Verify = verified.Verify
+		GetGuildInfo = function() return GUILD, "Member", 4 end
+		local approval = { k = "A", at = T - 5, guild = GUILD, gm = CARETAKER, by = "Council Witness-" .. REALM }
+		ns.rdb.verify = { list = { [ns.Fold(GUILD)] = approval } }
+		ns.Roster.Fresh = function() return nil end
+		local ok, err = pcall(run, approval, Blob, Install, Move)
+		ns.Verify, GetGuildInfo = savedVerify, savedGuild
+		ns.Data.CanRank, ns.Data.AuthorizedRank, ns.Data.Guild = savedRank, savedAuthority, savedDataGuild
+		if not ok then error(err, 0) end
+	end)
+end
+
+test("federation verified enrollment: an existing guild approval grants participation without another signed list", function()
+	WithVerifiedGuild(function(approval)
+		eq(P.Active(), true)
+		eq(P.IsEnrolled(GUILD), true)
+		eq(P.LocalEnrollment(), nil, "local tools wait for the actual native roster")
+		eq(P.Role(CARETAKER, GUILD), "caretaker", "the approval identifies the existing GM")
+		eq(P.Role(OFFICIAL, GUILD), nil, "approval does not invent another official")
+		ns.Roster.Fresh = function() return { guild = GUILD, members = {
+			{ full = CARETAKER, rankIndex = 0 }, { full = OFFICIAL, rankIndex = 1 } } } end
+		ns.Roster.RankOf = function(name) return ({ [CARETAKER] = 0, [OFFICIAL] = 1 })[name] end
+		eq(P.LocalEnrollment(), GUILD)
+		eq(P.Role(OFFICIAL, GUILD), "official")
+		local caretaker, official = P.Roleholders(GUILD)
+		eq(caretaker, CARETAKER); eq(official, OFFICIAL)
+		eq(P.Caretakers()[GUILD], CARETAKER)
+		eq(P.IsEnrolled(GUILD, approval.at - 1), false, "approval never grants retroactive recruiting credit")
+		eq(P.IsEnrolled(GUILD, approval.at), true)
+		eq(P.IsEnrolled(GUILD, 0 / 0), false, "an invalid timestamp cannot bypass the historical approval boundary")
+		local active, enabled = P.ContributionsPolicy()
+		eq(active, true); eq(enabled, true)
+	end)
+end)
+
+test("federation verified enrollment: missing native GM and coarse remote officer ranks do not grant operator access", function()
+	WithVerifiedGuild(function()
+		local rank
+		ns.Roster.Fresh = function() return { guild = GUILD, members = { { full = OFFICIAL, rankIndex = 1 } } } end
+		ns.Roster.RankOf = function(name) return name == CARETAKER and rank or nil end
+		eq(P.LocalEnrollment(), nil, "an incomplete native GM row grants no local tools")
+		eq(P.Role(CARETAKER, GUILD), nil)
+		rank = 2
+		eq(P.LocalEnrollment(), nil, "a demoted old GM grants no local tools")
+		eq(P.Role(CARETAKER, GUILD), nil)
+		ns.Roster.Fresh = function() return nil end
+		local source = "census"
+		ns.Data.CanRank = function() return true end
+		ns.Data.AuthorizedRank = function() return 1, source, 3 end
+		ns.Data.Guild = function() return { realm = REALM, officers = { { name = "Amber Vale" } } } end
+		eq(P.Role(OFFICIAL, GUILD), nil, "legacy officer membership does not establish exact native rank 1")
+		local caretaker, official = P.Roleholders(GUILD)
+		eq(caretaker, CARETAKER); eq(official, nil)
+		source = "signed"
+		eq(P.Role(OFFICIAL, GUILD), "official")
+		caretaker, official = P.Roleholders(GUILD)
+		eq(caretaker, CARETAKER); eq(official, OFFICIAL)
+	end)
+end)
+
+test("federation verified enrollment: the default requires Forever and the real verification subsystem", function()
+	WithVerifiedGuild(function()
+		eq(P.Active(), true)
+		local verified = ns.Verify
+		ns.Verify = { missing = true, Status = verified.Status }
+		eq(P.Active(), false)
+		eq(P.IsEnrolled(GUILD), false)
+		ns.Verify = verified
+		ns.realm, ns.group = "ArgentDawn", "ArgentDawn"
+		eq(P.Active(), false)
+		eq(P.IsEnrolled(GUILD), false)
+	end)
+end)
+
+test("federation verified enrollment: revoked, unknown, changed-GM and other-region approvals grant nothing", function()
+	WithVerifiedGuild(function(approval)
+		eq(P.IsEnrolled("Olympus Unknown"), false)
+		approval.k = "R"
+		eq(P.IsEnrolled(GUILD), false)
+		eq(P.Role(CARETAKER, GUILD), nil)
+		approval.k = "A"
+		ns.rdb.guilds = { [GUILD] = { leader = "Different Keeper", realm = REALM } }
+		eq(P.IsEnrolled(GUILD), false, "the existing GM-change rule still lapses approval")
+		ns.rdb.guilds = {}
+		approval.gm = "Silver Rock-CAMWOWEU1Realm2PvE"
+		eq(P.IsEnrolled(GUILD), false, "another region cannot lend its approved character")
+		approval.gm = CARETAKER
+		eq(P.IsEnrolled(GUILD), true)
+	end)
+end)
+
+test("federation verified enrollment: explicit legacy policy and expiry still control stored enrollments", function()
+	WithVerifiedGuild(function(_, Blob, Install, Move)
+		eq(P.IsEnrolled(GUILD), true)
+		Install(Blob(T, "-"))
+		eq(P.IsEnrolled(GUILD), false, "an explicit signed exclusion is preserved")
+		Install(Blob(T + 1, ROW))
+		eq(P.IsEnrolled(GUILD), true)
+		Move(T + 10)
+		eq(P.IsEnrolled(GUILD), false, "expired explicit grants cannot be revived by the default")
+	end)
+end)
+
 test("federation program: enrollment requires both exact scoped roles and a fresh native roster for local use", function()
 	World(function(Blob, Install)
 		Install(Blob(T, ROW))

@@ -12,6 +12,8 @@ ns.Locale("frFR", {
 	LETTER_1_6_2_TITLE = "Rôles rétablis",
 	LETTER_1_6_2 = [==[Rétablit la reconnaissance du royaume de Forever lorsque son nom est vide, afin de charger à nouveau le recensement et les listes de rôles signées du bon royaume.
 
+Les guildes déjà vérifiées par le Haut Conseil utilisent cette approbation pour les outils partagés et le suivi des conversions de l'Église. Les guildes éligibles hors Olympus Prime ont des contributions volontaires.
+
 Les rappels automatiques de vérification de guilde sont temporairement suspendus. Consultez le statut dans The Watch ou avec /oly verify.
 
 Fermez et relancez WoW après la mise à jour. Si un rôle ou un onglet manque encore, envoyez /oly bug.]==],

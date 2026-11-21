@@ -303,6 +303,8 @@ L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
 L.LETTER_1_6_2_TITLE = "Roles Restored"
 L.LETTER_1_6_2 = [==[Restores realm identification on Forever when the game returns an empty realm name, so the correct census and signed role lists can load again.
 
+Guilds already verified by the High Council use that approval for shared tools and Church conversion tracking. Eligible guilds outside Olympus Prime have voluntary contributions.
+
 Automatic guild verification reminders are temporarily paused. Check the status in The Watch or with /oly verify.
 
 Close and reopen WoW after updating. If a role or tab is still missing, send /oly bug.]==]
@@ -594,6 +596,8 @@ Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
 	L.LETTER_1_6_2_TITLE = "Cargos recuperados"
 	L.LETTER_1_6_2 = [==[Recupera a identificação do reino no Forever quando o jogo retorna o nome vazio, para voltar a carregar o censo e as listas assinadas de cargos do reino correto.
+
+Guildas já verificadas pelo High Council usam essa aprovação para as ferramentas compartilhadas e as conversões da Church. Guildas elegíveis fora da Olympus Prime têm contribuições voluntárias.
 
 Os lembretes automáticos de verificação de guilda estão temporariamente pausados. Consulte o status no The Watch ou com /oly verify.
 
