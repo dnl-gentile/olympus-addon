@@ -9,6 +9,40 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "frFR" then return end
 ns.Locale("frFR", {
+	CONTRIBUTIONS_MILESTONE_CLEAR = "Retirer la liste de jalons publiée",
+	CONTRIBUTIONS_MILESTONE_PUBLISH = "Publier des jalons signés",
+	CONTRIBUTIONS_MILESTONE_PUBLISHED = "Jalons signés enregistrés et en attente de partage.",
+	CONTRIBUTIONS_MILESTONE_UNAVAILABLE = "Une clé de signature du Trésorier valide et autorisée est requise. Le brouillon reste local.",
+	CONTRIBUTIONS_RECEIPT_ATTEST = "Attester cette contribution enregistrée",
+	CONTRIBUTIONS_RECEIPT_ATTESTED = "Attestation expresse du Trésorier",
+	CONTRIBUTIONS_RECEIPT_HELP = "Attestez ce reçu existant : guilde participante | source/référence. Confirmez après examen de vos registres. Il s'agit de votre attestation, pas d'une preuve de paiement ou d'appartenance fournie par le jeu. La guilde doit déjà être approuvée ; aucun or n'est déplacé.",
+	CONTRIBUTIONS_RECEIPT_INCLUDE = "Inclure l'historique du jeu justifié",
+	CONTRIBUTIONS_RECEIPT_INVALID = "Indiquez une guilde participante existante | une source/référence courte et un reçu admissible de votre propre registre.",
+	CONTRIBUTIONS_RECEIPT_NATIVE = "Reçu du jeu",
+	CONTRIBUTIONS_RECEIPT_NOTE = "Examen privé du Trésorier. Incluez un reçu conservé du jeu ou attestez une ligne existante du registre avec sa guilde participante et sa référence. Cela reclasse l'or déjà enregistré ; aucun or n'est ajouté ni envoyé.",
+	CONTRIBUTIONS_RECEIPT_REVIEW = "Examiner les reçus de contribution",
+	FEDERATION_AUTHORITY_WAIT = "Les décisions automatiques de la fédération nécessitent un certificat de signature valide et examiné. Les approbations existantes des guildes restent inchangées.",
+	FEDERATION_CERTIFICATE_ACCEPTED = "Certificat de la fédération accepté. L'approbation de la guilde reste inchangée.",
+	FEDERATION_CERTIFICATE_PROMPT = "Collez le certificat de clé ou la révocation signée de la fédération. L'approbation de la guilde reste inchangée.",
+	FEDERATION_CERTIFICATE_REFUSED = "Certificat refusé : vérifiez sa signature, son périmètre, le rôle actuel et sa validité.",
+	FEDERATION_KEY_HELP = "/oly federation key : copier votre demande de clé publique de signature. /oly federation certificate : importer un certificat examiné ou une révocation. /oly federation sync : récupérer les décisions signées. Les clés privées ne quittent jamais ce client.",
+	FEDERATION_KEY_TITLE = "Clé publique de la fédération",
+	FEDERATION_KEY_UNAVAILABLE = "Votre identité en jeu n'est pas encore prête. Réessayez après le chargement des membres de votre guilde.",
+	FEDERATION_SYNC_STARTED = "Demande des décisions signées de la fédération.",
+	FEDERATION_SYNC_WAIT = "Aucun participant admissible n'est encore disponible.",
+	LETTER_1_6_3_TITLE = "Une alliance, des outils plus clairs",
+	LETTER_1_6_3 = [==[- My Discord Verification se trouve en haut de The Realm avec des étapes plus claires. La progression locale ne confirme pas l'accès à Discord.
+
+- Les outils partagés utilisent l'approbation de guilde déjà enregistrée. Aucune seconde liste de participation n'est nécessaire.
+
+- L'examen des contributions comprend l'or reçu par courrier, l'historique conservé du jeu et les attestations privées du Trésorier. Les noms et montants restent privés jusqu'au consentement ; aucun or n'est créé ni déplacé.
+
+- Une clé de signature autorisée du Trésorier peut publier des jalons informatifs signés.
+
+- Prend en charge des décisions de fédération à portée et durée limitées, les recours et la récupération sans réinitialiser les approbations existantes des guildes.
+
+- Améliore l'identification des royaumes australiens et le réapprentissage des royaumes par Link.]==],
+
 	LETTER_1_6_2_TITLE = "Rôles rétablis",
 	LETTER_1_6_2 = [==[- Rétablit la reconnaissance du royaume de Forever lorsque son nom est vide, afin de charger à nouveau le recensement et les listes de rôles signées du bon royaume.
 
@@ -79,7 +113,7 @@ Fermez et relancez WoW après la mise à jour. Si un rôle ou un onglet manque e
 	DUES_DAILY_GRACE = "Si les registres couvrent la semaine et que le paiement est inférieur à la cotisation, tu conserves ton délai de grâce. L'absence de reçu ne prouve pas qu'il reste un solde à payer.",
 	CONTRIBUTIONS_TITLE = "Contributions volontaires",
 	CONTRIBUTIONS_DETAIL = "Cette page recense les contributions volontaires à la guilde dans le jeu. Il n'y a ni cotisation hebdomadaire ni pénalité.",
-	CONTRIBUTIONS_HOW = "Le classement repose sur les nouveaux échanges d'or enregistrés dans le jeu avec le Trésorier fédéral. Les noms restent cachés jusqu'à ce que chaque personne autorise leur affichage.",
+	CONTRIBUTIONS_HOW = "Le classement comprend les reçus d'or et l'historique conservé du jeu associés à une guilde participante connue, ainsi que les reçus expressément attestés par le Trésorier. Les noms et montants restent privés jusqu'à l'accord de chaque contributeur.",
 	CONTRIBUTIONS_NAME_ACTION = "Afficher le nom de mon personnage au classement",
 	CONTRIBUTIONS_ANON_ACTION = "Utiliser Mécène anonyme",
 	CONTRIBUTIONS_NAME_TIP = "Le classement peut afficher le nom de ton personnage et le montant en or tant que ton autorisation est valable. Les lignes anonymes masquent ces deux informations. Tu peux changer ton choix ici.",
@@ -99,7 +133,7 @@ Fermez et relancez WoW après la mise à jour. Si un rôle ou un onglet manque e
 	CONTRIBUTIONS_GUILD_UNKNOWN = "Le statut de vérification de la guilde est indisponible.",
 	CONTRIBUTIONS_MILESTONES = "Étapes des contributions",
 	CONTRIBUTIONS_MILESTONE_DRAFT = "Préparer une annonce d'étape",
-	CONTRIBUTIONS_MILESTONE_HELP = "Titre du brouillon | description. Les annonces d'étape décrivent des résultats, sans demande de dons, prix ni récompenses. Partage ton brouillon avec la personne chargée des publications pour qu'elle le signe.",
+	CONTRIBUTIONS_MILESTONE_HELP = "Titre | description ; titre suivant | description. Publiez jusqu'à quatre accomplissements informatifs avec votre signature autorisée de Trésorier. Aucune demande de paiement, récompense ou action en jeu n'est créée.",
 	CONTRIBUTIONS_MILESTONE_INVALID = "Saisis un titre et une description au format titre | description.",
 	FUGITIVES_WHISPER = "Tu parles à un fugitif connu d'Olympus.",
 	FUGITIVES_TAG = "Fugitif connu d'Olympus",

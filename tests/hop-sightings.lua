@@ -50,6 +50,13 @@ local function WithWorld(fn)
 			c.FullName = function(n, realm) return Full(n, realm) end
 			c.ShortName = function(n) return type(n) == "string" and n:gsub("%-.*$", "") or nil end
 			c.IsMember = function() return c.member ~= false end
+			-- This fixture models approved participation separately from guild identity.
+			c.participating, c.deniedPeers = true, {}
+			c.SharedToolsHere = function() return c.participating == true end
+			c.SharedPeerAllowed = function(sender)
+				return c.SharedToolsHere() and type(sender) == "string"
+					and c.deniedPeers[sender:lower()] ~= true
+			end
 			c.UnitFullName = function(unit) local u = c.units[unit]; return u and u.name or nil end
 			c.IsFederation = function(guild) return type(guild) == "string" and guild:lower():find("olympus", 1, true) ~= nil end
 			c.IsKingCharacter = function(n) return type(n) == "string" and n:lower() == KING:lower() end
@@ -779,5 +786,28 @@ test("hop sighting: quiet presence answers and withdraws nothing, its own query 
 		local ok, _, response = w.use(observer, observer.flush)
 		eq(ok, true); eq(response.target, later.me)
 		assert(response.msg:match("^LY~R~1~%d+~77~1453~8~2~%d+$"), response.msg)
+	end)
+end)
+
+
+test("hop sighting: participation withdrawal rejects requests, peers and queued answers", function()
+	WithWorld(function(w)
+		local asker, observer = w.client("Asker"), w.client("Observer")
+		asker.participating = false
+		local ok, why = w.use(asker, asker.HopSightings.Request, { character = KING, mapID = 1453 }, "King")
+		eq(ok, false); eq(why, "federation"); eq(#asker.jobs, 0)
+		asker.participating = true
+		Observe(w, observer)
+		local query = Start(w, asker)
+		observer.members[asker.me:lower()] = true
+		observer.deniedPeers[asker.me:lower()] = true
+		eq(w.use(observer, observer.HopSightings.Receive, "CHANNEL", asker.me, query.msg), false)
+		eq(#observer.jobs, 0)
+		observer.deniedPeers[asker.me:lower()] = nil
+		eq(w.use(observer, observer.HopSightings.Receive, "CHANNEL", asker.me, query.msg), true)
+		eq(#observer.jobs, 1)
+		observer.participating = false
+		eq(w.use(observer, observer.flush), false, "a queued answer rechecks participation")
+		eq(#observer.sent, 0)
 	end)
 end)

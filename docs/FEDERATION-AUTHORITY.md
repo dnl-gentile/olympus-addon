@@ -27,6 +27,12 @@ guild-confined `operator`). The certificate interval is at most 31 days. A counc
 certificate still requires the currently signed Council/author identity; a Treasurer
 certificate requires the current primary signed Treasurer. Neither grants a title.
 
+Confirm the exact request bytes with that character through an authenticated native
+game sender or an already established signed identity. A Discord display name or a
+forwarded text request is not identity proof. The signature authenticates the authorized
+attestor and message; it cannot prove that an authorized modified client reported a
+truthful native event. Revocation and the staff appeal process remain necessary.
+
 ```sh
 python3 scripts/federation-sign.py reviewed-public-key.json > reviewed-certificate.txt
 ```

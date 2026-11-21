@@ -56,13 +56,13 @@ Locales\FugitivesText.lua
 Locales\SelfTestText.lua
 Locales\MapNamesText.lua
 Locales\PlayerTooltipText.lua
+Locales\ContributionsText.lua
+Locales\FederationAuthorityText.lua
 Locales\deDE.lua
 Locales\esES.lua
 Locales\frFR.lua
 Locales\itIT.lua
 Locales\ruRU.lua
-Locales\ContributionsText.lua
-Locales\FederationAuthorityText.lua
 Core.lua
 GamepadRegistry.lua
 Gamepad.lua

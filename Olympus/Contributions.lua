@@ -264,6 +264,7 @@ function C.Handle(dist, sender, text)
 		return true
 	end
 	if text == "CP~1~Q~" .. (Scope() or "") and Staff() then
+		if not ns.SharedPeerAllowed(sender) then return false end
 		for k, expires in pairs(requests) do if expires <= now then requests[k], replies[k] = nil, nil end end
 		local n = 0; for _ in pairs(requests) do n = n + 1 end
 		if requests[key] or n >= 64 then return false end
@@ -287,7 +288,7 @@ T.OnPrivate("CP", {
 	from = IsTreasurer, to = Visible, ranking = true,
 	send = function(to, text)
 		local key = Name(to)
-		if not key or replies[key] ~= text then return false end
+		if not key or replies[key] ~= text or not ns.SharedPeerAllowed(to) then return false end
 		local data = ParseBoard(text)
 		return data ~= nil and C.Project(data.at) == text
 	end,

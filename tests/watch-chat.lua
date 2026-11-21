@@ -455,18 +455,27 @@ test("watch: chat moderation (1.5.9): a long [Olympus] line of a Forever writer,
 				assert(n < 150, "his count never came to 98")
 			until ids[1] % 100 == 98
 			local ids = Send(long, case.to)
+			local sentAt = w.epoch
 			eq(#ids, 2, "two parts")
 			eq(ids[2], ids[1] + 1, "consecutive ids, within one hundred: " .. ids[1] .. ", " .. ids[2])
 			eq(math.floor(ids[1] / 100), case.digit, "the ruleset's digit: " .. ids[1])
 			local parts = {}
-			for _, e in ipairs(w.Lines(A, "A", B.name)) do if e.id == ids[1] or e.id == ids[2] then parts[#parts + 1] = e end end
+			-- Ruleset IDs have only two counter digits. Depending on the client's
+			-- random starting counter, an older short line may have the same ID.
+			-- Select this send, just as the moderation reference also binds its text.
+			for _, e in ipairs(w.Lines(A, "A", B.name)) do
+				if e.t == sentAt and (e.id == ids[1] or e.id == ids[2]) then parts[#parts + 1] = e end
+			end
 			eq(#parts, 2, "both parts kept on A")
 			local refs = w.As(A, A.WC.RefsFor, "A", parts[2])
 			eq(#refs, 2, "from its last part: both parts")
 			assert(w.As(A, A.WC.Delete, "A", parts[2], ""))
 			w.Run()
 			for _, e in ipairs(w.Lines(D, "A", B.name)) do
-				if e.id == ids[1] or e.id == ids[2] then eq(e.del, true, "deleted on D: part " .. e.id) end
+				if e.id == ids[1] or e.id == ids[2] then
+					if e.t == sentAt then eq(e.del, true, "deleted on D: part " .. e.id)
+					else eq(e.del, nil, "an older different text with a reused wire ID is not this deletion") end
+				end
 			end
 		end
 	end)

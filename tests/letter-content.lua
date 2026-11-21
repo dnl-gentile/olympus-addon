@@ -62,8 +62,8 @@ test("1.2.5 letter content: both languages describe only the shipped reply, offi
 			previous = at
 		end
 		local versions = cns.Letters.Versions()
-		eq(table.concat(versions, " ", 1, 22),
-			"1.6.2 1.6.1 1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
+		eq(table.concat(versions, " ", 1, 23),
+			"1.6.3 1.6.2 1.6.1 1.6.0.1 1.6.0 1.5.9 1.5.8 1.5.7 1.5.6 1.5.5 1.5.4 1.5.3 1.5.2 1.5.1 1.5.0 1.4.6 1.4.5 1.4.4 1.4.3 1.4.2 1.4.1 1.4.0 1.3.3",
 			locale .. ": latest releases and earlier letters in order")
 	end
 end)
@@ -341,7 +341,7 @@ test("1.5.6 letter content: both languages explain peer updates, saved coverage 
 		local key = "LETTER_1_5_6"
 		local raw = assert(cns.L[key])
 		local title, body = cns.Letters.Text("1.5.6")
-		eq(cns.Letters.Versions()[8], "1.5.6")
+		eq(cns.Letters.Versions()[9], "1.5.6")
 		eq(title, cns.L[key .. "_HEAD"])
 		assert(title ~= cns.L.LETTER_1_5_5_HEAD, "the update has its own title")
 		assert(type(body) == "string" and #body > 0)

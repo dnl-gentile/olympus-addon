@@ -9,6 +9,40 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "itIT" then return end
 ns.Locale("itIT", {
+	CONTRIBUTIONS_MILESTONE_CLEAR = "Ritira l'elenco dei traguardi pubblicato",
+	CONTRIBUTIONS_MILESTONE_PUBLISH = "Pubblica traguardi firmati",
+	CONTRIBUTIONS_MILESTONE_PUBLISHED = "Traguardi firmati salvati e in coda per la condivisione.",
+	CONTRIBUTIONS_MILESTONE_UNAVAILABLE = "È necessaria una chiave di firma del Tesoriere valida e autorizzata. La bozza resta locale.",
+	CONTRIBUTIONS_RECEIPT_ATTEST = "Attesta questo contributo registrato",
+	CONTRIBUTIONS_RECEIPT_ATTESTED = "Attestazione esplicita del Tesoriere",
+	CONTRIBUTIONS_RECEIPT_HELP = "Attesta questa ricevuta esistente: gilda partecipante | fonte/riferimento. Conferma dopo aver esaminato i tuoi registri. È una tua attestazione, non una prova di pagamento o appartenenza fornita dal gioco. La gilda deve essere già approvata; nessun oro viene spostato.",
+	CONTRIBUTIONS_RECEIPT_INCLUDE = "Includi la cronologia comprovata del gioco",
+	CONTRIBUTIONS_RECEIPT_INVALID = "Usa una gilda partecipante esistente | una fonte/riferimento breve e una ricevuta idonea del tuo registro.",
+	CONTRIBUTIONS_RECEIPT_NATIVE = "Ricevuta del gioco",
+	CONTRIBUTIONS_RECEIPT_NOTE = "Revisione privata del Tesoriere. Includi una ricevuta conservata del gioco o attesta una voce esistente del registro con la gilda partecipante e un riferimento. Questo riclassifica l'oro già registrato; non aggiunge né invia oro.",
+	CONTRIBUTIONS_RECEIPT_REVIEW = "Esamina le ricevute dei contributi",
+	FEDERATION_AUTHORITY_WAIT = "Le decisioni automatiche della federazione richiedono un certificato di firma valido e verificato. Le approvazioni esistenti delle gilde non cambiano.",
+	FEDERATION_CERTIFICATE_ACCEPTED = "Certificato della federazione accettato. L'approvazione della gilda non cambia.",
+	FEDERATION_CERTIFICATE_PROMPT = "Incolla il certificato della chiave o la revoca firmata della federazione. L'approvazione della gilda non cambia.",
+	FEDERATION_CERTIFICATE_REFUSED = "Certificato rifiutato: controlla firma, ambito, ruolo attuale e validità.",
+	FEDERATION_KEY_HELP = "/oly federation key: copia la richiesta della tua chiave pubblica di firma. /oly federation certificate: importa un certificato verificato o una revoca. /oly federation sync: recupera le decisioni firmate. Le chiavi private non lasciano mai questo client.",
+	FEDERATION_KEY_TITLE = "Chiave pubblica della federazione",
+	FEDERATION_KEY_UNAVAILABLE = "La tua identità di gioco non è ancora pronta. Riprova dopo il caricamento dei membri della gilda.",
+	FEDERATION_SYNC_STARTED = "Richiesta delle decisioni firmate della federazione.",
+	FEDERATION_SYNC_WAIT = "Non è ancora disponibile alcun partecipante idoneo.",
+	LETTER_1_6_3_TITLE = "Un'alleanza, strumenti più chiari",
+	LETTER_1_6_3 = [==[- My Discord Verification è in cima a The Realm con passaggi più chiari. L'avanzamento locale non conferma l'accesso a Discord.
+
+- Gli strumenti condivisi usano l'approvazione della gilda già registrata. Non serve un secondo elenco di partecipazione.
+
+- La revisione dei contributi include l'oro ricevuto per posta, la cronologia conservata del gioco e le attestazioni private del Tesoriere. Nomi e importi restano privati fino al consenso; non viene creato né spostato oro.
+
+- Una chiave di firma autorizzata del Tesoriere può pubblicare traguardi informativi firmati.
+
+- Supporta decisioni della federazione con ambito e durata definiti, ricorsi e recupero senza azzerare le approvazioni esistenti delle gilde.
+
+- Migliora il riconoscimento dei reami australiani e il riapprendimento dei reami di Link.]==],
+
 	LETTER_1_6_2_TITLE = "Ruoli ripristinati",
 	LETTER_1_6_2 = [==[- Ripristina il riconoscimento del reame di Forever quando il nome è vuoto, per caricare nuovamente il censimento e gli elenchi firmati dei ruoli del reame corretto.
 
@@ -1764,7 +1798,7 @@ Lunga vita al Re. Lunga vita a Olympus.]==],
 	CONTRIBUTIONS_EMPTY = "Nessun contributo registrato.",
 	CONTRIBUTIONS_GUILD_UNKNOWN = "Lo stato di verifica della gilda non è disponibile.",
 	CONTRIBUTIONS_GUILD_VERIFIED = "L'ultima gilda registrata è verificata.",
-	CONTRIBUTIONS_HOW = "La classifica si basa sui nuovi scambi d'oro registrati nel gioco con il Tesoriere federale. I nomi restano anonimi finché la persona interessata non acconsente a mostrarli.",
+	CONTRIBUTIONS_HOW = "La classifica include ricevute d'oro e cronologia conservata del gioco associate a una gilda partecipante nota, oltre alle ricevute attestate espressamente dal Tesoriere. Nomi e importi restano privati fino al consenso di ciascun contribuente.",
 	CONTRIBUTIONS_INTEREST_OFF = "Ritira il mio interesse per Olympus Prime",
 	CONTRIBUTIONS_INTEREST_ON = "Segnala interesse per Olympus Prime",
 	CONTRIBUTIONS_INTEREST_REFRESH = "Aggiorna l'elenco privato degli interessati a Prime",
@@ -1772,7 +1806,7 @@ Lunga vita al Re. Lunga vita a Olympus.]==],
 	CONTRIBUTIONS_INTEREST_TITLE = "Richieste di interesse per Olympus Prime",
 	CONTRIBUTIONS_MILESTONES = "Traguardi dei contributi",
 	CONTRIBUTIONS_MILESTONE_DRAFT = "Prepara un traguardo dei contributi",
-	CONTRIBUTIONS_MILESTONE_HELP = "Bozza: titolo | descrizione. I traguardi descrivono risultati raggiunti, senza richieste di donazioni, prezzi o premi. Invia la bozza al responsabile della pubblicazione per la firma.",
+	CONTRIBUTIONS_MILESTONE_HELP = "Titolo | descrizione; titolo successivo | descrizione. Pubblica fino a quattro risultati informativi con la tua firma autorizzata di Tesoriere. Non vengono create richieste di pagamento, ricompense o azioni di gioco.",
 	CONTRIBUTIONS_MILESTONE_INVALID = "Inserisci titolo e descrizione nel formato titolo | descrizione.",
 	CONTRIBUTIONS_NAME_ACTION = "Mostra il nome del mio personaggio in classifica",
 	CONTRIBUTIONS_NAME_TIP = "Finché il consenso è attivo, la classifica può mostrare il nome del tuo personaggio e l'oro versato. Le voci anonime omettono entrambi. Puoi cambiare la scelta qui.",

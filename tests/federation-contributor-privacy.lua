@@ -19,6 +19,9 @@ local function World(run)
 	Set(ns, "faction", "Alliance")
 	Set(ns, "splitNames", true)
 	Set(ns, "IsMember", function() return true end)
+	-- The board reader is an admitted participant in this isolated Treasury scene.
+	-- The denial regression below explicitly withdraws that independent grant.
+	Set(ns, "SharedPeerAllowed", function(name) return name == OFFICER end)
 	Set(ns, "IsTreasurer", function(name) return name == TREASURER and guild == PRIME end)
 	Set(ns, "TreasurerPins", function() return { TREASURER }, true end)
 	Set(ns.Data, "AuthorizedRank", function(name, g) if name == OFFICER and g:lower() == PRIME:lower() then return rank, evidence end end)
@@ -178,6 +181,35 @@ test("federation donor privacy: revocation invalidates a previously queued named
 			assert(guard and guard())
 			eq(C.Handle("WHISPER", FIRST, ("CP~1~P~%s~%d~0"):format(SCOPE, AT)), true)
 			eq(guard(), false, "already paced messages must not disclose a withdrawn name")
+		end)
+		T.ResetPrivate()
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("federation donor privacy: board membership is checked at request and dispatch without blocking withdrawal", function()
+	World(function(Set, _, SetTime)
+		-- Contributions keeps its five-minute request window in memory across
+		-- book resets. Advance beyond the earlier case instead of resetting it.
+		local now = AT + 601
+		SetTime(now)
+		T.ResetPrivate()
+		local ok, err = pcall(function()
+			local guard, admitted = nil, false
+			Set(ns, "SharedPeerAllowed", function(name) return name == OFFICER and admitted end)
+			Set(ns.Comm, "QueueSize", function() return 0 end)
+			Set(ns.Comm, "SendBatch", function(_, _, _, _, _, _, opts) guard = opts.guard; return true end)
+			Set(ns.Comm, "Cancel", function() end)
+			Record(FIRST, 34567, OTHER)
+			assert(C.Handle("WHISPER", FIRST, ("CP~1~P~%s~%d~1"):format(SCOPE, now)))
+			eq(C.Handle("WHISPER", OFFICER, "CP~1~Q~" .. SCOPE), false)
+			eq(guard, nil, "no board enters the queue for an unadmitted reader")
+			admitted = true
+			assert(C.Handle("WHISPER", OFFICER, "CP~1~Q~" .. SCOPE))
+			assert(guard and guard())
+			admitted = false
+			eq(guard(), false, "a queued board cannot outlive recipient participation")
+			assert(C.Handle("WHISPER", FIRST, ("CP~1~P~%s~%d~0"):format(SCOPE, now)), "a donor can still withdraw consent")
 		end)
 		T.ResetPrivate()
 		if not ok then error(err, 0) end

@@ -9,6 +9,40 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "deDE" then return end
 ns.Locale("deDE", {
+	CONTRIBUTIONS_MILESTONE_CLEAR = "Veröffentlichte Meilensteinliste zurückziehen",
+	CONTRIBUTIONS_MILESTONE_PUBLISH = "Signierte Meilensteine veröffentlichen",
+	CONTRIBUTIONS_MILESTONE_PUBLISHED = "Signierte Meilensteine gespeichert und zur Verteilung vorgemerkt.",
+	CONTRIBUTIONS_MILESTONE_UNAVAILABLE = "Ein gültiger autorisierter Signaturschlüssel des Schatzmeisters ist erforderlich. Der Entwurf bleibt lokal.",
+	CONTRIBUTIONS_RECEIPT_ATTEST = "Diesen erfassten Beitrag bestätigen",
+	CONTRIBUTIONS_RECEIPT_ATTESTED = "Ausdrückliche Bestätigung des Schatzmeisters",
+	CONTRIBUTIONS_RECEIPT_HELP = "Bestätige diesen vorhandenen Beleg: teilnehmende Gilde | Quelle/Referenz. Prüfe zuvor deine Aufzeichnungen. Dies ist deine Bestätigung, kein Zahlungs- oder Mitgliedschaftsnachweis aus dem Spiel. Die Gilde muss bereits genehmigt sein; kein Gold wird bewegt.",
+	CONTRIBUTIONS_RECEIPT_INCLUDE = "Belegten Spielverlauf übernehmen",
+	CONTRIBUTIONS_RECEIPT_INVALID = "Verwende eine bestehende teilnehmende Gilde | eine kurze Quelle/Referenz und einen geeigneten Beleg in deinem eigenen Buch.",
+	CONTRIBUTIONS_RECEIPT_NATIVE = "Beleg aus dem Spiel",
+	CONTRIBUTIONS_RECEIPT_NOTE = "Private Prüfung durch den Schatzmeister. Übernimm einen gespeicherten Spielbeleg oder bestätige einen vorhandenen Bucheintrag mit teilnehmender Gilde und Referenz. Dies ordnet bereits erfasstes Gold neu zu; es erzeugt oder versendet kein Gold.",
+	CONTRIBUTIONS_RECEIPT_REVIEW = "Beitragsbelege prüfen",
+	FEDERATION_AUTHORITY_WAIT = "Automatische Föderationsentscheidungen erfordern ein gültiges, geprüftes Signaturzertifikat. Bestehende Gildengenehmigungen bleiben unverändert.",
+	FEDERATION_CERTIFICATE_ACCEPTED = "Föderationszertifikat angenommen. Die Gildengenehmigung bleibt unverändert.",
+	FEDERATION_CERTIFICATE_PROMPT = "Füge das signierte Föderationszertifikat oder den Widerruf ein. Die Gildengenehmigung bleibt unverändert.",
+	FEDERATION_CERTIFICATE_REFUSED = "Zertifikat abgelehnt: Prüfe Signatur, Geltungsbereich, aktuelle Funktion und Gültigkeit.",
+	FEDERATION_KEY_HELP = "/oly federation key: Anfrage für deinen öffentlichen Signaturschlüssel kopieren. /oly federation certificate: geprüftes Zertifikat oder Widerruf importieren. /oly federation sync: signierte Entscheidungen abrufen. Private Schlüssel verlassen diesen Client nie.",
+	FEDERATION_KEY_TITLE = "Öffentlicher Föderationsschlüssel",
+	FEDERATION_KEY_UNAVAILABLE = "Deine Spielidentität ist noch nicht bereit. Versuche es nach dem Laden der Gildenmitglieder erneut.",
+	FEDERATION_SYNC_STARTED = "Signierte Entscheidungen der Föderation werden angefordert.",
+	FEDERATION_SYNC_WAIT = "Noch kein geeigneter Teilnehmer verfügbar.",
+	LETTER_1_6_3_TITLE = "Ein Bund, klarere Werkzeuge",
+	LETTER_1_6_3 = [==[- My Discord Verification steht oben in The Realm und erklärt die Schritte deutlicher. Lokaler Fortschritt bestätigt keinen Discord-Zugang.
+
+- Gemeinsame Werkzeuge nutzen die bereits gespeicherte Gildengenehmigung. Eine zweite Teilnehmerliste ist nicht nötig.
+
+- Die Beitragsprüfung umfasst per Post erhaltenes Gold, gespeicherten Spielverlauf und private Bestätigungen des Schatzmeisters. Namen und Beträge bleiben bis zur Zustimmung privat; Gold wird weder erzeugt noch bewegt.
+
+- Ein autorisierter Signaturschlüssel des Schatzmeisters kann informative Meilensteine veröffentlichen.
+
+- Unterstützt Föderationsentscheidungen mit festem Geltungsbereich und Ablaufdatum sowie Einsprüche und Wiederherstellung, ohne bestehende Gildengenehmigungen zurückzusetzen.
+
+- Verbessert die Erkennung australischer Realms und das erneute Lernen von Realms durch Link.]==],
+
 	LETTER_1_6_2_TITLE = "Rollen wiederhergestellt",
 	LETTER_1_6_2 = [==[- Stellt die Erkennung des Forever-Realms bei leerem Realmnamen wieder her, damit die richtige Zählung und die signierten Rollenlisten wieder geladen werden.
 
@@ -1764,7 +1798,7 @@ Lang lebe der König. Lang lebe Olympus.]==],
 	CONTRIBUTIONS_EMPTY = "Noch keine Beiträge erfasst.",
 	CONTRIBUTIONS_GUILD_UNKNOWN = "Der Verifizierungsstatus der Gilde ist nicht verfügbar.",
 	CONTRIBUTIONS_GUILD_VERIFIED = "Die zuletzt erfasste Gilde ist verifiziert.",
-	CONTRIBUTIONS_HOW = "Die Rangliste berücksichtigt neu erfasste Goldgeschäfte mit dem Bundesschatzmeister im Spiel. Namen bleiben anonym, bis die jeweilige Person der Anzeige zustimmt.",
+	CONTRIBUTIONS_HOW = "Die Rangliste berücksichtigt Goldbelege und gespeicherte Verlaufsdaten aus dem Spiel mit einer bekannten teilnehmenden Gilde sowie vom Schatzmeister ausdrücklich bestätigte Belege. Namen und Beträge bleiben bis zur persönlichen Freigabe privat.",
 	CONTRIBUTIONS_INTEREST_OFF = "Mein Interesse an Olympus Prime zurückziehen",
 	CONTRIBUTIONS_INTEREST_ON = "Interesse an Olympus Prime anmelden",
 	CONTRIBUTIONS_INTEREST_REFRESH = "Private Interessentenliste von Prime aktualisieren",
@@ -1772,7 +1806,7 @@ Lang lebe der König. Lang lebe Olympus.]==],
 	CONTRIBUTIONS_INTEREST_TITLE = "Interesse an der Aufnahme in Olympus Prime",
 	CONTRIBUTIONS_MILESTONES = "Meilensteine der Beiträge",
 	CONTRIBUTIONS_MILESTONE_DRAFT = "Einen Beitragsmeilenstein entwerfen",
-	CONTRIBUTIONS_MILESTONE_HELP = "Entwurf: Titel | Beschreibung. Beschreibe erreichte Ziele ohne Spendenaufrufe, Preise oder Belohnungen. Gib deinen Entwurf zur Signatur an die zuständige Person für die Veröffentlichung weiter.",
+	CONTRIBUTIONS_MILESTONE_HELP = "Titel | Beschreibung; nächster Titel | Beschreibung. Veröffentliche bis zu vier informative Meilensteine mit deiner autorisierten Schatzmeistersignatur. Es werden keine Zahlungsaufforderung, Belohnung oder Spielaktion erstellt.",
 	CONTRIBUTIONS_MILESTONE_INVALID = "Gib Titel und Beschreibung im Format Titel | Beschreibung ein.",
 	CONTRIBUTIONS_NAME_ACTION = "Meinen Charakternamen in der Rangliste zeigen",
 	CONTRIBUTIONS_NAME_TIP = "Solange deine Zustimmung gilt, kann die Rangliste deinen Charakternamen und die Goldmenge zeigen. Anonyme Einträge enthalten beides nicht. Du kannst deine Wahl hier ändern.",

@@ -9,6 +9,40 @@ local ADDON, ns = ...
 local code = GetLocale and GetLocale()
 if code ~= "esES" and code ~= "esMX" then return end
 ns.Locale({ "esES", "esMX" }, {
+	CONTRIBUTIONS_MILESTONE_CLEAR = "Retirar la lista de hitos publicada",
+	CONTRIBUTIONS_MILESTONE_PUBLISH = "Publicar hitos firmados",
+	CONTRIBUTIONS_MILESTONE_PUBLISHED = "Hitos firmados guardados y en cola para compartir.",
+	CONTRIBUTIONS_MILESTONE_UNAVAILABLE = "Se necesita una clave de firma vigente y autorizada del Tesorero. El borrador permanece local.",
+	CONTRIBUTIONS_RECEIPT_ATTEST = "Atestiguar esta contribución registrada",
+	CONTRIBUTIONS_RECEIPT_ATTESTED = "Atestación expresa del Tesorero",
+	CONTRIBUTIONS_RECEIPT_HELP = "Atestigua este recibo existente: hermandad participante | fuente/referencia. Confirma solo después de revisar tus registros. Es tu atestación, no una prueba del juego de pago o pertenencia. La hermandad ya debe estar aprobada; no se mueve oro.",
+	CONTRIBUTIONS_RECEIPT_INCLUDE = "Incluir historial comprobado del juego",
+	CONTRIBUTIONS_RECEIPT_INVALID = "Usa una hermandad participante existente | una fuente/referencia breve y un recibo admisible de tu propio libro.",
+	CONTRIBUTIONS_RECEIPT_NATIVE = "Recibo del juego",
+	CONTRIBUTIONS_RECEIPT_NOTE = "Revisión privada del Tesorero. Incluye un recibo conservado del juego o atestigua una entrada existente del libro con su hermandad participante y referencia. Esto reclasifica oro ya registrado; nunca añade ni envía oro.",
+	CONTRIBUTIONS_RECEIPT_REVIEW = "Revisar recibos de contribuciones",
+	FEDERATION_AUTHORITY_WAIT = "Las decisiones automáticas de la federación necesitan un certificado de firma vigente y revisado. Las aprobaciones existentes de las hermandades no cambian.",
+	FEDERATION_CERTIFICATE_ACCEPTED = "Certificado de la federación aceptado. La aprobación de la hermandad no cambia.",
+	FEDERATION_CERTIFICATE_PROMPT = "Pega el certificado de clave o la revocación firmada de la federación. La aprobación de la hermandad no cambia.",
+	FEDERATION_CERTIFICATE_REFUSED = "Certificado rechazado: comprueba la firma, el ámbito, el cargo actual y la vigencia.",
+	FEDERATION_KEY_HELP = "/oly federation key: copiar la solicitud de tu clave pública de firma. /oly federation certificate: importar un certificado revisado o una revocación. /oly federation sync: recuperar decisiones firmadas. Las claves privadas nunca salen de este cliente.",
+	FEDERATION_KEY_TITLE = "Clave pública de la federación",
+	FEDERATION_KEY_UNAVAILABLE = "Tu identidad del juego aún no está lista. Inténtalo cuando se cargue la lista de tu hermandad.",
+	FEDERATION_SYNC_STARTED = "Solicitando decisiones firmadas de la federación.",
+	FEDERATION_SYNC_WAIT = "Todavía no hay ningún participante apto disponible.",
+	LETTER_1_6_3_TITLE = "Una alianza, herramientas más claras",
+	LETTER_1_6_3 = [==[- My Discord Verification aparece arriba de The Realm con pasos más claros. El progreso local no confirma acceso a Discord.
+
+- Las herramientas compartidas usan la aprobación de hermandad ya registrada. No hace falta otra lista de participación.
+
+- La revisión de contribuciones incluye oro recibido por correo, historial conservado del juego y atestaciones privadas del Tesorero. Los nombres e importes siguen privados hasta obtener permiso; no se crea ni mueve oro.
+
+- Una clave autorizada del Tesorero puede publicar hitos informativos firmados.
+
+- Admite decisiones de la federación con ámbito y vigencia definidos, recursos y recuperación sin restablecer las aprobaciones existentes de las hermandades.
+
+- Mejora la identificación de reinos australianos y el reaprendizaje de reinos de Link.]==],
+
 	LETTER_1_6_2_TITLE = "Cargos recuperados",
 	LETTER_1_6_2 = [==[- Restaura la identificación del reino de Forever cuando el nombre está vacío, para cargar de nuevo el censo y las listas firmadas de cargos del reino correcto.
 
@@ -79,7 +113,7 @@ Cierra y vuelve a abrir WoW tras actualizar. Si sigue faltando un cargo o una pe
 	DUES_DAILY_GRACE = "Una semana con registros completos y un pago inferior a la cuota conserva tu período de gracia. La falta de un recibo no confirma una deuda.",
 	CONTRIBUTIONS_TITLE = "Contribuciones voluntarias",
 	CONTRIBUTIONS_DETAIL = "Esta página registra contribuciones voluntarias a la hermandad dentro del juego. No hay cuota semanal ni penalización.",
-	CONTRIBUTIONS_HOW = "La clasificación refleja los nuevos intercambios de oro registrados en el juego con el Tesorero federal. Los nombres se ocultan hasta que cada participante autorice su publicación.",
+	CONTRIBUTIONS_HOW = "La clasificación incluye recibos de oro e historial conservado del juego con una hermandad participante conocida, además de recibos atestados expresamente por el Tesorero. Los nombres e importes permanecen privados hasta que cada persona autorice su publicación.",
 	CONTRIBUTIONS_NAME_ACTION = "Mostrar el nombre de mi personaje en la clasificación",
 	CONTRIBUTIONS_ANON_ACTION = "Usar Mecenas anónimo",
 	CONTRIBUTIONS_NAME_TIP = "La clasificación puede mostrar el nombre de tu personaje y la cantidad de oro mientras tu permiso esté vigente. Las filas anónimas omiten ambos datos. Puedes cambiar tu elección aquí.",
@@ -99,7 +133,7 @@ Cierra y vuelve a abrir WoW tras actualizar. Si sigue faltando un cargo o una pe
 	CONTRIBUTIONS_GUILD_UNKNOWN = "No hay datos de verificación de la hermandad.",
 	CONTRIBUTIONS_MILESTONES = "Hitos de contribución",
 	CONTRIBUTIONS_MILESTONE_DRAFT = "Preparar un hito de contribución",
-	CONTRIBUTIONS_MILESTONE_HELP = "Título del borrador | descripción. Los hitos describen logros sin pedir donaciones ni ofrecer precios o recompensas. Comparte el borrador con la persona encargada de la publicación para que lo firme.",
+	CONTRIBUTIONS_MILESTONE_HELP = "Título | descripción; siguiente título | descripción. Publica hasta cuatro logros informativos con tu firma autorizada de Tesorero. No se crea ninguna solicitud de pago, recompensa ni acción del juego.",
 	CONTRIBUTIONS_MILESTONE_INVALID = "Escribe un título y una descripción con el formato título | descripción.",
 	FUGITIVES_WHISPER = "Estás hablando con un fugitivo conocido de Olympus.",
 	FUGITIVES_TAG = "Fugitivo conocido de Olympus",

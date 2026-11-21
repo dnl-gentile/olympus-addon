@@ -299,3 +299,51 @@ test("federation authority: newer clear stays final across replay and equal-time
 		eq(a.Current("suspension", "guild").parsed.value, "off")
 	end)
 end)
+
+test("federation authority: real native fugitive publication and pardon use the registered crypto validators", function()
+	World(function(w, n, a)
+		n.RealmPages, n.RegisterEvent = {}, function() end
+		n.Alts = { Linked = function() return {} end }
+		n.KingsScreen = function() return false end
+		assert(loadfile(H.ADDON_DIR .. "FederationFugitives.lua"))("Olympus", n)
+		assert(a.ImportCertificate(fixture.council))
+		local f = n.FederationFugitives
+		assert(f.ObserveRemovals({ { kind = "remove", p1 = HC, p2 = ROGUE, hour = math.floor(w.now / 3600),
+			removerExact = true, removedExact = true } }))
+		w:Drain()
+		local record = assert(a.Current("fugitive", n.Fold(ROGUE)))
+		eq(record.parsed.name, ROGUE); eq(f.IsListed(ROGUE, GUILD), true)
+		w.now = w.now + 1
+		assert(f.Pardon(ROGUE))
+		eq(f.IsListed(ROGUE, GUILD), false)
+		eq(a.Accept("fugitive", record.wire), nil, "a relayed native observation cannot undo the pardon")
+	end)
+end)
+
+test("federation authority: real Treasurer editor publishes and withdraws with a different record-key order", function()
+	World(function(w, n, a)
+		local prime = "Olympus Prime"
+		w.guild, n.me = prime, COIN
+		n.RealmPages, n.RegisterEvent = {}, function() end
+		n.FederationProgram.BaseEnrolled = function(guild) return guild == prime or guild == OTHER end
+		n.FederationProgram.ContributionsPolicy = function() return true, true end
+		n.IsTreasurer = function(name, guild) return name == COIN and guild == prime end
+		n.Treasury = { DevView = function() return false end, OnPrivate = function() end }
+		n.Dues = { MandatoryGuild = function(guild) return guild == prime end }
+		n.King = { Preview = function() return false end }
+		n.ViewAs = { Previewing = function() return false end }
+		assert(loadfile(H.ADDON_DIR .. "Contributions.lua"))("Olympus", n)
+		assert(a.ImportCertificate(fixture.treasurer))
+		local c, key = n.Contributions, "ForeverPvE:Alliance:US"
+		assert(c.SaveMilestoneDraft("First milestone | Guild achievement"))
+		assert(c.PublishMilestones())
+		local record = assert(a.Current("milestones", key))
+		eq(record.scope, SCOPE); eq(record.key, key); eq(record.guild, prime)
+		local lines = {}; c.MilestoneLines(lines)
+		eq(#lines, 2); eq(lines[2].text, "First milestone")
+		w.now = w.now + 1
+		assert(c.ClearMilestones())
+		lines = {}; c.MilestoneLines(lines); eq(#lines, 0)
+		eq(a.Accept("milestones", record.wire), nil, "an older signed text cannot undo withdrawal")
+	end)
+end)
