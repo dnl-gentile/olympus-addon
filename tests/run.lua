@@ -66814,7 +66814,8 @@ assert(loadfile(ROOT .. "tests/launch-identity.lua"))(ns, test, eq, { ADDON_DIR 
 
 assert(loadfile(ROOT .. "tests/federation-shared-tools.lua"))(ns, test, eq,
 	{ WithBoard = WithBoard, WithHop = WithHop, AsSoldier = AsSoldier, ADDON_DIR = ADDON_DIR, ROOT = ROOT })
-assert(loadfile(ROOT .. "tests/federation-authority.lua"))(ns, test, eq, { ADDON_DIR = ADDON_DIR, ROOT = ROOT })
+assert(loadfile(ROOT .. "tests/federation-authority.lua"))(ns, test, eq,
+	{ ADDON_DIR = ADDON_DIR, ROOT = ROOT, FreshComm = FreshComm })
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 if passed + failed == 0 then

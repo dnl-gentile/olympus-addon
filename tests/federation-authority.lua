@@ -101,13 +101,40 @@ test("federation authority: real root grant and Ed decision round trip, forged c
 	end)
 end)
 
+test("federation authority: real private chunk receiver coexists with the loaded Dues FA receiver", function()
+	World(function(w, n, a)
+		local savedInfo = C_ChatInfo
+		local ok, err = pcall(function()
+			local client, deliver = H.FreshComm()
+			client.IsMember = function() return true end
+			client.realm, client.group, client.faction = REALM, GROUP, "Alliance"
+			client.me = HC
+			n.Comm = client.Comm
+			n.Comm.RelayPieces({ F8 = true })
+			n.Comm.Handle("F8", assert(w.handlers.F8, "authority registered its own transport kind"))
+			assert(loadfile(H.ADDON_DIR .. "Dues.lua"))("Olympus", n)
+			local dues, old = 0, n.Dues.HandleGuild
+			n.Dues.HandleGuild = function(...) dues = dues + 1; return old(...) end
+			deliver("WHISPER", OP, "FA~not-a-summary")
+			eq(dues, 1, "the existing dues receiver remains registered")
+			local wire = w:Decision("fugitive", "transport", "active")
+			for _, chunk in ipairs(n.Codec.Chunk("F8~1~S~" .. wire, "f8test")) do deliver("WHISPER", OP, chunk) end
+			w:Drain()
+			eq(assert(a.Current("fugitive", "transport")).parsed.value, "active")
+			eq(dues, 1, "authority fragments never enter the dues parser")
+		end)
+		C_ChatInfo = savedInfo
+		if not ok then error(err, 0) end
+	end)
+end)
+
 test("federation authority: grant bursts cannot bypass the global pending crypto bound", function()
 	World(function(w, n)
 		local accepted = 0
-		local word = "FA~1~C~" .. n.Ed25519.ToB64(fixture.council)
+		local word = "F8~1~C~" .. n.Ed25519.ToB64(fixture.council)
 		for i = 1, 20 do
 			local sender = "Test " .. string.char(64 + i) .. "-" .. REALM
-			if w.handlers.FA("WHISPER", sender, word) then accepted = accepted + 1 end
+			if w.handlers.F8("WHISPER", sender, word) then accepted = accepted + 1 end
 		end
 		assert(accepted <= 8, "distinct native senders share the same bounded crypto work queue")
 		assert(n.Ed25519.Busy() <= 8)
@@ -234,10 +261,10 @@ test("federation authority: certificate receive is rate bounded and deferred int
 	World(function(w, n, a)
 		local checks, original = 0, n.Sign.Verify
 		n.Sign.Verify = function(...) checks = checks + 1; return original(...) end
-		local word = "FA~1~C~" .. n.Ed25519.ToB64(fixture.council)
-		eq(w.handlers.FA("WHISPER", OP, word), true)
-		eq(w.handlers.FA("WHISPER", OP, word), true)
-		eq(w.handlers.FA("WHISPER", OP, word), false, "one sender cannot enqueue unlimited grants")
+		local word = "F8~1~C~" .. n.Ed25519.ToB64(fixture.council)
+		eq(w.handlers.F8("WHISPER", OP, word), true)
+		eq(w.handlers.F8("WHISPER", OP, word), true)
+		eq(w.handlers.F8("WHISPER", OP, word), false, "one sender cannot enqueue unlimited grants")
 		eq(checks, 0, "the network event itself does no synchronous crypto")
 		assert(n.Ed25519.Busy() > 0)
 		w:Drain()
@@ -250,7 +277,7 @@ test("federation authority: private revocation sync uses the signed word and sus
 		assert(a.ImportCertificate(fixture.council))
 		assert(a.ImportRevocation(fixture.revoke_council))
 		w.suspended = true
-		eq(w.handlers.FA("WHISPER", OP, "FA~1~Q~" .. SCOPE), true)
+		eq(w.handlers.F8("WHISPER", OP, "F8~1~Q~" .. SCOPE), true)
 		assert(#w.sent > 0, "revocations are recovered even while shared tools are suspended")
 		local saw = false
 		for _, packet in ipairs(w.sent) do if packet.text:find("FKR1", 1, true) then saw = true end end
@@ -258,7 +285,7 @@ test("federation authority: private revocation sync uses the signed word and sus
 		-- A second isolated state accepts the network revocation before accepting
 		-- any later presentation of the previously valid root grant.
 		n.db = {}
-		assert(w.handlers.FA("WHISPER", OP, "FA~1~R~" .. fixture.revoke_council))
+		assert(w.handlers.F8("WHISPER", OP, "F8~1~R~" .. fixture.revoke_council))
 		w:Drain()
 		eq(a.ImportCertificate(fixture.council), false)
 	end)

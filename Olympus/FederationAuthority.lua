@@ -301,7 +301,7 @@ function A.Publish(kind, content, guild, guard)
 	if not r then return false, "invalid" end
 	-- Private anti-entropy pulls move decisions onward; publishing sends at most
 	-- four copies now, leaving the census lane and normal chat ahead of recovery.
-	for i, name in ipairs(Peers()) do if i <= 4 then Send(name, "FA~1~S~" .. wire, "federation publish " .. kind .. " " .. name) end end
+	for i, name in ipairs(Peers()) do if i <= 4 then Send(name, "F8~1~S~" .. wire, "federation publish " .. kind .. " " .. name) end end
 	return true, r
 end
 
@@ -328,15 +328,15 @@ function A.Sync()
 	if #peers == 0 then return false end
 	cursor = cursor % #peers + 1
 	local to = peers[cursor]
-	return ns.Comm.Whisper(to, "FA~1~Q~" .. Scope(), "federation decision ask", false, false, nil,
+	return ns.Comm.Whisper(to, "F8~1~Q~" .. Scope(), "federation decision ask", false, false, nil,
 		{ guard = function() return ControlHere() and not ns.QuietPresence() end })
 end
 function A.Receive(dist, sender, word)
 	if dist ~= "WHISPER" or not Person(sender) or not Wire(word, MAX_WIRE + 16) or not ControlHere() then return false end
 	local now, key = Clock(), ns.Fold(sender)
-	if word:sub(1, 7) == "FA~1~D~" then
+	if word:sub(1, 7) == "F8~1~D~" then
 		if incoming >= 8 or not Rate("delegate:" .. key, 1, 60) or not Rate("crypto:*", 32, 60) then return false end
-		local pk, sig = word:match("^FA~1~D~([^~]+)~([^~]+)$")
+		local pk, sig = word:match("^F8~1~D~([^~]+)~([^~]+)$")
 		pk, sig = pk and Decode(pk, 32), sig and Decode(sig, 64)
 		local guild = GetGuildInfo("player")
 		local roster = ns.Roster.Fresh()
@@ -351,12 +351,12 @@ function A.Receive(dist, sender, word)
 		end, function(okJob, certificate)
 			incoming = math.max(0, incoming - 1)
 			if okJob and certificate and ns.Roster.Fresh() and ns.Roster.RankOf(sender) == 1 then
-				Send(sender, "FA~1~C~" .. Encode(certificate), "federation operator grant " .. key)
+				Send(sender, "F8~1~C~" .. Encode(certificate), "federation operator grant " .. key)
 			end
 		end)
 		if not ok then incoming = incoming - 1 end
 		return ok
-	elseif word:sub(1, 7) == "FA~1~C~" then
+	elseif word:sub(1, 7) == "F8~1~C~" then
 		local wire = Decode(word:sub(8), 3000)
 		if not wire or incoming >= 8 or not Rate("grant:" .. key, 2, 60) or not Rate("crypto:*", 32, 60) then return false end
 		incoming = incoming + 1
@@ -367,7 +367,7 @@ function A.Receive(dist, sender, word)
 		end, function() incoming = math.max(0, incoming - 1) end)
 		if not ok then incoming = incoming - 1 end
 		return ok
-	elseif word:sub(1, 7) == "FA~1~R~" then
+	elseif word:sub(1, 7) == "F8~1~R~" then
 		local wire = word:sub(8)
 		if #wire > 900 or incoming >= 8 or not Rate("revoke:" .. key, 4, 60) or not Rate("crypto:*", 32, 60) then return false end
 		incoming = incoming + 1
@@ -376,7 +376,7 @@ function A.Receive(dist, sender, word)
 		if not ok then incoming = incoming - 1 end
 		return ok
 	end
-	if word == "FA~1~Q~" .. (Scope() or "") then
+	if word == "F8~1~Q~" .. (Scope() or "") then
 		if ns.QuietPresence() or ns.ChatLocked() then return false end
 		local eligible = false
 		for _, name in ipairs(Peers()) do if Same(name, sender) then eligible = true break end end
@@ -385,11 +385,11 @@ function A.Receive(dist, sender, word)
 		local records = {}
 		for id, r in pairs(Store().revocations) do
 			if type(r) == "table" and type(r.wire) == "string" and (r.at or 0) >= now - 31 * DAY then
-				records[#records + 1] = { id = "0" .. id, wire = "FA~1~R~" .. r.wire }
+				records[#records + 1] = { id = "0" .. id, wire = "F8~1~R~" .. r.wire }
 			end
 		end
 		for kind in pairs(handlers) do for _, r in ipairs(A.Records(kind)) do
-			records[#records + 1] = { id = "1" .. r.id, wire = "FA~1~S~" .. r.wire }
+			records[#records + 1] = { id = "1" .. r.id, wire = "F8~1~S~" .. r.wire }
 		end end
 		table.sort(records, function(a, b) return a.id < b.id end)
 		for who, row in pairs(pending) do if row.untilAt <= now then pending[who] = nil end end
@@ -398,7 +398,7 @@ function A.Receive(dist, sender, word)
 		pending[key] = { cursor = start + 3 >= #records and 0 or start + 3, untilAt = now + 3600 }
 		return true
 	end
-	local wire = word:match("^FA~1~S~(.+)$")
+	local wire = word:match("^F8~1~S~(.+)$")
 	if not wire or incoming >= 8 then return false end
 	local kind = wire:match("^FA1~[^~]+~(%a+)~")
 	if not handlers[kind] then return false end
@@ -433,7 +433,7 @@ function A.RequestDelegation()
 	if not Person(who) or Same(who, ns.me) or not key then return false end
 	local body = table.concat({ "FKD1", Scope(), ns.me, guild, Encode(key) }, "~")
 	lastDelegationAsk = now
-	return ns.Comm.Whisper(who, "FA~1~D~" .. Encode(key) .. "~" .. Encode(ns.Debts.Sign(body)), "federation operator request", false, false, nil,
+	return ns.Comm.Whisper(who, "F8~1~D~" .. Encode(key) .. "~" .. Encode(ns.Debts.Sign(body)), "federation operator request", false, false, nil,
 		{ guard = function() return ControlHere() and ns.Roster.Fresh() and ns.Roster.RankOf(ns.me) == 1 end })
 end
 
@@ -483,8 +483,8 @@ StaticPopupDialogs.OLYMPUS_FEDERATION_CERTIFICATE = {
 		ns.Print(ok and ns.L.FEDERATION_CERTIFICATE_ACCEPTED or ns.L.FEDERATION_CERTIFICATE_REFUSED)
 	end,
 }
-ns.Comm.RelayPieces({ FA = true })
-ns.Comm.Handle("FA", A.Receive)
+ns.Comm.RelayPieces({ F8 = true })
+ns.Comm.Handle("F8", A.Receive)
 ns.On("LOGIN", function()
 	ns.After(35, "federation decisions", A.Sync)
 	ns.Every(60, "federation decisions", function()
