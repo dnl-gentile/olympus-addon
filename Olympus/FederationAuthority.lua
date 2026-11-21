@@ -43,7 +43,7 @@ end
 local function Decode(s, max)
 	if not Field(s, math.ceil(max * 4 / 3) + 4) then return nil end
 	local value = ns.Ed25519.FromB64(s)
-	return value and #value <= max and value or nil
+	return value and #value <= max and ns.Ed25519.ToB64(value) == s and value or nil
 end
 local function Encode(s) return ns.Ed25519.ToB64(s) end
 local function Number(s)
@@ -93,6 +93,7 @@ Certificate = function(wire, at, depth)
 		scope, name, guild, role, issued, expires, key = body:match("^FK1~([^~]+)~([^~]+)~([^~]+)~(%a+)~(%d+)~(%d+)~([^~]+)$")
 		issued, expires, key = Number(issued), Number(expires), key and Decode(key, 32)
 		if scope ~= Scope() or not Person(name) or not Field(guild, 72) or not issued or not expires or #tostring(signature) ~= 512
+			or signature ~= signature:lower()
 			or not key or #key ~= 32 or expires <= issued or expires - issued > 31 * DAY or at < issued or at >= expires
 			or not Role(role, name, guild) then return nil end
 		local hash = Digest(wire)
@@ -444,7 +445,7 @@ function A.ImportRevocation(wire)
 	if body then scope, at, id = body:match("^FKR1~([^~]+)~(%d+)~(%x+)$") end
 	at = Number(at)
 	if scope ~= Scope() or not at or at > Clock() or Clock() - at > 31 * DAY or not id or #id ~= 64
-		or not sig or #sig ~= 512 or not ns.Sign.Verify(body, sig) then return false end
+		or id ~= id:lower() or not sig or #sig ~= 512 or sig ~= sig:lower() or not ns.Sign.Verify(body, sig) then return false end
 	local s, n = Store(), 0
 	for key, value in pairs(s.revocations) do
 		if type(value) ~= "table" or (value.at or 0) < Clock() - 31 * DAY then s.revocations[key] = nil else n = n + 1 end

@@ -257,6 +257,21 @@ test("federation authority: short root grant clamps decisions and author revocat
 	end)
 end)
 
+test("federation authority: canonical certificate encodings cannot bypass a revocation hash", function()
+	World(function(w, n, a)
+		assert(a.ImportCertificate(fixture.short))
+		local grant = assert(a.Delegate(OP, w.keys[OP], GUILD))
+		local substitutions = { A = "B", Q = "R", g = "h", w = "x" }
+		local last = assert(substitutions[grant:sub(-1)], "canonical final base64 bits")
+		local alias = grant:sub(1, -2) .. last
+		eq(a.Certificate(alias, w.now), nil, "unused base64 bits cannot create a second certificate identity")
+		assert(a.ImportRevocation(fixture.revoke_short))
+		local body, signature = fixture.short:match("^(.*)~(%x+)$")
+		eq(a.Certificate(body .. "~" .. signature:upper(), w.now), nil,
+			"changing RSA hex case cannot resurrect the revoked certificate under another digest")
+	end)
+end)
+
 test("federation authority: certificate receive is rate bounded and deferred into real crypto jobs", function()
 	World(function(w, n, a)
 		local checks, original = 0, n.Sign.Verify
