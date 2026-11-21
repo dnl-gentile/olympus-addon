@@ -188,9 +188,29 @@ test('federation automation: a newer Council pardon bars re-read old kicks but p
 	local w = Client(); local e = w.Event(nil, nil, math.floor(w.now / 3600) - 1)
 	assert(w.Decision('appeal', 'P~' .. SUBJECT, CARE))
 	eq(w.f.ObserveRemovals({ e }), false); eq(w.Count('fugitive'), 0)
-	w.now = w.now + 3600
+	-- Native log age is rounded to hours. Wait beyond the ambiguous bucket
+	-- before treating this as a definitely later removal.
+	w.now = w.now + 7200
 	assert(w.f.ObserveRemovals({ w.Event() }))
 	eq(w.f.IsListed(SUBJECT, GUILD), true)
+end)
+
+test('federation automation: the next native hour bucket cannot resurrect a pre-pardon removal', function()
+	local w = Client()
+	local boundary = math.floor(w.now / 3600) * 3600 + 3600
+	w.now = boundary - 1
+	assert(w.Decision('appeal', 'P~' .. SUBJECT, CARE))
+	-- A recent native event may still say zero hours ago after this clock boundary.
+	w.now = boundary + 1
+	eq(w.f.ObserveRemovals({ w.Event() }), false)
+	eq(w.Count('fugitive'), 0, 'coarse hour precision is not proof of a new post-pardon kick')
+end)
+
+test('federation automation: a confirmed linked main pardon also guards a reread native alt removal', function()
+	local w = Client(); w.links[ALT] = { SUBJECT }
+	assert(w.Decision('appeal', 'P~' .. SUBJECT, CARE))
+	eq(w.f.ObserveRemovals({ w.Event(ALT) }), false)
+	eq(w.Count('fugitive'), 0)
 end)
 
 test('federation automation: delegated ban and later pardon cover exact identities and known links without reviving a legacy ban', function()

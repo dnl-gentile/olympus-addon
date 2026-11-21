@@ -39,6 +39,22 @@ local function NameKey(name, region, group)
 	return ns.Fold(name)
 end
 
+local function PardonCovers(name, earliest)
+	local a, region, group = ns.FederationAuthority, Scope()
+	if not a then return false end
+	local names = { name }
+	for _, linked in ipairs(ns.Alts.Linked(name)) do names[#names + 1] = linked end
+	for _, person in ipairs(names) do
+		local key = NameKey(person, region, group)
+		if key then
+			local pardon = a.Current("appeal", key)
+			if (pardon and pardon.issued >= earliest)
+				or (a.SuppressesOlder and a.SuppressesOlder("appeal", key, earliest)) then return true end
+		end
+	end
+	return false
+end
+
 local function Timestamp(n)
 	n = type(n) == "string" and #n <= 10 and tonumber(n) or nil
 	return n and n == math.floor(n) and n or nil
@@ -438,18 +454,19 @@ function F.ObserveRemovals(events)
 			local rank = ns.Roster.RankOf(e.p1)
 			if ns.Fold(guild) == "olympus prime" or (remover == "official" and rank == 1) or (remover == "caretaker" and rank == 0) then
 				local id = ns.Debts.Hex(ns.Sign.SHA256(table.concat({ guild, e.p1, e.p2, hour }, "\0")))
-				local appeal = a.Current("appeal", ns.Fold(e.p2))
-				if not db[id] and not nativePending[id] and not (appeal and hour * 3600 <= appeal.issued) then
+				-- Relative native age has only whole hours; across a clock boundary
+				-- its estimated bucket can move. Use the earliest possible bucket,
+				-- never that movement as evidence of a new kick after a pardon.
+				local earliest = (hour - 1) * 3600
+				if not db[id] and not nativePending[id] and not PardonCovers(e.p2, earliest) then
 					local content = table.concat({ "K", e.p2, e.p1, hour, id }, "~")
 					local ok, why
 					if a.PublishAsync then
 						nativePending[id] = true
 						local function Guard()
 							local current = ns.FederationProgram.Role(ns.me, guild)
-							local pardon = a.Current("appeal", ns.Fold(e.p2))
 							return LocalGuild() == guild and not ns.KingsScreen()
-								and not (pardon and hour * 3600 <= pardon.issued)
-								and not (a.SuppressesOlder and a.SuppressesOlder("appeal", ns.Fold(e.p2), hour * 3600))
+								and not PardonCovers(e.p2, earliest)
 								and ((current == "caretaker" and ns.Roster.RankOf(ns.me) == 0)
 									or (current == "official" and ns.Roster.RankOf(ns.me) == 1))
 						end

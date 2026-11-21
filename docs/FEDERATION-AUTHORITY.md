@@ -83,6 +83,11 @@ census, foreign scope, missing certificate, or stale roster never mints a ban. N
 records are deduplicated; a failed publication can retry. A native event predating an
 accepted pardon cannot recreate its ban on reload.
 
+Native relative age has only whole hours. The client uses a conservative earliest
+bucket and confirmed linked identities when comparing a kick to a pardon, including
+again after queued signing. A near-hour ambiguous removal requires staff review
+rather than being treated automatically as a new post-pardon event.
+
 Known confirmed alt links can match a signed fugitive. Unknown alts and account
 identities cannot be inferred. `/oly fugitives appeal` retains Court routing.
 `/oly fugitives pardon Exact Name-CAMWOWUS1Realm2PvE` requires current Council signing
