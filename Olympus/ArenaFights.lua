@@ -2548,6 +2548,7 @@ end
 -- sign the same amount); saved data that persists for a live stake; the money side (the money part) there;
 -- a cap it knows (a missing or unknown cap refuses); an arbiter's T1~M cap for a held stake.
 function F.CanChallenge(opponent, opts)
+	if not ns.SharedToolsHere() or (type(opponent) == "string" and opponent ~= "" and not ns.SharedPeerAllowed(opponent)) then return false, "federation" end
 	opts = opts or {}
 	if type(opponent) ~= "string" or opponent == "" then return false, "opponent" end
 	if Me(opponent) or SamePerson(opponent, ns.me) then return false, "self" end

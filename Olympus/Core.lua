@@ -2,7 +2,7 @@ local ADDON, ns = ...
 local L = ns.L
 
 ns.NAME = "Olympus"
-ns.VERSION = "1.6.2"
+ns.VERSION = "1.6.3"
 ns.PREFIX = "OLYMPUS"        -- addon message prefix (max 16 chars)
 ns.CHANNEL = "OlympusNet"    -- hidden chat channel shared by every Olympus guild (Alliance)
 ns.CHANNEL_HORDE = "OlympusNetH" -- the Horde's: the two factions never see each other's guilds
@@ -3613,7 +3613,9 @@ local function Slash(input)
 		elseif cmd == "caretaker" then
 			if ns.FederationProgram then ns.FederationProgram.ShowCaretaker() else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "fugitives" then
-			if ns.FederationFugitives then ns.FederationFugitives.Slash(rest:lower()) else ns.Print(L.RESTART_NEEDED) end
+			if ns.FederationFugitives then ns.FederationFugitives.Slash(rest) else ns.Print(L.RESTART_NEEDED) end
+		elseif cmd == "federation" then
+			if ns.FederationAuthority then ns.FederationAuthority.Slash(rest) else ns.Print(L.RESTART_NEEDED) end
 		elseif cmd == "alt" or cmd == "alts" then
 			-- 1.1: this account's characters linked as one player (Alts.lua).
 			ns.Alts.Slash(rest)

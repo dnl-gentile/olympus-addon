@@ -2788,6 +2788,7 @@ end
 -- The checks a new table passes on the host's client (the design's KI).
 function FT.CanCreate(opts)
 	if type(opts) ~= "table" then return false, "opts" end
+	if not ns.SharedToolsHere() or (opts.guest and not ns.SharedPeerAllowed(opts.guest)) then return false, "federation" end
 	if not FT.CanPlayPlayers() then return false, "training" end
 	local guest = Full(opts.guest)
 	if not guest or Same(guest, Me()) then return false, "guest" end
@@ -2876,6 +2877,7 @@ function FT.CanAnswer(id, yes, src)
 	local t = tables[id]
 	if not t or t.role ~= "guest" or t.state ~= "invite" then return false, "gone" end
 	if not yes then return true end
+	if not ns.SharedPeerAllowed(t.host) then return false, "federation" end
 	if not FT.CanPlayPlayers() then return false, "training" end
 	if Staked(t) then
 		src = src or (t.kind == "d" and "o" or t.src[1])
@@ -3052,6 +3054,7 @@ end
 -- Why this player may not act now (the board greys its buttons with it).
 function FT.ActWhy(t)
 	if not t or not t.game then return "table" end
+	if t.role ~= "practice" and not ns.SharedToolsHere() then return "federation" end
 	local g = t.game
 	if g.over then return "over" end
 	if t.role == "practice" and t.inn and select(2, FT.Innkeeper()) ~= t.inn then return "training_inn" end

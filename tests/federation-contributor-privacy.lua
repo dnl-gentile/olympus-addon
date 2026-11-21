@@ -140,7 +140,7 @@ test("federation donor privacy: Treasury backup redacts donor identity while pre
 	end)
 end)
 
-test("federation contributions milestones: only current author-signed scoped notes from the pinned Treasurer render", function()
+test("federation contributions milestones: legacy author-signed scoped notes still require the pinned Treasurer", function()
 	World(function(Set)
 		local okSig = string.rep("d", 512)
 		Set(ns.Sign, "Verify", function(_, sig) return sig == okSig end)

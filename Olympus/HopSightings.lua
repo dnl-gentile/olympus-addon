@@ -152,6 +152,7 @@ local function PruneAdmission(now)
 end
 
 local function Admit(sender, guild, now)
+	if not ns.SharedPeerAllowed(sender, guild) then return false end
 	local C = ns.Channels
 	if type(C) ~= "table" or type(C.Admit) ~= "function" or type(C.VerifiedLevel) ~= "function" then return false end
 	local level, verified = C.VerifiedLevel(sender, guild)
@@ -174,7 +175,7 @@ local function SenderAuthority(sender)
 	sender = ns.FullName(sender)
 	if type(sender) ~= "string" or sender == "" or ns.IsKingCharacter(sender) or Ignored(sender) then return nil end
 	local guild = SenderGuild(sender)
-	if not guild then return nil end
+	if not guild or not ns.SharedPeerAllowed(sender, guild) then return nil end
 	if ns.Moderation and ns.Moderation.Hides and ns.Moderation.Hides(sender, guild) then return nil end
 	local C = ns.Channels
 	if type(C) ~= "table" or type(C.VerifiedLevel) ~= "function" then return nil end
@@ -241,6 +242,7 @@ local function OfficialLayer(r)
 end
 
 local function ObservationEligible(mapID, zoneUID)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if type(ns.IsMember) ~= "function" or ns.IsMember() ~= true or SelfOff() then return false, "member" end
 	if not (ns.db and ns.db.layerHelp == true) then return false, "consent" end
 	if not (ns.Layers and ns.Layers.Sharing and ns.Layers.Sharing()) then return false, "private" end
@@ -258,6 +260,7 @@ local function HelperEligible(mapID, zoneUID)
 end
 
 local function QueryEligible(r)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if request ~= r or r.phase ~= "sending" then return false, "cancelled" end
 	if type(ns.IsMember) ~= "function" or ns.IsMember() ~= true or SelfOff() then return false, "member" end
 	if (IsInInstance and IsInInstance()) or (InCombatLockdown and InCombatLockdown()) then return false, "context" end
@@ -602,6 +605,7 @@ local function ReceiveWithdrawal(sender, text)
 end
 
 function Sightings.Receive(dist, sender, text)
+	if not ns.SharedToolsHere() then return Drop("federation") end
 	if type(text) ~= "string" or Secret(dist, sender, text) then return Drop("lane") end
 	local mode = text:match("^LY~([QRX])~")
 	if mode == "Q" then
@@ -616,6 +620,7 @@ function Sightings.Receive(dist, sender, text)
 end
 
 function Sightings.Request(king, label)
+	if not ns.SharedToolsHere() then return Drop("federation") end
 	if type(king) ~= "table" then return Drop("king") end
 	local at, key, changed = SyncCrown()
 	if changed then ClearLocal("lease") end

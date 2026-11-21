@@ -90,6 +90,7 @@ end
 -- (Comm.Broadcast). The King's is his crown on the map (the Throne) alone (0.9.2): his zone
 -- and layer go out while it is on, never otherwise, whatever he answered to the question.
 function Layers.Sharing()
+	if not ns.SharedToolsHere() then return false end
 	local K = ns.King
 	if K and K.IsKing and K.IsKing() then return (K.SharingLocation and K.SharingLocation()) and true or false end
 	return ns.db.shareLocation == true
@@ -105,7 +106,7 @@ function Layers.Withdraw()
 	-- other clients (EXPIRE) as after a logout.
 	if not announced or (ns.QuietPresence and ns.QuietPresence()) then return end
 	announced = false
-	ns.Comm.Send("CHANNEL", "L0~", "layer")
+	ns.Comm.Send("CHANNEL", "L0~", "layer", nil, nil, nil, { guard = function() return ns.SharedToolsHere() end })
 end
 
 local retryQueued = false
@@ -137,7 +138,7 @@ local function Announce(force)
 	-- enough to see the layers and to name each one after its highest rank. (The King is an
 	-- officer: his crown's layer always goes.)
 	if not ns.Roster.IsOfficer() and not Layers.InSample() then return end
-	ns.Comm.Send("CHANNEL", ns.Codec.EncodeLayer(mine.mapID, mine.zoneUID, ns.Roster.MyRank(), guild), "layer")
+	ns.Comm.Send("CHANNEL", ns.Codec.EncodeLayer(mine.mapID, mine.zoneUID, ns.Roster.MyRank(), guild), "layer", nil, nil, nil, { guard = function() return ns.SharedToolsHere() end })
 	announced, sentAt = true, now
 end
 function Layers.SentAt() return announced and sentAt or nil end
@@ -261,7 +262,7 @@ function Layers.Of(name, exact)
 	for sender, w in pairs(where) do
 		if sender == name or (not exact and ns.ShortName(sender) == short) then
 			local m = seen[w[1]] and seen[w[1]][w[2]] and seen[w[1]][w[2]][sender]
-			if m and now - m.t <= EXPIRE then return { mapID = w[1], zoneUID = w[3], t = m.t, realm = w[4] } end
+			if m and now - m.t <= EXPIRE and ns.SharedPeerAllowed(sender, m.guild) then return { mapID = w[1], zoneUID = w[3], t = m.t, realm = w[4] } end
 		end
 	end
 	return nil
@@ -271,7 +272,7 @@ end
 function Layers.HopPeers(mapID, zoneUID)
 	local peers, now = {}, ns.Now()
 	for name, member in pairs((seen[mapID] and seen[mapID][zoneUID]) or {}) do
-		if name ~= ns.me and member.t <= now and now - member.t <= EXPIRE then
+		if name ~= ns.me and member.t <= now and now - member.t <= EXPIRE and ns.SharedPeerAllowed(name, member.guild) then
 			peers[#peers + 1] = { name = name, guild = member.guild, t = member.t }
 		end
 	end
@@ -325,6 +326,7 @@ local function FireSoon()
 end
 
 function Layers.Receive(sender, l)
+	if not ns.SharedPeerAllowed(sender, l.guild) then return end
 	if not ns.IsFederation(l.guild) then return end
 	sender = ns.FullName(sender)
 	-- 1.1: a name the moderators took off (net-off, Moderation.lua): no layer of theirs, and the
@@ -377,6 +379,7 @@ end
 -- the sub-realm of our Forever family a layer is on when not ours (nil here), a same-UID layer
 -- there apart from one here. Our own layer is always on our sub-realm.
 function Layers.ForMap(mapID)
+	if not ns.SharedToolsHere() then return {} end
 	local source = seen
 	local sizes = {}
 	for _, e in ipairs(ns.Data.Summary().guilds) do sizes[e.name] = e.g.total or 0 end
@@ -386,7 +389,7 @@ function Layers.ForMap(mapID)
 		local best, count, lastSeen = nil, 0, 0
 		for name, m in pairs(members) do
 			-- (1.1: never a name the moderators took off since, Moderation.lua.)
-			if now - m.t <= EXPIRE and not (ns.Moderation.Hides and ns.Moderation.Hides(name, m.guild)) then
+			if now - m.t <= EXPIRE and ns.SharedPeerAllowed(name, m.guild) and not (ns.Moderation.Hides and ns.Moderation.Hides(name, m.guild)) then
 				count = count + 1
 				lastSeen = math.max(lastSeen, m.t)
 				local cand = { name = ns.DisplayName(name), rank = m.rank, guild = m.guild }
@@ -424,13 +427,14 @@ end
 -- intentionally shows our own layer even while private; that local exception is never counted
 -- here without sharing consent. Remote records are only the existing opt-in L1 observations.
 function Layers.CountSharedInZone(mapID)
+	if not ns.SharedToolsHere() then return 0 end
 	local now, count, counted = ns.Now(), 0, {}
 	local ownKey = ns.Fold(ns.FullName(ns.me) or "")
 	local group = ns.group or ns.GroupOf(ns.realm)
 	for _, members in pairs(seen[mapID] or {}) do
 		for name, m in pairs(members) do
 			local key = ns.Fold(name)
-			if key ~= ownKey and not counted[key] and now >= m.t and now - m.t <= EXPIRE
+			if key ~= ownKey and not counted[key] and ns.SharedPeerAllowed(name, m.guild) and now >= m.t and now - m.t <= EXPIRE
 				and ns.GroupOf(ns.RealmOf(name) or ns.realm) == group
 				and not (ns.Moderation.Hides and ns.Moderation.Hides(name, m.guild)) then
 				counted[key], count = true, count + 1

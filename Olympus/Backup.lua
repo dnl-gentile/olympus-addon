@@ -355,7 +355,7 @@ local function CheckBook(b)
 				out.lines[#out.lines + 1] = { name = e.kind == "charity" and "Anonymous Patron" or e.name, money = e.money, how = e.how, t = e.t,
 					out = e.out == true or nil, excluded = e.excluded == true or nil,
 					kind = e.kind, item = item, count = item and count or nil, returned = e.returned == true or nil,
-					noted = e.noted == true or nil } -- (sent with the dues' note: Dues.Stamp, Konig's review of 1.1)
+					noted = e.noted == true or nil, contributionIdentityInvalid = e.contributionIdentityInvalid == true or nil } -- (negative scope eligibility survives a restore)
 			end
 		end
 	end

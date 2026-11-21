@@ -114,7 +114,7 @@ local function Recognized(guild)
 end
 local function Source(e)
 	return type(e) == "table" and not e.item and Int(e.money) and e.money > 0
-		and (e.how == "mail" or e.how == "trade") and (e.kind == nil or (e.out and e.kind == "purchase"))
+		and (e.how == "mail" or e.how == "trade") and (e.kind == nil or (not e.out and e.kind == "charity") or (e.out and e.kind == "purchase"))
 end
 function F.Received(e, b)
 	if not F.MayAllocate() or not Source(e) or type(b) ~= "table" or b.epoch ~= T.EPOCH or not Same(b.name, ns.me) then return false end
@@ -126,10 +126,21 @@ function F.Received(e, b)
 	a.next, a.n = a.next + 1, a.n + 1
 	e.financeActor, e.financeReceipt = ns.FullName(ns.me), a.next
 	a.receipts[a.next] = { book = b.name, epoch = b.epoch, at = e.t, money = e.money, how = e.how,
-		out = e.out == true, payee = ns.Dues.Key(e.name), guild = Guild(e.guild), guildVerified = e.gv == true, valid = not e.excluded,
+		out = e.out == true, payee = ns.Dues.Key(e.patron or e.name), guild = Guild(e.guild), guildVerified = e.gv == true, valid = not e.excluded,
 		status = e.out and e.how == "mail" and "sent" or "observed" }
 	Rev(a)
 	return true
+end
+-- A historical line is native evidence only while the private native-intake cache still
+-- contains its exact immutable receipt. A copied ledger's gv flag or note is not enough.
+function F.ContributionSource(book, e)
+	if not F.MayAllocate() or type(book) ~= "table" or type(e) ~= "table" or not Same(book.name, ns.me)
+		or not Same(e.financeActor, ns.me) then return nil end
+	local a = Actor(e.financeActor)
+	local r = a and a.receipts[e.financeReceipt]
+	if not r or r.book ~= book.name or r.epoch ~= book.epoch or r.at ~= e.t or r.money ~= e.money or r.how ~= e.how
+		or r.payee ~= ns.Dues.Key(e.name) or r.out or not r.valid or r.status ~= "observed" or r.guildVerified ~= true then return nil end
+	return { guild = r.guild, source = "native-" .. r.how, nativeKey = e.financeActor .. ":" .. e.financeReceipt }
 end
 function F.CreateEvent(input, actor)
 	actor = ns.FullName(actor or ns.me)
@@ -171,7 +182,7 @@ function F.Reconcile(actor)
 				local r = Same(e.financeActor, actor) and a.receipts[e.financeReceipt]
 				if r then
 					local valid = Source(e) and not e.excluded and e.money == r.money and (e.out == true) == r.out and e.how == r.how and e.t == r.at
-						and ns.Dues.Key(e.name) == r.payee and (r.out or Guild(e.guild) == r.guild)
+						and ns.Dues.Key(e.patron or e.name) == r.payee and (r.out or e.kind == "charity" or Guild(e.guild) == r.guild)
 					if e.returned or r.status == "return-unknown" then valid = false end
 					if r.valid ~= valid then r.valid, changed = valid, true end
 					-- The old book can match returned mail by amount/name only. That is not an

@@ -1,6 +1,19 @@
 local ADDON, ns = ...
 local L = ns.L
 
+-- Shared listings are not the census/control plane. Check both admission and
+-- dispatch so a queued refresh cannot outlive program participation.
+local sharedSend = { guard = function() return ns.SharedToolsHere() end }
+local function SharedSend(dist, text, key, urgent, logged)
+	if not ns.SharedToolsHere() then return false end
+	return ns.Comm.Send(dist, text, key, urgent, logged, nil, sharedSend)
+end
+local function SharedWhisper(to, text, key, urgent, logged)
+	if not ns.SharedPeerAllowed(to) then return false end
+	return ns.Comm.Whisper(to, text, key, urgent, logged, nil,
+		{ guard = function() return ns.SharedPeerAllowed(to) end })
+end
+
 -- The Board (1.1, Fern's): who is looking for a group, and where, from what each player chose to
 -- share. One click raises a flag (a dungeon, a raid, PvP or a layer) with a short note if the
 -- player wants one; the card shows the poster's zone only while they share it (/oly location on)
@@ -260,7 +273,7 @@ function Board.Count(slot, now)
 	now = now or ns.Now()
 	local n, soonest, which = 0, nil, nil
 	for key, e in pairs(posts) do
-		if now < Expires(e) and (not slot or SlotOf(e.flag) == slot) and not Off(e.sender, e.guild) then
+		if now < Expires(e) and (not slot or SlotOf(e.flag) == slot) and not Off(e.sender, e.guild) and ns.SharedPeerAllowed(e.sender, e.guild) then
 			n = n + 1
 			local x = Expires(e)
 			if not soonest or x < soonest then soonest, which = x, key end
@@ -275,7 +288,7 @@ function Board.List(slot, now)
 	Prune(now)
 	local out = {}
 	for _, e in pairs(posts) do
-		if SlotOf(e.flag) == (slot or "flag") then out[#out + 1] = e end
+		if SlotOf(e.flag) == (slot or "flag") and ns.SharedPeerAllowed(e.sender, e.guild) then out[#out + 1] = e end
 	end
 	table.sort(out, function(a, b)
 		if a.raisedAt ~= b.raisedAt then return a.raisedAt > b.raisedAt end
@@ -301,6 +314,7 @@ function Board.HandlePost(dist, sender, text)
 	end
 	local e = Board.Decode(text)
 	if not e or not ns.IsFederation(e.guild) then return end
+	if not ns.SharedPeerAllowed(sender, e.guild) then return end
 	sender = ns.FullName(sender)
 	if sender == ns.me or Ignored(sender) then return end
 	-- 1.1 (Konig's review): a name the moderators took off (net-off, Moderation.lua): no flag or
@@ -448,13 +462,14 @@ local function Send(p, now)
 	p.every = p.flag == "C" and Board.CAMP_EVERY or Board.Interval()
 	p.sentAt = now
 	-- Its note, the player's own words, through the logged API (Comm.Send).
-	ns.Comm.Send("CHANNEL", Message(p, now), QueueKey(p), nil, p.note ~= "")
+	SharedSend("CHANNEL", Message(p, now), QueueKey(p), nil, p.note ~= "")
 	Save()
 end
 Board.Send = Send
 
 -- Whether we can put anything on the Board now: a member, on the channel, not in lockdown, not off.
 function Board.Ready()
+	if not ns.SharedToolsHere() then ns.Print(L.FEDERATION_TOOLS_LOCKED) return false, "federation" end
 	if not ns.IsMember() then
 		ns.Print(ns.MembersOnlyText())
 		return false, "member"
@@ -510,7 +525,7 @@ function Board.Raise(flag, note, extra)
 	raises[#raises + 1] = now
 	-- The flag it replaces comes down first, on every Board (its G0 ahead of the new one).
 	local old = own.flag
-	if old then ns.Comm.Send("CHANNEL", "G0~" .. old.id, QueueKey(old)) end
+	if old then SharedSend("CHANNEL", "G0~" .. old.id, QueueKey(old)) end
 	local mine = { id = NewId(now), flag = flag, note = Board.CleanNote(note), raisedAt = now, roles = roles ~= "" and roles or nil, picks = picks }
 	own.flag = mine
 	if ns.Groups and not ns.Groups.missing and ns.Groups.ComposeFlag and ns.Groups.FlagComposing() then ns.Groups.ComposeFlag(false) end
@@ -527,7 +542,7 @@ end
 local function LowerPost(slot)
 	local p = own[slot or "flag"]
 	if not p then return false end
-	ns.Comm.Send("CHANNEL", "G0~" .. p.id, QueueKey(p))
+	SharedSend("CHANNEL", "G0~" .. p.id, QueueKey(p))
 	own[slot or "flag"] = nil
 	Save()
 	Changed()
@@ -589,6 +604,7 @@ function Board.MineIn(slot) return own[slot] end
 -- { zone, raisedAt }. Bones's place rule (FarkleTable.lua) reads it: a game between players is
 -- played at a tavern or at a camp.
 function Board.CampOf(name, now)
+	if not ns.SharedToolsHere() then return nil end
 	if type(name) ~= "string" or name == "" then return nil end
 	now = now or ns.Now()
 	local full = ns.FullName(name)
@@ -604,7 +620,7 @@ function Board.CampOf(name, now)
 			if p.flag == "C" and key:lower() == Key(full, "camp"):lower() then e = p break end
 		end
 	end
-	if not e then return nil end
+	if not e or not ns.SharedPeerAllowed(e.sender, e.guild) then return nil end
 	return { zone = e.zone, raisedAt = e.raisedAt }
 end
 
@@ -624,7 +640,7 @@ function Board.Ask(now)
 	now = now or ns.Now()
 	if askSent then return false end
 	askWanted = true
-	if not ns.IsMember() or not ns.Comm.ChannelReady() then return false end
+	if not ns.IsMember() or not ns.SharedToolsHere() or not ns.Comm.ChannelReady() then return false end
 	if now - (ns.Comm.joinedAt or -math.huge) < Board.ASK_AFTER then
 		askRetryAt = (ns.Comm.joinedAt or now) + Board.ASK_AFTER
 		return false
@@ -637,7 +653,7 @@ function Board.Ask(now)
 		return false
 	end
 	askSent, askAt, askRetryAt = true, now, nil
-	ns.Comm.Send("CHANNEL", "GQ~", "boardask")
+	SharedSend("CHANNEL", "GQ~", "boardask")
 	return true
 end
 
@@ -653,18 +669,20 @@ end
 -- Every post of ours, whispered to one asker (its note through the logged API), and our group
 -- listing (1.4.0) with it.
 local function Answer(asker)
+	if not ns.SharedPeerAllowed(asker) then return end
 	local now = ns.Now()
 	for _, p in ipairs(Board.Own()) do
-		ns.Comm.Whisper(asker, Message(p, now), nil, nil, p.note ~= "")
+		SharedWhisper(asker, Message(p, now), nil, nil, p.note ~= "")
 	end
 	if GroupListing() then
 		local msg, logged, members = ns.Groups.AnswerMessage(now)
-		if msg then ns.Comm.Whisper(asker, msg, nil, nil, logged) end
-		if msg and members then ns.Comm.Whisper(asker, members) end
+		if msg then SharedWhisper(asker, msg, nil, nil, logged) end
+		if msg and members then SharedWhisper(asker, members) end
 	end
 end
 
 function Board.HandleAsk(dist, sender, text)
+	if not ns.SharedPeerAllowed(sender) then return end
 	if dist ~= "CHANNEL" or text:sub(1, 3) ~= "GQ~" then return end
 	local now = ns.Now()
 	asks[#asks + 1] = now
@@ -700,7 +718,7 @@ function Board.Tick(now)
 	now = now or ns.Now()
 	local mine = own.flag
 	if mine then
-		if not ns.IsMember() then
+		if not ns.IsMember() or not ns.SharedToolsHere() then
 			own.flag = nil
 			Save()
 			Changed()
@@ -715,7 +733,7 @@ function Board.Tick(now)
 	-- Our camp: ended after CAMP_LIFE, taken down the moment we stop sharing our location.
 	local camp = own.camp
 	if camp then
-		if not ns.IsMember() then
+		if not ns.IsMember() or not ns.SharedToolsHere() then
 			own.camp = nil
 			Save()
 			Changed()
@@ -869,6 +887,7 @@ Board.Hit = Hit
 -- The page's lines: the way back, our flag (or the flags to raise), the Board's flags, then the
 -- camps (Board.CampLines). `q`: the Realm tab's search, over the cards.
 function Board.Lines(q)
+	if not ns.SharedToolsHere() then return { { text = L.FEDERATION_TOOLS_LOCKED } } end
 	local lines = { { text = Gold(L.BOARD_BACK), onClick = function() ns.Views.ShowBoard(false) end, gapAfter = true } }
 	-- 1.4.0: the Board's sections (Groups.lua): its flags, or one kind of group listing.
 	local G = ns.Groups
@@ -929,6 +948,7 @@ end
 
 -- The camps (Fern's #25): ours (or where we could drop one), then every camp up, by zone.
 function Board.CampLines(lines, q)
+	if not ns.SharedToolsHere() then return lines end
 	local list = Board.List("camp")
 	table.sort(list, function(a, b)
 		local za, zb = Board.ZoneText(a.zone), Board.ZoneText(b.zone)

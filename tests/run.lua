@@ -65075,6 +65075,8 @@ assert(loadfile(ROOT .. "tests/federation-program.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/federation-membership.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/federation-contributions.lua"))(ns, test, eq)
 assert(loadfile(ROOT .. "tests/federation-contributor-privacy.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-contribution-sources.lua"))(ns, test, eq)
+assert(loadfile(ROOT .. "tests/federation-automation.lua"))(ns, test, eq)
 local focused = Harness.watchOnly and { "watch", "watch-chat", "chat-strikes", "watch-council-view" }
 		or { "hop", "hop-sightings", "player-sightings", "transport", "admission", "privacy", "census", "authority", "chat-rooms", "war", "watch", "watch-chat", "chat-strikes", "wanted", "wanted-guilds", "wanted-sightings", "map-wanted", "map-names", "king-arrow",
 		"church", "church-count", "church-alts", "church-fullness", "church-view", "church-head", "department-access", "nominees-durable", "watch-council-view", "innkeeper-arrow", "squads", "king-centurions", "court-calls", "weekly-brief", "main-key", "guild-charter", "officer-muster", "dues-history", "accord", "tag-follow",
@@ -66809,6 +66811,10 @@ end
 -- signed list names on a launch realm group, ns.RealmInfo, the author's key rotation, the channel's protected names.
 print("tests/launch-identity.lua")
 assert(loadfile(ROOT .. "tests/launch-identity.lua"))(ns, test, eq, { ADDON_DIR = ADDON_DIR, WithThrone = WithThrone, Vouched = Vouched })
+
+assert(loadfile(ROOT .. "tests/federation-shared-tools.lua"))(ns, test, eq,
+	{ WithBoard = WithBoard, WithHop = WithHop, AsSoldier = AsSoldier, ADDON_DIR = ADDON_DIR, ROOT = ROOT })
+assert(loadfile(ROOT .. "tests/federation-authority.lua"))(ns, test, eq, { ADDON_DIR = ADDON_DIR, ROOT = ROOT })
 
 print(("\n%d passed, %d failed"):format(passed, failed))
 if passed + failed == 0 then

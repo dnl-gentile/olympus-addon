@@ -1,6 +1,19 @@
 local ADDON, ns = ...
 local L = ns.L
 
+-- Shared listings are not the census/control plane. Check both admission and
+-- dispatch so a queued refresh cannot outlive program participation.
+local sharedSend = { guard = function() return ns.SharedToolsHere() end }
+local function SharedSend(dist, text, key, urgent, logged)
+	if not ns.SharedToolsHere() then return false end
+	return ns.Comm.Send(dist, text, key, urgent, logged, nil, sharedSend)
+end
+local function SharedWhisper(to, text, key, urgent, logged)
+	if not ns.SharedPeerAllowed(to) then return false end
+	return ns.Comm.Whisper(to, text, key, urgent, logged, nil,
+		{ guard = function() return ns.SharedPeerAllowed(to) end })
+end
+
 -- Group listings on the Board (1.4.0): a leader lists a group for a dungeon, a raid, PvP or a quest,
 -- with the roles it still needs; a player applies with one role and a short note; the leader
 -- invites or declines from the same page. The Board's flags stay what they are (Board.lua): a
@@ -425,7 +438,7 @@ function Groups.Count(kind, now)
 	now = now or ns.Now()
 	local n, soonest, which = 0, nil, nil
 	for key, e in pairs(posts) do
-		if now < Expires(e) and (not kind or e.kind == kind) and not Off(e.sender, e.guild) then
+		if now < Expires(e) and (not kind or e.kind == kind) and not Off(e.sender, e.guild) and ns.SharedPeerAllowed(e.sender, e.guild) then
 			n = n + 1
 			local x = Expires(e)
 			if not soonest or x < soonest then soonest, which = x, key end
@@ -529,7 +542,7 @@ function Groups.List(kind, now)
 	Prune(now)
 	local out, have = {}, {}
 	for _, e in pairs(posts) do
-		if not kind or e.kind == kind then out[#out + 1] = e end
+		if (not kind or e.kind == kind) and ns.SharedPeerAllowed(e.sender, e.guild) then out[#out + 1] = e end
 	end
 	if kind == "Q" and #out > 0 then have = Log().by end
 	table.sort(out, function(a, b)
@@ -543,6 +556,7 @@ end
 
 -- Whether a guild's name is the sender's own: our guild's from our roster, another from its claim.
 local function Claimed(sender, guild)
+	if not ns.SharedPeerAllowed(sender, guild) then return false end
 	local mine = GetGuildInfo("player")
 	if mine and guild == mine then return ns.Roster.RankOf(sender) ~= nil end
 	return ns.Data.ClaimGuild(sender, guild) and true or false
@@ -626,7 +640,7 @@ function Groups.HandleMembers(dist, sender, text)
 	if not m then return end
 	sender = ns.FullName(sender)
 	local e = posts[sender]
-	if not e or e.id ~= m.id then return end
+	if not e or e.id ~= m.id or not ns.SharedPeerAllowed(sender, e.guild) then return end
 	local sig = Groups.EncodeMembers(m.id, m.counts)
 	if e.countsSig == sig then return end
 	e.counts, e.countsSig = m.counts, sig
@@ -756,7 +770,7 @@ local function SendMembers(p)
 	p.membersSig = sig
 	if #list == 0 and not p.membersSent then return end
 	p.membersSent = #list > 0
-	ns.Comm.Send("CHANNEL", Groups.EncodeMembers(p.id, Groups.MemberCounts(list)), "groupm" .. p.id)
+	SharedSend("CHANNEL", Groups.EncodeMembers(p.id, Groups.MemberCounts(list)), "groupm" .. p.id)
 end
 
 -- Minutes between a listing's refreshes: EVERY_MIN while few are up, up to EVERY_MAX when the
@@ -771,7 +785,7 @@ local function Send(p, now)
 	if ns.ChatLocked() then p.dirty = true return end
 	p.every = Groups.Interval(Groups.Count(nil, now))
 	p.sentAt, p.dirty = now, nil
-	ns.Comm.Send("CHANNEL", Message(p, now), QueueKey(p), nil, Words(p))
+	SharedSend("CHANNEL", Message(p, now), QueueKey(p), nil, Words(p))
 	SendMembers(p)
 	Save()
 end
@@ -815,12 +829,12 @@ end
 function Groups.Close(quiet)
 	if not own then return false end
 	local p = own
-	ns.Comm.Send("CHANNEL", "GX~" .. p.id, QueueKey(p))
+	SharedSend("CHANNEL", "GX~" .. p.id, QueueKey(p))
 	local told = 0
 	for name, a in pairs(applicants) do
 		if a.state == "new" and told < Groups.CLOSE_TELLS then
 			told = told + 1
-			ns.Comm.Whisper(name, ("GR~%s~F"):format(p.id))
+			SharedWhisper(name, ("GR~%s~F"):format(p.id))
 		end
 	end
 	own = nil
@@ -846,6 +860,7 @@ end
 
 -- Our listing as the Board's ask is answered with it (Board.lua): the message, and whether it goes logged.
 function Groups.AnswerMessage(now)
+	if not ns.SharedToolsHere() then return nil end
 	if not own then return nil end
 	local list = Groups.GroupMembers()
 	return Message(own, now or ns.Now()), Words(own), #list > 0 and Groups.EncodeMembers(own.id, Groups.MemberCounts(list)) or nil
@@ -926,13 +941,14 @@ end
 -- told. The role comes off what the listing needs when they join (Groups.CheckJoins), not before:
 -- an invite declined or let lapse leaves the role wanted.
 function Groups.Invite(name)
+	if not ns.SharedPeerAllowed(name, applicants[name] and applicants[name].guild) then return false, "federation" end
 	local a = applicants[name]
 	if not own or not a then return false end
 	if not MayInvite() then return false, "leader" end
 	if not GameInvite(name) then ns.Print(L.GROUPS_INVITE_FAILED) return false, "invite" end
 	a.state = "invited"
 	pending[name] = { role = a.role, at = ns.Now() }
-	ns.Comm.Whisper(name, ("GR~%s~I"):format(own.id))
+	SharedWhisper(name, ("GR~%s~I"):format(own.id))
 	ns.Print(L.GROUPS_INVITED:format(Shown(name) or name, Groups.RoleLabel(a.role)))
 	opened = nil
 	Save()
@@ -1025,7 +1041,7 @@ end
 function Groups.Decline(name)
 	local a = applicants[name]
 	if not own or not a then return false end
-	ns.Comm.Whisper(name, ("GR~%s~D"):format(own.id))
+	SharedWhisper(name, ("GR~%s~D"):format(own.id))
 	applicants[name] = nil
 	pending[name] = nil
 	opened = nil
@@ -1041,6 +1057,7 @@ end
 function Groups.Applied(leader) return apps[leader] end
 
 function Groups.Apply(leader, role, note)
+	if not ns.SharedPeerAllowed(leader, posts[leader] and posts[leader].guild) then return false, "federation" end
 	local e = posts[leader]
 	if not e then ns.Print(L.GROUPS_GONE) return false, "gone" end
 	if not Groups.ROLE[role] or not Groups.Wants(e.need, role) then ns.Print(L.GROUPS_ROLE_FULL) return false, "role" end
@@ -1059,7 +1076,7 @@ function Groups.Apply(leader, role, note)
 		if n >= Groups.APPLIES_OPEN then ns.Print(L.GROUPS_TOO_MANY:format(Groups.APPLIES_OPEN)) return false, "many" end
 	end
 	note = ns.Board.CleanNote(note)
-	ns.Comm.Whisper(leader, Groups.EncodeApply(e.id, GetGuildInfo("player"), role, MyLevel(), MyClass(), note), nil, nil, note ~= "")
+	SharedWhisper(leader, Groups.EncodeApply(e.id, GetGuildInfo("player"), role, MyLevel(), MyClass(), note), nil, nil, note ~= "")
 	apps[leader] = { id = e.id, role = role, at = now, state = "sent", kind = e.kind, target = e.target, title = e.title }
 	ns.Print(L.GROUPS_APPLIED:format(Groups.RoleLabel(role), Groups.Target(e.kind, e.target, e.title), Shown(leader) or leader))
 	Changed()
@@ -1069,7 +1086,7 @@ end
 function Groups.Withdraw(leader)
 	local a = apps[leader]
 	if not a then return false end
-	ns.Comm.Whisper(leader, "GW~" .. a.id)
+	SharedWhisper(leader, "GW~" .. a.id)
 	apps[leader] = nil
 	ns.Print(L.GROUPS_WITHDRAWN)
 	Changed()
@@ -1078,6 +1095,7 @@ end
 
 -- The leader's answer to our application: only from the leader we applied to, for that listing.
 function Groups.HandleAnswer(dist, sender, text)
+	if not ns.SharedPeerAllowed(sender, posts[ns.FullName(sender)] and posts[ns.FullName(sender)].guild) then return end
 	if dist ~= "WHISPER" then return end
 	local id, answer = text:match("^GR~([0-9a-z][0-9a-z]?)~([IDF])$")
 	if not id then return end
@@ -1106,7 +1124,7 @@ function Groups.Tick(now)
 	now = now or ns.Now()
 	Groups.CheckJoins(now)
 	if own then
-		if not ns.IsMember() then
+		if not ns.IsMember() or not ns.SharedToolsHere() then
 			own = nil
 			wipe(applicants)
 			Save()
@@ -1583,7 +1601,10 @@ local function PageLines(lines, q)
 	Groups.LookingLines(lines, kind, q)
 	return lines
 end
-function Groups.Lines(lines, q) return Groups.WithLog(PageLines, lines, q) end
+function Groups.Lines(lines, q)
+	if not ns.SharedToolsHere() then lines[#lines + 1] = { text = L.FEDERATION_TOOLS_LOCKED } return lines end
+	return Groups.WithLog(PageLines, lines, q)
+end
 
 ---------------------------------------------------------------------------
 -- A companion addon's panel in place of Your group (1.4.0, API.lua's ui.board-groups)

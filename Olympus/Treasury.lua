@@ -681,7 +681,8 @@ function Treasury.Record(name, copper, how, out, o)
 		item = item, count = item and count or nil }
 	-- 1.1: its week, and a gift's giver's guild (Dues.lua; kept here, never sent).
 	ns.Dues.Stamp(e, name, o)
-	if o.observed == true and ns.Contributions then ns.Contributions.ProtectTrade(b, e, name, o.guild) end
+	if ns.Contributions then ns.Contributions.StampIdentity(b, e, name) end
+	if o.observed == true and ns.Contributions then ns.Contributions.NativeReceipt(b, e, name, o.guild) end
 	b.lines[#b.lines + 1] = e
 	while #b.lines > Treasury.MAX do table.remove(b.lines, 1) end
 	if not e.excluded then Count(b, e, 1) end
@@ -769,6 +770,23 @@ function Treasury.FeeLine(name, copper, since)
 		end
 	end
 	return nil
+end
+
+-- Reclassifying an existing receipt changes its category, never its received gold. The
+-- original line must still belong to this exact private book, and a repeated action is inert.
+function Treasury.ClassifyContribution(e, b, guild, reference)
+	local C = ns.Contributions
+	if not C or not C.Classification then return false end
+	b = b or BookOf(ns.me)
+	local proof = C.Classification(b, e, guild, reference)
+	if not proof then return false end
+	Count(b, e, -1)
+	if not C.ProtectRecorded(b, e, proof) then Count(b, e, 1); return false end
+	Count(b, e, 1)
+	Touch(b)
+	Treasury.Share()
+	ns.Fire("TREASURY_CHANGED")
+	return true
 end
 
 -- A line of the keeper's own book counted, or no longer (his click: a sale that was a
@@ -5063,16 +5081,37 @@ function Treasury.RestoreBook(saved)
 		lines = {}, sums = saved.sums }
 	for i, e in ipairs(saved.lines or {}) do base.lines[i] = e end
 	Sums(base) -- (the backup's own sums, or rebuilt from its lines when they are of another shape)
-	local seen, added = {}, 0
-	for i, e in ipairs(base.lines) do seen[LineKey(e)] = i end
+	local seen, used, added = {}, {}, 0
+	for i, e in ipairs(base.lines) do
+		local key = LineKey(e)
+		seen[key] = seen[key] or {}
+		seen[key][#seen[key] + 1] = i
+	end
+	local function Match(key)
+		for _, i in ipairs(seen[key] or {}) do if not used[i] then used[i] = true; return i end end
+	end
 	for _, e in ipairs(b.lines) do
-		local matching = seen[LineKey(e)]
+		local matching = Match(LineKey(e))
+		if not matching and e.kind == "charity" and e.patron then
+			-- A backup made before the Treasurer classified this same original receipt must
+			-- not add its old public donor line beside the protected local receipt.
+			local original = {}
+			for k, value in pairs(e) do original[k] = value end
+			original.name, original.kind = ns.DisplayName(ns.Normal(e.patron)) or e.patron, nil
+			matching = Match(LineKey(original))
+		end
 		if not matching then
 			base.lines[#base.lines + 1] = e
 			if not e.excluded then Count(base, e, 1) end
 			added = added + 1
 		elseif e.kind == "charity" and e.patron then
-			-- Do not replace a local native receipt with its anonymized copy from the backup.
+			-- Do not replace a private receipt with an anonymous or older unclassified copy.
+			local old = base.lines[matching]
+			if old.kind ~= "charity" then
+				local sums = Sums(base)
+				if not old.excluded then Add(sums, old, -1, ns.Now()) end
+				if not e.excluded then Add(sums, e, 1, ns.Now()) end
+			end
 			base.lines[matching] = e
 		end
 	end

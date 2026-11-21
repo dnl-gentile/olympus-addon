@@ -32,7 +32,7 @@ Positions.Sanctioned = Sanctioned
 
 local function SendPosition()
 	-- Quiet presence (Core.lua): no dot of ours either; the guildmates' one expires (EXPIRE).
-	if not ns.db.sharePosition or not IsInGuild() or IsInInstance() or Sanctioned() then return end
+	if not ns.SharedToolsHere() or not ns.db.sharePosition or not IsInGuild() or IsInInstance() or Sanctioned() then return end
 	if ns.QuietPresence and ns.QuietPresence() then return end
 	local mapID = C_Map.GetBestMapForUnit("player")
 	local pos = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
@@ -44,7 +44,7 @@ local function SendPosition()
 	if now - last.t < Interval() or (not moved and now - last.t < 50) then return end
 	last = { mapID = mapID, x = x, y = y, t = now }
 	local _, classFile = UnitClass("player")
-	ns.Comm.Send("GUILD", ns.Codec.EncodePosition(mapID, x, y, ns.Roster.ClassCode(classFile)), "position")
+	ns.Comm.Send("GUILD", ns.Codec.EncodePosition(mapID, x, y, ns.Roster.ClassCode(classFile)), "position", nil, nil, nil, { guard = function() return ns.SharedToolsHere() end })
 end
 
 local function Dot(size)
@@ -83,10 +83,10 @@ local function RefreshNow()
 	-- The world map's dots only with mouse and keyboard (ns.WorldMapIcons); the minimap's always.
 	local world = ns.WorldMapIcons(Pins, Positions) -- gp:worldmap-icons
 	local now = ns.Now()
-	local barred = Sanctioned()
+	local barred = Sanctioned() or not ns.SharedToolsHere()
 	for name, p in pairs(pins) do
 		local m = mates[name]
-		if not m or now - m.t > EXPIRE or not ns.db.showMates or barred then
+		if not m or now - m.t > EXPIRE or not ns.db.showMates or barred or not ns.SharedPeerAllowed(m.sender or name, GetGuildInfo("player")) then
 			if world then Pins:RemoveWorldMapIcon(Positions, p.world) end
 			Pins:RemoveMinimapIcon(Positions, p.mini)
 			p.world:Hide()
@@ -96,15 +96,17 @@ local function RefreshNow()
 	end
 	if not ns.db.showMates or barred then return end
 	for name, m in pairs(mates) do
-		local p = pins[name]
-		if not p then
-			p = { world = Dot(9), mini = Dot(8) }
-			pins[name] = p
+		if ns.SharedPeerAllowed(m.sender or name, GetGuildInfo("player")) then
+			local p = pins[name]
+			if not p then
+				p = { world = Dot(9), mini = Dot(8) }
+				pins[name] = p
+			end
+			Color(p.world, name, m.class)
+			Color(p.mini, name, m.class)
+			if world then Pins:AddWorldMapIconMap(Positions, p.world, m.mapID, m.x, m.y, SHOW_FLAG) end
+			Pins:AddMinimapIconMap(Positions, p.mini, m.mapID, m.x, m.y, true, false) -- gp:minimap
 		end
-		Color(p.world, name, m.class)
-		Color(p.mini, name, m.class)
-		if world then Pins:AddWorldMapIconMap(Positions, p.world, m.mapID, m.x, m.y, SHOW_FLAG) end
-		Pins:AddMinimapIconMap(Positions, p.mini, m.mapID, m.x, m.y, true, false) -- gp:minimap
 	end
 end
 
@@ -113,8 +115,9 @@ function Positions.Refresh()
 end
 
 function Positions.Count()
+	if not ns.SharedToolsHere() then return 0 end
 	local n, now = 0, ns.Now()
-	for _, m in pairs(mates) do if now - m.t <= EXPIRE then n = n + 1 end end
+	for name, m in pairs(mates) do if now - m.t <= EXPIRE and ns.SharedPeerAllowed(m.sender or name, GetGuildInfo("player")) then n = n + 1 end end
 	return n
 end
 
@@ -130,10 +133,10 @@ function Positions.SetSharing(on)
 end
 
 ns.Comm.Handle("P1", function(dist, sender, text)
-	if dist ~= "GUILD" or Sanctioned(sender) then return end
+	if dist ~= "GUILD" or Sanctioned(sender) or not ns.SharedPeerAllowed(sender, GetGuildInfo("player")) then return end
 	local p = ns.Codec.DecodePosition(text)
 	if not p then return end
-	p.t = ns.Now()
+	p.t, p.sender = ns.Now(), ns.FullName(sender)
 	mates[ns.DisplayName(sender)] = p
 end)
 
