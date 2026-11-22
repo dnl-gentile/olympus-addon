@@ -1741,6 +1741,36 @@ function Borders.ChatForget() chatMarks, chatKept, chatBadges, badgesKept = {}, 
 
 function Borders.ChatEnabled() return not (ns.db and ns.db.chatMarks == false) end
 
+-- Prat (Prat-3.0, 3.9): its chat windows build a line again from its parts, the sender's name
+-- from the line's bare name (services/chatsections.lua: PLAYER), so what the game's sender name
+-- filters return never shows there. Prat's own public API carries the same mark instead: a part
+-- of ours just inside the player link, before the name (RegisterMessageItem, after LL, as the
+-- game's filter has it inside the link), filled for each line from Prat_PreAddMessage with what
+-- Borders.ChatFilter gives for an empty name. Nothing of Prat's or the game's is replaced; the
+-- part stays empty for any other line, with the marks off, and with the gamepad UI. A line Prat
+-- leaves to the game keeps the game's filter, and its parts are never built.
+Borders.PRAT_PART = "OLYMPUSMARK"
+local pratHooked = false
+
+function Borders.PratLine(_, message, _, event) -- gp:chat-marks
+	if not ns.Gate.Allowed("chat-marks") then return end
+	if not chatOn or type(message) ~= "table" or type(message.ARGS) ~= "table" then return end
+	local ok, mark = pcall(Borders.ChatFilter, event, "", message.ARGS[1], message.ARGS[2])
+	if not ok or type(mark) ~= "string" or mark == "" then return end
+	-- Already in the name (a client where Prat shows the game's decorated name): not twice.
+	if type(message.PLAYER) == "string" and message.PLAYER:find(mark, 1, true) then return end
+	message[Borders.PRAT_PART] = mark
+end
+
+-- Once a session, when Prat answers: never removed (turning the marks off clears chatOn).
+local function PratHook()
+	if pratHooked then return end
+	local P = rawget(_G, "Prat")
+	if type(P) ~= "table" or type(P.RegisterMessageItem) ~= "function" or type(P.RegisterChatEvent) ~= "function" then return end
+	pratHooked = pcall(P.RegisterChatEvent, Borders, "Prat_PreAddMessage", Borders.PratLine) == true
+		and pcall(P.RegisterMessageItem, Borders.PRAT_PART, "LL", "after") == true
+end
+
 -- Whether the game's chat shows them now, and registering the callback the first time it may
 -- (once a session: it is never removed, turning them off clears chatOn).
 function Borders.ChatRefresh() -- gp:chat-marks
@@ -1752,6 +1782,7 @@ function Borders.ChatRefresh() -- gp:chat-marks
 		chatHooked = pcall(CFU.AddSenderNameFilter, Borders.ChatFilter) == true
 	end
 	chatOn = chatHooked and Borders.ChatEnabled() and not pad
+	if chatOn then PratHook() end
 	return chatOn
 end
 function Borders.ChatShown() return chatOn end
@@ -1792,7 +1823,7 @@ function Borders.ChatStatusLine()
 	local CFU = rawget(_G, "ChatFrameUtil") -- gp:lookups
 	if not (type(CFU) == "table" and type(CFU.AddSenderNameFilter) == "function") then return "none (no ChatFrameUtil.AddSenderNameFilter)" end
 	local state = chatOn and "on" or (not Borders.ChatEnabled() and "off (/oly chatmarks on)" or (ns.GamepadUI() and "hidden with the gamepad UI" or "not registered yet"))
-	return ("%s  |  %d senders worked out%s"):format(state, chatKept, chatPreview and ("  |  preview " .. chatPreview) or "")
+	return ("%s  |  %d senders worked out%s%s"):format(state, chatKept, pratHooked and "  |  Prat" or "", chatPreview and ("  |  preview " .. chatPreview) or "")
 end
 
 ---------------------------------------------------------------------------
