@@ -392,6 +392,7 @@ end
 local function CanSend(kind, expected, msg, origin)
 	local current = Guild()
 	if not ns.IsMember() or current == nil then return false, "left" end
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if current ~= origin then return false, "guild-changed" end
 	if ns.ChatLocked and ns.ChatLocked() then return false, "locked" end
 	if kind == "officer" and not War.IsOfficer() then return false, "revoked" end
@@ -434,6 +435,7 @@ local function EncodeAfter(e)
 end
 
 function War.SetRoles(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not ns.IsMember() then return false, "member" end
 	local roles, bad = ParseRoles(text, false)
 	if not roles then ns.Print(L.WAR_ROLES_BAD:format(tostring(bad))); return false, "roles" end
@@ -460,6 +462,7 @@ local function ParseLFG(text)
 end
 
 function War.PostLFG(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not ns.IsMember() then return false, "member" end
 	local kind, minutes, roles, note = ParseLFG(text)
 	if not kind then ns.Print(L.WAR_LFG_USAGE); return false, "shape" end
@@ -526,6 +529,7 @@ local function OfficerWrite(bucket)
 end
 
 function War.CreateOperation(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not OfficerWrite("operation") then return false, "officer" end
 	local kind, minutes, slots, title = ParseOfficerSpec(text, false)
 	if not kind or title == "" then ns.Print(L.WAR_OPERATION_USAGE); return false, "shape" end
@@ -541,6 +545,7 @@ function War.CreateOperation(text)
 end
 
 function War.SetOperation(id, state)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not OfficerWrite("operation") then return false, "officer" end
 	local s, e = Store(false)
 	e = s and s.operations[id]
@@ -554,6 +559,7 @@ function War.SetOperation(id, state)
 end
 
 function War.RSVP(id, status, role)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local s, e = Store(false)
 	e = s and s.operations[id]
 	status = RSVP[status] or status
@@ -572,6 +578,7 @@ function War.RSVP(id, status, role)
 end
 
 function War.CreateCentury(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not OfficerWrite("century") then return false, "officer" end
 	local specialty, centurion, slots, name = ParseOfficerSpec(text, true)
 	if not specialty or name == "" then ns.Print(L.WAR_CENTURY_USAGE); return false, "shape" end
@@ -587,6 +594,7 @@ function War.CreateCentury(text)
 end
 
 function War.AssignPost(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not OfficerWrite("post") then return false, "officer" end
 	local left, name = tostring(text or ""):match("^(.-)%s*|%s*(.+)$")
 	local cid, role
@@ -625,6 +633,7 @@ local function ParticipantList(text, exact, historical)
 end
 
 function War.RecordAfter(text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not OfficerWrite("after") then return false, "officer" end
 	local head, people = tostring(text or ""):match("^(.-)%s*;%s*(.+)$")
 	local op, century, kind, result
@@ -844,6 +853,7 @@ local function Answer(requester, nonce, cursor)
 end
 
 function War.Ask(force)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local now = Now()
 	if not ns.IsMember() or not Guild() or (not force and now - lastAsk < War.ASK_GAP) then return false end
 	if not Rate(writes, 3, 600, "ask") then return false end
@@ -895,6 +905,7 @@ local function TakeSnapshot(sender, rest)
 end
 
 function War.Handle(dist, sender, text)
+	if not ns.SharedPeerAllowed(sender, Guild()) then return false, "federation" end
 	if dist ~= "GUILD" or not ns.IsMember() or not Guild() or type(text) ~= "string" or #text > War.SNAPSHOT_BYTES or text:sub(1, 5) ~= "WZ~1~" then return false end
 	sender = Full(sender)
 	if not sender or ns.Fold(sender) == ns.Fold(ns.me or "") then return false end
@@ -1041,6 +1052,7 @@ local function Prompt(prefix, title, hint)
 end
 
 function War.Lines(q)
+	if not ns.SharedToolsHere() then return { { text = L.FEDERATION_TOOLS_LOCKED } } end
 	War.Prune()
 	local s = Store(true)
 	local lines = { { text = Gold(L.CHATS_BACK), onClick = function() ns.Views.ShowPage(nil) end } }

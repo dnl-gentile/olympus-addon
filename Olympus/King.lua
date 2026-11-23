@@ -1200,6 +1200,7 @@ end
 -- Effective status uses exactly the sender's current position gate, not just its saved consent.
 -- No role, consent or independent game-live setting is changed by asking this read-only status.
 function King.EffectiveLocation()
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not King.SharingLocation() then return false, "off" end
 	if not King.IsKing() then return false, "role" end
 	local mapID, why = LocationPosition()
@@ -1208,7 +1209,7 @@ function King.EffectiveLocation()
 end
 
 local function SendLocation(force)
-	if not King.SharingLocation() or not King.IsKing() then return end
+	if not ns.SharedToolsHere() or not King.SharingLocation() or not King.IsKing() then return end
 	-- Quiet presence (Core.lua): his crown leaves no client; the army's copy expires on its own
 	-- (LOCATION_EXPIRE), as after a logout. His layer and hello are held by Layers.lua and Comm.lua.
 	if ns.QuietPresence and ns.QuietPresence() then return end
@@ -1219,7 +1220,8 @@ local function SendLocation(force)
 	if not force and (now - lastLocation.t < King.LOCATION_EVERY or (not moved and now - lastLocation.t < King.LOCATION_STILL)) then return end
 	lastLocation = { mapID = mapID, x = x, y = y, t = now }
 	ns.Comm.Send("CHANNEL", ("T1~P~%d~%s~%d~%d~%d"):format(locationId, GetGuildInfo("player") or "", mapID,
-		math.floor(x * 1000 + 0.5), math.floor(y * 1000 + 0.5)), "kinglocation")
+		math.floor(x * 1000 + 0.5), math.floor(y * 1000 + 0.5)), "kinglocation", nil, nil, nil,
+		{ guard = function() return ns.SharedToolsHere() and King.SharingLocation() end })
 end
 
 -- Quiet presence turned off (Core.lua): his crown at once again, while he shares it.
@@ -1299,7 +1301,8 @@ function King.RefreshCrown()
 	local world = ns.WorldMapIcons(Pins, King) -- gp:worldmap-icons
 	if kingAt and ns.Now() - kingAt.t > King.LocationExpire() then kingAt = nil end
 	local WC = ns.WatchChat
-	local barred = WC and not WC.missing and WC.Barred and WC.Barred("locations")
+	local barred = not ns.SharedToolsHere() or (kingAt and not ns.SharedPeerAllowed(kingAt.from))
+		or (WC and not WC.missing and WC.Barred and WC.Barred("locations"))
 	if not kingAt or barred then
 		if crowns and crownAt then
 			if world then Pins:RemoveWorldMapIcon(King, crowns.world) end
@@ -1334,6 +1337,7 @@ end
 
 -- Where the King is, while he shares it: { name, id, mapID, x, y, t } or nil.
 function King.Location()
+	if not ns.SharedToolsHere() or (kingAt and not ns.SharedPeerAllowed(kingAt.from)) then return nil end
 	if kingAt and ns.Now() - kingAt.t > King.LocationExpire() then return nil end
 	-- 1.1.6: a sanctioned player (WatchChat.Barred "locations") sees neither the King's crown nor
 	-- his arrow, and asks for no layer of his, while it lasts.
@@ -1346,6 +1350,7 @@ function King.HandleCommand(dist, sender, text)
 	if dist ~= "CHANNEL" and dist ~= "GUILD" then return end
 	local kind, id, guild, rest = text:match("^T1~(%a)~(%d+)~([^~]*)~?(.*)$")
 	if not kind then return end
+	if kind == "P" and not ns.SharedPeerAllowed(sender, guild) then return end
 	local guildOnly = dist == "GUILD"
 	local agendaKind = kind == "A" or kind == "D" or kind == "R" or kind == "X"
 	if guildOnly and kind ~= "D" and kind ~= "R" then return end

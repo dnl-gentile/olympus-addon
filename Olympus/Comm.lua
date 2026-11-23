@@ -498,6 +498,7 @@ end
 --   Bank T9 | Vox Y1 Y3 | Loot X1 XQ XB | Crafters W0 W1 WA WL WQ WR
 --   Workshop HA HI HK HQ HR HS HT V1 V2 V3 V4 V5 V6 | Olympus Link (its own addon, Olympus_Link) DA DB DC DE DK DR DV DW
 --   Authority H2 H3 | FederationMembership FM (direct roster witnesses)
+--   FederationAuthority F8 (private scoped decisions, grants and revocations; the older fee type belongs to Dues)
 --   GuildCharter GC (master's public card), QC (outsider's bounded ask), QD (corroborated Join card)
 --   OfficerMuster OM (bounded, zone-only officer gathering, logged)
 --   Other 1.1 work: Recruit J1 J3 JD (guild-only decline hints) | RecruitHandoff J4 | GuildCharter recruiting help J5 | Alts AL | Filter BW | Dues FA FB FC FD FQ FS FU

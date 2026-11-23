@@ -366,6 +366,7 @@ end
 -- What anyone needs to search or be found: a member at the arena's level, on the network, the
 -- arena on, no instance, lockdown or combat, a position.
 local function Able()
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not ns.IsMember() then return false, "guild" end
 	if Level() < MinLevel() then return false, "level" end
 	local M = ns.Moderation

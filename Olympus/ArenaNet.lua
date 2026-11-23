@@ -692,8 +692,18 @@ end
 -- Why an item may not go out now, or nil (the design): the compliance gate, the sim, the kill switch
 -- (a player's own obligations excepted), a test build's L or channel, L while this realm's live
 -- switch is off, outside an Olympus guild.
+-- Honor identity and signed game-role control continue to bootstrap membership.
+-- EP cannot authorize its inner type until assembled; the inner wrapper checks it.
+local function SharedWire(kind)
+	return kind ~= "EP" and kind ~= "ID" and kind ~= "IO" and kind ~= "IL" and kind ~= "AP" and kind ~= "AU"
+end
+local function SharedAllowed(kind, target)
+	return not SharedWire(kind) or (ns.SharedToolsHere() and (not target or ns.SharedPeerAllowed(target)))
+end
+
 local function Refusal(kind, mode, o)
 	if not Arena.TYPES[kind] then return "type" end
+	if not SharedAllowed(kind, o.to) then return "federation" end
 	if mode ~= "L" and mode ~= "T" then return "mode" end
 	if not Compliant(kind) then return "compliance" end
 	if not LevelRaceWire(kind) then return "level-race-off" end
@@ -858,6 +868,12 @@ end
 -- Handed to Comm, with a done that keeps the urgent share and the retries. after() runs whatever
 -- came of it (the outbox's next whisper).
 local function Hand(item, after)
+	local payload = item.parent or item
+	if not SharedAllowed(payload.kind, payload.target) then
+		Settled(item, false, "federation")
+		if after then after() end
+		return
+	end
 	local C = ns.Comm
 	local key = CommKey(item)
 	local rec = { item = item }
@@ -883,11 +899,13 @@ local function Hand(item, after)
 		Recompute()
 	end
 	if item.chat and item.dist == "CHANNEL" and C.SendChat then
-		if not C.SendChat(item.text, done) then done(false, "chat") end
+		if not C.SendChat(item.text, done, nil, function() return SharedAllowed(payload.kind, payload.target) end) then done(false, "chat") end
 	elseif item.dist == "WHISPER" then
-		C.Whisper(item.target, item.text, nil, item.urgent, item.logged, done)
+		C.Whisper(item.target, item.text, nil, item.urgent, item.logged, done,
+			{ guard = function() return SharedAllowed(payload.kind, payload.target) end })
 	else
-		C.Send(item.dist, item.text, key, item.urgent, item.logged, done)
+		C.Send(item.dist, item.text, key, item.urgent, item.logged, done,
+			{ guard = function() return SharedAllowed(payload.kind, payload.target) end })
 	end
 end
 
@@ -1419,6 +1437,7 @@ function Arena.Handle(kind, fn)
 		if type(text) ~= "string" or type(sender) ~= "string" then return end
 		local k, mode, proto, body = text:match("^(%w%w)~([^~]?)(%d*)~(.*)$")
 		if k ~= kind then Count(stats.dropped, "envelope") return end
+		if SharedWire(kind) and not ns.SharedPeerAllowed(sender) then Count(stats.dropped, "federation") return end
 		-- (1.5.4) A client marked as a modified build (Builds.lua) is locked out of the arena's words too.
 		local B = ns.Builds
 		if B and not B.missing and B.Quarantined(sender) then Count(stats.dropped, "build") return end

@@ -40,18 +40,121 @@ local function Staff()
 end
 local function Visible() return D.ContributionGuild() ~= nil and Treasurer() ~= nil end
 
--- Only successful incoming trades with a game-observed guild on the signed beneficiary's own
--- book enter this ranking. An ordinary mail's free-text guild, manual edits and other book
--- keepers are not sufficient. The book still counts this gold in its actual balance.
-function C.ProtectTrade(book, e, full, observedGuild)
-	if e.kind or e.how ~= "trade" or e.out or e.item or e.excluded or not Name(full) or not Whole(e.money, T.MAX_COPPER)
-		or not Staff() or not IsTreasurer(book.name) or type(observedGuild) ~= "string"
-		or observedGuild ~= e.guild or D.MandatoryGuild(observedGuild) or not P.IsEnrolled(observedGuild) then return false end
-	e.kind, e.patron, e.contributionScope, e.name = "charity", full, Scope(), "Anonymous Patron"
+-- Receipt provenance stays in the Treasurer's private book, never in a public snapshot or
+-- clipboard backup. A subject's guild is a claim, not native membership evidence.
+local SOURCES = 5000
+local function Eligible(book, e, full)
+	return type(book) == "table" and type(e) == "table" and not e.kind and not e.out and not e.item and not e.excluded and not e.returned and not e.contributionIdentityInvalid
+		and (e.how == "trade" or e.how == "mail") and Name(full) ~= nil and Whole(e.money, T.MAX_COPPER)
+		and Staff() and IsTreasurer(book.name) and book == T.BookOf(ns.me)
+end
+function C.StampIdentity(book, e, full)
+	-- Legacy book display names can omit a realm. Preserve a negative scope result before
+	-- that formatting so a later manual review cannot relabel a known foreign donor.
+	if type(book) == "table" and type(e) == "table" and Staff() and book == T.BookOf(ns.me) then
+		if ns.Secret(nil, full) or not Name(ns.FullName(ns.Normal(full))) then e.contributionIdentityInvalid = true end
+	end
+end
+local function EligibleGuild(guild)
+	return type(guild) == "string" and not D.MandatoryGuild(guild) and P.IsEnrolled(guild)
+end
+local function Sources(book, create)
+	if type(book.contributionSources) ~= "table" and create then book.contributionSources = {} end
+	return type(book.contributionSources) == "table" and book.contributionSources or nil
+end
+local function Receipt(book, e)
+	local sources = Sources(book)
+	local r = sources and sources[e.contributionReceipt]
+	return type(r) == "table" and r.at == e.t and r.money == e.money and r.how == e.how and r or nil
+end
+local function KeepReceipt(book, e, full, guild, source, reference)
+	local r = Receipt(book, e)
+	if r then return Name(r.name) == Name(full) and r or nil end
+	local sources = Sources(book, true)
+	local n = 0; for _ in pairs(sources) do n = n + 1 end
+	if n >= SOURCES then
+		local retained = {}; for _, line in ipairs(book.lines or {}) do if line.contributionReceipt then retained[line.contributionReceipt] = true end end
+		for id in pairs(sources) do if not retained[id] then sources[id], n = nil, n - 1 end end
+		if n >= SOURCES then return nil end
+	end
+	local id = (tonumber(book.contributionNext) or 0) + 1
+	if not Whole(id, T.MAX_COPPER) then return nil end
+	book.contributionNext, e.contributionReceipt = id, id
+	r = { at = e.t, money = e.money, how = e.how, name = full, guild = guild, source = source, reference = reference }
+	sources[id] = r
+	return r
+end
+local function Protect(book, e, full, guild, source, reference, nativeKey)
+	if not Eligible(book, e, full) or not EligibleGuild(guild) then return false end
+	local claims = type(book.contributionNativeClaims) == "table" and book.contributionNativeClaims or {}
+	if nativeKey and claims[nativeKey] and claims[nativeKey] ~= e.contributionReceipt then return false end
+	local r = KeepReceipt(book, e, full, guild, source, reference)
+	if not r or r.counted then return false end
+	r.guild, r.source, r.reference, r.nativeKey = guild, source, reference, nativeKey
+	if nativeKey then
+		book.contributionNativeClaims = claims
+		claims[nativeKey] = e.contributionReceipt
+	end
+	e.kind, e.patron, e.contributionScope, e.name, e.guild, e.gv = "charity", full, Scope(), "Anonymous Patron", guild, source ~= "treasurer-attested" or nil
 	return true
+end
+function C.ProtectTrade(book, e, full, observedGuild)
+	if e.how ~= "trade" or observedGuild ~= e.guild then return false end
+	return Protect(book, e, full, observedGuild, "native-trade")
+end
+function C.NativeReceipt(book, e, full, observedGuild)
+	if ns.Secret(nil, full) then return false end
+	full = ns.FullName(ns.Normal(full))
+	if not Eligible(book, e, full) then return false end
+	local guild, source = observedGuild, "native-trade"
+	if e.how == "mail" then
+		guild, source = nil, "native-mail"
+		local seen, age
+		if ns.Who and ns.Who.SeenGuild then seen, age = ns.Who.SeenGuild(full) end
+		if type(age) == "number" and age >= 0 and age <= 120 then guild = seen end
+	end
+	-- Preserve the native receipt even when its donor's guild remains unknown. It can be
+	-- explicitly reviewed later; no guild is taken from the mail subject or a census guess.
+	if not KeepReceipt(book, e, full, guild, source) then return false end
+	return Protect(book, e, full, guild, source)
+end
+local function InBook(book, e)
+	for _, row in ipairs(type(book) == "table" and book.lines or {}) do if row == e then return true end end
+	return false
+end
+function C.Classification(book, e, guild, reference)
+	if not InBook(book, e) then return nil end
+	local full = e.patron or ns.FullName(ns.Normal(e.name))
+	if not Eligible(book, e, full) then return nil end
+	local r = Receipt(book, e)
+	if not r and ns.GuildFinance and ns.GuildFinance.ContributionSource then
+		r = ns.GuildFinance.ContributionSource(book, e)
+	end
+	local claims = type(book.contributionNativeClaims) == "table" and book.contributionNativeClaims or {}
+	if r and r.nativeKey and claims[r.nativeKey] and claims[r.nativeKey] ~= e.contributionReceipt then return nil end
+	if reference == nil then
+		if not r or not EligibleGuild(r.guild) then return nil end
+		return { full = full, guild = r.guild, source = r.source or ("native-" .. e.how), nativeKey = r.nativeKey }
+	end
+	-- An attestation is an explicit Treasurer action, separately labelled. Membership is
+	-- still limited to an existing enrolled guild: arbitrary free-text guilds cannot enter.
+	if type(reference) ~= "string" or #reference < 3 or #reference > 80 or reference:find("[|~^;%c]")
+		or not reference:find("%S") or not EligibleGuild(guild) then return nil end
+	if r and type(r.guild) == "string" and r.guild ~= "" and ns.Fold(r.guild) ~= ns.Fold(guild) then return nil end
+	return { full = full, guild = guild, source = "treasurer-attested", reference = reference, nativeKey = r and r.nativeKey }
+end
+function C.ProtectRecorded(book, e, proof)
+	if type(proof) ~= "table" then return false end
+	return Protect(book, e, proof.full, proof.guild, proof.source, proof.reference, proof.nativeKey)
+end
+function C.SourceLabel(book, e)
+	local r = Receipt(book, e)
+	return r and r.source, r and r.reference
 end
 function C.Count(book, e, sign)
 	local key = Name(e.patron)
+	local receipt = Receipt(book, e)
+	if receipt and ((sign > 0 and receipt.counted) or (sign < 0 and not receipt.counted)) then return end
 	if e.kind ~= "charity" or not key or not e.contributionScope or not Whole(e.money, T.MAX_COPPER) then return end
 	book.contributionPatrons = type(book.contributionPatrons) == "table" and book.contributionPatrons or {}
 	local bookScope = book.contributionPatrons[e.contributionScope]
@@ -65,6 +168,7 @@ function C.Count(book, e, sign)
 		row = { name = e.patron, total = 0, weeks = {} }
 		bookScope[key] = row
 	end
+	if receipt then receipt.counted = sign > 0 end
 	row.total = math.max(0, math.min(T.MAX_COPPER, row.total + sign * e.money))
 	if sign > 0 and e.t >= (row.guildAt or 0) then row.guild, row.guildAt = e.guild, e.t
 	elseif sign < 0 and row.guildAt == e.t then row.guild, row.guildAt = nil, nil end
@@ -160,6 +264,7 @@ function C.Handle(dist, sender, text)
 		return true
 	end
 	if text == "CP~1~Q~" .. (Scope() or "") and Staff() then
+		if not ns.SharedPeerAllowed(sender) then return false end
 		for k, expires in pairs(requests) do if expires <= now then requests[k], replies[k] = nil, nil end end
 		local n = 0; for _ in pairs(requests) do n = n + 1 end
 		if requests[key] or n >= 64 then return false end
@@ -183,7 +288,7 @@ T.OnPrivate("CP", {
 	from = IsTreasurer, to = Visible, ranking = true,
 	send = function(to, text)
 		local key = Name(to)
-		if not key or replies[key] ~= text then return false end
+		if not key or replies[key] ~= text or not ns.SharedPeerAllowed(to) then return false end
 		local data = ParseBoard(text)
 		return data ~= nil and C.Project(data.at) == text
 	end,
@@ -403,7 +508,16 @@ local function InterestLines()
 	if not InterestStaff() then return lines end
 	lines[#lines + 1] = { header = true, text = L.CONTRIBUTIONS_INTEREST_TITLE }
 	if Staff() then
-		lines[#lines + 1] = { text = L.CONTRIBUTIONS_MILESTONE_DRAFT, onClick = C.PromptMilestone, gapAfter = true }
+		lines[#lines + 1] = { text = L.CONTRIBUTIONS_RECEIPT_REVIEW, onClick = function() ns.Views.ShowPage("contribution-receipts") end }
+		lines[#lines + 1] = { text = L.CONTRIBUTIONS_MILESTONE_DRAFT, onClick = C.PromptMilestone }
+		lines[#lines + 1] = { text = L.CONTRIBUTIONS_MILESTONE_PUBLISH, onClick = function()
+			local ok = C.PublishMilestones()
+			ns.Print(ok and L.CONTRIBUTIONS_MILESTONE_PUBLISHED or L.CONTRIBUTIONS_MILESTONE_UNAVAILABLE)
+		end }
+		lines[#lines + 1] = { text = L.CONTRIBUTIONS_MILESTONE_CLEAR, onClick = function()
+			local ok = C.ClearMilestones()
+			ns.Print(ok and L.CONTRIBUTIONS_MILESTONE_PUBLISHED or L.CONTRIBUTIONS_MILESTONE_UNAVAILABLE)
+		end, gapAfter = true }
 	end
 	local data = Staff() and InterestParse(InterestRows(Clock())) or interestHeld
 	if not Staff() then lines[#lines + 1] = { text = L.CONTRIBUTIONS_INTEREST_REFRESH, onClick = AskInterest } end
@@ -439,9 +553,62 @@ end)
 ns.RegisterEvent("PLAYER_GUILD_UPDATE", function(unit) if unit == "player" then RecheckReaders() end end)
 ns.RegisterEvent("GUILD_ROSTER_UPDATE", RecheckReaders)
 
--- The Treasurer prepares informational copy locally. Publication requires the existing author
--- signature on the current titles list and identifies the same exact signed Treasurer pin.
--- Milestones never change money, rewards, ranks, access or native game state.
+-- Private receipt review: a native proof may be recognized from retained history; otherwise
+-- the Treasurer explicitly attests one existing line and a reference. No second money entry.
+local RECEIPT_DIALOG = "OLYMPUS_CONTRIBUTION_RECEIPT"
+function C.PromptReceipt(book, e)
+	if not InBook(book, e) or not Eligible(book, e, ns.FullName(ns.Normal(e.name))) then return false end
+	return ns.ShowDialog(RECEIPT_DIALOG, nil, nil, { book = book, line = e }) ~= nil
+end
+StaticPopupDialogs[RECEIPT_DIALOG] = {
+	text = L.CONTRIBUTIONS_RECEIPT_HELP,
+	button1 = OKAY or "OK", button2 = CANCEL or "Cancel", hasEditBox = true, editBoxWidth = 280, maxLetters = 155,
+	OnShow = function(self)
+		local field = self.editBox or self.EditBox
+		if field then field:SetText("") end
+	end,
+	OnAccept = function(self, data)
+		local field = self.editBox or self.EditBox
+		local guild, reference = tostring(field and field:GetText() or ""):match("^%s*(.-)%s*|%s*(.-)%s*$")
+		if not data or not T.ClassifyContribution(data.line, data.book, guild, reference) then ns.Print(L.CONTRIBUTIONS_RECEIPT_INVALID) end
+	end,
+	timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+function C.ReceiptLines()
+	local lines = { { text = "< " .. L.CONTRIBUTIONS_INTEREST_TITLE, onClick = function() ns.Views.ShowPage("prime-interest") end } }
+	if not Staff() then return lines end
+	lines[#lines + 1] = { header = true, text = L.CONTRIBUTIONS_RECEIPT_REVIEW }
+	lines[#lines + 1] = { text = L.CONTRIBUTIONS_RECEIPT_NOTE, gapAfter = true }
+	local book, count = T.BookOf(ns.me), 0
+	for i = #(book and book.lines or {}), 1, -1 do
+		local e = book.lines[i]
+		local source, reference = C.SourceLabel(book, e)
+		if source and e.kind == "charity" then
+			count = count + 1
+			lines[#lines + 1] = { text = ns.DisplayName(e.patron), right = T.Coins(e.money), indent = 1 }
+			lines[#lines + 1] = { text = (source == "treasurer-attested" and L.CONTRIBUTIONS_RECEIPT_ATTESTED or L.CONTRIBUTIONS_RECEIPT_NATIVE)
+				.. (reference and (": " .. reference) or ""), indent = 2 }
+		elseif Eligible(book, e, ns.FullName(ns.Normal(e.name))) then
+			count = count + 1
+			local proof = C.Classification(book, e)
+			lines[#lines + 1] = { text = ns.DisplayName(e.name), right = T.Coins(e.money), indent = 1 }
+			lines[#lines + 1] = { text = proof and L.CONTRIBUTIONS_RECEIPT_INCLUDE or L.CONTRIBUTIONS_RECEIPT_ATTEST,
+				indent = 2, onClick = function()
+					if proof then T.ClassifyContribution(e, book) else C.PromptReceipt(book, e) end
+				end }
+		end
+		if count >= 40 then break end
+	end
+	if count == 0 then lines[#lines + 1] = { text = L.CONTRIBUTIONS_EMPTY } end
+	return lines
+end
+table.insert(ns.RealmPages, { key = "contribution-receipts", Lines = C.ReceiptLines, Link = function()
+	if Staff() then return { text = "> " .. L.CONTRIBUTIONS_RECEIPT_REVIEW, onClick = function() ns.Views.ShowPage("contribution-receipts") end } end
+end })
+
+-- The current Treasurer edits informational copy and signs each publication with a delegated
+-- key. Author-signed legacy milestones remain readable. Neither route moves money or grants
+-- rewards, ranks, access or native game actions.
 local milestones = {}
 local MILESTONE_DIALOG = "OLYMPUS_CONTRIBUTION_MILESTONE"
 local function MilestoneField(text, max)
@@ -468,6 +635,38 @@ local function ParseMilestones(blob)
 	end
 	return found and ns.Sign.Verify(text, sig) and rows or {}
 end
+local function MilestoneContent(text)
+	if text == "CM~1~-" then return {} end
+	local items = type(text) == "string" and text:match("^CM~1~(.+)$")
+	if not items or #text > 655 or items:find("^!") or items:find("!$") or items:find("!!", 1, true) then return nil end
+	local rows = {}
+	for _, item in ipairs(ns.Codec.Split(items, "!")) do
+		local title, description = item:match("^([^=]+)=([^=]+)$")
+		if #rows >= 4 or not MilestoneField(title, 40) or not MilestoneField(description, 120) then return nil end
+		rows[#rows + 1] = { title = title, description = description }
+	end
+	return #rows > 0 and rows or nil
+end
+local registeredAuthority
+function C.RegisterMilestoneAuthority()
+	local A = ns.FederationAuthority
+	if not A or not A.Register then return false end
+	if registeredAuthority == A then return true end
+	A.Register("milestones", function(content, record)
+		if type(record) ~= "table" or not Scope() or not IsTreasurer(record.issuer) or not D.MandatoryGuild(record.guild) then return nil end
+		local rows = MilestoneContent(content)
+		if rows then return rows, Scope() end
+	end, function()
+		if ns.rdb and Scope() then
+			ns.rdb.contributionMilestoneDelegated = type(ns.rdb.contributionMilestoneDelegated) == "table" and ns.rdb.contributionMilestoneDelegated or {}
+			ns.rdb.contributionMilestoneDelegated[Scope()] = true
+		end
+		ns.Fire("DATA_CHANGED")
+	end)
+	registeredAuthority = A
+	return true
+end
+C.RegisterMilestoneAuthority()
 function C.MilestoneLines(lines)
 	local pin, scope = Treasurer(), Scope()
 	if not pin or not scope then return end
@@ -476,9 +675,15 @@ function C.MilestoneLines(lines)
 	if blob ~= milestones.blob or scope ~= milestones.scope or pin ~= milestones.pin then
 		milestones = { blob = blob, scope = scope, pin = pin, rows = ParseMilestones(blob) }
 	end
-	if not milestones.rows or #milestones.rows == 0 then return end
+	local delegated = ns.rdb and ns.rdb.contributionMilestoneDelegated
+	local rows = type(delegated) == "table" and delegated[scope] and {} or milestones.rows
+	if C.RegisterMilestoneAuthority() then
+		local record = ns.FederationAuthority.Current("milestones", scope)
+		if record and IsTreasurer(record.issuer) and D.MandatoryGuild(record.guild) then rows = MilestoneContent(record.content) or {} end
+	end
+	if not rows or #rows == 0 then return end
 	lines[#lines + 1] = { header = true, text = L.CONTRIBUTIONS_MILESTONES }
-	for _, row in ipairs(milestones.rows) do
+	for _, row in ipairs(rows) do
 		lines[#lines + 1] = { text = row.title, tooltip = function(tt) tt:AddLine(row.description, 1, 1, 1, true) end }
 	end
 end
@@ -488,11 +693,36 @@ local function Drafts(create)
 	return ns.db.contributionMilestoneDraft
 end
 function C.SaveMilestoneDraft(text)
-	if not Staff() or type(text) ~= "string" then return false end
-	local title, description = text:match("^%s*(.-)%s*|%s*(.-)%s*$")
-	if not MilestoneField(title, 40) or not MilestoneField(description, 120) then return false end
-	Drafts(true)[Scope()] = title .. " | " .. description
+	if not Staff() or type(text) ~= "string" or #text > 658 or text == "" or text:find(";%s*$") or text:find("^%s*;") or text:find(";%s*;") then return false end
+	local items = {}
+	for _, item in ipairs(ns.Codec.Split(text, ";")) do
+		local title, description = item:match("^%s*(.-)%s*|%s*(.-)%s*$")
+		if #items >= 4 or not MilestoneField(title, 40) or not MilestoneField(description, 120) then return false end
+		items[#items + 1] = title .. "=" .. description
+	end
+	if #items == 0 then return false end
+	Drafts(true)[Scope()] = text
 	return true
+end
+function C.PublishMilestones()
+	if not Staff() or not C.RegisterMilestoneAuthority() then return false end
+	local text = (Drafts() or {})[Scope()]
+	if not C.SaveMilestoneDraft(text) then return false end
+	local items = {}
+	for _, item in ipairs(ns.Codec.Split(text, ";")) do
+		local title, description = item:match("^%s*(.-)%s*|%s*(.-)%s*$")
+		items[#items + 1] = title .. "=" .. description
+	end
+	local A = ns.FederationAuthority
+	local ready, why = A.Ready("milestones")
+	if not ready then return false, why end
+	return A.Publish("milestones", "CM~1~" .. table.concat(items, "!"))
+end
+function C.ClearMilestones()
+	if not Staff() or not C.RegisterMilestoneAuthority() then return false end
+	local ready, why = ns.FederationAuthority.Ready("milestones")
+	if not ready then return false, why end
+	return ns.FederationAuthority.Publish("milestones", "CM~1~-")
 end
 function C.PromptMilestone()
 	if Staff() then ns.ShowDialog(MILESTONE_DIALOG) end
@@ -501,7 +731,7 @@ StaticPopupDialogs[MILESTONE_DIALOG] = {
 	text = L.CONTRIBUTIONS_MILESTONE_HELP,
 	button1 = OKAY or "OK",
 	button2 = CANCEL or "Cancel",
-	hasEditBox = true, editBoxWidth = 260, maxLetters = 163,
+	hasEditBox = true, editBoxWidth = 320, maxLetters = 658,
 	OnShow = function(self)
 		local field = self.editBox or self.EditBox
 		if field and Staff() then field:SetText((Drafts() or {})[Scope()] or "") end

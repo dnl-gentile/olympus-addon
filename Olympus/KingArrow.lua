@@ -316,6 +316,7 @@ end
 -- marks his spot itself inside the minimap's range (his own crown is not drawn there); nil and the
 -- reason for nothing.
 function Arrow.Target()
+	if not ns.SharedToolsHere() then return nil, "federation" end
 	if not Arrow.Enabled() then return nil, "disabled" end
 	if IsInInstance and IsInInstance() then return nil, "instance" end
 	local K = ns.King
@@ -509,6 +510,7 @@ local function OwnChoice()
 end
 
 local function StillOwn(e, msg)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local own = OwnChoice()
 	if not own or not SamePolicy(own, e) or Message(own) ~= msg then stats.revoked = stats.revoked + 1; return false, "changed" end
 	if not ns.IsMember or not ns.IsMember() then stats.revoked = stats.revoked + 1; return false, "left" end
@@ -528,6 +530,7 @@ local function SendPolicy(e)
 end
 
 function Arrow.SetEnabled(on, scope, quiet)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if type(on) ~= "boolean" then return false, "value" end
 	local can, chosen = Arrow.CanControl(scope, ns.me, OwnGuild())
 	if not can then
@@ -589,6 +592,7 @@ function Arrow.Handle(dist, sender, text)
 	sender = CleanSender(sender)
 	local guild = scope == "guild" and CleanGuild(wireGuild, false) or CleanGuild(wireGuild, true)
 	if not sender or not guild then stats.refused = stats.refused + 1; return false, "identity" end
+	if not ns.SharedPeerAllowed(sender, scope == "guild" and guild or nil) then return false, "federation" end
 	if scope == "guild" and guild ~= OwnGuild() then stats.refused = stats.refused + 1; return false, "guild" end
 	if not Controller(scope, sender, guild) then stats.refused = stats.refused + 1; return false, "access" end
 	local e = { scope = scope, by = sender, enabled = value == "1", at = tonumber(at), guild = guild }

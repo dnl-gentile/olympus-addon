@@ -214,16 +214,23 @@ local function Circle(pts)
 	return cx, cy, math.sqrt(cx * cx + cy * cy - f)
 end
 -- The centre of the inner edge of the art's ring, in the art's pixels, from a point inside it.
-local function RingCentre(alpha, x0, y0)
+local function RingCentre(alpha, x0, y0, soft)
 	local pts = {}
 	for deg = 0, 358, 2 do
 		local t, r = math.rad(deg), 5
 		while r < 75 do
 			local a = alpha(math.floor(x0 + r * math.cos(t) + 0.5), math.floor(y0 + r * math.sin(t) + 0.5))
-			if a == nil or a >= 128 then break end
+			if a == nil or a >= (soft and 32 or 128) then break end
 			r = r + 0.25
 		end
 		if r < 75 then pts[#pts + 1] = { x0 + r * math.cos(t), y0 + r * math.sin(t) } end
+	end
+	-- Fox's supplied opening is deliberately irregular and carried by a soft lightning halo.
+	-- Fit all observed inner-edge rays there; trimming to a rigid circular rim discards most
+	-- of that authored shape. Existing rigid-ring fits below keep their original threshold.
+	if soft then
+		assert(#pts >= 140, "enough of the supplied lightning opening: " .. #pts)
+		return Circle(pts)
 	end
 	local cx, cy, cr
 	for _ = 1, 8 do
@@ -241,10 +248,10 @@ end
 -- The same, from where it finds the centre again until it stops moving: a ray's edge depends on
 -- where the rays start (8 file pixels left or right of the centre move one reading 4 px), so the
 -- start is the portrait's centre only for the first reading.
-local function SettledRingCentre(alpha, x0, y0)
-	local cx, cy, cr = RingCentre(alpha, x0, y0)
+local function SettledRingCentre(alpha, x0, y0, soft)
+	local cx, cy, cr = RingCentre(alpha, x0, y0, soft)
 	for _ = 1, 20 do
-		local nx, ny, nr = RingCentre(alpha, cx, cy)
+		local nx, ny, nr = RingCentre(alpha, cx, cy, soft)
 		local moved = math.abs(nx - cx) + math.abs(ny - cy)
 		cx, cy, cr = nx, ny, nr
 		if moved < 0.01 then return cx, cy, cr end
@@ -289,6 +296,43 @@ test("Queen dragon geometry: the actual alpha opening fits native and party port
 	end)
 end)
 
+test("Fox dragon geometry: the actual alpha opening fits native and party portraits instead of shrinking inside them", function()
+	WithBorders(function(w)
+		w.party(); w.internal("LOGIN")
+		local own = w.B.Rig(w.container("FoxOwn"), true, true)
+		w.B.ShowTier(own, "fox-dragon")
+		-- Forever 70790 Mainline TargetFrame.xml: 58 at -26,-19 from TOPRIGHT;
+		-- PlayerFrame.xml:27-29: 60 at 24,-19; party: 37 at 7,-6.
+		local centres = {
+			["TargetFrame.TargetFrameContainer"] = { -55, 48, 58 },
+			["FocusFrame.TargetFrameContainer"] = { -55, 48, 58 },
+			["PlayerFrame.PlayerFrameContainer"] = { 54, 49, 60 },
+			["FoxOwn"] = { 54, 49, 60 },
+			["PartyMember#1"] = { 25.5, 24.5, 37 },
+		}
+		local measured = 0
+		for _, tex in ipairs(w.textures) do
+			local want = centres[tex.owner]
+			if want and tex.file and tex.file:match("fox%-dragon$") then
+				local l, r, t, b = tex.coord:match("^(%S+) (%S+) (%S+) (%S+)$")
+				l, r, t, b = tonumber(l), tonumber(r), tonumber(t), tonumber(b)
+				local sx, sy = tex.dims[1] / (math.abs(r - l) * 256), tex.dims[2] / ((b - t) * 256)
+				local cx, cy, radius = SettledRingCentre(Alpha(tex.file), 80, 95, true)
+				local x = tex.at.x + (tex.at.p == "TOPRIGHT" and -tex.dims[1] or 0)
+				local gx = x + (l > r and l * 256 - cx or cx - l * 256) * sx
+				local gy = -tex.at.y + (cy - t * 256) * sy
+				assert(math.abs(radius * 2 * sx - want[3]) < 3,
+					("%s: Fox opening %.2f px must fit its %d px portrait"):format(tex.owner, radius * 2 * sx, want[3]))
+				assert(math.abs(sx - sy) < 0.000001, "the supplied art keeps its proportions")
+				assert(math.abs(gx - want[1]) < 1 and math.abs(gy - want[2]) < 1,
+					("%s: Fox centre is displaced %.2f, %.2f"):format(tex.owner, gx - want[1], gy - want[2]))
+				measured = measured + 1
+			end
+		end
+		eq(measured, 5, "target, focus, own native, own Olympus and party all measured")
+	end)
+end)
+
 test("1.2.1 party borders: every border drawn from Olympus's own file (the Queen's and Treasurer's dragons, the bronze wings, the plain bronze) has its ring round the party member's portrait, within a pixel of its centre", function()
 	local saved = { ns.TREASURER, ns.TREASURER_CHARACTERS, ns.TREASURER_REALM }
 	ns.TREASURER, ns.TREASURER_CHARACTERS, ns.TREASURER_REALM = "Test Treasurer", { "Test Treasurer", "Test Mail" }, "Realm"
@@ -313,14 +357,14 @@ test("1.2.1 party borders: every border drawn from Olympus's own file (the Queen
 					local x0, y0 = tex.at.x, -tex.at.y -- (its top left, down from the frame's top)
 					-- The portrait's centre in the art's pixels (turned round), then the ring's.
 					local fx, fy = cw - (px - x0) / sx, (py - y0) / sy
-					local cx, cy = SettledRingCentre(Alpha(tex.file), fx, fy)
+					local cx, cy = SettledRingCentre(Alpha(tex.file), fx, fy, name == "fox-dragon")
 					local gx, gy = x0 + (cw - cx) * sx, y0 + cy * sy
 					measured[name] = ("%.2f %.2f"):format(gx - px, gy - py)
 					assert(math.abs(gx - px) < 1 and math.abs(gy - py) < 1,
 						("%s: its ring's centre %.2f px across and %.2f px down from the portrait's"):format(name, gx - px, gy - py))
 				end
 			end
-			for _, name in ipairs({ "queen-dragon", "treasurer-dragon", "bronze-elite", "bronze" }) do assert(measured[name], name .. " measured") end
+			for _, name in ipairs({ "queen-dragon", "fox-dragon", "treasurer-dragon", "bronze-elite", "bronze" }) do assert(measured[name], name .. " measured") end
 		end)
 	end)
 	ns.TREASURER, ns.TREASURER_CHARACTERS, ns.TREASURER_REALM = unpack(saved, 1, 3)

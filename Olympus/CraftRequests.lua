@@ -937,6 +937,7 @@ end
 Requests.Card = Card
 
 local function Publish(r, force)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not r or not Same(r.requester, ns.me) or not ns.IsMember() then return false, "authority" end
 	if Requests.Barred() then return false, "sanction" end
 	local now = Now()
@@ -949,7 +950,7 @@ local function Publish(r, force)
 	local rev = r.rev
 	local ok = ns.Comm.Send("CHANNEL", msg, "craft-card:" .. r.id, false, true, nil, { owner = Requests, guard = function()
 		local current = Requests.Get(r.id)
-		return ns.IsMember() and current ~= nil and Same(current.requester, ns.me) and current.rev == rev
+		return ns.IsMember() and ns.SharedToolsHere() and current ~= nil and Same(current.requester, ns.me) and current.rev == rev
 	end })
 	if not ok then r.publishPending = true end
 	return ok and true or false, ok and "ok" or "busy"
@@ -1021,6 +1022,7 @@ function Requests.ReceiveSnapshot(dist, sender, text)
 		or created > now + 300 or now > created + ttl + Requests.RETAIN or not itemID or not quantity or (kind ~= "c" and kind ~= "g")
 		or not state or not materials or guild == "" or not ns.IsFederation(guild) or itemName == ""
 		or not reference or not quoteAt or not floor then return false, "shape" end
+	if not ns.SharedPeerAllowed(sender, guild) then return false, "federation" end
 	if not ns.Data.ClaimGuild(sender, guild) then return false, "guild" end
 	local old = Requests.Get(id)
 	if old and not Same(old.requester, sender) then return false, "identity" end
@@ -1050,10 +1052,12 @@ end
 -- The private words (CR): one sequence per record and sender, whatever the verb.
 --------------------------------------------------------------------------
 
+Requests.NEW_WORK = { accepted = true, offer = true, termok = true, start = true }
 local function NextSeq(r) r.outSeq = (tonumber(r.outSeq) or 0) + 1 return r.outSeq end
 
 local function SendWord(r, to, verb, ...)
 	if not to then return false, "party" end
+	if Requests.NEW_WORK[verb] and not ns.SharedPeerAllowed(to) then return false, "federation" end
 	if Requests.Barred() then return false, "sanction" end
 	local seq = NextSeq(r)
 	local parts = { "CR", "1", r.id, tostring(seq), verb }
@@ -1061,7 +1065,7 @@ local function SendWord(r, to, verb, ...)
 	local msg = table.concat(parts, "~")
 	if #msg > Requests.MESSAGE_MAX then return false, "size" end
 	local ok = ns.Comm.Whisper(to, msg, "craft-action:" .. r.id .. ":" .. seq, true, true, nil, { owner = Requests, guard = function()
-		return Requests.Get(r.id) ~= nil and ns.IsMember()
+		return Requests.Get(r.id) ~= nil and ns.IsMember() and (not Requests.NEW_WORK[verb] or ns.SharedPeerAllowed(to))
 	end })
 	return ok and true or false, ok and "ok" or "busy"
 end
@@ -1139,6 +1143,7 @@ end
 
 function Requests.Accept(id)
 	local r = Requests.Get(id)
+	if not ns.SharedToolsHere() or (r and not ns.SharedPeerAllowed(r.requester, r.guild)) then return false, "federation" end
 	if not r or r.state ~= "open" or Same(r.requester, ns.me) then return false, "state" end
 	if not ns.IsMember() then return false, "member" end
 	if Requests.Barred() then return false, "sanction" end
@@ -1154,7 +1159,7 @@ function Requests.Accept(id)
 	local msg = ("CR~1~%s~%d~claim~%d~%s~%s"):format(r.id, seq, r.rev or 0, nonce, guild)
 	local ok = ns.Comm.Whisper(r.requester, msg, "craft-claim:" .. r.id, true, true, nil, { owner = Requests, guard = function()
 		local now = Requests.Get(r.id)
-		return now ~= nil and now.state == "open" and ns.IsMember()
+		return now ~= nil and now.state == "open" and ns.IsMember() and ns.SharedPeerAllowed(now.requester, now.guild)
 	end })
 	if not ok then r.claimPending = nil end
 	Audit(r, "claim-sent", ns.me)
@@ -1186,6 +1191,7 @@ end
 
 local function TakeClaim(r, sender, seq, f)
 	local key = Lower(sender)
+	if not ns.SharedPeerAllowed(sender, f[8]) then return false, "federation" end
 	local rev, nonce, guild = Clamp(f[6], 0, 2147483647), f[7], Clean(f[8], Requests.GUILD_MAX)
 	if not rev or not Same(r.requester, ns.me) or type(nonce) ~= "string" or #nonce > 16 or not nonce:match("^[0-9a-z]+$")
 		or guild == "" or not ns.IsFederation(guild) or not ns.Data.ClaimGuild(sender, guild) then return false, "claim" end
@@ -1307,6 +1313,7 @@ function Requests.ReceiveAction(dist, sender, text)
 	r.seenActions = type(r.seenActions) == "table" and r.seenActions or {}
 	local seen = tonumber(r.seenActions[Lower(sender)]) or 0
 	if seq <= seen or seq > seen + 1000 then return false, seq <= seen and "replay" or "sequence" end
+	if Requests.NEW_WORK[verb] and not ns.SharedPeerAllowed(sender) then return false, "federation" end
 	if verb == "claim" then return TakeClaim(r, sender, seq, f) end
 	if verb == "accepted" or verb == "taken" then return TakeAnswer(r, sender, seq, verb, f) end
 	if not ActionAllowed(r, sender, verb) then return false, "authority" end
@@ -1411,6 +1418,7 @@ end
 --------------------------------------------------------------------------
 
 function Requests.ProposeTerms(id, mode, unit, floor, quote, settlement)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local r = Requests.Get(id)
 	if not r or not Same(r.crafter, ns.me) or r.state ~= "accepted" then return false, "state" end
 	-- Once he agreed to his own offer the requester's yes may already have closed it on the
@@ -1456,6 +1464,7 @@ function Requests.UseSuggestedTerms(id)
 end
 
 function Requests.ConfirmTerms(id)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local r = Requests.Get(id)
 	if not r or not Party(r, ns.me) or r.state ~= "accepted" or not r.terms then return false, "state" end
 	local role = Same(r.requester, ns.me) and "requester" or "crafter"
@@ -1468,6 +1477,7 @@ function Requests.ConfirmTerms(id)
 end
 
 function Requests.Start(id)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	local r = Requests.Get(id)
 	local s = r and r.settlement
 	if not r or not Same(r.crafter, ns.me) or r.state ~= "terms" or not s then return false, "state" end
@@ -3941,6 +3951,7 @@ end
 
 function Requests.Composing() return composer ~= nil end
 function Requests.OpenComposer(prefill)
+	if not ns.SharedToolsHere() then ns.Print(L.FEDERATION_TOOLS_LOCKED) return false, "federation" end
 	composer = { stage = "item", quantity = 1, kind = "all", profession = "all", materials = "crafter", details = "" }
 	pageMode = "board"
 	if ns.Views and ns.Views.SetFilter then ns.Views.SetFilter("crafters", tostring(prefill or "")) end
@@ -3982,6 +3993,7 @@ function Requests.SetComposerDetails(text)
 end
 
 function Requests.PublishDraft()
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if not composer or composer.stage ~= "details" or not composer.item or not ns.IsMember() then return false, "draft" end
 	local barred = Requests.Barred()
 	if barred then ns.WatchChat.TellBarred(barred) return false, "sanction" end
@@ -4018,6 +4030,7 @@ local function SettlementLabel(state) return rawget(L, "CRAFT_SETTLEMENT_" .. to
 local function GateLabel(why) return rawget(L, "CRAFT_GATE_" .. tostring(why):upper()) or L.CRAFT_GATE_ARENA end
 
 function Requests.ComposerLines()
+	if not ns.SharedToolsHere() then return { { text = L.FEDERATION_TOOLS_LOCKED } } end
 	local c = composer
 	if not c then return {} end
 	local lines = { { header = true, text = L.CRAFT_REQUEST_COMPOSER },
@@ -4421,6 +4434,7 @@ function Fee.Page(lines)
 end
 
 function Requests.BoardLines(q)
+	if not ns.SharedToolsHere() and pageMode == "board" then return { { text = L.FEDERATION_TOOLS_LOCKED } } end
 	local duty = false
 	for _, r in pairs(Store().records) do if Custody(r) or Reviewing(r) then duty = true break end end
 	if pageMode == "duty" and not duty then pageMode = "board" end

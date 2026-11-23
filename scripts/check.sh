@@ -110,6 +110,7 @@ fi
 printf 'Running the signing round trip...\n'
 bash tests/sign-roundtrip.sh
 bash tests/federation-fugitives-sign.sh
+bash tests/federation-authority-sign.sh
 
 if command -v python3 >/dev/null 2>&1; then
 	printf 'Running the monthly records sealing round trip...\n'

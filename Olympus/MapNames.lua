@@ -25,7 +25,7 @@ function MapNames.IsEditor(name)
 	return ns.IsHighCouncillor(name) == true and not Barred(name)
 end
 function MapNames.CanEdit()
-	return ns.IsMember() == true and MapNames.IsEditor(ns.me)
+	return ns.IsMember() == true and ns.SharedToolsHere() and MapNames.IsEditor(ns.me)
 end
 function MapNames.ValidMap(id)
 	return type(id) == "number" and id == math.floor(id) and id >= 1 and id <= MapNames.MAX_MAP
@@ -91,10 +91,11 @@ end
 function MapNames.Name(id, original)
 	local S = ns.rdb and ns.rdb.mapNames
 	local e = type(S) == "table" and S[id]
-	if ns.IsMember() and ValidEntry(id, e) and e.text ~= "" and MapNames.IsEditor(e.by) and not Hidden(e.text) then return e.text end
+	if ns.IsMember() and ns.SharedToolsHere() and ValidEntry(id, e) and e.text ~= "" and MapNames.IsEditor(e.by) and not Hidden(e.text) then return e.text end
 	return original or MapNames.Original(id)
 end
 function MapNames.Entries()
+	if not ns.SharedToolsHere() then return {} end
 	local out = {}
 	for key, e in pairs(Store() or {}) do
 		if ValidEntry(key, e) and MapNames.IsEditor(e.by) and e.text ~= "" and not Hidden(e.text) then
@@ -155,6 +156,7 @@ function MapNames.Confirm(preview)
 	return true
 end
 function MapNames.Receive(dist, sender, message)
+	if not ns.SharedPeerAllowed(sender) then return false end
 	if dist ~= "CHANNEL" or not ns.IsMember() or not MapNames.IsEditor(sender)
 		or type(message) ~= "string" or #message > 255 then return false end
 	local id, at, author, text = message:match("^MN~1~([^~]+)~(%d+)~([^~]+)~([^~]*)$")

@@ -253,6 +253,13 @@ local function WithWorld(fn, options)
 			c.Fold = function(s) return tostring(s or ""):lower() end
 			c.IsFederation = function(g) return type(g) == "string" and g:lower():find("olympus", 1, true) ~= nil end
 			c.IsMember = function() return c.member == true end
+			-- This fixture models approved participation separately from guild identity.
+			c.participating, c.deniedPeers = true, {}
+			c.SharedToolsHere = function() return c.participating == true end
+			c.SharedPeerAllowed = function(sender)
+				return c.SharedToolsHere() and type(sender) == "string"
+					and c.deniedPeers[sender:lower()] ~= true
+			end
 			c.IsKingCharacter = function(n) return type(n) == "string" and n:lower() == KING:lower() end
 			c.IsHighCouncillor = function(n) return c.council[tostring(n):lower()] == true end
 			c.Data = { ServerTime = function() return w.clock end }
@@ -972,5 +979,25 @@ test("king arrow: disabling from another zone removes its world pin too", functi
 		eq(#c.pins.removes, 1)
 		eq(c.KingArrow.State().reason, "disabled")
 		eq(c.KingArrow.State().frame.shown, false)
+	end)
+end)
+
+
+test("king arrow: participation withdrawal hides the pointer and rejects otherwise authorized controls", function()
+	WithWorld(function(w)
+		local c = w.client("Viewer")
+		eq(w.use(c, c.KingArrow.Refresh), true)
+		c.participating = false
+		local target, why = w.use(c, c.KingArrow.Target)
+		eq(target, nil); eq(why, "federation")
+		eq(w.use(c, c.KingArrow.Refresh), false)
+		eq(c.KingArrow.State().drawn, nil)
+		local council = "Council-Realm"
+		c.council[council:lower()] = true
+		eq(w.use(c, c.KingArrow.Handle, "CHANNEL", council, "K6~1~G~1~1000~"), false)
+		c.participating = true
+		c.deniedPeers[council:lower()] = true
+		eq(w.use(c, c.KingArrow.Handle, "CHANNEL", council, "K6~1~G~1~1000~"), false)
+		eq(c.IsHighCouncillor(council), true, "the existing signed role is unchanged")
 	end)
 end)

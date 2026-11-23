@@ -300,6 +300,19 @@ Long live the King. Long live Olympus.]==]
 -- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
 -- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
 L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_3_TITLE = "One Accord, Clearer Tools"
+L.LETTER_1_6_3 = [==[- My Discord Verification is at the top of The Realm with clearer steps. Local progress does not confirm Discord access.
+
+- Shared tools use the guild approval already recorded. No second participation list is required.
+
+- Contribution review includes received gold mail, retained game history and private Treasurer attestations. Names and amounts stay private until consent; no gold is created or moved.
+
+- An authorized Treasurer signing key can publish informational milestones.
+
+- Supports scoped, time-limited federation decisions, appeals and recovery without resetting existing guild approvals.
+
+- Improves Australian realm identification and Link realm relearning.]==]
+
 L.LETTER_1_6_2_TITLE = "Roles Restored"
 L.LETTER_1_6_2 = [==[- Restores realm identification on Forever when the game returns an empty realm name, so the correct census and signed role lists can load again.
 
@@ -594,6 +607,19 @@ Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_3_TITLE = "Uma aliança, ferramentas mais claras"
+	L.LETTER_1_6_3 = [==[- My Discord Verification fica no topo de The Realm, com etapas mais claras. O progresso local não confirma acesso ao Discord.
+
+- As ferramentas compartilhadas usam a aprovação da guilda já registrada. Não é necessária uma segunda lista de participação.
+
+- A revisão de contribuições inclui ouro recebido por correio, histórico preservado do jogo e atestações privadas do Tesoureiro. Nome e valor ficam privados até a autorização; nenhum ouro é criado ou movido.
+
+- Uma chave autorizada do Tesoureiro pode publicar marcos informativos assinados.
+
+- Permite decisões da federação com escopo e validade definidos, recursos e recuperação sem apagar as aprovações existentes das guildas.
+
+- Melhora a identificação dos reinos australianos e o reaprendizado de reinos do Link.]==]
+
 	L.LETTER_1_6_2_TITLE = "Cargos recuperados"
 	L.LETTER_1_6_2 = [==[- Recupera a identificação do reino no Forever quando o jogo retorna o nome vazio, para voltar a carregar o censo e as listas assinadas de cargos do reino correto.
 
@@ -1867,6 +1893,7 @@ L.BORDERS_PREVIEW_TIP = "Shows this border round your own portrait, and on your 
 L.BORDERS_PREVIEW_TIP_MEMBER = "Shows the star of any other Olympus member after your name on your own frame and on every friendly player's nameplate (no border has it). On your screen only: nothing is sent, and a /reload forgets it. Click it again, or type /oly borders test off, to end it."
 L.BORDERS_WHO_GOLD_ELITE = "gold wings: the King"
 L.BORDERS_WHO_QUEEN_DRAGON = "the crimson dragon: the Queen"
+L.BORDERS_WHO_FOX_DRAGON = "the silver lightning dragon: Akafoxslayer Thunderfury (cosmetic only)"
 L.BORDERS_WHO_TREASURER_DRAGON = "the jewelled dragon: the federal Treasurer and the Quaestor"
 L.BORDERS_WHO_SILVER_ELITE = "silver wings: the High Council"
 L.BORDERS_WHO_BRONZE_ELITE = "bronze wings: guild masters"
@@ -4509,6 +4536,7 @@ if GetLocale and GetLocale() == "ptBR" then
 	L.BORDERS_PREVIEW_TIP_MEMBER = "Mostra a estrela de qualquer outro membro do Olympus depois do seu nome no seu quadro e na placa de identificação de todo jogador aliado (nenhuma borda a tem). Só na sua tela: nada é enviado, e um /reload esquece. Clique de novo, ou digite /oly borders test off, para encerrar."
 	L.BORDERS_WHO_GOLD_ELITE = "dourada com asas: o Rei"
 	L.BORDERS_WHO_QUEEN_DRAGON = "o dragão carmesim: a Rainha"
+	L.BORDERS_WHO_FOX_DRAGON = "o dragão prateado de raios: Akafoxslayer Thunderfury (apenas visual)"
 	L.BORDERS_WHO_TREASURER_DRAGON = "o dragão de joias: o Tesoureiro federal e o Questor"
 	L.BORDERS_WHO_SILVER_ELITE = "prateada com asas: o High Council"
 	L.BORDERS_WHO_BRONZE_ELITE = "bronze com asas: mestres de guilda"

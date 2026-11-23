@@ -1,6 +1,14 @@
 # Federation fugitive list
 
-The author signs decisions for a particular Forever region, ruleset and faction after review. The addon applies a current list in guilds with a current signed federation enrollment. The list carries exact game character names and their native realms. Keep appeal notes, account identifiers and other evidence in the staff process.
+The author signs complete lists for a particular Forever region, ruleset and faction after review. The addon applies a current list in guilds with an existing valid Verify approval or explicit signed legacy policy. The list carries exact game character names and their native realms. Keep appeal notes, account identifiers and other evidence in the staff process.
+
+The candidate also supports scoped Council/operator decisions, native removal observations,
+signed pardons and harboring suspension. See [scoped authority](FEDERATION-AUTHORITY.md) for
+the required public-key setup, temporary delegation bounds and review choices. The legacy
+FUG1 signer below remains available. A locally received pardon retains a replay floor against
+older legacy lists through their maximum 31-day lifetime. A later explicitly dated list can
+supersede it. Update the complete legacy list after an appeal so a new client which never
+received the pardon does not learn an obsolete sanction from that list.
 
 Create a local JSON file with the desired **complete** list. The following example uses fictional characters and dates. Replace the times before signing.
 

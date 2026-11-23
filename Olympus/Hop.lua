@@ -198,7 +198,7 @@ end
 -- one everybody wants, and his screen is on stream.
 function Hop.Helps() return ns.db ~= nil and ns.db.layerHelp == true end
 function Hop.CanHelp(mapID, zoneUID)
-	if not Hop.Helps() or not ns.IsMember() then return false end
+	if not Hop.Helps() or not ns.IsMember() or not ns.SharedToolsHere() then return false end
 	-- An offer tells the asker we are on that layer: only for players who share theirs (0.9.2).
 	if not ns.Layers.Sharing() then return false end
 	if ns.King and ns.King.IsKing and ns.King.IsKing() then return false end
@@ -259,6 +259,7 @@ end
 -- are the King's or the author's word, whatever guild they play in: VerifiedLevel verifies the
 -- King's titles only for his own guild, and a councillor below an officer's rank nowhere.
 local function Member(sender)
+	if not ns.SharedPeerAllowed(sender) then return false end
 	local R = ns.Roster
 	if R and R.RankOf and R.RankOf(sender) ~= nil then return true end
 	local K = ns.King
@@ -278,6 +279,7 @@ Hop.Member = Member
 
 -- A layer announcement chooses whom we ask. It does not establish their membership.
 local function Sister(name, expectedGuild)
+	if not ns.SharedPeerAllowed(name, expectedGuild) then return nil end
 	if ns.IsKingCharacter(name) or Hop.SubRealmOf(name) or ns.RealmOf(name) ~= ns.realm then return nil end
 	local guild = (ns.Moderation.GuildOf and ns.Moderation.GuildOf(name))
 		or (ns.Data.ClaimedGuild and ns.Data.ClaimedGuild(name))
@@ -363,6 +365,7 @@ end
 -- guest plays on another Forever sub-realm: he arrives only after logging out and back in, so he is
 -- kept RELOG_WINDOW instead, and the helper is told not to wait for him to show up.
 local function Invite(name, id, release, other) -- gp:hop-group
+	if not ns.SharedPeerAllowed(name) then return end
 	local target = ns.TellName(name)
 	if C_PartyInfo and C_PartyInfo.InviteUnit then C_PartyInfo.InviteUnit(target) elseif InviteUnit then InviteUnit(target) end
 	guests[ns.ShortName(name)] = { name = name, id = id or 0, t = ns.Now(), release = release and true or false,
@@ -530,6 +533,7 @@ end
 -- These checks do not change the player's group or their sharing preferences.
 local function RequestProblem(allowGroup)
 	if not ns.IsMember() then return ns.MembersOnlyText() end
+	if not ns.SharedToolsHere() then return L.FEDERATION_TOOLS_LOCKED end
 	local off = ns.Moderation.SelfOff and ns.Moderation.SelfOff()
 	if off then return ns.Moderation.YouText(off) end
 	if IsInInstance and IsInInstance() then return L.HOP_INSTANCE end
@@ -715,7 +719,7 @@ function Hop.Next()
 		ns.Print(L.HOP_REQUESTED:format(ns.DisplayName(o.name)))
 		Changed()
 	end, { owner = a, guard = function()
-		return a.phase == "requesting" and a.helper == o.name and CanSend(a)
+		return a.phase == "requesting" and a.helper == o.name and CanSend(a) and ns.SharedPeerAllowed(o.name, o.sisterGuild)
 			and (not o.sisterGuild or SisterOnLayer(a, o.name, o.sisterGuild))
 	end })
 	Changed()

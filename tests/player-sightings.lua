@@ -87,6 +87,13 @@ local function WithWorld(fn)
 			c.Now = function() return world.now end
 			c.Normal = function(value) return value end
 			c.IsMember = function() return client.member end
+			-- This fixture models approved participation separately from guild identity.
+			client.participating, client.deniedPeers = true, {}
+			c.SharedToolsHere = function() return client.participating == true end
+			c.SharedPeerAllowed = function(sender)
+				return c.SharedToolsHere() and type(sender) == "string"
+					and client.deniedPeers[sender:lower()] ~= true
+			end
 			c.IsFederation = function(guild)
 				return type(guild) == "string" and guild:lower():find("olympus", 1, true) ~= nil
 			end
@@ -1177,5 +1184,27 @@ test("player sightings: the requester's own sightings enter its own area request
 		eq(rows["Lone Walker-Realm"], nil)
 		eq(rows["Seen Twice-Realm"].own, true, "a tie keeps the own row")
 		eq(rows["Seen Twice-Realm"].observer, nil)
+	end)
+end)
+
+
+test("player sightings: participation withdrawal rejects signed requesters and retained result access", function()
+	WithWorld(function(world)
+		local requester = world:Client("Requester")
+		Authorize(requester)
+		requester.participating = false
+		local ok, why = world:As(requester, requester.ns.PlayerSightings.CanRequest)
+		eq(ok, false); eq(why, "federation")
+		eq(world:As(requester, requester.ns.PlayerSightings.Start, "Target-Realm"), false)
+		eq(#world.queue, 0)
+		requester.participating = true
+		requester.deniedPeers[requester.name:lower()] = true
+		ok, why = world:As(requester, requester.ns.PlayerSightings.CanRequest)
+		eq(ok, false); eq(why, "authority", "participation is distinct from a signed requester role")
+		requester.deniedPeers[requester.name:lower()] = nil
+		eq(world:As(requester, requester.ns.PlayerSightings.CanRequest), true)
+		requester.participating = false
+		eq(requester.ns.PlayerSightings.Session(1), nil)
+		eq(#requester.ns.PlayerSightings.Results(1), 0)
 	end)
 end)

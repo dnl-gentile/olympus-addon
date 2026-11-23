@@ -186,8 +186,13 @@ local function Enrollment(guild, at)
 	return VerifiedEnrollment(guild, at)
 end
 
-function Program.IsEnrolled(guild, at)
+function Program.BaseEnrolled(guild, at)
 	return Enrollment(guild, at) ~= nil
+end
+function Program.IsEnrolled(guild, at)
+	if not Program.BaseEnrolled(guild, at) then return false end
+	local fugitives = ns.FederationFugitives
+	return not (fugitives and fugitives.Suspended and fugitives.Suspended(guild))
 end
 
 function Program.Caretakers()
@@ -273,6 +278,8 @@ end
 local function LocalEnrollment(at)
 	local r = ns.Roster and ns.Roster.Fresh and ns.Roster.Fresh()
 	local enrolled = r and Enrollment(r.guild, at)
+	local fugitives = ns.FederationFugitives
+	if enrolled and fugitives and fugitives.Suspended and fugitives.Suspended(r.guild) then return nil end
 	if enrolled and enrolled.verified then
 		if enrolled.caretaker and ns.Roster.RankOf(enrolled.caretaker) == 0 then return r.guild, enrolled end
 		return nil

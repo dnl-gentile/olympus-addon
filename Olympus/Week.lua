@@ -843,6 +843,7 @@ end
 
 -- Our click: the role we claim (W: withdrawn), whispered to the setter alone.
 function Week.Sign(id, role)
+	if not ns.SharedToolsHere() then ns.Print(L.FEDERATION_TOOLS_LOCKED) return false end
 	local e = Week.Entry(id)
 	if not e or not (role == "W" or Week.ROLE_OK[role]) then return false end
 	if not ns.IsMember() then
@@ -861,7 +862,9 @@ function Week.Sign(id, role)
 	if e.mine then
 		Week.HandleSignup("WHISPER", ns.me, msg)
 	else
-		ns.Comm.Whisper(e.by, msg, "sign" .. id, true)
+		if not ns.SharedPeerAllowed(e.by, e.setterGuild) then return false end
+		ns.Comm.Whisper(e.by, msg, "sign" .. id, true, nil, nil,
+			{ guard = function() return ns.SharedPeerAllowed(e.by, e.setterGuild) end })
 	end
 	local mine = Signed()
 	if role == "W" then
@@ -917,6 +920,7 @@ function Week.HandleSignup(dist, sender, text)
 	if not Week.MayEdit(e) then return end
 	sender = ns.FullName(sender)
 	guild = ns.King.CleanGuild(guild)
+	if not ns.SharedPeerAllowed(sender, guild) then return end
 	if e.guildOnly then
 		local R = ns.Roster
 		if guild ~= e.setterGuild or not R or not R.Fresh or not R.Fresh() or not R.RankOf or R.RankOf(sender) == nil then return end

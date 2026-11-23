@@ -35,6 +35,7 @@ local function Guild()
 	return roster and roster.Fresh and roster.Fresh() and guild or nil
 end
 local function Member(name)
+	if not ns.SharedPeerAllowed(name, Guild()) then return nil end
 	local full = Full(name)
 	if not full or not Guild() then return nil end
 	local roster, names = ns.Roster, ns.Roster.byName
@@ -369,7 +370,7 @@ function Squads.CanAccess(room, name)
 	if not Squads.CanReadHistory(room, name) then return false end
 	return Squad(LeaderRoom(room)).overflow ~= true
 end
-local function ChatOn() return ns.db and ns.db.chatRooms == true and not (ns.ChatLocked and ns.ChatLocked()) or false end
+local function ChatOn() return ns.SharedToolsHere() and ns.db and ns.db.chatRooms == true and not (ns.ChatLocked and ns.ChatLocked()) or false end
 local function Chat(room, make)
 	local s = Store(make)
 	if not s then return nil end

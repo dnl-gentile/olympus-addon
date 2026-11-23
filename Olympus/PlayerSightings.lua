@@ -139,6 +139,7 @@ end
 local function Quiet() return ns.QuietPresence ~= nil and ns.QuietPresence() == true end
 
 local function SignedRequester(value)
+	if not ns.SharedPeerAllowed(value) then return nil end
 	local name = Canonical(value)
 	local M = ns.Moderation
 	if not name or type(M) ~= "table" or M.missing or type(M.IsIssuer) ~= "function" then return nil end
@@ -158,7 +159,7 @@ local function SignedRequester(value)
 end
 
 local function Sharing()
-	return type(ns.db) == "table" and ns.db.playerSightings == true
+	return ns.SharedToolsHere() and type(ns.db) == "table" and ns.db.playerSightings == true
 		and ns.db.playerSightingsConsentVersion == Sightings.CONSENT_VERSION
 end
 Sightings.Sharing = Sharing
@@ -183,6 +184,7 @@ local function GuardedComm()
 end
 
 function Sightings.CanRequest()
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if type(ns.IsMember) ~= "function" or ns.IsMember() ~= true or type(ns.me) ~= "string" then return false, "member" end
 	if NetOff() then return false, "netoff" end
 	if InInstance() then return false, "instance" end
@@ -221,7 +223,7 @@ end
 -- local signed/census authority must independently bind that server-stamped sender to it.
 local function VerifiedObserver(sender, guild, now)
 	sender, guild = Canonical(sender), Guild(guild)
-	if not sender or not guild or Same(sender, ns.me) then return nil end
+	if not sender or not guild or Same(sender, ns.me) or not ns.SharedPeerAllowed(sender, guild) then return nil end
 	local M = ns.Moderation
 	if type(M) == "table" and type(M.Hides) == "function" then
 		local ok, hidden = pcall(M.Hides, sender, guild)
@@ -729,6 +731,7 @@ function Sightings.CancelArea(id)
 end
 
 function Sightings.Status(id)
+	if not ns.SharedToolsHere() then return nil, "federation" end
 	Sightings.Tick()
 	id = Whole(id, 1, 99999)
 	local request = id and requests[id]
@@ -738,6 +741,7 @@ end
 -- API-facing aggregate. Status/Requests/Results remain the smaller internal contract; Session
 -- merely joins the already-normalized copies so consumers never see the live request tables.
 function Sightings.Session(id)
+	if not ns.SharedToolsHere() then return nil, "federation" end
 	Sightings.Tick()
 	id = Whole(id, 1, 99999)
 	local request = id and requests[id]
@@ -754,6 +758,7 @@ function Sightings.Session(id)
 end
 
 function Sightings.AreaSession(id)
+	if not ns.SharedToolsHere() then return nil, "federation" end
 	Sightings.Tick()
 	id = Whole(id, 1, 99999)
 	local request = id and requests[id]
@@ -781,6 +786,7 @@ function Sightings.AreaSession(id)
 end
 
 function Sightings.Requests()
+	if not ns.SharedToolsHere() then return {} end
 	Sightings.Tick()
 	local out = {}
 	for _, request in pairs(requests) do out[#out + 1] = Snapshot(request) end
@@ -789,6 +795,7 @@ function Sightings.Requests()
 end
 
 function Sightings.Results(id)
+	if not ns.SharedToolsHere() then return {} end
 	Sightings.Tick()
 	id = Whole(id, 1, 99999)
 	local request, out = id and requests[id], {}
@@ -1369,6 +1376,7 @@ local function ReceiveAreaWithdrawal(sender, text)
 end
 
 function Sightings.Receive(dist, sender, text)
+	if not ns.SharedToolsHere() then return false, "federation" end
 	if Secret(dist, sender, text) or type(text) ~= "string" or type(sender) ~= "string" then return false, "secret" end
 	local mode = text:match("^PS~([QCARXBDWS])~")
 	if mode == "Q" or mode == "C" or mode == "A" or mode == "D" or mode == "S" then
