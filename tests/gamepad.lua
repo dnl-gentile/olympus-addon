@@ -3729,6 +3729,59 @@ test("gamepad pass: the [Olympus] rulesets with approved Forever guilds use addo
 	end
 end)
 
+test("gamepad chat tab access: approval and native roster waits keep an explained tab across both logins and switches", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local realm = "CAMWOWUS2Realm1RPPvP"
+		local C, ns = Session(initialPad, { realmFrom = function() return realm end, surname = "Thornwood",
+			setup = function(c)
+				c.now = 1795000000
+				c.roster = {
+					{ "Tester Thornwood", "Hero", 2, 60, "Warrior", "Elwynn Forest", "", "", true, 0, "WARRIOR" },
+					{ "Zeusmaster Moss", "Zeus", 0, 60, "Mage", "Stormwind City", "", "", true, 0, "MAGE" },
+					{ "Titanbold Stone", "Titan", 1, 58, "Priest", "Westfall", "", "", false, 0, "PRIEST" },
+				}
+			end })
+		local function Explained(reason)
+			local view = ns.UI.SelfTestView()
+			eq(view.tab, "chat")
+			local found
+			for _, line in ipairs(view.lines) do if line.id == "chat-access" then found = line end end
+			assert(found, "the actual page explains its authorization wait")
+			eq(found.chatAccess, reason)
+			eq(view.frame.scroll:IsVisible(), true, "the explanation remains visible")
+			local pane = ns.ChatWindow.Frame()
+			eq(pane ~= nil and pane:IsShown(), false, "the chat composer and retained lines remain hidden")
+			local tab
+			for _, button in ipairs(view.frame.tabs) do if button.key == "chat" then tab = button end end
+			assert(tab and tab:IsShown(), "the Chat tab is still available")
+			eq(ns.Channels.CanUse("A"), false, "navigation grants no chat access")
+			eq(ns.Channels.CanUse("L"), false, "navigation grants no officer role")
+		end
+		ns.UI.SelectTab("chat"); Explained("pending")
+		C.Switch(not initialPad); C.Advance(1); Explained("pending")
+		C.Switch(initialPad); C.Advance(1); Explained("pending")
+		local guild = C.units.player.guild
+		local approval = { k = "A", at = C.now - 5, guild = guild,
+			gm = "Zeusmaster Moss-" .. realm, by = "Council Witness-" .. realm }
+		ns.rdb.verify = { list = { [ns.Fold(guild)] = approval } }
+		ns.Roster.complete = false
+		ns.UI.Refresh(); Explained("roster")
+		ns.Roster.complete = true
+		ns.Fire("DATA_CHANGED"); C.Advance(1)
+		eq(ns.UI.SelfTestView().tab, "chat", "the same tab opens without another click")
+		eq(ns.UI.ChatAccess(), nil)
+		assert(ns.ChatWindow.Frame():IsShown(), "a current native roster enables the actual chat pane")
+		eq(ns.rdb.verify.list[ns.Fold(guild)], approval, "no new approval was created")
+		approval.k = "R"
+		ns.Fire("DATA_CHANGED"); C.Advance(1); Explained("revoked")
+		C.Switch(not initialPad); C.Advance(1); Explained("revoked")
+		C.Switch(initialPad); C.Advance(1); Explained("revoked")
+		eq(C.gamePopups or 0, 0, "no automatic native popup")
+		Check(C.ledger, "Chat's authorization explanation in both input styles")
+		NoErrors(C, "Chat's authorization explanation in both input styles")
+	end
+end)
+
 test("gamepad pass: named item colours in the Chat tab use the client's RGB without changing its table, at either login and across both switches", function()
 	for _, loginPad in ipairs({ false, true }) do
 		local C, ns = Session(loginPad)
@@ -4315,6 +4368,94 @@ test("gamepad recruitment restores only this guild choice and keeps JOIN in the 
 		NoErrors(reloaded, "reloaded recruitment session")
 		NoErrors(other, "different recruiting character")
 		NoErrors(afterOff, "recruitment disabled session")
+	end
+end)
+
+-- 1.6.4: turning off is a local choice even while native invite permission is unavailable.
+test("gamepad recruitment opt-out: a suspended saved opt-in offers Turn off in Church and stays off after permission returns or a login", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local saved = Answered()
+		local C, ns = Session(initialPad, { saved = saved })
+		local R = ns.Recruit
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local choice = assert(R.Preference())
+		local permission = true
+		C.env.CanGuildInvite = function() return permission end
+		permission = false
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false, "loss of the native right suspends all recruiting")
+		eq(choice.enabled, true, "suspension alone retains the player's prior choice")
+		C.Switch(not initialPad); C.Advance(1)
+		C.Switch(initialPad); C.Advance(1)
+		local off = RecruitSwitch(R)
+		eq(off.text, ns.L.RECRUIT_TURN_OFF_BUTTON, "the suspended opt-in still has an accurate off action")
+		local before = #(C.said or {})
+		InClick(C, off.onClick)
+		eq(choice.enabled, false, "the off action writes an explicit opt-out without invite permission")
+		eq(R.IsWhisperRecruiting(), false)
+		eq(#(C.said or {}), before, "changing a local choice sends no messages or invitations")
+		permission = true
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false, "restoring the native right cannot undo an explicit off")
+		local nextC, nextNS = Session(initialPad, { saved = saved })
+		eq(nextNS.Recruit.IsWhisperRecruiting(), false, "the explicit off also survives a login")
+		Check(C.ledger, "recruiting off after permission loss")
+		NoErrors(C, "recruiting off after permission loss")
+		NoErrors(nextC, "recruiting remains off after login")
+	end
+end)
+
+test("gamepad recruitment opt-out: an unreadable invite right cannot block off or grant a new opt-in", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local R = ns.Recruit
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local choice = assert(R.Preference())
+		local secret = {}
+		C.env.CanGuildInvite = function() return secret end
+		C.env.issecretvalue = function(value) return value == secret end
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false)
+		InClick(C, function() eq(R.ToggleWhisperRecruiting(), false) end)
+		eq(choice.enabled, false, "off is a saved local decision, independent of a secret native right")
+		C.Switch(not initialPad); C.Advance(1)
+		C.Switch(initialPad); C.Advance(1)
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), false) end)
+		eq(choice.enabled, false, "enabling still requires an ordinary current invite right")
+		C.env.CanGuildInvite = function() return true end
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false, "recovering the permission leaves the explicit opt-out intact")
+		Check(C.ledger, "recruiting off with an unreadable invite right")
+		NoErrors(C, "recruiting off with an unreadable invite right")
+	end
+end)
+
+test("gamepad recruitment opt-out: a pending Turn off all answer remains valid when permission is lost before the roster event", function()
+	for _, initialPad in ipairs({ false, true }) do
+		local C, ns = Session(initialPad)
+		local R = ns.Recruit
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		local choice = assert(R.Preference())
+		choice.pauseUntil = ns.Now() + 900
+		C.env.CanGuildInvite = function() return false end
+		InClick(C, function() eq(R.TurnOff("all"), true, "a stale off action can only remove local participation") end)
+		eq(choice.enabled, false); eq(choice.pauseUntil, nil)
+		eq(R.TurnOff("all"), false, "the off action is idempotent")
+		C.env.CanGuildInvite = function() return true end
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false)
+		InClick(C, function() eq(R.EnableWhisperRecruiting(), true) end)
+		C.env.CanGuildInvite = function() return false end
+		C.Fire("GUILD_ROSTER_UPDATE")
+		C.env.CanGuildInvite = function() return true end
+		InClick(C, function() eq(R.TurnOff("all"), true) end)
+		eq(choice.enabled, false, "an explicit off also wins if permission recovered before the roster update")
+		C.Fire("GUILD_ROSTER_UPDATE")
+		eq(R.IsWhisperRecruiting(), false)
+		C.Switch(not initialPad); C.Advance(1)
+		C.Switch(initialPad); C.Advance(1)
+		Check(C.ledger, "pending recruitment off answer")
+		NoErrors(C, "pending recruitment off answer")
 	end
 end)
 

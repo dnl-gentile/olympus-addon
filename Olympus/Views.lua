@@ -3627,6 +3627,7 @@ local function ApprovedHint(lines)
 	return lines
 end
 
+Views.RECRUIT_MEMBERS = 8 -- keep the next guild's choice near its header; selection still uses everyone
 function Views.RecruitLines()
 	local R = ns.Recruit
 	local lines = { { header = true, text = L.RECRUIT_TITLE } }
@@ -3685,7 +3686,9 @@ function Views.RecruitLines()
 		if ns.GuildCharter then
 			for _, row in ipairs(ns.GuildCharter.CardLines(g.name, true)) do lines[#lines + 1] = row end
 		end
-		for _, p in ipairs(g.members) do
+		local shown = math.min(#g.members, Views.RECRUIT_MEMBERS)
+		for i = 1, shown do
+			local p = g.members[i]
 			local state = ""
 			local closed = R.NoContact(p.name)
 			if closed then state = Grey(L.RECRUIT_STATE_DNC)
@@ -3704,6 +3707,7 @@ function Views.RecruitLines()
 				end or nil,
 			}
 		end
+		if #g.members > shown then lines[#lines + 1] = { indent = 1, text = Grey(L.AND_MORE:format(#g.members - shown)) } end
 		lines[#lines].gapAfter = true
 	end
 	return ApprovedHint(lines)

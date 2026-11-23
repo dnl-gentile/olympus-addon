@@ -175,7 +175,7 @@ end
 -- Load addon files like WoW does: each gets (addonName, sharedTable)
 ---------------------------------------------------------------------------
 local ns = {}
-for _, file in ipairs({ "Bootstrap", "RealmIdentityData", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Contributions", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
+for _, file in ipairs({ "Bootstrap", "RealmIdentityData", "Locales", "Locales/MapNamesText", "Locales/PlayerTooltipText", "Locales/deDE", "Locales/esES", "Locales/frFR", "Locales/DuesGraceText", "Locales/DuesRosterText", "Locales/JusticeResponseText", "Locales/CarryText", "Locales/CarryMergerText", "Locales/CampaignText", "Locales/GuildFinanceText", "Locales/RankingRulesText", "Locales/AccordText", "Locales/ChatAccessText", "Core", "RankingRules", "GamepadRegistry", "Gamepad", "Diagnostics", "Dialog", "PlayerMenu", "Codec", "Sign", "Authority", "FederationProgram", "Zones", "Who", "Data", "Roster", "Comm", "FederationMembership", "Map", "Layers", "Hop", "Positions", "Decree", "Channels", "Filter", "MapNames", "Inspect", "PlayerTooltip", "King", "HopSightings", "Vox", "Court", "Board", "Groups", "Week", "Treasury", "Dues", "Contributions", "Bank", "Acts", "Loot", "War", "Crafters", "Chronicle", "Workshop", "Versions", "Builds", "Ed25519", "libs/QREncode/qrencode", "LinkLoader", "ArmyExport", "Recruit", "RecruitOverflow", "Locales/RecruitHandoffText", "RecruitHandoff", "PartyGuard", "AnswerBank", "Answers", "Views", "Accord", "Consent", "ChatRooms", "CraftRequests", "ViewAs", "TabardsV2", "Members", "Nominees", "CensusClean", "Bridge", "BridgeSections", "BridgePeople", "BridgeAffairs" }) do
 	local chunk = assert(loadfile(ADDON_DIR .. file .. ".lua"))
 	chunk("Olympus", ns)
 end
@@ -64985,9 +64985,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.6.3") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.4") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.6.3", 1, true))
+		assert(toc:find("## Version: 1.6.4", 1, true))
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -65441,7 +65441,7 @@ end)()
 	end
 
 	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.6.3")
+		eq(ns.VERSION, "1.6.4")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -66796,6 +66796,18 @@ assert(loadfile(ROOT .. "tests/army-export.lua"))(ns, test, eq, ADDON_DIR, WithU
 
 print("tests/census-header.lua")
 assert(loadfile(ROOT .. "tests/census-header.lua"))(ns, test, eq, { WithUI = WithUI, LoadUI = LoadUI })
+
+print("tests/quiet-filter-recovery.lua")
+assert(loadfile(ROOT .. "tests/quiet-filter-recovery.lua"))(ns, test, eq)
+
+print("tests/chat-tab-access.lua")
+assert(loadfile(ROOT .. "tests/chat-tab-access.lua"))(ns, test, eq, { WithUI = WithUI, LoadUI = LoadUI })
+
+print("tests/slayer-letter-safety.lua")
+assert(loadfile(ROOT .. "tests/slayer-letter-safety.lua"))(ns, test, eq, { WithUI = WithUI })
+
+print("tests/recruit-revoked-destinations.lua")
+assert(loadfile(ROOT .. "tests/recruit-revoked-destinations.lua"))(ns, test, eq)
 
 print("tests/king-census-layout.lua")
 assert(loadfile(ROOT .. "tests/king-census-layout.lua"))(ns, test, eq, { WithThrone = WithThrone, AsKing = AsKing, AsSoldier = AsSoldier })

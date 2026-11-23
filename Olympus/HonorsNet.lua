@@ -2219,12 +2219,33 @@ local function HoldLetter()
 	ns.Print("|cffffd200" .. L.HONOR_LETTER_HELD .. "|r")
 end
 
+-- A Slayer receipt never interrupts a fight or an instance, even when the Olympus window
+-- opens or alerts are set to always. Read only the same client APIs Wanted's notices use;
+-- an unreadable state waits too. Unlike an answer, parking must not consume or mark the receipt.
+local function SlayerStateBlocked(api)
+	if type(api) ~= "function" then return false end
+	local ok, yes = pcall(api)
+	return not ok or (issecretvalue and issecretvalue(yes)) or yes == true
+end
+local function SlayerBlocked()
+	return SlayerStateBlocked(InCombatLockdown) or SlayerStateBlocked(IsInInstance)
+end
+local function ParkSlayerLetter()
+	if not frame or frame.preview or H.LetterFamily(frame.key) ~= "wanted" then return end
+	frame.key = nil -- OnHide is Later only for a letter the player actually closes.
+	frame:Hide()
+end
+
 -- key: a letter asked for (a click: shown at once); prompted: the player's click opened it.
 function H.ShowLetter(key, prompted)
 	if H.LetterToSender() then return false end
 	if key then letters[#letters + 1] = { key = key, t = Now() } end
 	local nextLetter = letters[1]
 	if not nextLetter then return false end
+	if H.LetterFamily(nextLetter.key) == "wanted" and SlayerBlocked() then
+		ParkSlayerLetter()
+		return false
+	end
 	if frame and frame:IsShown() then return true end
 	if not key and not prompted and ns.GamepadUI() then
 		H.WaitForWindow()
@@ -2296,6 +2317,18 @@ function H.CloseLetter(wear)
 end
 function H.LetterFrame() return frame end
 function H.QueuedLetters() return letters end
+
+-- A receipt already on screen also waits when a fight or instance starts. Retry from the
+-- corresponding exit events, without carrying an old click into the retry; the gamepad UI
+-- still waits for the next window click, and Busy still uses the ordinary held-alert queue.
+local function SlayerLetterState()
+	if SlayerBlocked() then ParkSlayerLetter() return end
+	if letters[1] and H.LetterFamily(letters[1].key) == "wanted" then H.ShowLetter() end
+end
+ns.RegisterEvent("PLAYER_REGEN_DISABLED", SlayerLetterState)
+ns.RegisterEvent("PLAYER_REGEN_ENABLED", SlayerLetterState)
+ns.RegisterEvent("PLAYER_ENTERING_WORLD", SlayerLetterState)
+ns.RegisterEvent("ZONE_CHANGED_NEW_AREA", SlayerLetterState)
 
 -- All existing letter families on the same real framed parchment. The Workshop gate is
 -- actual author/dev access, never View as. Nothing is queued, awarded, worn or broadcast.

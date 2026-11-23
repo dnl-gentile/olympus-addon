@@ -300,6 +300,16 @@ Long live the King. Long live Olympus.]==]
 -- waits until 30 November (Verify.OTHER_GROUPS_WAIT_UNTIL). In every shipped language; a player who
 -- never read 1.6.0's letter gets it first (Letters.CATCH_UP).
 L.LETTER_1_6_0_1_TITLE = "Two More Weeks"
+L.LETTER_1_6_4_TITLE = "Clearer Chat, Quieter Adventuring"
+L.LETTER_1_6_4 = [==[- The Chat tab stays visible while guild approval or the roster is loading, and explains what is missing. Sending and reading shared chat still require the existing authorization.
+
+- Olympus retries its offline-notice filter if the game's filter API initially fails. Notices from your own manual whispers remain visible.
+
+- Slayer congratulations wait until you leave combat and instances. Unread letters stay queued for later.
+
+- Turning off recruiting stays saved even if your guild rank temporarily cannot invite. It will not silently turn back on when that permission returns.
+
+- Join Olympus checks a guild's current eligibility again before sending, including locally known verification revocations. The list shows up to eight contacts per guild so large guilds do not push every other choice far down the page.]==]
 L.LETTER_1_6_3_TITLE = "One Accord, Clearer Tools"
 L.LETTER_1_6_3 = [==[- My Discord Verification is at the top of The Realm with clearer steps. Local progress does not confirm Discord access.
 
@@ -607,6 +617,16 @@ Feche e abra o WoW depois de atualizar. Se algo ainda falhar, envie um /oly bug.
 
 Vida longa ao Rei. Vida longa ao Olympus.]==]
 	L.LETTER_1_6_0_1_TITLE = "Mais duas semanas"
+	L.LETTER_1_6_4_TITLE = "Chat mais claro, aventuras mais tranquilas"
+	L.LETTER_1_6_4 = [==[- A aba Chat continua visível enquanto a aprovação da guilda ou a lista de membros carrega, e explica o que falta. Enviar e ler o chat compartilhado continua exigindo a autorização existente.
+
+- O Olympus tenta instalar novamente o filtro de avisos de jogador offline se a API do jogo falhar na primeira tentativa. Os avisos dos seus sussurros manuais continuam visíveis.
+
+- As felicitações de Slayer esperam você sair do combate e das instâncias. As cartas não lidas ficam na fila para depois.
+
+- Desligar o recrutamento fica salvo mesmo se seu cargo perder temporariamente a permissão de convidar. Ele não volta a ligar sozinho quando essa permissão retorna.
+
+- Entre na Olympus confere novamente a elegibilidade atual da guilda antes de enviar, incluindo revogações de verificação conhecidas localmente. A lista mostra até oito contatos por guilda para que guildas grandes não empurrem todas as outras opções para muito longe na página.]==]
 	L.LETTER_1_6_3_TITLE = "Uma aliança, ferramentas mais claras"
 	L.LETTER_1_6_3 = [==[- My Discord Verification fica no topo de The Realm, com etapas mais claras. O progresso local não confirma acesso ao Discord.
 
