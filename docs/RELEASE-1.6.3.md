@@ -1,8 +1,8 @@
-# Olympus 1.6.3 review candidate
+# Olympus 1.6.3
 
-Local development only. Publication, real signing-key setup and service activation
-remain for Daniel's review. Existing Verify approvals, the seven-day guild-master
-grace and the paused warning rollout are preserved.
+Public addon release authorized by Daniel on 23 November 2026. Real signing-key
+setup and private service activation remain separate. Existing Verify approvals,
+the seven-day guild-master grace and the paused warning rollout are preserved.
 
 ## Changes
 
@@ -28,13 +28,13 @@ PR119 repeated realm-link guard and the exact Akafoxslayer portrait/chat artwork
 The portrait conveys no rank or capability. Those changes were independently
 checked at commit ba89abd0 before the Fern completion work.
 
-## Review choices and real-client acceptance
+## Authority limits and real-client acceptance
 
-The proposed harboring grace is 24 hours with two fresh observations and a visible
+The harboring grace is 24 hours with two fresh observations and a visible
 daily notice. Council decisions last at most seven days; short delegated operator
 observations cannot outlive their 30-minute grant. Long-lived sanctions require
 Council renewal or a reviewed complete FUG1 list. These are explicit safety choices
-for review, not claims of permanent bans or instant delivery to offline clients.
+for deployment, not claims of permanent bans or instant delivery to offline clients.
 
 See [the authority design and setup](FEDERATION-AUTHORITY.md),
 [participation and contributions](FEDERATION-PROGRAM.md) and
