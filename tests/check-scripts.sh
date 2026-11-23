@@ -17,6 +17,7 @@ fixture() {
 	printf 'print("fixture suite ran")\n' > "$case_root/tests/run.lua"
 	printf 'printf "fixture round trip ran\\n"\n' > "$case_root/tests/sign-roundtrip.sh"
 	printf 'printf "fixture fugitive round trip ran\\n"\n' > "$case_root/tests/federation-fugitives-sign.sh"
+	printf 'printf "fixture authority round trip ran\\n"\n' > "$case_root/tests/federation-authority-sign.sh"
 	printf 'printf "fixture records seal round trip ran\\n"\n' > "$case_root/tests/records-seal-roundtrip.sh"
 }
 
@@ -39,6 +40,7 @@ printf 'print("python must not run")\n' > "$case_root/scripts/tool.py"
 grep -Fq 'fixture suite ran' "$case_root/result.txt"
 grep -Fq 'fixture round trip ran' "$case_root/result.txt"
 grep -Fq 'fixture fugitive round trip ran' "$case_root/result.txt"
+grep -Fq 'fixture authority round trip ran' "$case_root/result.txt"
 grep -Fq 'All repository checks passed.' "$case_root/result.txt"
 if grep -Fq 'python must not run' "$case_root/result.txt" || [ -e "$case_root/scripts/__pycache__" ]; then
 	printf 'FAIL: the Python check ran a script or left bytecode in the project\n' >&2
@@ -92,6 +94,14 @@ expect_failure 'local/global lint failure' "'laterValue' is read as a global"
 fixture 'test failure'
 printf 'error("fixture test failed")\n' > "$case_root/tests/run.lua"
 expect_failure 'offline test failure' 'fixture test failed'
+
+fixture 'authority signing failure'
+printf 'printf "fixture authority signing failed\\n"\nexit 42\n' > "$case_root/tests/federation-authority-sign.sh"
+expect_failure 'federation authority signing failure' 'fixture authority signing failed'
+if grep -Fq 'All repository checks passed.' "$case_root/result.txt"; then
+	printf 'FAIL: an authority signing failure reached the success banner\n' >&2
+	exit 1
+fi
 
 fixture 'stale answer bank'
 mkdir -p "$case_root/docs"
