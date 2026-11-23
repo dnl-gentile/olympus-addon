@@ -253,6 +253,13 @@ package_fail() {
 	printf 'FAIL: package.sh: %s\n' "$1" >&2
 	exit 1
 }
+package_toc_has_line() {
+	local zip=$1 folder=$2 entry=$3 toc="$pkg/inspect-toc.txt"
+	# Read the whole member before matching: grep -q on a pipe can give unzip/tr SIGPIPE.
+	unzip -p "$zip" "$folder/$folder.toc" | tr -d '\r' > "$toc" ||
+		package_fail "could not read $folder/$folder.toc from $(basename "$zip")"
+	grep -qxF "$entry" "$toc"
+}
 package_manifest_matches() {
 	local zip=$1 manifest=${1%.zip}.files.txt actual="$pkg/actual-files.txt"
 	[ -f "$manifest" ] || package_fail "no $manifest"
@@ -280,7 +287,7 @@ package_has_no_wager_modules() {
 		grep -qxF "$path" "$listing" && package_fail "$(basename "$zip") carries $path"
 		entry=${path#*/}
 		entry=${entry//\//\\}
-		unzip -p "$zip" "${path%%/*}/${path%%/*}.toc" | tr -d '\r' | grep -qxF "$entry" && package_fail "$(basename "$zip") TOC lists $entry"
+		package_toc_has_line "$zip" "${path%%/*}" "$entry" && package_fail "$(basename "$zip") TOC lists $entry"
 		[ -f "$pkg/$path" ] || package_fail "the repository copy lost $path"
 	done < "$repo_root/scripts/bets-only.txt"
 	[ "$left_out" -ge 1 ] || package_fail 'bets-only.txt names no file'
@@ -296,6 +303,22 @@ for sha_tool in sha256sum shasum openssl; do
 	if command -v "$sha_tool" >/dev/null 2>&1; then have_sha=true; break; fi
 done
 if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && command -v luajit >/dev/null 2>&1 && $have_sha; then
+	# The version is near the start; a comment larger than a pipe buffer follows it.
+	# The old unzip | tr | grep -q assertion fails with SIGPIPE for this real zip.
+	pkg="$scratch_root/package-large-toc"
+	mkdir -p "$pkg/Olympus"
+	awk 'BEGIN { print "## Version: regression\r"; printf "# "; for (i = 0; i < 1048576; i++) printf "x"; printf "\r\n" }' > "$pkg/Olympus/Olympus.toc"
+	(cd "$pkg" && zip -q regression.zip Olympus/Olympus.toc)
+	package_toc_has_line "$pkg/regression.zip" Olympus '## Version: regression' || package_fail 'a large TOC loses its version to SIGPIPE'
+	if package_toc_has_line "$pkg/regression.zip" Olympus '## Version: absent'; then
+		package_fail 'a missing TOC line unexpectedly matched'
+	fi
+	if (package_toc_has_line "$pkg/regression.zip" Missing '## Version: regression') > "$pkg/result.txt" 2>&1; then
+		package_fail 'an unreadable TOC unexpectedly passed'
+	fi
+	grep -Fq 'could not read Missing/Missing.toc' "$pkg/result.txt" || package_fail 'the TOC extraction error was ignored'
+	printf 'ok: package TOC inspection consumes a large CRLF member; missing lines and extraction failures still fail\n'
+
 	missing_pkg="$scratch_root/package-missing-arena"
 	mkdir -p "$missing_pkg/scripts"
 	cp -R "$repo_root/Olympus" "$missing_pkg/"
@@ -406,9 +429,9 @@ if command -v git >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 && command -
 	grep -q ' OlympusSiteAggregate/OlympusSiteAggregate.toc$' "$pkg/list.txt" || package_fail 'the release lacks OlympusSiteAggregate'
 	grep -q ' OlympusSiteAggregate/SiteAggregate.lua$' "$pkg/list.txt" || package_fail 'the release lacks the site reporter code'
 	[ "$(grep -c '^OlympusSiteAggregate/' "${release%.zip}.files.txt")" -eq 2 ] || package_fail 'the site reporter ships files outside its TOC and one Lua file'
-	unzip -p "$release" OlympusSiteAggregate/OlympusSiteAggregate.toc | tr -d '\r' | grep -qx '## SavedVariables: OlympusSiteAggregate' || package_fail 'the site reporter does not own exactly its dedicated variable'
+	package_toc_has_line "$release" OlympusSiteAggregate '## SavedVariables: OlympusSiteAggregate' || package_fail 'the site reporter does not own exactly its dedicated variable'
 	grep -q 'TestBuild.lua' "$pkg/list.txt" && package_fail 'the release carries a test build'
-	unzip -p "$release" Olympus/Olympus.toc | tr -d '\r' | grep -q "^## Version: $version$" || package_fail 'the release version'
+	package_toc_has_line "$release" Olympus "## Version: $version" || package_fail 'the release version'
 	printf 'ok: package.sh: the release zip holds all three isolated addon folders, no test build and no wager-only modules; manifest and checksum match\n'
 
 	(cd "$pkg" && bash scripts/package.sh --test 3 > out.txt) || package_fail 'the test build did not build'
