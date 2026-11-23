@@ -84,6 +84,30 @@ test("chat tab access: pending approval keeps a visible read-only route without 
 	end)
 end)
 
+test("chat tab access: missing chat module keeps the restart notice first and restores the authorized pane when loaded", function()
+	World(function(UI, Approve, _, _, Pane)
+		Approve()
+		local ready = ns.ChatWindow
+		for _, module in ipairs({ { missing = true }, { Attach = ready.Attach }, false }) do
+			ns.ChatWindow = module or nil
+			UI.SelectTab("chat"); UI.Refresh()
+			local view = UI.SelfTestView()
+			eq(view.tab, "chat")
+			eq(UI.ChatAccess(), "restart")
+			eq(#view.lines, 1, "the legacy restart notice has no extra header before it")
+			eq(view.frame.views.chat.rows[1].left:GetText(), ns.Views.Grey(ns.L.RESTART_NEEDED),
+				"the first rendered row tells the player to restart")
+			eq(view.frame.scroll:IsShown(), true, "the restart notice stays visible")
+			eq(Pane(), false)
+			eq(select(2, Pane()), 0, "the unavailable module is never attached")
+		end
+		ns.ChatWindow = ready
+		UI.Refresh()
+		eq(UI.ChatAccess(), nil)
+		eq(Pane(), true, "the authorized loaded module still restores the conversation")
+	end)
+end)
+
 test("chat tab access: an existing approval waits for current native roster and resumes without reapproval", function()
 	World(function(UI, Approve, View, Denied, Pane)
 		local entry = Approve()
@@ -125,10 +149,23 @@ test("chat tab access: suspended participation stays visible and every shipped l
 		View("suspended"); Denied()
 	end)
 	for _, code in ipairs({ "enUS", "ptBR", "deDE", "esES", "esMX", "frFR", "itIT", "ruRU" }) do
-		local other = { L = {} }
-		local chunk = assert(loadfile(ROOT .. "Olympus/Locales/ChatAccessText.lua"))
-		setfenv(chunk, setmetatable({ GetLocale = function() return code end }, { __index = _G }))
-		chunk("Olympus", other)
+		local other = { On = function() end }
+		local env = setmetatable({ GetLocale = function() return code end }, { __index = _G })
+		local function Load(path)
+			local chunk = assert(loadfile(ROOT .. "Olympus/" .. path .. ".lua"))
+			setfenv(chunk, env)
+			chunk("Olympus", other)
+		end
+		-- Match the TOC: English keys first, then the guarded Russian-only file.
+		Load("Locales")
+		Load("Locales/ChatAccessText")
+		local english = other.L.CHAT_ACCESS_IDENTITY
+		Load("Locales/ruRU")
+		if code == "ruRU" then
+			assert(other.L.CHAT_ACCESS_IDENTITY ~= english, "the Russian-only file supplies the translation")
+		else
+			eq(other.L.CHAT_ACCESS_IDENTITY, english, "the Russian-only file leaves other clients unchanged")
+		end
 		for _, reason in ipairs({ "IDENTITY", "ROSTER", "PENDING", "REVOKED", "LEADERSHIP", "POLICY", "SUSPENDED" }) do
 			local text = other.L["CHAT_ACCESS_" .. reason]
 			assert(type(text) == "string" and text ~= "", code .. ": " .. reason)

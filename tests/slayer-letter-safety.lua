@@ -36,8 +36,15 @@ local function Scene(fn)
 			c.UI = setmetatable({ IsShown = function() return w.window == true end,
 				SelectTab = function(key) w.tabs[#w.tabs + 1] = key end }, { __index = ns.UI })
 			assert(loadfile(ROOT .. "Olympus/Wanted.lua"))("Olympus", c)
+			local before = {}
+			for event, callbacks in pairs(w.events) do before[event] = #callbacks end
 			assert(loadfile(ROOT .. "Olympus/HonorsNet.lua"))("Olympus", c)
 			w.H, w.profile, w.client = c.HonorsNet, profile, c
+			function w.HonorEvents()
+				local count = 0
+				for event, callbacks in pairs(w.events) do count = count + #callbacks - (before[event] or 0) end
+				return count
+			end
 			function w.Fire(event)
 				for _, callback in ipairs(w.events[event] or {}) do callback() end
 			end
@@ -68,6 +75,68 @@ local function Unread(w, key, count)
 	eq(w.H.QueuedLetters()[1].key, key, "the oldest receipt is still first")
 	eq(w.profile.lettered[key], nil, "no per-kill honour mark is created")
 end
+
+test("slayer letter idle: loading honours and unrelated letters adds no Slayer state listeners", function()
+	Scene(function(w)
+		eq(w.HonorEvents(), 0, "loading the honours module keeps the idle event budget")
+		w.H.QueueLetter(w.H.APOLOGY_KEY, nil, true)
+		eq(w.HonorEvents(), 0, "an unrelated letter does not start Slayer listeners")
+		w.H.CloseLetter(false)
+		eq(w.HonorEvents(), 0)
+		eq(#w.timers, 0, "there is no idle polling timer")
+	end)
+end)
+
+test("slayer letter idle: a queued Slayer arms one set of state listeners and becomes dormant after its last answer", function()
+	Scene(function(w)
+		eq(w.HonorEvents(), 0)
+		w.H.QueueLetter(w.H.APOLOGY_KEY, nil, true)
+		eq(w.HonorEvents(), 0)
+		w.inside = true
+		local key = w.Key()
+		w.H.QueueLetter(key, nil, true)
+		eq(w.HonorEvents(), 4, "a pending receipt behind another letter needs combat and zone recovery")
+		w.H.QueueLetter(key, nil, true)
+		w.H.ShowLetter()
+		eq(w.HonorEvents(), 4, "duplicate delivery and retries never register again")
+		w.H.CloseLetter(false)
+		eq(w.Shown(), false, "closing the first letter cannot reveal Slayer inside the instance")
+		w.inside = false
+		w.Fire("PLAYER_ENTERING_WORLD")
+		eq(w.Shown(), true)
+		w.H.CloseLetter(false)
+		eq(#w.H.QueuedLetters(), 0)
+		local reads = 0
+		InCombatLockdown = function() reads = reads + 1; return false end
+		w.Fire("PLAYER_REGEN_DISABLED")
+		eq(reads, 0, "after the queue is empty the retained callback does not read game state")
+		eq(#w.timers, 0)
+		w.H.QueueLetter(w.Key("00000000000a1b2d"), nil, true)
+		eq(w.HonorEvents(), 4, "another receipt reuses the one registered set")
+		w.H.CloseLetter(false)
+	end)
+end)
+
+test("slayer letter idle: a retained-only receipt adds nothing until a deliberate read queues it", function()
+	Scene(function(w)
+		eq(w.HonorEvents(), 0)
+		local key = w.Key()
+		w.client.Arena.Persists = function() return false end
+		w.H.QueueLetter(key, nil, true)
+		eq(#w.H.QueuedLetters(), 0)
+		eq(w.HonorEvents(), 0, "a profile record is not an automatic popup")
+		eq(#w.profile.letters, 1)
+		w.inside = true
+		eq(w.H.ShowLetter(key), false)
+		eq(w.HonorEvents(), 4, "the explicit read uses the same guarded queue")
+		Unread(w, key)
+		w.inside = false
+		w.Fire("ZONE_CHANGED_NEW_AREA")
+		eq(w.Shown(), true)
+		w.H.CloseLetter(false)
+		eq(w.profile.letters[1].read, true)
+	end)
+end)
 
 test("slayer letter safety: a visible receipt parks on combat without answering OnHide and resumes once after combat", function()
 	Scene(function(w)

@@ -2644,6 +2644,10 @@ function UI.Refresh()
 			main.total:SetText(profileHeader or L.PLAYER_PROFILE_TITLE)
 			main.sub:SetText(profileSubheader or "")
 			main.peopleText = nil
+		elseif chatAccess == "restart" then
+			-- Keep the first-row instruction used by an unloaded Chat module, without a header
+			-- before it. A partially loaded module (no Attach/Detach) needs the same instruction.
+			lines = { { id = "chat-access", chatAccess = chatAccess, text = ns.Views.Grey(chatReason), wrap = true } }
 		elseif chatAccess then
 			lines = { { header = true, text = L.TAB_CHAT },
 				{ id = "chat-access", chatAccess = chatAccess, text = chatReason, wrap = true } }

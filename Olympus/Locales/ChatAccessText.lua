@@ -54,15 +54,6 @@ local text = {
 		CHAT_ACCESS_POLICY = "Le regole attuali di partecipazione non consentono a questa gilda di usare la chat condivisa.",
 		CHAT_ACCESS_SUSPENDED = "Gli strumenti condivisi sono sospesi per questa gilda. Chiedi all'Alto Consiglio di verificarne lo stato.",
 	},
-	ruRU = {
-		CHAT_ACCESS_IDENTITY = "Ожидание определения игрового мира. Если ожидание продолжается, перезапусти WoW и отправь /oly bug.",
-		CHAT_ACCESS_ROSTER = "Ожидание полного актуального состава гильдии. Чат откроется автоматически после локальной проверки руководства. Повторно проверять гильдию не нужно.",
-		CHAT_ACCESS_PENDING = "Здесь нет актуального одобрения гильдии. Если она уже была одобрена, попроси проверяющего повторно отправить это одобрение.",
-		CHAT_ACCESS_REVOKED = "Одобрение твоей гильдии отозвано. Попроси Высший совет пересмотреть её статус.",
-		CHAT_ACCESS_LEADERSHIP = "Нынешнее руководство гильдии не совпадает с записью об участии на этом клиенте. Попроси Высший совет проверить запись о руководстве.",
-		CHAT_ACCESS_POLICY = "Текущие правила участия не разрешают этой гильдии использовать общий чат.",
-		CHAT_ACCESS_SUSPENDED = "Общие инструменты для этой гильдии приостановлены. Попроси Высший совет пересмотреть её статус.",
-	},
 }
 for key, value in pairs(text.enUS) do ns.L[key] = value end
 local code = GetLocale and GetLocale()

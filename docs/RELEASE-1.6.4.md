@@ -9,6 +9,7 @@ document does not record publication or installed-client acceptance.
   native roster is unavailable. Its status explains the missing requirement and
   refreshes as data arrives. Shared history, the composer and transport retain
   their existing authorization checks; no pending or revoked guild gains access.
+  Missing or partially loaded Chat modules keep the first-row restart instruction.
 - The offline-player notice filters retry installation after a native API error,
   rather than remembering a failed installation as successful. Manual whispers,
   secret values, timeout boundaries and input-mode cleanup retain their checks.
@@ -16,7 +17,9 @@ document does not record publication or installed-client acceptance.
   offline-player notice.
 - Slayer congratulations wait during combat and instances, including explicit
   letter-open paths and state changes while a letter is visible. Parking a letter
-  keeps it unread and queued. Gamepad transitions still require a fresh user action.
+  keeps it unread and queued. State listeners are installed only for a real pending
+  Slayer letter; an idle client gains no subscriptions. After first use they stay
+  dormant while no Slayer letter waits. Gamepad transitions require a fresh action.
 - A saved recruitment opt-in can be turned off even when the native invite right
   is false or unreadable. Church keeps the off action available and the explicit
   opt-out survives permission recovery and login. Enabling and sending retain
