@@ -600,8 +600,8 @@ function Accord.Quiet(name)
 		add = type(U) == "table" and rawget(U, "AddMessageEventFilter") or nil -- gp:system-filters
 	end
 	if type(add) ~= "function" then return end
-	filtering = true
-	pcall(add, "CHAT_MSG_SYSTEM", Accord.QuietLine) -- gp:system-filters
+	-- A native error can be retried; its normal nil return still means it registered the filter.
+	filtering = pcall(add, "CHAT_MSG_SYSTEM", Accord.QuietLine) -- gp:system-filters
 end
 
 -- Our tag to one team member, now: only while we are a member, he is still in the team (at our

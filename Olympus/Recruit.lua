@@ -71,6 +71,7 @@ Recruit.replied = {}    -- [name] = their answer
 Recruit.lastAsk = 0
 
 local routeAsked = {}   -- [Name-Realm] = when we sent them a J1
+local routeGuild = {}   -- [Name-Realm] = the /who guild when asked (a later search may omit them)
 local routeAnswered = {} -- [Name-Realm] = when their J2 came
 local closedGuilds = {} -- [guild] = when a member of that guild reported no slots
 local gatesSaid = {}    -- [Name-Realm] = { guild, at, t }: the gates their J2 named (guild nil: none)
@@ -91,6 +92,29 @@ local function Key(name) return name and ns.FullName(ns.Normal and ns.Normal(nam
 -- A value for the wire: none of the separators.
 local function Field(s) return (tostring(s or ""):gsub("[~;=/|%c]", "")) end
 
+-- Discovery and route answers outlive the local decisions that admitted a guild. Ask the
+-- current, faction/realm-group scoped state again wherever a destination is used. A missing
+-- approval (including pending/overdue verification) is not a revocation. J2 carries no proof
+-- of one: only a verifier decision already retained by this client can exclude it here.
+local function Destination(guild)
+	if not ns.IsFederation(guild) then return false end
+	if ns.Data and ns.Data.NetOff and ns.Data.NetOff(guild) then return false end
+	local V = ns.Verify
+	if V and not V.missing and type(V.Status) == "function" then
+		local _, info = V.Status(guild)
+		if info and info.revoked then return false end
+	end
+	return true
+end
+local function SourceAllowed(name)
+	local key = Key(name)
+	for _, p in ipairs(Recruit.found) do
+		if Key(p.name) == key then return Destination(p.guild) end
+	end
+	local guild = routeGuild[key]
+	return guild == nil or Destination(guild)
+end
+
 -- Must be called from a click (the game requires a hardware event for /who). Each click
 -- searches further once the game's 50 per search are not enough (see Who.lua).
 function Recruit.Search()
@@ -105,8 +129,8 @@ end
 -- agree (one member's word is no proof: a modified addon could name any guild).
 local function ConfirmedGates(now)
 	local count, left, best = {}, {}, nil
-	for _, s in pairs(gatesSaid) do
-		if s.guild and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then
+	for source, s in pairs(gatesSaid) do
+		if s.guild and Destination(s.guild) and SourceAllowed(source) and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then
 			count[s.guild] = (count[s.guild] or 0) + 1
 			left[s.guild] = math.max(left[s.guild] or 0, s.at - now)
 		end
@@ -121,8 +145,8 @@ end
 -- A member named gates no other answer agrees on yet.
 local function GatesUnconfirmed(now)
 	if ConfirmedGates(now) then return false end
-	for _, s in pairs(gatesSaid) do
-		if s.guild and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then return true end
+	for source, s in pairs(gatesSaid) do
+		if s.guild and Destination(s.guild) and SourceAllowed(source) and s.at > now and now - s.t <= Recruit.ROUTE_KEEP then return true end
 	end
 	return false
 end
@@ -138,6 +162,14 @@ end
 function Recruit.Route()
 	local r, now = Recruit.route, ns.Now()
 	if not r or now - (r.t or 0) > Recruit.ROUTE_KEEP then return nil end
+	if r.from and not SourceAllowed(r.from) then return nil end
+	for i = #r.list, 1, -1 do
+		local e = r.list[i]
+		if not Destination(e.name) then
+			r.byName[e.name] = nil
+			table.remove(r.list, i)
+		end
+	end
 	r.gates, r.gatesLeft = ConfirmedGates(now)
 	local destination = r.gates and r.byName[r.gates]
 	if not destination or destination.free <= 0 or FullDestination(r.gates) then
@@ -182,7 +214,7 @@ end
 -- so a do-not-contact flag closes the question before the player sends.
 local function AskRoute(name, check, confirm)
 	-- (1.2.5.1: in an Olympus guild, Olympus Accord accepted or not, nobody is asked where to go.)
-	if ns.InOlympusGuild() or not name then return false end
+	if ns.InOlympusGuild() or not name or not SourceAllowed(name) then return false end
 	local key, now = Key(name), ns.Now()
 	local asked = routeAsked[key]
 	local answered = asked and (routeAnswered[key] or -math.huge) >= asked
@@ -190,6 +222,9 @@ local function AskRoute(name, check, confirm)
 	if not check and not confirm and now - lastRoute < Recruit.ROUTE_GAP then return false end
 	if not ns.Comm.WhisperOutside(ns.TellName(name), "J1~1") then return false end
 	routeAsked[key] = now
+	for _, p in ipairs(Recruit.found) do
+		if Key(p.name) == key then routeGuild[key] = p.guild; break end
+	end
 	if ns.GuildCharter then ns.GuildCharter.Ask(name) end
 	if not check then lastRoute = now end
 	return true
@@ -199,7 +234,7 @@ end
 local function AskAnother(confirm)
 	for _, p in ipairs(Recruit.found) do
 		local key = Key(p.name)
-		if not routeAsked[key] and not dnc[key] then return AskRoute(p.name, false, confirm) end
+		if Destination(p.guild) and not routeAsked[key] and not dnc[key] then return AskRoute(p.name, false, confirm) end
 	end
 	return false
 end
@@ -226,7 +261,7 @@ function Recruit.ParseRoute(text)
 	local flag, gates, secs, list = tostring(text):match("^J2~([yn])~([^~]*)~(%d*)~([^~]*)$")
 	if not flag then return nil end
 	local route = { dnc = flag == "n", list = {}, byName = {} }
-	if gates ~= "" and ns.IsFederation(gates) then
+	if gates ~= "" and Destination(gates) then
 		route.gates, route.gatesLeft = gates, math.min(tonumber(secs) or 0, ns.Acts and ns.Acts.GATES_TIME or 7200)
 	end
 	for entry in list:gmatch("[^;]+") do
@@ -236,7 +271,7 @@ function Recruit.ParseRoute(text)
 		local word = not name and entry:match("^%*=([rix])$")
 		if word then
 			route.self = route.self or word
-		elseif name and ns.IsFederation(name) and free and free <= ns.Codec.GUILD_CAP and not route.byName[name] and #route.list < Recruit.ROUTE_GUILDS then
+		elseif name and Destination(name) and free and free <= ns.Codec.GUILD_CAP and not route.byName[name] and #route.list < Recruit.ROUTE_GUILDS then
 			local e = { name = name, free = free, contacts = {} }
 			for c in contacts:gmatch("[^/]+") do
 				if #e.contacts < Recruit.ROUTE_CONTACTS + 1 and #c <= 60 then e.contacts[#e.contacts + 1] = c end
@@ -283,6 +318,7 @@ function Recruit.SaidOf(name) return SaidOf(Key(name)) end
 -- can't invite), as the line the player reads; nil when nothing says so.
 local function Unable(contact)
 	if type(contact) ~= "table" or type(contact.name) ~= "string" then return nil end
+	if not Destination(contact.guild) then return L.RECRUIT_NONE_FOUND end
 	if FullDestination(contact.guild) then return L.RECRUIT_JOIN_FULL:format(contact.guild or "?") end
 	local key = Key(contact.name)
 	if SaidOf(key) == "x" then return L.RECRUIT_JOIN_CANT_INVITE:format(ns.DisplayName(key) or contact.name) end
@@ -331,6 +367,7 @@ local function JoinRecheck()
 end
 
 function Recruit.OnRoute(sender, text)
+	if not SourceAllowed(sender) then return false end
 	if text:sub(1, 3) == "QD~" and ns.GuildCharter then return ns.GuildCharter.OnReported(sender, text) end
 	local key, now = Key(sender), ns.Now()
 	if not routeAsked[key] or now - routeAsked[key] > Recruit.ROUTE_WAIT then return false end
@@ -435,14 +472,14 @@ local function GuildLess(a, b)
 	return a.name < b.name
 end
 local function RouteOrder(route)
+	if route.from and not SourceAllowed(route.from) then return {} end
 	local out, rows, by = {}, {}, {}
 	for _, g in ipairs(Recruit.Guilds()) do by[g.name] = g end
-	if route.gates then
-		local g = by[route.gates] or { name = route.gates, gates = true }
-		rows[#rows + 1] = g
+	if route.gates and by[route.gates] then
+		rows[#rows + 1] = by[route.gates]
 	end
 	for _, e in ipairs(route.list) do
-		if e.name ~= route.gates and e.free > 0 and not FullDestination(e.name) and Found(e.name) then
+		if e.name ~= route.gates and e.free > 0 and not FullDestination(e.name) and by[e.name] and Found(e.name) then
 			rows[#rows + 1] = by[e.name]
 		end
 	end
@@ -456,13 +493,15 @@ Recruit.RouteOrder = RouteOrder
 function Recruit.Guilds()
 	local by, out = {}, {}
 	for _, p in ipairs(Recruit.found) do
-		local g = by[p.guild]
-		if not g then
-			g = { name = p.guild, members = {} }
-			by[p.guild] = g
-			out[#out + 1] = g
+		if Destination(p.guild) then
+			local g = by[p.guild]
+			if not g then
+				g = { name = p.guild, members = {} }
+				by[p.guild] = g
+				out[#out + 1] = g
+			end
+			g.members[#g.members + 1] = p
 		end
-		g.members[#g.members + 1] = p
 	end
 	local route = Recruit.Route()
 	for _, g in ipairs(out) do
@@ -489,7 +528,7 @@ local function Askable(name, again)
 end
 local function HasRoom(guild, route)
 	local e = route and route.byName[guild]
-	return not FullDestination(guild) and not (e and e.free == 0)
+	return Destination(guild) and not FullDestination(guild) and not (e and e.free == 0)
 end
 
 -- The officers (1.6.0: and recruiters) the route names for `guild`, once /who found them in it.
@@ -574,10 +613,12 @@ end
 local function NobodyText()
 	if #Recruit.found == 0 then return nil end
 	local route = Recruit.Route()
+	local eligible
 	for _, p in ipairs(Recruit.found) do
+		if Destination(p.guild) then eligible = true end
 		if HasRoom(p.guild, route) then return L.RECRUIT_JOIN_NOBODY end
 	end
-	return L.RECRUIT_JOIN_ALL_FULL
+	return eligible and L.RECRUIT_JOIN_ALL_FULL or L.RECRUIT_NONE_FOUND
 end
 
 -- The short Join flow uses the same discovered contacts and the same editable request as the guild list.
@@ -927,7 +968,7 @@ function Recruit.OpenGuilds()
 	local out = {}
 	for _, o in ipairs(ns.Views.OpenGuilds(ns.Data.Summary())) do
 		local total = o.e.g.total
-		if type(total) == "number" and total > 0 and ns.Data.Dispute(o.e.g) == nil then
+		if Destination(o.name) and type(total) == "number" and total > 0 and ns.Data.Dispute(o.e.g) == nil then
 			out[#out + 1] = o
 		end
 	end
@@ -1004,7 +1045,7 @@ function Recruit.RouteAnswer()
 		eligibleGates and math.max(0, math.floor(eligibleGates.at - ns.Now())) or 0)
 	msg = msg .. "*=" .. Recruit.SelfWord()
 	local n = 0
-	if own and not ns.IsSecret(own) and full then
+	if own and not ns.IsSecret(own) and Destination(own) and full then
 		msg, n = msg .. ";" .. Field(own) .. "=0=", 1
 	end
 	for _, o in ipairs(open) do
@@ -1120,6 +1161,14 @@ local function RecruitmentPreference(guild, create)
 	saved = { guild = guild }
 	choices[key] = saved
 	return saved
+end
+
+-- A remembered opt-in can be suspended by the native invite right. It must still have an
+-- off action: losing that right is not permission to ignore the player's saved opt-out.
+local function SavedRecruitingChoice()
+	local guild = WhisperGuild()
+	if type(guild) ~= "string" or ns.IsSecret(guild) or guild == "" then return nil end
+	return RecruitmentPreference(guild), guild
 end
 
 -- This character's saved choices for the guild it recruits for now (the scan and handoff
@@ -1314,8 +1363,21 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_NO_INVITE"] = {
 	preferredIndex = 3,
 }
 
+local function DisableRecruiting(saved, guild)
+	StopRecruiting()
+	saved = saved or (guild and RecruitmentPreference(guild, true))
+	if saved then saved.enabled, saved.pauseUntil = false, nil end
+	ns.Fire("DATA_CHANGED")
+	return saved
+end
+
 function Recruit.ToggleWhisperRecruiting()
+	local chosen, chosenGuild = SavedRecruitingChoice()
 	local guild = EligibleRecruitingGuild()
+	if chosenGuild and (recruitingGuild == chosenGuild or (not guild and chosen and chosen.enabled == true)) then
+		DisableRecruiting(chosen, chosenGuild)
+		return false
+	end
 	if not guild then
 		NoInviteRight()
 		return false
@@ -1985,8 +2047,7 @@ end
 -- Done or Don't ask again clears it (Recruit.OfferAnswered). Turned on here, the mark goes.
 local function ChurchSwitch()
 	local on = Recruit.ToggleWhisperRecruiting()
-	local guild = EligibleRecruitingGuild()
-	local saved = guild and RecruitmentPreference(guild)
+	local saved = SavedRecruitingChoice()
 	if saved then saved.offerAgain = not on or nil end
 	return on
 end
@@ -2095,9 +2156,11 @@ function Recruit.Resume() return EndPause() end
 -- Turn off recruiting's answer: `kind` the switch behind the popup it was asked from, or "all" (the
 -- Recruiting switch itself, as Church > Invites turns it off).
 local function TurnOff(kind)
-	if not Recruiting() then return false end
+	local saved, guild = SavedRecruitingChoice()
+	if not Recruiting() and not (kind == "all" and saved and saved.enabled == true) then return false end
 	if kind == "all" then
-		ChurchSwitch()
+		saved = DisableRecruiting(saved, guild)
+		if saved then saved.offerAgain = true end
 		ns.Print(L.RECRUIT_OFF_ALL)
 	elseif kind == "ads" then
 		SetReminder(1)
@@ -2240,9 +2303,12 @@ StaticPopupDialogs["OLYMPUS_RECRUIT_TURN_OFF"] = {
 function Recruit.WhisperLines()
 	if not WhisperGuild() then return {} end
 	local V, on = ns.Views, Recruiting()
+	local saved = SavedRecruitingChoice()
+	local switchText = not on and not Recruit.CanInvite() and saved and saved.enabled == true and L.RECRUIT_TURN_OFF_BUTTON
+		or (on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF))
 	local lines = {}
 	Section(lines, "recruit-section-recruiting", L.RECRUIT_SECTION_RECRUITING)
-	lines[#lines + 1] = { id = "recruit-whisper-toggle", text = on and V.Green(L.RECRUIT_WHISPER_ON) or V.Grey(L.RECRUIT_WHISPER_OFF),
+	lines[#lines + 1] = { id = "recruit-whisper-toggle", text = switchText,
 		onClick = ChurchSwitch, tooltip = function(tt) tt:AddLine(L.RECRUIT_WHISPER_SWITCH_TIP, 1, 1, 1, true) end }
 	if not Recruit.CanInvite() then
 		lines[#lines + 1] = { id = "recruit-no-invite", indent = 1, text = V.Red(L.RECRUIT_NO_INVITE_SHORT),
@@ -3324,7 +3390,7 @@ function Recruit.ResetForTests()
 	wipe(publicRecruitmentAt)
 	wipe(contacted)
 	lastOutreach, lastReplyPrompt = nil, nil
-	wipe(routeAsked); wipe(routeAnswered); wipe(closedGuilds); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
+	wipe(routeAsked); wipe(routeGuild); wipe(routeAnswered); wipe(closedGuilds); wipe(gatesSaid); wipe(askedKey); wipe(dnc); wipe(answeredAt); wipe(answers); wipe(requestAt)
 	wipe(selfSaid); wipe(ownNamed)
 	wipe(lineTimes); wipe(whispers); wipe(invitesTaken); wipe(declinedHere); wipe(sentDeclines); wipe(declineSenders)
 	declinePatterns = nil

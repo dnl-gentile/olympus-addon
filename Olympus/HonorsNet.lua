@@ -2219,12 +2219,56 @@ local function HoldLetter()
 	ns.Print("|cffffd200" .. L.HONOR_LETTER_HELD .. "|r")
 end
 
+-- A Slayer receipt never interrupts a fight or an instance, even when the Olympus window
+-- opens or alerts are set to always. Read only the same client APIs Wanted's notices use;
+-- an unreadable state waits too. Unlike an answer, parking must not consume or mark the receipt.
+local function SlayerStateBlocked(api)
+	if type(api) ~= "function" then return false end
+	local ok, yes = pcall(api)
+	return not ok or (issecretvalue and issecretvalue(yes)) or yes == true
+end
+local function SlayerBlocked()
+	return SlayerStateBlocked(InCombatLockdown) or SlayerStateBlocked(IsInInstance)
+end
+local function ParkSlayerLetter()
+	if not frame or frame.preview or H.LetterFamily(frame.key) ~= "wanted" then return end
+	frame.key = nil -- OnHide is Later only for a letter the player actually closes.
+	frame:Hide()
+end
+
+local function SlayerPending()
+	for _, letter in ipairs(letters) do if H.LetterFamily(letter.key) == "wanted" then return true end end
+	return false
+end
+-- An idle client has no letter-state listeners. The shared event bus has no per-callback
+-- unregister operation, so install these once, only after a real Slayer receipt is queued;
+-- after it is answered they return without reading client state or scheduling anything.
+local slayerWatching = false
+local function SlayerLetterState()
+	if not SlayerPending() then return end
+	if SlayerBlocked() then ParkSlayerLetter() return end
+	-- A state event carries no prior click: gamepad and Busy keep their ordinary waits.
+	if letters[1] and H.LetterFamily(letters[1].key) == "wanted" then H.ShowLetter() end
+end
+local function WatchSlayerLetters()
+	if slayerWatching or not SlayerPending() then return end
+	slayerWatching = true
+	for _, event in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" }) do
+		ns.RegisterEvent(event, SlayerLetterState)
+	end
+end
+
 -- key: a letter asked for (a click: shown at once); prompted: the player's click opened it.
 function H.ShowLetter(key, prompted)
 	if H.LetterToSender() then return false end
 	if key then letters[#letters + 1] = { key = key, t = Now() } end
 	local nextLetter = letters[1]
 	if not nextLetter then return false end
+	WatchSlayerLetters()
+	if H.LetterFamily(nextLetter.key) == "wanted" and SlayerBlocked() then
+		ParkSlayerLetter()
+		return false
+	end
 	if frame and frame:IsShown() then return true end
 	if not key and not prompted and ns.GamepadUI() then
 		H.WaitForWindow()

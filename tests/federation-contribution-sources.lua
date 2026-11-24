@@ -19,6 +19,8 @@ local function World(run)
 	Set(T, 'Share', function() return false end)
 	Set(ns.Who, 'SeenGuild', function(who) if who == DONOR then return nativeGuild, nativeAge end end)
 	Set(_G, 'GetGuildInfo', function() return guild end); Set(_G, 'GetServerTime', function() return time end)
+	-- Treasury's receipt clock and the server's weekly projection share this scene's time.
+	Set(ns, 'Now', function() return time end)
 	Set(_G, 'IsInInstance', function() return false end); Set(_G, 'InCombatLockdown', function() return false end)
 	local ok, err = pcall(run, Set, function(g) guild = g end, function(g, age) nativeGuild, nativeAge = g, age end)
 	for i = #undo, 1, -1 do undo[i]() end
@@ -42,6 +44,7 @@ test('federation contribution sources: native settled mail with a recent native 
 		eq(#T.Book().lines, 0, 'requesting mail gold is not a receipt')
 		gold = gold + 34567; T.MoneyChanged()
 		local book, e = T.Book(), T.Book().lines[1]
+		eq(e.t, AT, 'the native receipt uses the same clock as the weekly projection')
 		eq(#book.lines, 1); eq(e.kind, 'charity'); eq(C.SourceLabel(book, e), 'native-mail')
 		eq(T.Totals().allIn, 34567); eq(#T.PublicRanking(book), 0)
 		eq(C.Project(AT), ('CP~1~B~%s~%d~?~?'):format(SCOPE, AT))

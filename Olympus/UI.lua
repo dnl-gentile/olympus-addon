@@ -775,17 +775,45 @@ local GEOMETRY = {
 -- with ChatWindow.lua loaded or not (a client updated without a restart: the tab says so).
 local function ChatTabVisible()
 	local C = ns.Channels
-	if not C or C.missing or type(C.CanUse) ~= "function" then return false end
-	for _, t in ipairs(C.ORDER or {}) do
-		if C.CanUse(t) then return true end
-	end
-	return false
+	return ns.IsMember() == true and type(C) == "table" and not C.missing and type(C.CanUse) == "function"
 end
 
 -- ChatWindow.lua there to draw it.
 local function ChatPaneReady()
 	local CW = ns.ChatWindow
 	return type(CW) == "table" and not CW.missing and type(CW.Attach) == "function" and type(CW.Detach) == "function"
+end
+
+-- A visible route to the reason, not an authorization grant. Channels keeps its existing
+-- CanUse/Send/Receive checks; a pending member gets only Olympus's own explanatory list.
+function UI.ChatAccess()
+	if not ns.IsMember() then return "member", ns.MembersOnlyText() end
+	local function Reason(code, key) return code, rawget(L, key) or L.RESTART_NEEDED end
+	if not ChatPaneReady() then return Reason("restart", "RESTART_NEEDED") end
+	if ns.realm == "?" or ns.group == "?" then return Reason("identity", "CHAT_ACCESS_IDENTITY") end
+	if ns.SharedToolsHere() then return nil end
+	local guild = GetGuildInfo("player")
+	if ns.Secret(nil, guild) or type(guild) ~= "string" then return Reason("roster", "CHAT_ACCESS_ROSTER") end
+	local D, P, V, F = ns.Data, ns.FederationProgram, ns.Verify, ns.FederationFugitives
+	if (D and D.NetOff and D.NetOff(guild))
+		or (F and type(F.Suspended) == "function" and F.Suspended(guild)) then
+		return Reason("suspended", "CHAT_ACCESS_SUSPENDED")
+	end
+	-- A native snapshot still loading does not invalidate an approval or ask anyone to repeat it.
+	if P and P.IsEnrolled(guild) then
+		if not ns.Roster.Fresh() then return Reason("roster", "CHAT_ACCESS_ROSTER") end
+		return Reason("leadership", "CHAT_ACCESS_LEADERSHIP")
+	end
+	if V and not V.missing and type(V.Status) == "function" then
+		local status, info = V.Status(guild)
+		if info and info.revoked then return Reason("revoked", "CHAT_ACCESS_REVOKED") end
+		if info and info.lapsed then
+			if not ns.Roster.Fresh() then return Reason("roster", "CHAT_ACCESS_ROSTER") end
+			return Reason("leadership", "CHAT_ACCESS_LEADERSHIP")
+		end
+		if status ~= "verified" and status ~= "exempt" then return Reason("pending", "CHAT_ACCESS_PENDING") end
+	end
+	return Reason("policy", "CHAT_ACCESS_POLICY")
 end
 
 -- Where the Chat tab's parts go in window `f`, from its look's numbers (offsets from its corners):
@@ -1848,7 +1876,7 @@ function UI.Layout()
 		and not main.statsLaid and not main.layoutCensusRecruit
 	main.colHeader:SetShown(hasCols)
 	-- The Chat tab: the header's counts, the list and the detail box give their place to its parts.
-	local chat = not surface and not playerProfile and not main.layoutLocked and main.tab == "chat" and ChatPaneReady()
+	local chat = not surface and not playerProfile and not main.layoutLocked and main.tab == "chat" and ChatPaneReady() and not main.chatAccess
 	local navHeight = DrawPageNavigation()
 	for _, key in ipairs({ "total", "sub", "listBox", "scroll", "detail" }) do
 		if main[key] then main[key]:SetShown(not chat and not surface) end
@@ -2519,10 +2547,14 @@ function UI.Refresh()
 		local previewing = views ~= nil and views.Previewing() == true
 		local inert = locked and ns.IsMember() -- (locked by the preview alone)
 		local simpleJoin = locked and ns.Recruit.SimpleJoin()
+		local chatAccess, chatReason
+		if not locked and not playerProfile and main.tab == "chat" then chatAccess, chatReason = UI.ChatAccess() end
+		local accessChanged = main.chatAccess ~= chatAccess
+		main.chatAccess = chatAccess
 		if locked and playerProfile then LeaveProfile() end
 		-- Joined or left a guild while the window is open: lay it out again (KH-08: and the census's
 		-- own page opened or closed: its column titles).
-		if locked ~= main.layoutLocked or simpleJoin ~= main.layoutSimpleJoin or (main.tab == "census" and CensusStatsShown()) ~= main.statsLaid then UI.Layout() end
+		if accessChanged or locked ~= main.layoutLocked or simpleJoin ~= main.layoutSimpleJoin or (main.tab == "census" and CensusStatsShown()) ~= main.statsLaid then UI.Layout() end
 			-- Role-only native pages keep their existing rules (the Companion reads the same rules,
 			-- without the presentation-only View-as override).
 			local only = TabRules(locked, views)
@@ -2612,6 +2644,14 @@ function UI.Refresh()
 			main.total:SetText(profileHeader or L.PLAYER_PROFILE_TITLE)
 			main.sub:SetText(profileSubheader or "")
 			main.peopleText = nil
+		elseif chatAccess == "restart" then
+			-- Keep the first-row instruction used by an unloaded Chat module, without a header
+			-- before it. A partially loaded module (no Attach/Detach) needs the same instruction.
+			lines = { { id = "chat-access", chatAccess = chatAccess, text = ns.Views.Grey(chatReason), wrap = true } }
+		elseif chatAccess then
+			lines = { { header = true, text = L.TAB_CHAT },
+				{ id = "chat-access", chatAccess = chatAccess, text = chatReason, wrap = true } }
+			title, text = L.TAB_CHAT, chatReason
 		else
 			local offer = CensusRecruitment(previewing)
 			lines, title, text, recruitment = ns.Views.Build(main.tab, s, offer)
@@ -2671,7 +2711,7 @@ function UI.Refresh()
 		if only[main.tab] == false then return ShowTab("census") end
 			LayoutAvailableTabs()
 		-- The Chat tab (ChatWindow.lua) over the list's place while it is the one shown.
-		ChatPane(not locked and not playerProfile and main.tab == "chat")
+		ChatPane(not locked and not playerProfile and main.tab == "chat" and not chatAccess)
 		local detail = not locked and not playerProfile and Shown(DETAIL_BUTTONS[view]) or nil
 		SetButtons(main.detailButtons, detail)
 		-- Room for the text where no button shows (the Decrees tab has one for the King alone).
@@ -3302,6 +3342,9 @@ local chatDataAt, chatDataPending = -math.huge, false
 function UI.DataChanged()
 	if not main or not main:IsShown() then return end
 	if main.tab ~= "chat" or playerProfile or not ns.IsMember() or main.layoutLocked then return UI.RefreshSoon() end
+	-- Approval/roster transitions must reveal the reason or restore the pane immediately,
+	-- independently of the slower background Census summary refresh.
+	if UI.ChatAccess() ~= main.chatAccess then return UI.RefreshSoon() end
 	local now = GetTime()
 	if now < chatDataAt then chatDataAt = -math.huge end
 	if now - chatDataAt >= UI.CHAT_DATA_EVERY then

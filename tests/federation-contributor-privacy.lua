@@ -32,6 +32,9 @@ local function World(run)
 	Set(T, "Share", function() return false end)
 	Set(_G, "GetGuildInfo", function() return guild end)
 	Set(_G, "GetServerTime", function() return time end)
+	-- Treasury stamps receipts with ns.Now; consent and weekly projections use server time.
+	-- Both must follow this scene's clock rather than the date the test happens to run.
+	Set(ns, "Now", function() return time end)
 	Set(_G, "IsInInstance", function() return false end)
 	Set(_G, "InCombatLockdown", function() return false end)
 	local ok, err = pcall(run, Set, function(g) guild = g end, function(now) time = now end,
@@ -47,6 +50,7 @@ end
 test("federation donor privacy: observed gold counts in the balance but default ranking bytes omit any identity or amount", function()
 	World(function()
 		local e = Record(FIRST, 34567, OTHER)
+		eq(e.t, AT, "the native receipt uses the same clock as the weekly projection")
 		eq(e.kind, "charity")
 		eq(T.Totals().allIn, 34567)
 		eq(#T.PublicRanking(T.Book()), 0, "legacy public ranks omit protected receipt")
