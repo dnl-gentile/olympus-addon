@@ -57967,6 +57967,102 @@ do
 		if not ok then error(err, 0) end
 	end)
 
+	-- Prat-3.0 (3.9.117, as a player in Stockades has it): Prat builds every line again from its parts,
+	-- the sender's name from the line's bare name (services/chatsections.lua: PLAYER), so the game's
+	-- sender name filter never showed a mark in Prat's windows. The marks come back through Prat's own
+	-- API: a part of ours just inside the player link, filled from Prat_PreAddMessage.
+	test("1.6.2 Prat: the chat marks before a sender's name in Prat's windows too, through Prat's own message parts (once, never with the marks off or the gamepad UI); without Prat nothing changes", function()
+		local saved = { cfu = rawget(_G, "ChatFrameUtil"), prat = rawget(_G, "Prat"), chatMarks = ns.db.chatMarks, byName = ns.Roster.byName,
+			print = ns.Print, tex = C_Texture }
+		local ok, err = pcall(function()
+			local filters, gamepad = {}, false
+			ChatFrameUtil = { AddSenderNameFilter = function(cb) filters[#filters + 1] = cb end }
+			GamepadStyle(function() return gamepad end)
+			ns.Print = function() end
+			ns.db.chatMarks = nil
+			C_Texture = nil
+			ns.Roster.byName = { ["Plain Guy-Realm"] = 4 }
+			-- Prat's side, as its source has it: the parts in order (chatsections.lua SplitMessageIdx,
+			-- the link's part of it), RegisterMessageItem's insertion, CallbackHandler's
+			-- RegisterChatEvent, and a line: its parts split, Prat_PreAddMessage fired, then joined
+			-- (addon.lua ChatFrame_MessageEventHandler, Full processing).
+			local order = { "PRE", "pP", "lL", "PLAYERLINK", "LL", "PLAYER", "Ll", "Pp", "MESSAGE", "POST" }
+			local listeners, items = {}, 0
+			Prat = {
+				RegisterChatEvent = function(owner, name, fn)
+					assert(name == "Prat_PreAddMessage" and type(fn) == "function")
+					listeners[#listeners + 1] = fn
+				end,
+				RegisterMessageItem = function(item, anchor, rel)
+					local pos = 1
+					for i, v in ipairs(order) do if v == item then table.remove(order, i) break end end
+					for i, v in ipairs(order) do if v == anchor then pos = i + (rel == "before" and 0 or 1) end end
+					table.insert(order, pos, item)
+					items = items + 1
+				end,
+			}
+			local function PratLine(event, text, sender)
+				local m = { EVENT = event, ARGS = { text, sender }, pP = "[", lL = "|Hplayer:", PLAYERLINK = sender, LL = "|h",
+					PLAYER = sender:match("^[^%-]+"), Ll = "|h", Pp = "]", MESSAGE = ": " .. text }
+				for _, fn in ipairs(listeners) do fn("Prat_PreAddMessage", m, {}, event) end
+				local out = ""
+				for _, k in ipairs(order) do out = out .. (m[k] or "") end
+				return out
+			end
+			local STAR = "|TInterface\\AddOns\\Olympus\\media\\borders\\star:14:14|t"
+			local bns = setmetatable({
+				On = function() end, RegisterEvent = function() end, Every = function() end, After = function() end,
+			}, { __index = ns })
+			assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", bns)
+			assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", bns)
+			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bns)
+			local B = bns.Borders
+			-- The bug: without the Prat part, Prat's line carried the bare name (what 1.6.2 showed).
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|hPlain Guy|h]: hi")
+			B.ChatRefresh() -- (what its LOGIN handler runs first)
+			eq(B.ChatShown(), true); eq(#filters, 1); eq(#listeners, 1); eq(items, 1)
+			assert(B.ChatStatusLine():find("Prat", 1, true), B.ChatStatusLine())
+			-- The member's star inside the link, before the name, as the game's filter puts it.
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|h" .. STAR .. "Plain Guy|h]: hi")
+			eq(PratLine("CHAT_MSG_CHANNEL", "wts", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|h" .. STAR .. "Plain Guy|h]: wts")
+			-- The same rules as the game's filter: no star in guild chat, none for a stranger or another kind of line.
+			eq(PratLine("CHAT_MSG_GUILD", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|hPlain Guy|h]: hi")
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Stranger-Realm"), "[|Hplayer:Stranger-Realm|hStranger|h]: hi")
+			eq(PratLine("CHAT_MSG_SYSTEM", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|hPlain Guy|h]: hi")
+			-- A name that already carries the mark (Prat showing the game's decorated name): not twice.
+			local m = { EVENT = "CHAT_MSG_SAY", ARGS = { "hi", "Plain Guy-Realm" }, PLAYER = STAR .. "Plain Guy" }
+			B.PratLine("Prat_PreAddMessage", m, {}, "CHAT_MSG_SAY")
+			eq(m[B.PRAT_PART], nil)
+			-- Anything odd from Prat: no error, no part.
+			B.PratLine("Prat_PreAddMessage", nil, {}, "CHAT_MSG_SAY")
+			B.PratLine("Prat_PreAddMessage", { ARGS = "x" }, {}, "CHAT_MSG_SAY")
+			-- Off, then on again: none, then back; registered once all the same.
+			B.ChatSlash("off")
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|hPlain Guy|h]: hi")
+			B.ChatSlash("on")
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|h" .. STAR .. "Plain Guy|h]: hi")
+			eq(#listeners, 1); eq(items, 1)
+			-- The gamepad UI: none, whatever chatOn says (the callback asks the gate first).
+			gamepad = true
+			eq(PratLine("CHAT_MSG_SAY", "hi", "Plain Guy-Realm"), "[|Hplayer:Plain Guy-Realm|hPlain Guy|h]: hi")
+			gamepad = false
+			-- Without Prat: the game's filter alone, nothing else asked.
+			Prat = nil
+			local bare = setmetatable({ On = function() end, RegisterEvent = function() end,
+				Every = function() end, After = function() end }, { __index = ns })
+			filters = {}
+			assert(loadfile(ADDON_DIR .. "GamepadRegistry.lua"))("Olympus", bare)
+			assert(loadfile(ADDON_DIR .. "Gamepad.lua"))("Olympus", bare)
+			assert(loadfile(ADDON_DIR .. "Borders.lua"))("Olympus", bare)
+			eq(bare.Borders.ChatRefresh(), true); eq(#filters, 1)
+			assert(not bare.Borders.ChatStatusLine():find("Prat", 1, true))
+			eq(filters[1]("CHAT_MSG_SAY", "Plain Guy", "hi", "Plain Guy-Realm"), STAR .. "Plain Guy")
+		end)
+		ChatFrameUtil, Prat = saved.cfu, saved.prat; GamepadStyle(nil)
+		ns.db.chatMarks, ns.Roster.byName, ns.Print, C_Texture = saved.chatMarks, saved.byName, saved.print, saved.tex
+		if not ok then error(err, 0) end
+	end)
+
 	test("1.1.5 the game's own chat: /oly chatmarks, its help line and its words in both languages; the council icon's words name the game's chat", function()
 		local core = assert(ReadFile(ADDON_DIR .. "Core.lua"))
 		assert(core:find('cmd == "chatmarks"', 1, true) and core:find("print(L.HELP_CHATMARKS)", 1, true))
