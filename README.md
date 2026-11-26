@@ -3830,9 +3830,6 @@ The offline suite checks the border textures in `Olympus/media/borders/` (32-bit
 alpha, 256 x 256, and the member's 32 x 32 star for the nameplate marks); with Pillow installed,
 `scripts/check.sh` also checks they are what `scripts/make-borders.py` builds from the supplied PNGs in
 `media/borders/src/` (the star it draws itself: no game file is copied).
-The supplied Fox dragon is cosmetic for the exact Akafoxslayer Thunderfury character on Forever,
-Alliance, in a natively observed or proven Olympus guild. It grants no role or permission; its
-chat head uses the same supplied texture. Other characters keep their existing rank marks.
 The CurseForge description is `docs/CURSEFORGE-STORE.md`: CurseForge's editor refuses a
 page above about 100 KiB, so `scripts/curseforge-page.lua` makes it from `docs/CURSEFORGE.md`
 (the whole page), with the last versions from this repository's `ROADMAP.md` and the longest
@@ -4020,7 +4017,7 @@ its changes listed at its top).
 - **Feature requests:** Fernmelder, whose 39 posts became 1.1 (the Fernmelder release);
   shenanigans_ (the nameplate marks), Valdericht (`<OLYMPIAN>`), Pyralis Ashandar (taking
   donations), and FedGuy / Fed Olympus (nameplate-assisted layer hopping).
-- **Art:** Max (the bronze elite borders, drawn over the game's own; the winged one remains the guild masters') and Kaise (the Queen's red, gold and white-winged dragon frame). akaFoxSlayer supplied the silver dragon with purple lightning used for the personal Akafoxslayer Thunderfury frame.
+- **Art:** Max (the bronze elite borders, drawn over the game's own; the winged one remains the guild masters') and Kaise (the Queen's red, gold and white-winged dragon frame). Additional supplied artwork: akaFoxSlayer.
 - **Reports from the field:** Riukensei and PartyRockAce (the gamepad UI; PartyRockAce's report
   of the world map blocked in controller mode, fixed in 1.0), Ignitheus (whispers to Forever
   names), Pyralis Ashandar, the Treasurer (the treasury and the guild bank), the player who

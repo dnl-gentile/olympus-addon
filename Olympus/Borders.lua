@@ -134,7 +134,7 @@ ns.Borders = Borders
 -- The primary federal Treasurer's supplied dragon is portrait-only (TreasurerPin == 1, never
 -- the mail alternate; 1.5.5: a signed Quaestor's too, Dragon). The Queen's head also identifies her in native chat; nameplate marks
 -- stay unchanged. The King takes precedence.
--- Portrait order: the King, the Queen, the personal Fox frame, the primary Treasurer and the Quaestors, the High Council, the dev, a guild master, a nominee
+-- Portrait order: the King, the Queen, the primary Treasurer and the Quaestors, the High Council, the dev, a guild master, a nominee
 -- (then, on nameplates and in the game's chat, the star).
 -- (1.0.1's Max's second option, ns.BORDERS_COUNCIL_GOLD, the High Council in the King's gold
 -- wings, is gone with 1.1.5: the gold is the King's alone, on the borders, the nameplates and in
@@ -157,10 +157,6 @@ Borders.TIERS = {
 	-- native 58 px portrait and centre it there, preserving the whole authored art.
 	{ name = "queen-dragon", file = MEDIA .. "queen-dragon", coords = { 0, 200 / 256, 0, 190 / 256 }, width = 175, height = 166.25,
 		x = 38, y = 34, fallback = PLAIN, fallbackAt = { x = 0, y = 1 }, queen = true, metal = "none" },
-	-- The supplied Fox artwork's clear opening is centred at (79.74,94.52), radius 53.47,
-	-- in its complete 200px art box. Fit that opening to the native portrait without stretching.
-	{ name = "fox-dragon", file = MEDIA .. "fox-dragon", coords = { 0, 200 / 256, 0, 200 / 256 }, width = 108, height = 108,
-		x = 10, y = 2, fallback = PLAIN_SILVER, fallbackAt = { x = 0, y = 1 }, personal = true, metal = "none" },
 	{ name = "treasurer-dragon", file = MEDIA .. "treasurer-dragon", coords = { 0, 200 / 256, 0, 190 / 256 }, width = 100, height = 95,
 		x = 0, y = 1, fallback = PLAIN, treasurer = true, metal = "none", party = { x = 0, y = -2 } }, -- (its own art whole: no plain dragon under it; party: see PartyRig)
 	{ name = "silver-elite", atlas = "UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", x = 8, y = -7,
@@ -313,17 +309,6 @@ local function IsDev(who)
 end
 Borders.IsDevName = IsDev -- (1.2.3: HonorsNet's The Royal Dev title asks the core, never naming the author)
 
--- Fox's requested personal art, promised by the author on 2026-11-21. Forever names identify
--- the character across its native sub-realms; no Classic namesake or partial name inherits it.
--- This is presentation alone: callers still prove Olympus membership, and nothing here names
--- a councillor, changes a title or grants a capability. The supplied request named no realm.
-local function PersonalName(who)
-	if ns.splitNames ~= true or ns.faction ~= "Alliance" or type(who) ~= "string" then return false end
-	local realm = ns.RealmOf(who)
-	if type(ns.ForeverFamily) ~= "function" or not ns.ForeverFamily(realm or "") then return false end
-	return ns.Fold(ns.ShortName(who) or "") == "akafoxslayer thunderfury"
-end
-
 -- The Treasurer's blue dragon: the Treasurer himself (TreasurerPin 1, never his mail characters) and
 -- (1.5.5, the dev: "give him his old frame") a Quaestor the signed list names (ns.IsQuaestorName), the
 -- Treasurer's executor, who wore it as the beta's Treasurer. The Treasurer's tier, under the King's crown.
@@ -399,7 +384,7 @@ local function Uncover(f)
 	local C = ns.Cover
 	if type(C) ~= "table" or type(C.AliasOf) ~= "function" or not C.AliasOf(f.who) then return end
 	f.covered = true
-	f.councillor, f.council, f.dev, f.queen, f.treasurer, f.king, f.personal = false, false, false, false, false, false, false
+	f.councillor, f.council, f.dev, f.queen, f.treasurer, f.king = false, false, false, false, false, false
 end
 
 -- (1.3.4) Where no King is named here and no launch list reaches (ns.KingUnpinned), the guild master
@@ -431,7 +416,6 @@ local function Facts(unit)
 	Uncover(f)
 	if not f.guild or not ns.IsFederation(f.guild) then return f end
 	f.olympus = true
-	f.personal = not f.covered and PersonalName(who)
 	-- A nominee: named by the master of the guild the server gives him (Nominees.RoleOf).
 	f.nominee = Nominee(who, f.guild)
 	-- (1.3.4: its guild master stands for the King only where none is named, and no launch list reaches: ns.KingUnpinned.)
@@ -467,7 +451,7 @@ local function Match(f, marked)
 	if not f or f.off then return nil end
 	for _, t in ipairs(Borders.TIERS) do
 		if ((t.king and f.king) or (t.queen and f.queen) or (t.council and f.council) or (t.dev and f.dev) or (t.leader and f.leader)
-			or (t.treasurer and f.treasurer) or (t.personal and f.personal)) and not (marked and not Borders.MARK_OF[t.name]) then
+			or (t.treasurer and f.treasurer)) and not (marked and not Borders.MARK_OF[t.name]) then
 			return t
 		end
 	end
@@ -609,7 +593,6 @@ function Borders.MarkOfName(who, guild)
 		end
 		f.king = not f.covered and ((ns.IsKingCharacter(who) and (ns.IsKingGuild(guild) or ns.splitNames == true)) or MasterWearsCrown(guild, rank))
 		f.leader = rank == 0
-		f.personal = not f.covered and f.proven and PersonalName(who) or false
 	end
 	local t = Match(f, true)
 	return t and Borders.MARK_OF[t.name]
@@ -1599,7 +1582,7 @@ Borders.CHAT_SIZE = 14
 Borders.CHAT_STAR = "|T" .. CHAT_STAR_FILE .. ":14:14|t"
 local CHAT_ATLAS = { gold = "nameplates-icon-elite-gold", silver = "nameplates-icon-elite-silver", bronze = "nameplates-icon-elite-gold" }
 local CHAT_BRONZE_TINT = ":0:0:158:118:86" -- (Nameplates.BRONZE x 255)
-local CHAT_RANK = { gold = 4, queen = 3.5, fox = 3.25, silver = 3, bronze = 2, member = 1 }
+local CHAT_RANK = { gold = 4, queen = 3.5, silver = 3, bronze = 2, member = 1 }
 for key in pairs(Borders.ROLE_BADGES) do CHAT_RANK["role-" .. key] = 1.5 end
 Borders.CHAT_PREVIEWS = { gold = true, silver = true, bronze = true, member = true }
 
@@ -1613,10 +1596,6 @@ local function ChatArt(mark, size)
 		-- Its 70x49 crop keeps its proportions at the normal 14px chat height.
 		return ("|T%s:%d:%d:0:0:256:256:44:114:24:73|t"):format(MEDIA .. "queen-dragon", size, math.floor(size * 70 / 49 + 0.5))
 	end
-	if mark == "fox" then
-		-- Head and lightning from the same complete portrait texture, with its proportions kept.
-		return ("|T%s:%d:%d:0:0:256:256:2:74:18:67|t"):format(MEDIA .. "fox-dragon", size, math.floor(size * 72 / 49 + 0.5))
-	end
 	local role = Borders.RoleBadgeTexture(mark)
 	if role then return ("|T%s:%d:%d|t"):format(role, size, size) end
 	local atlas = CHAT_ATLAS[mark]
@@ -1629,7 +1608,7 @@ end
 -- (Workshop.lua's council icon picker shows the silver with the icon it picks.)
 local function ChatText(mark, who)
 	if mark == "member" then return Borders.CHAT_STAR, "member" end
-	if mark ~= "queen" and mark ~= "fox" and not CHAT_ATLAS[mark] and not Borders.RoleBadgeTexture(mark) then return nil end
+	if mark ~= "queen" and not CHAT_ATLAS[mark] and not Borders.RoleBadgeTexture(mark) then return nil end
 	local text = ChatArt(mark)
 	if not text then return Borders.CHAT_STAR, "member" end
 	if mark == "silver" and who then text = text .. ns.CouncilIcon(who) end
@@ -1688,8 +1667,7 @@ function Borders.ChatName(sender)
 	local best, facts = Borders.MarkOfName(who, nil) -- signed identities need no guild claim
 	if facts and facts.queen and not facts.off then best = "queen" end
 	for _, guild in ipairs(ChatGuilds(who)) do
-		local mark, proven = Borders.MarkOfName(who, guild)
-		if proven and proven.personal then mark = "fox" end
+		local mark = Borders.MarkOfName(who, guild)
 		if mark and (not best or CHAT_RANK[mark] > CHAT_RANK[best]) then best = mark end
 	end
 	if not best then return false end

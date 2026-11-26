@@ -25497,7 +25497,7 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 		-- Then the plain silver (the dev's) and Max's plain bronze (the people a guild master names)
 		-- came back as tiers: five borders; the plain gold alone is kept for later. 1.2: and one
 		-- plain metal underlay per frame.)
-		eq(#w.textures, 27, "eight borders (including the supplied personal Fox dragon) and one underlay on three frames")
+		eq(#w.textures, 24, "seven borders and one underlay on three frames")
 		for _, t in ipairs(w.B.RESERVED) do
 			for _, tex in ipairs(w.textures) do
 				-- (The underlay's plain metal is the plain gold's atlas: no border of its own.)
@@ -25546,7 +25546,6 @@ test("1.0.1 borders: each tier's art (the game's atlases, Max's files) at its si
 			-- tier, art, size (nil: the atlas's own), target: coords, x y; your own: coords, x y
 			{ "gold-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Gold-Winged", nil, nil, "11 -4", "1 0 0 1", "-13 -4" },
 			{ "queen-dragon", "file " .. MEDIA .. "queen-dragon", "175 166.25", "0 0.78125 0 0.7421875", "38 34", "0.78125 0 0 0.7421875", "-40 34" },
-			{ "fox-dragon", "file " .. MEDIA .. "fox-dragon", "108 108", "0 0.78125 0 0.78125", "10 2", "0.78125 0 0 0.78125", "-12 2" },
 			{ "treasurer-dragon", "file " .. MEDIA .. "treasurer-dragon", "100 95", "0 0.78125 0 0.7421875", "0 1", "0.78125 0 0 0.7421875", "-2 1" },
 			{ "silver-elite", "atlas UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged", nil, nil, "8 -7", "1 0 0 1", "-10 -7" },
 			{ "bronze-elite", "file " .. MEDIA .. "bronze-winged", "110 90", "0 0.859375 0 0.703125", "11 -4", "0.859375 0 0 0.703125", "-13 -4" },
@@ -25713,7 +25712,7 @@ test("1.2 borders: an Olympus portrait (the Arena's) is your own frame's portrai
 			end
 			local n = 0
 			for _ in pairs(own) do n = n + 1 end
-			eq(n, 9, "the underlay and the eight tiers, as on your frame")
+			eq(n, 8, "the underlay and the seven tiers, as on your frame")
 			eq(own["gold-elite"].point, "TOPLEFT " .. container.label .. " TOPLEFT -13 -4", "the gold wings 37 left and 15 above the portrait")
 			-- A tier shown: its art alone, over its metal turned round, as round your own portrait (1.1.5:
 			-- a Captain has no border of his rank any more; a High Councillor's silver wings, yours here).
@@ -25863,7 +25862,7 @@ test("1.0.1 borders: applied through the hooked CheckClassification after the ga
 		eq(#w.log, 0, "still in combat")
 		w.combat = false
 		w.fire("PLAYER_REGEN_ENABLED")
-		eq(#w.textures, 27); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
+		eq(#w.textures, 24); eq(w.shown("target"), "gold-elite", "made, and the target's border shown")
 	end)
 end)
 
@@ -25932,7 +25931,7 @@ test("1.0.1 borders: off with the gamepad UI (no hook, no texture), hidden at a 
 		-- To mouse and keyboard: made and shown.
 		w.style = 0
 		w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-		eq(#w.textures, 27); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
+		eq(#w.textures, 24); eq(#w.hooks, 2); eq(w.shown("target"), "gold-elite")
 		-- Back to the gamepad UI: hidden at once; the hook and the events may repeat Hide on the
 		-- existing underlay, but never touch tier art or style/show anything.
 		w.style = 1
@@ -25982,7 +25981,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 	WithBorders(function(w)
 		w.noAtlas["UI-HUD-UnitFrame-Target-PortraitOn-Boss-Rare-Silver-Winged"] = true
 		w.internal("LOGIN")
-		eq(#w.textures, 24, "seven available borders and one underlay on three frames (the missing silver wings are left out)")
+		eq(#w.textures, 21, "six available borders and one underlay on three frames (the missing silver wings are left out)")
 		w.target(BorderUnit("Sage Owl", "Wanderers", "Member", 3))
 		eq(w.shown("target"), nil, "no silver wings for a High Councillor")
 		w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
@@ -25998,7 +25997,7 @@ test("1.0.1 borders: nothing outside an Olympus guild, on clients without Foreve
 		WithBorders(function(w)
 			w.noFile[MEDIA .. "bronze-winged"] = how
 			w.internal("LOGIN")
-			eq(#w.textures, 27)
+			eq(#w.textures, 24)
 			w.target(BorderUnit("Zeusy", "Olympus Zeus", "Zeus", 0))
 			eq(w.shown("target"), "bronze-elite", "a guild master keeps a border")
 			local tex = w.shownTexture("target")
@@ -26146,7 +26145,7 @@ do
 	local AUTHOR_UNIT = BorderUnit("Faladoriel Skylance", "Olympus II", "Member", 3, { realm = "ClassicBetaPvP" })
 	local function AsAuthor(w) w.units.player = AUTHOR_UNIT; ns.me = "Faladoriel Skylance-ClassicBetaPvP" end
 	local MEDIA = "Interface\\AddOns\\Olympus\\media\\borders\\"
-	local TIER_LIST = "gold-elite, queen-dragon, fox-dragon, treasurer-dragon, silver-elite, silver, bronze-elite, bronze"
+	local TIER_LIST = "gold-elite, queen-dragon, treasurer-dragon, silver-elite, silver, bronze-elite, bronze"
 
 	-- Everything the addon could send while fn runs (an addon message by either API, a chat line,
 	-- Comm's own queues), recorded in `sent`.
@@ -26228,7 +26227,7 @@ do
 			eq(w.shown("target"), "silver", "targeting himself: his own again")
 			assert(not ns.StatusText():find("preview", 1, true), "gone from /oly status")
 			-- The borders' own machinery unchanged: the same textures, the same hooks.
-			eq(#w.textures, 27); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 24); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 		-- An author who does hold a rank: the preview in its place while on, his own again after.
@@ -26314,7 +26313,7 @@ do
 			-- one row per border tier. 1.1.5: five tiers. 1.2: honours add five representative Workshop
 			-- previews between the rank borders and the member star. 1.2.4: four more, the crook, the
 			-- cross, the charm and the slayers' horse, worn now.)
-			eq(#rows, 18, "rank, personal and honour previews, then the member star at the foot of the tab")
+			eq(#rows, 17, "rank and honour previews, then the member star at the foot of the tab")
 			assert(head.right:find(ns.L.BORDERS_PREVIEW_NONE, 1, true), "off")
 			local bronzeEliteRow
 			local memberRow = #rows
@@ -26503,7 +26502,7 @@ do
 			-- To mouse and keyboard: made, and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 27); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
+			eq(#w.textures, 24); eq(w.shown("player"), "gold-elite"); eq(w.shown("target"), "gold-elite")
 			-- Back to the gamepad UI: hidden at once; a new tier, the hook and the events may
 			-- repeat Hide on the underlay, but never touch tier art or style/show anything.
 			w.style = 1
@@ -26552,7 +26551,7 @@ do
 			eq(#w.textures, 0, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 27); eq(#w.hooks, 2)
+			eq(#w.textures, 24); eq(#w.hooks, 2)
 			eq(w.shown("player"), "bronze-elite", "made once combat ended, and shown"); eq(w.shown("target"), "bronze-elite")
 			-- In combat again: tier after tier, tier art only switches visibility; the existing
 			-- underlay may be restyled, but nothing is made, sized or re-anchored.
@@ -26567,7 +26566,7 @@ do
 			SlashCmdList.OLYMPUS("borders test off")
 			eq(w.shown("player"), "silver"); eq(w.shown("target"), "silver") -- (1.1.5: his own, the dev's silver)
 			w.assertCombatCalls(12) -- (1.1.5: three tiers, 20 of six; then five)
-			eq(#w.textures, 27, "nothing more made")
+			eq(#w.textures, 24, "nothing more made")
 			for _, entry in ipairs(w.log) do assert(entry:find(":CreateTexture$"), entry) end
 		end, AsAuthor)
 	end)
@@ -26612,7 +26611,7 @@ do
 			"BORDERS_PREVIEW_NOT_MEMBER", "BORDERS_PREVIEW_COMBAT", "BORDERS_PREVIEW_MISSING", "BORDERS_PREVIEW_TITLE",
 			"BORDERS_PREVIEW_NONE", "BORDERS_PREVIEW_NOW", "BORDERS_PREVIEW_SHOWN", "BORDERS_PREVIEW_TIP" }
 		for name in TIER_LIST:gmatch("[^, ]+") do keys[#keys + 1] = "BORDERS_WHO_" .. name:upper():gsub("%-", "_") end
-		eq(#keys, 20, "the eight portrait tiers too")
+		eq(#keys, 19, "the seven portrait tiers too")
 		for _, key in ipairs(keys) do
 			assert(type(ns.L[key]) == "string" and ns.L[key] ~= key, "English " .. key)
 			assert(type(pt.L[key]) == "string" and pt.L[key] ~= ns.L[key], "Portuguese " .. key)
@@ -26683,9 +26682,9 @@ do
 			-- The target frame and your own frame as ever.
 			w.target(PARTY_MASTER)
 			eq(w.shown("target"), "bronze-elite"); eq(w.shown("player"), nil)
-			-- Five textures on each member frame itself (it has no container), as on the target's (1.1.5:
-			-- three, then the two without wings).
-			eq(#w.textures, 59, "eight borders on the target, the focus, your own and the four party frames, and the metal underlay on the first three")
+			-- Seven tier textures on each member frame itself (it has no container), as on the target's.
+			-- The three native frames also carry one metal underlay each.
+			eq(#w.textures, 52, "seven borders on the target, the focus, your own and the four party frames, and the metal underlay on the first three")
 			local seen = {}
 			local regions = w.partyRegions -- (the template: the sizes and places below)
 			-- (1.4.4, the dev's ask: the dragons over the game's ring on the party portraits too.) Each
@@ -26884,7 +26883,7 @@ do
 			local n = w.computed()
 			w.fire("GROUP_ROSTER_UPDATE")
 			eq(w.computed(), n, "empty places again: nothing worked out")
-			eq(#w.textures, 59, "nothing made after the first: eight on each frame")
+			eq(#w.textures, 52, "nothing made after the first: seven on each frame")
 			-- Only the guilds of the members looked at were ever looked up.
 			local theirs = { ["Olympus Zeus"] = true, ["OLYMPUS"] = true, ["Olympus II"] = true }
 			for _, k in ipairs(looked) do assert(theirs[k], "looked up " .. tostring(k)) end
@@ -26913,7 +26912,7 @@ do
 			eq(w.shownOn("PartyMember#2"), nil, "now the plain member's")
 			eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			eq(w.computed(), n, "nobody worked out again: the same members in the same places")
-			eq(#w.textures, 59, "no texture more")
+			eq(#w.textures, 52, "no texture more")
 			-- Another order, then the first again.
 			w.partyOrder = { 2, 4, 1, 3 }
 			PartyFrame:InitializePartyMemberFrames()
@@ -26979,7 +26978,7 @@ do
 			eq(w.shownOn("PartyMember#1"), nil, "not the one he showed on before")
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
 			eq(PartyLine(w), "gold-elite - - -")
-			eq(#w.textures, 59, "nothing made again")
+			eq(#w.textures, 52, "nothing made again")
 		end)
 	end)
 
@@ -27053,7 +27052,7 @@ do
 				end
 			end
 			assert(calls >= 10, "shown and hidden in combat: " .. calls)
-			eq(#w.textures, 59, "nothing made in combat")
+			eq(#w.textures, 52, "nothing made in combat")
 			OnlyCreateTexture(w)
 		end)
 		-- Logged in (or reloaded) in combat, in a party: nothing made, no hook, until it ends.
@@ -27067,25 +27066,25 @@ do
 			eq(#w.log, 0, "nothing made in combat"); eq(#w.hooks, 0); eq(#w.textures, 0)
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 59); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
+			eq(#w.textures, 52); eq(PartyLine(w), "gold-elite silver-elite - -", "made once combat ended, and shown")
 		end)
 		-- PartyFrame not shown yet at login (no member frame handed out), then first shown in combat.
 		WithBorders(function(w)
 			w.party(false)
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
-			eq(#w.textures, 27, "the target's, the focus's and yours (each with its underlay): no member frame yet")
+			eq(#w.textures, 24, "the target's, the focus's and yours (each with its underlay): no member frame yet")
 			eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification PartyFrame.InitializePartyMemberFrames",
 				"PartyFrame's hook, to see them come")
 			w.combat = true
 			PartyFrame:InitializePartyMemberFrames()
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 27, "none made in combat"); eq(w.shown("party1"), nil)
+			eq(#w.textures, 24, "none made in combat"); eq(w.shown("party1"), nil)
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 27, "still in combat")
+			eq(#w.textures, 24, "still in combat")
 			w.combat = false
 			w.fire("PLAYER_REGEN_ENABLED")
-			eq(#w.textures, 59); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
+			eq(#w.textures, 52); eq(w.shown("party1"), "bronze-elite", "made once combat ended, and shown")
 			-- Nothing waits any more: the next fight's end works nothing out again.
 			local n = w.computed()
 			w.combat = true; w.combat = false
@@ -27107,7 +27106,7 @@ do
 			-- To mouse and keyboard: made and shown.
 			w.style = 0
 			w.fire("INPUT_DEVICE_INTERFACE_TRANSITION", 0, 1)
-			eq(#w.textures, 59); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
+			eq(#w.textures, 52); eq(#w.hooks, 3); eq(PartyLine(w), "gold-elite silver-elite bronze-elite -")
 			-- Back to the gamepad UI: hidden at once; the roster, PartyFrame's hook, names and the census
 			-- call nothing on them and work nothing out.
 			w.style = 1
@@ -27240,7 +27239,7 @@ do
 			Party(w, PARTY_MASTER)
 			w.internal("LOGIN")
 			w.fire("GROUP_ROSTER_UPDATE")
-			eq(#w.textures, 27); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
+			eq(#w.textures, 24); eq(table.concat(w.hooks, " "), "TargetFrame.CheckClassification FocusFrame.CheckClassification")
 			eq(w.shown("party1"), nil)
 			assert(w.B.StatusLine():find("target -, focus -, player -  |", 1, true), w.B.StatusLine())
 			OnlyCreateTexture(w)
@@ -28344,10 +28343,7 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				local left, right, top, bottom = unpack(t.coords)
 				eq(left, 0, path); eq(top, 0, path .. ": the art at the top left")
 				local artW, artH = right * 256, bottom * 256
-				if t.name == "fox-dragon" then
-					eq(artW, 200, path .. ": the complete supplied square artwork")
-					eq(artH, 200, path .. ": the complete supplied square artwork")
-				elseif t.name == "queen-dragon" then
+				if t.name == "queen-dragon" then
 					-- The unchanged authored pixels have transparent padding; runtime fits the
 					-- actual alpha opening, tested against the portrait in treasurer-dragon.lua.
 					eq(artW, 200, path .. ": the original complete authored texture area")
@@ -28372,7 +28368,7 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				local visible = opaque + partial
 				assert(visible > 5000, path .. ": the art is there (" .. visible .. " visible pixels)")
 				assert(alpha > 5000 * 255, path .. ": substantial visible art (" .. alpha .. " total alpha)")
-				if t.name == "queen-dragon" or t.name == "fox-dragon" then
+				if t.name == "queen-dragon" then
 					assert(partial > 5000 and partial > opaque,
 						path .. ": the supplied dragon's semi-transparent detail is kept (" .. partial .. " partial-alpha pixels)")
 				else
@@ -28381,7 +28377,7 @@ test("1.0.1 borders: the custom frames ship as 256 x 256 32-bit TGAs with alpha,
 				assert(clear > 256 * 256 - artW * artH, path .. ": transparent round the frame")
 			end
 		end
-		eq(files, 5, "Max's two frames, the Queen's, Treasurer's and personal Fox dragons")
+		eq(files, 4, "Max's two frames and the Queen's and Treasurer's dragons")
 	end)
 	-- His PNGs, in the repository (not in the addon), at the size of the game's frames he drew over.
 	for name, size in pairs({ ["bronze-plain"] = { 200, 200 }, ["bronze-winged"] = { 220, 180 } }) do
@@ -64985,9 +64981,9 @@ end)()
 	end)
 
 	test("1.4.0: the version, the TOC's files in order, the new message types in Comm.lua's list", function()
-		eq(ns.VERSION, "1.6.4") -- the release has one identity in both folders
+		eq(ns.VERSION, "1.6.4.1") -- the release has one identity in both folders
 		local toc = assert(ReadFile(ADDON_DIR .. "Olympus.toc"))
-		assert(toc:find("## Version: 1.6.4", 1, true))
+		eq(toc:match("## Version:%s*(%S+)"), ns.VERSION)
 		eq(ns.Workshop.Newer("1.4.0", "1.3.3"), true, "the launch release is newer")
 		eq(ns.Workshop.Newer("1.3.3", "1.4.0"), false)
 		eq(ns.Workshop.Newer("1.4.1", "1.4.0"), true, "the next patch remains newer")
@@ -65388,7 +65384,7 @@ end)()
 			local saved = { version = ns.VERSION, letters = ns.Letters, read = ns.db.lettersRead, baseline = ns.db.lettersAutoVersion, sessions = ns.db.sessions, combat = rawget(_G, "InCombatLockdown"),
 				instance = IsInInstance, gamepad = ns.GamepadUI, member = ns.IsMember, log = ns.Log, print = ns.Print, chat = ns.db.addonChat,
 				template = TEMPLATES.PortraitFrameTemplate }
-			if version then ns.VERSION = version end -- reproduce a historical release without changing the running candidate
+			ns.VERSION = version or "1.6.4" -- generic letter tests use an archived release that has a letter; the quiet patch is tested explicitly
 			local w = { on = {}, after = {}, every = {}, printed = {} }
 			saved.fire = ns.Fire
 			local ok, err = pcall(function()
@@ -65440,8 +65436,8 @@ end)()
 		return n
 	end
 
-	test("1.4.0 version letters: release identity agrees across both TOCs and localized letters; reading the old release does not hide the new letter", function()
-		eq(ns.VERSION, "1.6.4")
+	test("1.6.4.1 release identity: the quiet patch agrees across both TOCs and retains the archived localized letters", function()
+		eq(ns.VERSION, "1.6.4.1")
 		for _, path in ipairs({ "Olympus/Olympus.toc", "Olympus_Arena/Olympus_Arena.toc" }) do
 			local toc = assert(ReadFile(ROOT .. path))
 			eq(toc:match("## Version:%s*(%S+)"), ns.VERSION, path)
@@ -65453,12 +65449,13 @@ end)()
 				local lns = setmetatable({ On = function() end }, { __index = ns })
 				assert(loadfile(ADDON_DIR .. "Locales.lua"))("Olympus", lns)
 				assert(loadfile(ADDON_DIR .. "Letters.lua"))("Olympus", lns)
-				local title, body = lns.Letters.Text(ns.VERSION)
-				local key = "LETTER_" .. ns.VERSION:gsub("%.", "_")
-				eq(title, lns.Letters.DrawMarks(rawget(lns.L, key .. "_TITLE")), code .. ": current localized letter title")
-				eq(body, lns.Letters.DrawMarks(rawget(lns.L, key)), code .. ": current localized letter body")
+				local title, body = lns.Letters.Text("1.6.4")
+				local key = "LETTER_1_6_4"
+				eq(title, lns.Letters.DrawMarks(rawget(lns.L, key .. "_TITLE")), code .. ": archived localized letter title")
+				eq(body, lns.Letters.DrawMarks(rawget(lns.L, key)), code .. ": archived localized letter body")
 				eq(body:find("1.1.6", 1, true), nil, code .. ": no old build label")
-				eq(lns.Letters.Versions()[1], ns.VERSION, code .. ": current letter first")
+				eq(lns.Letters.Versions()[1], "1.6.4", code .. ": archived latest letter remains first")
+				eq(lns.Letters.Has(ns.VERSION), false, code .. ": no maintenance letter")
 				assert(lns.Letters.Has("1.1.5"), code .. ": published letter retained")
 				assert(lns.Letters.Has("1.2.0"), code .. ": previous release letter retained")
 				assert(lns.Letters.Has("1.2.1"), code .. ": the published 1.2.1 letter retained")
@@ -65497,6 +65494,34 @@ end)()
 			eq(w.Letters.Frame().version, ns.VERSION)
 			eq(w.Letters.Frame().body:GetText(), select(2, w.Letters.Text(ns.VERSION)), "only the current letter")
 		end)
+	end)
+
+	test("1.6.4.1 version letters: maintenance upgrades schedule no letter or retry timers and keep manual history", function()
+		local release = ns.VERSION
+		eq(release, "1.6.4.1")
+		for _, pad in ipairs({ false, true }) do
+			for _, baseline in ipairs({ "1.6.3", "1.6.4" }) do
+				WithLetters(function(w)
+					GamepadStyle(pad)
+					ns.db.lettersAutoVersion = baseline
+					ns.db.lettersRead = { ["1.6.3"] = true }
+					ns.Consent.Show():Hide()
+					w.login(); w.tick()
+					eq(w.Letters.Has(release), false, "no new letter content")
+					eq(#w.after, 0, "no delayed notice")
+					eq(#w.every, 0, "no retry polling")
+					eq(w.Letters.Ask("update"), false)
+					eq(w.Letters.Holds(), false, "no pending maintenance letter")
+					eq(w.Letters.Frame(), nil, "nothing opened")
+					eq(ns.db.lettersAutoVersion, baseline, "no invented read baseline")
+					eq(ns.db.lettersRead[release], nil, "no letter falsely marked read")
+					eq(ns.db.lettersRead["1.6.4"], nil, "unread archive remains unread")
+					eq(ns.db.lettersRead["1.6.3"], true, "old read state preserved")
+					eq(w.Letters.Show("1.6.4"), true, "archive remains available manually")
+					eq(w.Letters.Frame().version, "1.6.4")
+				end, release)
+			end
+		end
 	end)
 
 	test("1.2.3 version letters: unread 1.2.2 comes before 1.2.3 on the update parchment, both are marked shown, but history remains individual", function()
@@ -65717,35 +65742,30 @@ end)()
 	end)
 
 	test("1.2.1 version letters: a genuine retained version upgrade shows once after privacy, then stays quiet across actual module reload", function()
-		local savedVersion, baseline, read = ns.VERSION
-		local ok, err = pcall(function()
-			ns.VERSION = "1.2.0"
-			WithLetters(function(w)
-				ns.db.sessions = 1; w.login()
-				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
-				eq(baseline, "1.2.0"); eq(w.Letters.IsRead("1.2.0"), false)
-			end)
-			ns.VERSION = savedVersion
-			WithLetters(function(w)
-				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
-				w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
-				ns.Consent.Show():Hide(); w.run()
-				eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, savedVersion)
-				-- (1.4.0, the launch: its letter shows alone, no catch-up; the history keeps the rest.)
-				eq(w.Letters.IsRead("1.3.3"), false, "the launch letter alone")
-				eq(w.Letters.IsRead("1.2.5.1"), false, "older history stays available without expanding the update popup")
-				eq(w.Letters.IsRead("1.2.0"), false)
-				eq(w.Letters.IsRead(savedVersion), true)
-				baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
-				w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
-			end)
-			WithLetters(function(w)
-				ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 3, baseline, read
-				w.login(); eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
-			end)
-		end)
-		ns.VERSION = savedVersion
-		if not ok then error(err, 0) end
+		-- This history scenario deliberately upgrades between two releases with letters.
+		-- The running maintenance release's silent path has its own regression above.
+		local withLetter, baseline, read = "1.6.4"
+		WithLetters(function(w)
+			ns.db.sessions = 1; w.login()
+			baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+			eq(baseline, "1.2.0"); eq(w.Letters.IsRead("1.2.0"), false)
+		end, "1.2.0")
+		WithLetters(function(w)
+			ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 2, baseline, read
+			w.login(); eq(w.after[1].sec, w.Letters.LOGIN_WAIT); eq(#w.every, 1)
+			ns.Consent.Show():Hide(); w.run()
+			eq(w.Letters.Frame():IsShown(), true); eq(w.Letters.Frame().version, withLetter)
+			eq(w.Letters.IsRead("1.3.3"), false, "the current letter alone")
+			eq(w.Letters.IsRead("1.2.5.1"), false, "older history stays available without expanding the update popup")
+			eq(w.Letters.IsRead("1.2.0"), false)
+			eq(w.Letters.IsRead(withLetter), true)
+			baseline, read = ns.db.lettersAutoVersion, ns.db.lettersRead
+			w.Letters.Hide(); w.tick(); eq(w.every[1].cancelled, true)
+		end, withLetter)
+		WithLetters(function(w)
+			ns.db.sessions, ns.db.lettersAutoVersion, ns.db.lettersRead = 3, baseline, read
+			w.login(); eq(#w.after, 0); eq(#w.every, 0); eq(w.Letters.Frame(), nil)
+		end, withLetter)
 	end)
 
 	test("1.2.1 version letters: a downgrade is not an update; malformed legacy baseline cannot break unread notification", function()
