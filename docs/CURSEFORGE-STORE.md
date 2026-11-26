@@ -29,7 +29,7 @@ master and the officers of the Horde guild named exactly "Olympus", if there is 
 
 ## Recent versions
 
-- **1.6.4**: Keeps the Chat tab visible with a clear approval or roster status while preserving shared-chat authorization; retries offline-notice filter installation after native API failure; defers Slayer congratulations during combat and instances; preserves recruitment opt-out after invite permission changes; rechecks current recruitment eligibility and known revocations before sending, with eight visible contacts per guild. Full-suite and installed-client acceptance remain separate release gates.
+- **1.6.4.1**: Small visual consistency update.
 - **1.6.3**: Personal Discord verification at the top of The Realm with a direct code popup and fresh native GUIDs; broader shared-tool participation checks; scoped signed federation decisions, appeals and revocation; charity mail/history review and Treasurer milestone publication. AU realm identity and repeated realm-link recovery fixes, plus the exact Akafoxslayer portrait and chat artwork. Real signing-key setup, installed-client acceptance and private Link/feed/QR activation remain separate.
 - **1.6.2**: Use existing High Council guild approvals for shared tools, Church conversion tracking and eligible voluntary contributions, with revocations invalidating queued witnesses. Restore Forever realm identity when native realm APIs return empty values, using the player GUID and observed native realm mappings. Reopen the existing ruleset store and its signed role lists. Pause unsolicited guild verification reminders while preserving manual status, approvals and original deadlines.
 
