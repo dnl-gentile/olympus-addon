@@ -2845,6 +2845,17 @@ local function BoxFrame(frame)
 	return nil
 end
 
+-- A trusted Olympus link's prepared text into the clicked game chat window. The caller validates
+-- the whole command; this helper does no sending and never presses Enter.
+function Channels.OpenLinkChat(text, frame) -- gp:chat-box
+	if not ns.Gate.Allowed("chat-links") or not ns.Gate.Allowed("chat-box") then return false end
+	if type(text) ~= "string" or text == "" then return false end
+	local open = ChatOpener()
+	if not open then return false end
+	ns.Gate.Used("chat-box")
+	return pcall(open, text, BoxFrame(frame)) == true -- gp:chat-box
+end
+
 -- A link clicked in the game's chat (after SetItemRef, the game's work done): ours alone, a left
 -- click without Shift. Returns true when it opened the chat box.
 function Channels.TagClick(link, text, button, frame) -- gp:chat-box
@@ -2854,18 +2865,23 @@ function Channels.TagClick(link, text, button, frame) -- gp:chat-box
 	local tier = link:sub(#TAG_LINK + 1)
 	if not TIERS[tier] or button ~= "LeftButton" or (IsShiftKeyDown and IsShiftKeyDown()) then return false end
 	if not Channels.CanWrite(tier, true) then return false end
-	local open = ChatOpener()
-	if not open then return false end
-	ns.Gate.Used("chat-box") -- (the gate's: told at a switch to the gamepad UI)
-	open(TIERS[tier].slash .. " ", BoxFrame(frame))
-	return true
+	return Channels.OpenLinkChat(TIERS[tier].slash .. " ", frame)
 end
 
 ns.Gate.Hooks("chat-links", { install = function() -- gp:chat-links!hook
 	if tagHooked or type(hooksecurefunc) ~= "function" then return end
 	tagHooked = pcall(hooksecurefunc, "SetItemRef", function(link, text, button, frame)
 		if not ns.Gate.Allowed("chat-links") then return end
+		if ns.Secret("chat link click", link, text, button) then return end
 		ns.SafeCall("chat tag link", Channels.TagClick, link, text, button, frame)
+		ns.SafeCall("recruit player link", function()
+			local R = ns.Recruit
+			local recruit = type(Codec.RecruitLinkName) == "function" and Codec.RecruitLinkName(link) or nil
+			if recruit
+				and type(R) == "table" and type(R.InviteLinkClick) == "function" then
+				R.InviteLinkClick(link, text, button, frame)
+			end
+		end)
 	end) == true
 end })
 ns.On("LOGIN", function() ns.Gate.Install("chat-links") end)

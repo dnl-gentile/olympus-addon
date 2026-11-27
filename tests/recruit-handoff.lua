@@ -104,6 +104,116 @@ local function Id(rows, id)
 	for _, row in ipairs(rows) do if row.id == id then return row end end
 end
 
+local function MoreButton(draft, label)
+	local list = draft.def.more and draft.def.more(draft, draft.data) or {}
+	for _, item in ipairs(list or {}) do if item.label == label then return item end end
+end
+
+-- The shared call-out is a deliberate action on the existing invite draft. Its public M1 line is
+-- built only from the still-current JOIN, while the linked name is self-contained at a recipient:
+-- clicking it needs no request, claim or handoff object and only prepares the exact command.
+test("recruit public call-out: deliberate JOIN popup action posts exact remote link; click prepares only", function()
+	WithHandoff(function(scene)
+		local C = assert(ns.Channels)
+		local saved = {
+			channelSend = C.Send, open = C.OpenLinkChat, shift = rawget(_G, "IsShiftKeyDown"),
+			combat = rawget(_G, "InCombatLockdown"), chatSend = rawget(_G, "SendChatMessage"),
+			guild = rawget(_G, "GuildInvite"), info = rawget(_G, "C_GuildInfo"), split = ns.splitNames,
+		}
+		local opened, posts, sent, invited = {}, {}, 0, 0
+		C.Send = function(tier, line)
+			posts[#posts + 1] = { tier = tier, line = line }
+			return true
+		end
+		C.OpenLinkChat = function(command, frame)
+			opened[#opened + 1] = { command = command, frame = frame }
+			return true
+		end
+		IsShiftKeyDown = function() return scene.shift == true end
+		InCombatLockdown = function() return scene.combat == true end
+		SendChatMessage = function() sent = sent + 1 end
+		GuildInvite = function() invited = invited + 1 end
+		C_GuildInfo = { Invite = function() invited = invited + 1 end }
+		local ok, err = pcall(function()
+			local D = Dialogs()
+			ns.Dialog = D
+			local frame = { editBox = {} }
+			R.OnWhisper("JOIN", "New Recruit-" .. home)
+			local req = assert(R.requests[1])
+			local draft = assert(D.Find(DRAFT), "the validated JOIN's invite draft")
+			local call = assert(MoreButton(draft, ns.L.RECRUIT_CALLOUT_BUTTON), "a deliberate /ol action")
+			eq(#posts, 0, "showing the popup posts nothing")
+			local beforePrints, beforePackets = #scene.printed, #scene.packets
+			call.onClick(draft, draft.data)
+			eq(#posts, 1); eq(posts[1].tier, "A")
+			local line = posts[1].line
+			local shown = assert(ns.Codec.RecruitLink("New Recruit"))
+			local expected = ns.L.RECRUIT_CALLOUT_TEXT:format(shown)
+			eq(line, expected, "the public line is the localized exact recruit link")
+			local link, label = line:match("|H([^|]+)|h(%[[^%]]+%])|h")
+			assert(link and label == "[New Recruit]", "the exact command name is the public link: " .. tostring(line))
+			eq(req.invitePrepared, nil, "the call-out creates no reservation")
+			eq(H.State(req), nil, "the call-out creates no claim state")
+			eq(#scene.packets, beforePackets, "the call-out sends no handoff/claim packet")
+			eq(#scene.printed, beforePrints, "no separate claim notification")
+			eq(sent, 0); eq(invited, 0)
+
+			-- Revalidation is at the button boundary: stale or altered requests cannot post.
+			req.guild = "Another Guild"
+			call.onClick(draft, draft.data)
+			eq(#posts, 1, "a request no longer for this guild is inert")
+			req.guild = own
+
+			-- A recipient has no sender-side request. The remote-safe link still prepares only chat.
+			table.remove(R.requests, 1)
+			eq(R.InviteLinkClick(link, shown, "LeftButton", frame), true)
+			eq(opened[1].command, "/ginvite New Recruit")
+			eq(opened[1].frame, frame, "the clicked game chat frame is used")
+			eq(#posts, 1, "the click sends no /ol line")
+			eq(#scene.packets, beforePackets, "the click sends no addon packet or claim notice")
+			eq(sent, 0, "the link sends no chat")
+			eq(invited, 0, "the link invokes no guild-invite API")
+
+			-- A remote supported realm-qualified name stays identical in label, payload and command.
+			ns.splitNames = false
+			local realm = assert(ns.Codec.RecruitLink("Realm Recruit-OtherRealm"))
+			local realmLink = assert(realm:match("|H([^|]+)|h"))
+			eq(R.InviteLinkClick(realmLink, realm, "LeftButton", frame), true)
+			eq(opened[2].command, "/ginvite Realm Recruit-OtherRealm")
+
+			-- Only the exact Olympus shape and reconstructed label can act.
+			for _, forged in ipairs({
+				{ "addon:Olympus:recruit:New Recruit", shown },
+				{ "addon:Olympus:recruit:not_base64!", shown },
+				{ link, shown:gsub("%[New Recruit%]", "[Other Recruit]") },
+				{ "player:New Recruit", shown },
+				{ "addon:Other:recruit:" .. link, shown },
+			}) do
+				eq(R.InviteLinkClick(forged[1], forged[2], "LeftButton", frame), false, "forged/malformed payload")
+			end
+			eq(#opened, 2)
+			eq(ns.Codec.RecruitLink("Bad|Name-OtherRealm"), nil, "an unsafe name never reaches presentation")
+
+			eq(R.InviteLinkClick(link, shown, "RightButton", frame), false, "right-click")
+			scene.shift = true
+			eq(R.InviteLinkClick(link, shown, "LeftButton", frame), false, "Shift-click")
+			scene.shift = false
+			scene.combat = true
+			eq(R.InviteLinkClick(link, shown, "LeftButton", frame), false, "combat")
+			scene.combat = false
+			scene.locked = true
+			eq(R.InviteLinkClick(link, shown, "LeftButton", frame), false, "chat lockdown")
+			scene.locked = false
+			C.OpenLinkChat = function() return false end
+			eq(R.InviteLinkClick(link, shown, "LeftButton", frame), false, "chat-box gate")
+			eq(#opened, 2); eq(sent, 0); eq(invited, 0)
+		end)
+		C.Send, C.OpenLinkChat = saved.channelSend, saved.open
+		IsShiftKeyDown, InCombatLockdown, SendChatMessage = saved.shift, saved.combat, saved.chatSend
+		GuildInvite, C_GuildInfo, ns.splitNames = saved.guild, saved.info, saved.split
+		if not ok then error(err, 0) end
+	end)
+end)
 test("recruit handoff: opt-in applicant intent and one trusted claimant gate sharing and acknowledgement", function()
 	WithHandoff(function(scene)
 		R.OnWhisper("JOIN", "Own Recruit-" .. home)
@@ -548,6 +658,44 @@ end
 
 -- 1.5.8 (the author's: "parada de unguilded players se vc n puder chamar na hora quem vc viu pode
 -- repassar pra outro player convidar tbm").
+-- A scan call-out uses the same deliberate popup action, but its live/WHO evidence is checked again
+-- at the click. The existing popup actions remain alongside it.
+test("recruit public call-out: scanned candidate is revalidated and existing draft actions remain", function()
+	WithHandoff(function(scene)
+		local D, C = Dialogs(), assert(ns.Channels)
+		ns.Dialog = D
+		local sent, savedSend = {}, C.Send
+		C.Send = function(tier, line)
+			sent[#sent + 1] = { tier = tier, line = line }
+			return true
+		end
+		local ok, err = pcall(function()
+			local tick = ScanOne(scene, "Lone Wolf-" .. home)
+			tick()
+			local draft = assert(D.Find(DRAFT), "the scan's invite draft")
+			local row = assert(draft.data.candidate)
+			eq(draft.def.extra.label, ns.L.RECRUIT_WHISPER_INVITE_CHAT, "Open game chat remains")
+			-- RecruitHandoffText loads after Recruit in this harness, so the popup captured the
+			-- locale key before that companion file supplied its English fallback.
+			eq(draft.def.button2, "RECRUIT_HANDOFF_PASS", "Pass remains")
+			eq(draft.def.button3, ns.L.RECRUIT_CANDIDATE_WHISPER_FIRST, "Whisper first remains")
+			assert(MoreButton(draft, ns.L.RECRUIT_PAUSE_BUTTON), "Pause remains")
+			assert(MoreButton(draft, ns.L.RECRUIT_TURN_OFF_BUTTON), "Turn off remains")
+			local call = assert(MoreButton(draft, ns.L.RECRUIT_CALLOUT_BUTTON))
+			local beforePackets = #scene.packets
+			call.onClick(draft, draft.data)
+			eq(#sent, 1); eq(sent[1].tier, "A")
+			eq(sent[1].line, ns.L.RECRUIT_CALLOUT_TEXT:format(assert(ns.Codec.RecruitLink("Lone Wolf"))))
+			eq(row.invitePrepared, nil); eq(H.State(row), nil)
+			eq(#scene.packets, beforePackets, "no handoff/claim traffic")
+			scene.locked = true
+			call.onClick(draft, draft.data)
+			eq(#sent, 1, "a candidate no longer current at the click cannot be posted")
+		end)
+		C.Send = savedSend
+		if not ok then error(err, 0) end
+	end)
+end)
 test("recruit handoff (1.5.8): a scanned unguilded player is passed from his popup and goes out only after a claim", function()
 	WithHandoff(function(scene)
 		local D = Dialogs()
@@ -3504,11 +3652,13 @@ local function NamedLater()
 	return named
 end
 
-test("recruit pause (1.6.0): every recruiting popup that opens by itself has Pause recruiting and Turn off recruiting, its Turn off naming its own switch; none on one a click opened", function()
+test("recruit pause (1.6.0): every automatic recruiting popup keeps Pause and Turn off; invite drafts also keep their call-out", function()
 	WithHandoff(function(scene)
 		local L, D = ns.L, Dialogs()
 		ns.Dialog = D
 		local both = L.RECRUIT_PAUSE_BUTTON .. " | " .. L.RECRUIT_TURN_OFF_BUTTON
+		local callout = L.RECRUIT_CALLOUT_BUTTON
+		local automaticDraft = both .. " | " .. callout
 		local function OnlyOf(f)
 			Choose(f, L.RECRUIT_TURN_OFF_BUTTON)
 			local q = assert(D.Find(TURN_OFF), "Turn off asks first")
@@ -3520,14 +3670,14 @@ test("recruit pause (1.6.0): every recruiting popup that opens by itself has Pau
 		R.OnWhisper("JOIN", applicant)
 		local draft = assert(D.Find(DRAFT), "a JOIN's invite pop-up")
 		eq(draft.data.automatic, true)
-		eq(Labels(Row(draft)), both)
+		eq(Labels(Row(draft)), automaticDraft)
 		eq(OnlyOf(draft), L.RECRUIT_OFF_ONLY_JOINS .. " | " .. L.RECRUIT_OFF_ONLY_ALL)
 		draft:Hide()
-		-- The same JOIN's command opened by a click (Prepare invite in Church > Invites): neither.
+		-- The same JOIN's command opened by a click keeps only the deliberate public call-out.
 		eq(R.Accept(R.requests[1]), true)
 		local clicked = assert(D.Find(DRAFT))
 		eq(clicked.data.automatic, nil)
-		eq(Row(clicked), nil, "none on a popup a click opened")
+		eq(Labels(Row(clicked)), callout)
 		clicked:Hide()
 		-- A handoff's Claim.
 		eq(H.Toggle(), true)
@@ -3541,7 +3691,7 @@ test("recruit pause (1.6.0): every recruiting popup that opens by itself has Pau
 		tick()
 		local scan = assert(D.Find(DRAFT), "the scan's pop-up")
 		assert(scan.data.candidate and scan.data.automatic)
-		eq(Labels(Row(scan)), both)
+		eq(Labels(Row(scan)), automaticDraft)
 		eq(OnlyOf(scan), L.RECRUIT_OFF_ONLY_SCAN .. " | " .. L.RECRUIT_OFF_ONLY_ALL)
 		scan:Hide()
 		-- A reply to review (it opens by itself alone), and the moderation warning in an invite's place:

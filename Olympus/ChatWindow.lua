@@ -698,10 +698,23 @@ end
 -- 1.5.4 (the dev: items "clicável, com hover que aparece os detalhes do item"): a left click on an
 -- item, spell, enchant, quest or trade link in a line opens the game's link window, as a click in the
 -- game's chat does (ChatFrame's OnHyperlinkClick calls SetItemRef, which shows ItemRefTooltip).
--- The target is checked again at this native boundary; never for malformed data or another link
--- type (a player link would open the game's chat box), and never with the gamepad UI (a game panel
--- from Olympus there): the hover tooltip stays, the click does nothing.
-function ChatWindow.LinkClick(link, text, button) -- gp:item-ref
+-- A public recruit call-out delegates only Codec's exact link to Recruit, which revalidates its
+-- payload and label before preparing chat. Every target is checked again at this boundary; never
+-- for malformed data or another link type (a player link would open the game's chat box), and never
+-- with the gamepad UI (a game panel from Olympus there): the hover tooltip stays, the click does nothing.
+function ChatWindow.LinkClick(link, text, button) -- gp:item-ref,chat-links
+	if ns.Secret("chat tab link", link, text, button) then return false end
+	local recruit
+	local decoded = ns.SafeCall("chat tab recruit link", function()
+		recruit = type(ns.Codec.RecruitLinkName) == "function" and ns.Codec.RecruitLinkName(link) or nil
+	end)
+	if not decoded then return false end
+	if recruit then
+		if not ns.Gate.Allowed("chat-links") then return false end
+		local R = ns.Recruit
+		return type(R) == "table" and type(R.InviteLinkClick) == "function"
+			and R.InviteLinkClick(link, text, button) == true or false
+	end
 	if not ns.Gate.Allowed("item-ref") then return false end
 	if not SafeLinkKind(link) or button ~= "LeftButton" then return false end
 	if type(SetItemRef) ~= "function" then return false end
@@ -791,12 +804,22 @@ local function NewBubble(pane)
 	b.replyWho:SetJustifyH("LEFT"); b.replyWho:SetTextColor(1, 0.82, 0); b.replyWho:Hide()
 	b.replyText = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	b.replyText:SetJustifyH("LEFT"); b.replyText:SetWordWrap(true); b.replyText:SetTextColor(0.65, 0.65, 0.68); b.replyText:Hide()
-	-- Its links: a tooltip on hover, into our own box with Shift, the game's link window on a left
-	-- click (1.5.4, LinkClick: with mouse and keyboard alone).
+	-- Its native links: a tooltip on hover, into our own box with Shift, the game's link window on a
+	-- left click (1.5.4). Recruit call-outs always delegate first, so their Shift-click stays inert.
 	if b.SetHyperlinksEnabled then b:SetHyperlinksEnabled(true) end
 	b:SetScript("OnHyperlinkEnter", function(self, link) ns.SafeCall("chat tab link", LinkTip, self, link) end)
 	b:SetScript("OnHyperlinkLeave", function(self) Untip(self) end)
 	b:SetScript("OnHyperlinkClick", function(_, link, text, button)
+		if ns.Secret("chat tab link", link, text, button) then return end
+		local recruit
+		local decoded = ns.SafeCall("chat tab recruit link", function()
+			recruit = type(ns.Codec.RecruitLinkName) == "function" and ns.Codec.RecruitLinkName(link) or nil
+		end)
+		if not decoded then return end
+		if recruit then
+			ns.SafeCall("chat tab recruit link", ChatWindow.LinkClick, link, text, button)
+			return
+		end
 		if IsShiftKeyDown and IsShiftKeyDown() then
 			if pane and pane.input then pane.input:Insert(text) else ns.SafeCall("chat tab link", InsertLink, text) end
 			return
